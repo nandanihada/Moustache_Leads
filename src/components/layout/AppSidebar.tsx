@@ -7,7 +7,8 @@ import {
   Users, 
   CreditCard, 
   Settings,
-  LogOut
+  LogOut,
+  Zap
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import {
@@ -30,7 +31,10 @@ const menuItems = [
   { title: "Reports", url: "/reports", icon: BarChart3 },
   { title: "Users", url: "/users", icon: Users },
   { title: "Payments", url: "/payments", icon: CreditCard },
+  { title: "Campaign Builder", url: "/campaign-builder", icon: Zap },
   { title: "Settings", url: "/settings", icon: Settings },
+  // ✅ Added new Campaign Builder menu item
+  
 ];
 
 export function AppSidebar() {
