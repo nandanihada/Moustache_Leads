@@ -3,7 +3,6 @@ import {
   Zap,
   CheckCircle,
   XCircle,
-  ShieldCheck,
   Smartphone,
   Monitor,
   Video,
@@ -39,7 +38,7 @@ const FormatCard: React.FC<{
   <button
     type="button"
     onClick={onClick}
-    className={`flex flex-col items-start gap-1.5 p-3 rounded-md border transition-shadow duration-200 text-left hover:shadow focus:outline-none text-xs  ${
+    className={`flex flex-col items-start gap-1.5 p-3 rounded-md border transition-shadow duration-200 text-left hover:shadow focus:outline-none text-xs 	${
       selected ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
     }`}
   >
@@ -175,25 +174,30 @@ const CampaignBuilder: React.FC = () => {
   const [nativeHeadline, setNativeHeadline] = useState("");
   const [headlineText, setHeadlineText] = useState(""); // NEW ad copy
 
+  // --- FULL LIST OF WORLD COUNTRIES IMPLEMENTED HERE ---
   const countryList = [
-    "Central African Republic",
-    "Chad",
-    "Chile",
-    "China",
-    "Colombia",
-    "Comoros",
-    "Croatia",
-    "Cuba",
-    "Cyprus",
-    "Czech Republic",
-    "Denmark",
-    "Dominica",
-    "Dominican Republic",
-    "Ecuador",
-    "Egypt",
-    "El Salvador",
-    "Equatorial Guinea",
+    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria",
+    "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
+    "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia",
+    "Cameroon", "Canada", "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros", "Congo (Brazzaville)", "Congo (Kinshasa)",
+    "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czech Republic", "Denmark", "Djibouti", "Dominica", "Dominican Republic", "Ecuador",
+    "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France",
+    "Gabon", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea", "Guinea-Bissau",
+    "Guyana", "Haiti", "Honduras", "Hungary", "Iceland", "India", "Indonesia", "Iran", "Iraq", "Ireland",
+    "Israel", "Italy", "Jamaica", "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan",
+    "Laos", "Latvia", "Lebanon", "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg", "Madagascar",
+    "Malawi", "Malaysia", "Maldives", "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia",
+    "Moldova", "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru", "Nepal",
+    "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria", "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan",
+    "Palau", "Panama", "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
+    "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe", "Saudi Arabia",
+    "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa",
+    "South Korea", "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland", "Syria", "Taiwan",
+    "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo", "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan",
+    "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City",
+    "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
   ];
+  // --- END OF FULL LIST ---
 
   const handleAddTarget = () => {
     const trimmed = newTarget.trim();
@@ -526,7 +530,7 @@ const CampaignBuilder: React.FC = () => {
                   <button type="button" onClick={handleAddCity} className="px-3 py-1 rounded-md bg-indigo-600 text-white text-xs">Add</button>
                 </div>
                 <div className="flex flex-wrap">
-                  {cities.map((c) => (<button key={c} type="button" onClick={() => removeCity(c)} className="mr-1 mb-1 px-2 py-0.5 bg-gray-100 rounded text-xs">{c} ×</button>))}
+                  {cities.map((c) => (<button key={c} type="button" onClick={() => removeCity(c)} className="mr-1 mb-1 px-2 py-0.5 bg-gray-100 rounded text-xs">{c} &times;</button>))}
                 </div>
               </div>
 
@@ -571,12 +575,12 @@ const CampaignBuilder: React.FC = () => {
             </div>
 
             <div className="mt-3 flex gap-2">
-              <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 text-white text-xs font-medium">Deploy Campaign</button>
-              <button type="button" onClick={() => console.log("Save draft") } className="px-3 py-2 rounded-md border text-xs">Save Draft</button>
+              <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition">Deploy Campaign</button>
+              <button type="button" onClick={() => console.log("Save draft") } className="px-3 py-2 rounded-md border text-xs hover:bg-gray-50 transition">Save Draft</button>
             </div>
           </div>
 
-          <aside className="bg-white p-4 rounded-md shadow-sm">
+          <aside className="bg-white p-4 rounded-md shadow-sm h-fit sticky top-4">
             <AdPreview adFormat={adFormat} campaignName={campaignName} cta={ctaButton || "Learn More"} previewSrc={uploadedPreviews[0] || null} />
 
             <div className="mt-3 text-xs text-gray-600 space-y-1">
