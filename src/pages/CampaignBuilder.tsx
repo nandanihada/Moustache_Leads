@@ -24,21 +24,15 @@ const selectClasses = `${inputClasses} appearance-none`;
 const fileInputClasses =
   "w-full text-xs text-gray-600 file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer";
 
-const SectionTitle: React.FC<{ title: string }> = ({ title }) => (
+const SectionTitle = ({ title }) => (
   <h3 className="text-sm md:text-sm font-semibold text-gray-800 mb-2">{title}</h3>
 );
 
-const FormatCard: React.FC<{
-  name: string;
-  selected: boolean;
-  onClick: () => void;
-  desc?: string;
-  Icon: React.ComponentType<any>;
-}> = ({ name, selected, onClick, desc, Icon }) => (
+const FormatCard = ({ name, selected, onClick, desc, Icon }) => (
   <button
     type="button"
     onClick={onClick}
-    className={`flex flex-col items-start gap-1.5 p-3 rounded-md border transition-shadow duration-200 text-left hover:shadow focus:outline-none text-xs 	${
+    className={`flex flex-col items-start gap-1.5 p-3 rounded-md border transition-shadow duration-200 text-left hover:shadow focus:outline-none text-xs ${
       selected ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
     }`}
   >
@@ -55,7 +49,7 @@ const FormatCard: React.FC<{
   </button>
 );
 
-const PlatformCard: React.FC<{ name: string; selected: boolean; onClick: () => void; Icon: React.ComponentType<any> }> = ({ name, selected, onClick, Icon }) => (
+const PlatformCard = ({ name, selected, onClick, Icon }) => (
   <button
     type="button"
     onClick={onClick}
@@ -68,16 +62,16 @@ const PlatformCard: React.FC<{ name: string; selected: boolean; onClick: () => v
   </button>
 );
 
-const Pill: React.FC<{ id: string; onRemove: (id: string) => void }> = ({ id, onRemove }) => (
-  <span className="inline-flex items-center bg-gray-100 text-gray-800 text-xs font-medium px-2.5 py-0.5 rounded-full mr-1.5 mb-1.5 border border-gray-200">
+const Pill = ({ id, onRemove }) => (
+  <span className="inline-flex items-center bg-indigo-50 text-indigo-700 text-xs font-medium px-2.5 py-0.5 rounded-full mr-1.5 mb-1.5 border border-indigo-200">
     {id}
-    <button type="button" onClick={() => onRemove(id)} className="ml-1 text-gray-500 hover:text-gray-800">
+    <button type="button" onClick={() => onRemove(id)} className="ml-1 text-indigo-500 hover:text-indigo-800">
       <XCircle className="w-3.5 h-3.5" />
     </button>
   </span>
 );
 
-const AdPreview: React.FC<{ adFormat: string; campaignName: string; cta?: string; previewSrc?: string | null }> = ({ adFormat, campaignName, cta, previewSrc }) => {
+const AdPreview = ({ adFormat, campaignName, cta, previewSrc }) => {
   const badge = useMemo(() => {
     switch (adFormat) {
       case "Video":
@@ -85,9 +79,8 @@ const AdPreview: React.FC<{ adFormat: string; campaignName: string; cta?: string
       case "Push":
         return "Push Preview";
       case "Native":
-        return "Native";
       case "Interstitial":
-        return "Interstitial";
+        return adFormat;
       default:
         return "Banner";
     }
@@ -97,9 +90,10 @@ const AdPreview: React.FC<{ adFormat: string; campaignName: string; cta?: string
     <div className="w-full h-40 bg-gradient-to-r from-gray-50 to-white border border-gray-200 rounded-md p-3 flex items-center gap-3 overflow-hidden text-xs">
       <div className="w-1/3 h-full flex items-center justify-center">
         {previewSrc ? (
-          <img src={previewSrc} alt="preview" className="max-h-28 object-contain rounded" />
+          // Using a placeholder image for better visual consistency when assets are "uploaded"
+          <img src="https://placehold.co/120x80/2563EB/ffffff?text=Creative" alt="preview" className="max-h-28 object-contain rounded shadow-lg" />
         ) : (
-          <div className="w-28 h-20 rounded bg-gray-100 flex items-center justify-center text-[10px] text-gray-500">No asset</div>
+          <div className="w-28 h-20 rounded-md bg-gray-100 flex items-center justify-center text-[10px] text-gray-500 border border-dashed border-gray-300">No asset</div>
         )}
       </div>
       <div className="flex-1 h-full flex flex-col justify-between py-0.5">
@@ -117,13 +111,12 @@ const AdPreview: React.FC<{ adFormat: string; campaignName: string; cta?: string
   );
 };
 
-const CampaignBuilder: React.FC = () => {
+const CampaignBuilder = () => {
   const [campaignName, setCampaignName] = useState("");
   const [campaignDesc, setCampaignDesc] = useState("");
   const [redirectUrl, setRedirectUrl] = useState("");
   const [campaignType, setCampaignType] = useState("");
 
-  // NEW fields
   const [campaignObjective, setCampaignObjective] = useState("");
   const [advertiserName, setAdvertiserName] = useState("");
   const [language, setLanguage] = useState("");
@@ -134,24 +127,21 @@ const CampaignBuilder: React.FC = () => {
   const [pricingModel, setPricingModel] = useState("");
   const [priceAdjust, setPriceAdjust] = useState<number | string>(0.0);
   const [maxPrice, setMaxPrice] = useState<number | string>(0.0);
-  // NEW budget fields
   const [dailyBudget, setDailyBudget] = useState<number | string>(0);
   const [totalBudget, setTotalBudget] = useState<number | string>(0);
   const [bidType, setBidType] = useState("");
 
   const [adType, setAdType] = useState("Image Ad");
   const [adFormat, setAdFormat] = useState("Banner");
-  const [bannerLayout, setBannerLayout] = useState("");
-  const [bannerSize, setBannerSize] = useState("");
   const [ctaButton, setCtaButton] = useState("");
-  // multiple uploads
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [uploadedPreviews, setUploadedPreviews] = useState<string[]>([]);
+  const [headlineText, setHeadlineText] = useState("");
 
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [countries, setCountries] = useState<string[]>([]);
+  const [countrySearch, setCountrySearch] = useState(""); // New state for country search
 
-  // NEW targeting: age, gender, cities, device types
   const [ageMin, setAgeMin] = useState<number | string>(18);
   const [ageMax, setAgeMax] = useState<number | string>(45);
   const [gender, setGender] = useState("");
@@ -161,8 +151,6 @@ const CampaignBuilder: React.FC = () => {
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-
-  // NEW scheduling fields
   const [timeZone, setTimeZone] = useState("UTC");
   const [serveStartHour, setServeStartHour] = useState("00:00");
   const [serveEndHour, setServeEndHour] = useState("23:59");
@@ -172,9 +160,12 @@ const CampaignBuilder: React.FC = () => {
   const [videoDuration, setVideoDuration] = useState<number | string>(15);
   const [pushTitle, setPushTitle] = useState("");
   const [nativeHeadline, setNativeHeadline] = useState("");
-  const [headlineText, setHeadlineText] = useState(""); // NEW ad copy
+  
+  // Static lists for simplicity
+  const bannerLayout = "Standard";
+  const bannerSize = "300x250";
 
-  // --- FULL LIST OF WORLD COUNTRIES IMPLEMENTED HERE ---
+  // --- FULL LIST OF WORLD COUNTRIES ---
   const countryList = [
     "Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria",
     "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
@@ -223,7 +214,9 @@ const CampaignBuilder: React.FC = () => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
     setUploadedFiles((prev) => [...prev, ...files]);
-    const newPreviews = files.map((f) => URL.createObjectURL(f));
+    // NOTE: In a real app, you wouldn't use createObjectURL for long-term storage, 
+    // but it works for client-side preview.
+    const newPreviews = files.map((f) => URL.createObjectURL(f)); 
     setUploadedPreviews((prev) => [...prev, ...newPreviews]);
   };
 
@@ -300,12 +293,20 @@ const CampaignBuilder: React.FC = () => {
     setSubmissionMessage({ type: "success", text: "Campaign submitted successfully! Check the console for the payload." });
     setTimeout(() => setSubmissionMessage(null), 6000);
   };
+  
+  // Filter countries based on search input
+  const filteredCountries = useMemo(() => {
+    const searchLower = countrySearch.toLowerCase();
+    return countryList.filter(country =>
+        country.toLowerCase().includes(searchLower)
+    );
+  }, [countrySearch]);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white p-4 sm:p-6 font-sans text-xs">
       <div className="max-w-6xl mx-auto">
         <header className="mb-4 flex items-center gap-3">
-          <div className="p-2 rounded-md bg-white shadow">
+          <div className="p-2 rounded-xl bg-white shadow-lg">
             <Zap className="w-5 h-5 text-indigo-600" />
           </div>
           <div>
@@ -324,12 +325,14 @@ const CampaignBuilder: React.FC = () => {
         )}
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 bg-white p-4 rounded-md shadow-sm">
-            <SectionTitle title="Basic" />
+          <div className="lg:col-span-2 bg-white p-4 rounded-xl shadow-lg space-y-4">
+            
+            {/* --- BASIC --- */}
+            <SectionTitle title="Basic Information" />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
-                <label className={smallLabel}>Campaign Name</label>
-                <input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} className={inputClasses} placeholder="Summer Promo #1" />
+                <label className={smallLabel}>Campaign Name *</label>
+                <input required value={campaignName} onChange={(e) => setCampaignName(e.target.value)} className={inputClasses} placeholder="Summer Promo #1" />
               </div>
 
               <div>
@@ -338,8 +341,8 @@ const CampaignBuilder: React.FC = () => {
               </div>
 
               <div>
-                <label className={smallLabel}>Redirect URL</label>
-                <input value={redirectUrl} onChange={(e) => setRedirectUrl(e.target.value)} className={inputClasses} placeholder="https://example.com/offer" />
+                <label className={smallLabel}>Redirect URL *</label>
+                <input required value={redirectUrl} onChange={(e) => setRedirectUrl(e.target.value)} className={inputClasses} placeholder="https://example.com/offer" />
               </div>
 
               <div>
@@ -354,12 +357,12 @@ const CampaignBuilder: React.FC = () => {
 
               <div className="md:col-span-2">
                 <label className={smallLabel}>Description</label>
-                <textarea value={campaignDesc} onChange={(e) => setCampaignDesc(e.target.value)} className={`${inputClasses} h-20`} placeholder="Short description shown in native placements" />
+                <textarea value={campaignDesc} onChange={(e) => setCampaignDesc(e.target.value)} className={`${inputClasses} h-20`} placeholder="Short description shown in native placements (optional)" />
               </div>
 
               <div>
-                <label className={smallLabel}>Campaign Type</label>
-                <select value={campaignType} onChange={(e) => setCampaignType(e.target.value)} className={selectClasses}>
+                <label className={smallLabel}>Campaign Type *</label>
+                <select required value={campaignType} onChange={(e) => setCampaignType(e.target.value)} className={selectClasses}>
                   <option value="">Select campaign type</option>
                   <option value="CPC">CPC</option>
                   <option value="CPA">CPA</option>
@@ -378,13 +381,15 @@ const CampaignBuilder: React.FC = () => {
               </div>
             </div>
 
-            <SectionTitle title="Target IDs" />
+            {/* --- TARGET IDS --- */}
+            <SectionTitle title="Target IDs (Key/Value)" />
             <div className="flex gap-2 mb-2">
               <input value={newTarget} onChange={(e) => setNewTarget(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault() || handleAddTarget())} className={`${inputClasses} flex-1`} placeholder="Add target ID (press Enter)" />
-              <button type="button" onClick={handleAddTarget} className="px-3 py-1 rounded-md bg-indigo-600 text-white text-xs">Add</button>
+              <button type="button" onClick={handleAddTarget} className="px-3 py-1 rounded-md bg-indigo-600 text-white text-xs hover:bg-indigo-700">Add</button>
             </div>
-            <div className="flex flex-wrap mb-2">{targetIds.map((t) => (<Pill key={t} id={t} onRemove={handleRemoveTarget} />))}</div>
+            <div className="flex flex-wrap mb-2 min-h-[1.5rem]">{targetIds.map((t) => (<Pill key={t} id={t} onRemove={handleRemoveTarget} />))}</div>
 
+            {/* --- PRICING & BUDGET --- */}
             <SectionTitle title="Pricing & Budget" />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
@@ -398,13 +403,13 @@ const CampaignBuilder: React.FC = () => {
               </div>
 
               <div>
-                <label className={smallLabel}>Price Adjust</label>
+                <label className={smallLabel}>Price Adjust ($)</label>
                 <input type="number" step="0.01" value={priceAdjust} onChange={(e) => setPriceAdjust(e.target.value)} className={inputClasses} placeholder="0.00" />
               </div>
 
               <div>
-                <label className={smallLabel}>Max Price ($)</label>
-                <input type="number" step="0.01" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className={inputClasses} placeholder="0.50" />
+                <label className={smallLabel}>Max Price ($) *</label>
+                <input required type="number" step="0.01" value={maxPrice} onChange={(e) => setMaxPrice(e.target.value)} className={inputClasses} placeholder="0.50" />
               </div>
 
               <div>
@@ -427,6 +432,7 @@ const CampaignBuilder: React.FC = () => {
               </div>
             </div>
 
+            {/* --- MEDIA & CREATIVE --- */}
             <SectionTitle title="Media & Creative" />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-start">
               <div>
@@ -475,15 +481,18 @@ const CampaignBuilder: React.FC = () => {
                 <div className="flex gap-2 mt-2 flex-wrap">
                   {uploadedPreviews.map((src, i) => (
                     <div key={i} className="relative">
-                      <img src={src} alt={`preview-${i}`} className="w-20 h-12 object-cover rounded border" />
-                      <button type="button" onClick={() => removeUploadedFile(i)} className="absolute -top-2 -right-2 bg-white rounded-full border text-xs px-1">x</button>
+                      {/* Using placeholder image URL for display */}
+                      <img src={"https://placehold.co/80x48/1F2937/ffffff?text=Asset"} alt={`preview-${i}`} className="w-20 h-12 object-cover rounded border" />
+                      <button type="button" onClick={() => removeUploadedFile(i)} className="absolute -top-2 -right-2 w-5 h-5 bg-white rounded-full border border-gray-300 text-xs font-semibold hover:bg-gray-100 transition">x</button>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
 
+            {/* --- TARGETING --- */}
             <SectionTitle title="Targeting" />
+            
             <div className="mb-2">
               <div className="text-[11px] font-medium text-gray-700 mb-1">Platforms</div>
               <div className="grid grid-cols-3 gap-2">
@@ -494,16 +503,47 @@ const CampaignBuilder: React.FC = () => {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {/* === UPDATED COUNTRY SELECTION SECTION === */}
               <div>
                 <label className={smallLabel}>Target Countries</label>
-                <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto p-2 border border-gray-100 rounded text-xs">
-                  {countryList.map((country) => (
-                    <button key={country} type="button" onClick={() => toggleCountry(country)} className={`px-2 py-0.5 rounded text-xs ${countries.includes(country) ? "bg-indigo-600 text-white" : "bg-white text-gray-700 border border-gray-200"}`}>
+                {/* 1. Display selected countries as pills */}
+                <div className="flex flex-wrap mb-2 min-h-[1.5rem] p-1 border border-gray-200 bg-gray-50 rounded-md">
+                    {countries.length === 0 && <span className="text-[10px] text-gray-400 p-1">No countries selected.</span>}
+                    {countries.map((country) => (
+                        <Pill key={country} id={country} onRemove={toggleCountry} />
+                    ))}
+                </div>
+                
+                {/* 2. Country Search Input */}
+                <input
+                    value={countrySearch}
+                    onChange={(e) => setCountrySearch(e.target.value)}
+                    className={inputClasses}
+                    placeholder="Search for a country..."
+                />
+
+                {/* 3. Filtered Country List for Selection */}
+                <div className="flex flex-wrap gap-1 max-h-36 overflow-y-auto p-2 border border-gray-100 rounded text-xs mt-2 bg-white">
+                  {filteredCountries.map((country) => (
+                    <button
+                      key={country}
+                      type="button"
+                      onClick={() => toggleCountry(country)}
+                      className={`px-2 py-0.5 rounded text-xs transition-colors shadow-sm ${
+                        countries.includes(country)
+                          ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                          : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-100"
+                      }`}
+                    >
                       {country}
                     </button>
                   ))}
+                  {filteredCountries.length === 0 && (
+                      <div className="text-gray-400 text-xs w-full text-center py-2">No countries found matching "{countrySearch}"</div>
+                  )}
                 </div>
               </div>
+              {/* === END UPDATED COUNTRY SELECTION SECTION === */}
 
               <div>
                 <label className={smallLabel}>Age Range</label>
@@ -526,24 +566,26 @@ const CampaignBuilder: React.FC = () => {
               <div>
                 <label className={smallLabel}>Cities / Regions</label>
                 <div className="flex gap-2 mb-2">
-                  <input value={newCity} onChange={(e) => setNewCity(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault() || handleAddCity())} className={inputClasses} placeholder="Add city" />
-                  <button type="button" onClick={handleAddCity} className="px-3 py-1 rounded-md bg-indigo-600 text-white text-xs">Add</button>
+                  <input value={newCity} onChange={(e) => setNewCity(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault() || handleAddCity())} className={inputClasses} placeholder="Add city (e.g., London, Tokyo)" />
+                  <button type="button" onClick={handleAddCity} className="px-3 py-1 rounded-md bg-indigo-600 text-white text-xs hover:bg-indigo-700">Add</button>
                 </div>
-                <div className="flex flex-wrap">
-                  {cities.map((c) => (<button key={c} type="button" onClick={() => removeCity(c)} className="mr-1 mb-1 px-2 py-0.5 bg-gray-100 rounded text-xs">{c} &times;</button>))}
+                <div className="flex flex-wrap min-h-[1.5rem] p-1 border border-gray-100 rounded">
+                  {cities.length === 0 && <span className="text-[10px] text-gray-400 p-1">No cities added.</span>}
+                  {cities.map((c) => (<button key={c} type="button" onClick={() => removeCity(c)} className="mr-1 mb-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-700 hover:bg-gray-200">{c} &times;</button>))}
                 </div>
               </div>
 
               <div>
                 <label className={smallLabel}>Device Type</label>
-                <div className="flex gap-1">
-                  <button type="button" onClick={() => toggleDeviceType("Mobile")} className={`px-2 py-1 rounded text-xs ${deviceTypes.includes("Mobile") ? "bg-indigo-600 text-white" : "bg-white border border-gray-200"}`}>Mobile</button>
-                  <button type="button" onClick={() => toggleDeviceType("Tablet")} className={`px-2 py-1 rounded text-xs ${deviceTypes.includes("Tablet") ? "bg-indigo-600 text-white" : "bg-white border border-gray-200"}`}>Tablet</button>
-                  <button type="button" onClick={() => toggleDeviceType("Desktop")} className={`px-2 py-1 rounded text-xs ${deviceTypes.includes("Desktop") ? "bg-indigo-600 text-white" : "bg-white border border-gray-200"}`}>Desktop</button>
+                <div className="flex gap-1 flex-wrap">
+                  <button type="button" onClick={() => toggleDeviceType("Mobile")} className={`px-2 py-1 rounded text-xs shadow-sm ${deviceTypes.includes("Mobile") ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 hover:bg-gray-50"}`}>Mobile</button>
+                  <button type="button" onClick={() => toggleDeviceType("Tablet")} className={`px-2 py-1 rounded text-xs shadow-sm ${deviceTypes.includes("Tablet") ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 hover:bg-gray-50"}`}>Tablet</button>
+                  <button type="button" onClick={() => toggleDeviceType("Desktop")} className={`px-2 py-1 rounded text-xs shadow-sm ${deviceTypes.includes("Desktop") ? "bg-indigo-600 text-white" : "bg-white border border-gray-200 hover:bg-gray-50"}`}>Desktop</button>
                 </div>
               </div>
             </div>
 
+            {/* --- SCHEDULE & SETTINGS --- */}
             <SectionTitle title="Schedule & Settings" />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
@@ -551,7 +593,7 @@ const CampaignBuilder: React.FC = () => {
                 <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputClasses} />
               </div>
               <div>
-                <label className={smallLabel}>End Date</label>
+                <label className={smallLabel}>End Date (Optional)</label>
                 <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputClasses} />
               </div>
 
@@ -574,27 +616,28 @@ const CampaignBuilder: React.FC = () => {
               </div>
             </div>
 
-            <div className="mt-3 flex gap-2">
-              <button type="submit" className="px-4 py-2 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition">Deploy Campaign</button>
-              <button type="button" onClick={() => console.log("Save draft") } className="px-3 py-2 rounded-md border text-xs hover:bg-gray-50 transition">Save Draft</button>
+            <div className="mt-4 pt-4 border-t border-gray-100 flex gap-3">
+              <button type="submit" className="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition shadow-lg shadow-indigo-200">Deploy Campaign</button>
+              <button type="button" onClick={() => console.log("Save draft")} className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition">Save Draft</button>
             </div>
           </div>
 
-          <aside className="bg-white p-4 rounded-md shadow-sm h-fit sticky top-4">
+          <aside className="bg-white p-4 rounded-xl shadow-lg h-fit sticky top-4">
             <AdPreview adFormat={adFormat} campaignName={campaignName} cta={ctaButton || "Learn More"} previewSrc={uploadedPreviews[0] || null} />
 
-            <div className="mt-3 text-xs text-gray-600 space-y-1">
+            <div className="mt-4 text-xs text-gray-600 space-y-2 border-t border-gray-100 pt-3">
+              <h4 className="font-semibold text-gray-900 text-sm">Summary</h4>
               <div><span className="font-medium text-gray-800">Type:</span> {campaignType || "—"}</div>
               <div><span className="font-medium text-gray-800">Format:</span> {adFormat}</div>
               <div><span className="font-medium text-gray-800">Platforms:</span> {platforms.length ? platforms.join(", ") : "—"}</div>
-              <div><span className="font-medium text-gray-800">Countries:</span> {countries.length ? countries.slice(0,5).join(", ") + (countries.length>5?"...":"") : "—"}</div>
-              <div><span className="font-medium text-gray-800">Targets:</span> {targetIds.length}</div>
+              <div><span className="font-medium text-gray-800">Countries:</span> {countries.length ? countries.slice(0, 5).join(", ") + (countries.length > 5 ? ` (+${countries.length - 5} more)` : "") : "—"}</div>
+              <div><span className="font-medium text-gray-800">Target IDs:</span> {targetIds.length}</div>
               <div><span className="font-medium text-gray-800">Max Price:</span> ${maxPrice || "—"}</div>
             </div>
 
-            <div className="mt-3">
-              <label className="text-[10px] font-semibold text-gray-500 mb-1">Notes</label>
-              <textarea className="w-full p-2 border border-gray-100 rounded h-20 text-xs text-gray-600" placeholder="Optional notes for this campaign (internal)" />
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <label className="text-[10px] font-semibold text-gray-500 mb-1">Notes (Internal)</label>
+              <textarea className="w-full p-2 border border-gray-200 rounded-md h-20 text-xs text-gray-600" placeholder="Optional notes for this campaign (internal)" />
             </div>
           </aside>
         </form>
