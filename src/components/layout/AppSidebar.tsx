@@ -8,7 +8,8 @@ import {
   CreditCard, 
   Settings,
   LogOut,
-  Zap
+  Zap,
+  Rocket // 🚀 New icon for Ascend
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import {
@@ -33,8 +34,7 @@ const menuItems = [
   { title: "Payments", url: "/payments", icon: CreditCard },
   { title: "Campaign Builder", url: "/campaign-builder", icon: Zap },
   { title: "Settings", url: "/settings", icon: Settings },
-  // ✅ Added new Campaign Builder menu item
-  
+  { title: "Ascend", url: "/ascend", icon: Rocket }, // ✅ New Ascend menu item
 ];
 
 export function AppSidebar() {

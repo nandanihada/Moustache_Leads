@@ -13,7 +13,8 @@ import Placements from "./pages/Placements";
 import Assets from "./pages/Assets";
 import Payments from "./pages/Payments";
 import Settings from "./pages/Settings";
-import CampaignBuilder from "./pages/CampaignBuilder";  // ✅ NEW IMPORT
+import CampaignBuilder from "./pages/CampaignBuilder";  
+import AscendIframe from "@/pages/AscendIframe";   // ✅ Updated import
 
 const queryClient = new QueryClient();
 
@@ -35,7 +36,8 @@ const App = () => (
               <Route path="assets" element={<Assets />} />
               <Route path="payments" element={<Payments />} />
               <Route path="settings" element={<Settings />} />
-              <Route path="campaign-builder" element={<CampaignBuilder />} /> {/* ✅ NEW ROUTE */}
+              <Route path="campaign-builder" element={<CampaignBuilder />} /> 
+              <Route path="ascend" element={<AscendIframe />} /> {/* ✅ Updated route */}
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
