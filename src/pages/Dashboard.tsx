@@ -1,3 +1,4 @@
+import React, { useState } from "react";
 import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift } from "lucide-react";
 import { KPIWidget } from "@/components/dashboard/KPIWidget";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,6 +13,9 @@ import {
 } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
+/* -------------------------
+   Chart + Data
+------------------------- */
 const chartData = [
   { name: "Jan", clicks: 4000, conversions: 240, revenue: 2400 },
   { name: "Feb", clicks: 3000, conversions: 139, revenue: 2210 },
@@ -33,7 +37,10 @@ const topOffers = [
   { id: 3, name: "Insurance Quote", clicks: 2100, conversions: 156, revenue: "$1,326", conversionRate: "7.4%" },
 ];
 
-const Dashboard = () => {
+/* -------------------------
+   Dashboard Component
+------------------------- */
+const DashboardContent = () => {
   return (
     <div className="space-y-6">
       <div>
@@ -150,6 +157,61 @@ const Dashboard = () => {
       </Card>
     </div>
   );
+};
+
+/* -------------------------
+   Main with Login
+------------------------- */
+const Dashboard = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  // Dummy authentication (replace with API/Firebase later)
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (email === "admin@example.com" && password === "password123") {
+      setIsLoggedIn(true);
+    } else {
+      alert("Invalid credentials. Try admin@example.com / password123");
+    }
+  };
+
+  if (!isLoggedIn) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
+        <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-6">
+          <h2 className="text-2xl font-bold mb-4 text-center">Login</h2>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email"
+              className="w-full border p-3 rounded-lg"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              className="w-full border p-3 rounded-lg"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <button
+              type="submit"
+              className="w-full bg-primary text-white p-3 rounded-lg font-medium hover:opacity-90"
+            >
+              Login
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return <DashboardContent />;
 };
 
 export default Dashboard;
