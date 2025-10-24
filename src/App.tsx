@@ -21,6 +21,7 @@ import AdminOffers from "./pages/AdminOffers";
 import AdminAnalytics from "./pages/AdminAnalytics";
 import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
+import PostbackReceiver from "./pages/PostbackReceiver";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Landing from "./pages/Landing";
@@ -82,6 +83,7 @@ const App = () => (
               <Route path="analytics" element={<AdminAnalytics />} />
               <Route path="partners" element={<Partners />} />
               <Route path="postback-logs" element={<PostbackLogs />} />
+              <Route path="postback-receiver" element={<PostbackReceiver />} />
             </Route>
             
             {/* Smart redirect based on authentication status */}

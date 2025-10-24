@@ -7,7 +7,8 @@ import {
   LogOut,
   ArrowLeft,
   Handshake,
-  Activity
+  Activity,
+  Inbox
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -27,6 +28,7 @@ const adminMenuItems = [
   { title: "Overview", url: "/admin", icon: Shield },
   { title: "Offers", url: "/admin/offers", icon: Gift },
   { title: "Partners", url: "/admin/partners", icon: Handshake },
+  { title: "Postback Receiver", url: "/admin/postback-receiver", icon: Inbox },
   { title: "Postback Logs", url: "/admin/postback-logs", icon: Activity },
   { title: "Users", url: "/admin/users", icon: Users },
   { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
