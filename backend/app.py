@@ -170,48 +170,49 @@ def create_app():
     
     return app
 
-if __name__ == '__main__':
-    app = create_app()
+# Create app instance for Gunicorn
+app = create_app()
+
+# Initialize background services (for both Gunicorn and direct run)
+if db_instance.is_connected():
+    logging.info("Database connection established successfully")
     
-    # Check database connection status
-    if db_instance.is_connected():
-        logging.info("Database connection established successfully")
-        
-        # Start background services (with graceful failure handling)
+    # Start background services (with graceful failure handling)
+    try:
+        # Try to import and start cap monitoring service
         try:
-            # Try to import and start cap monitoring service
-            try:
-                from services.cap_monitoring_service import CapMonitoringService
-                cap_service = CapMonitoringService()
-                cap_service.start_monitoring_service()
-                logging.info("✅ Cap monitoring service started")
-            except Exception as e:
-                logging.warning(f"⚠️ Cap monitoring service failed to start: {str(e)}")
-            
-            # Try to import and start tracking service
-            try:
-                from services.tracking_service import TrackingService
-                tracking_service = TrackingService()
-                tracking_service.start_postback_processor()
-                logging.info("✅ Tracking service started")
-            except Exception as e:
-                logging.warning(f"⚠️ Tracking service failed to start: {str(e)}")
-            
-            # Try to import and start schedule activation service
-            try:
-                from services.schedule_activation_service import setup_activation_scheduler
-                setup_activation_scheduler()
-                logging.info("✅ Schedule activation service started")
-            except Exception as e:
-                logging.warning(f"⚠️ Schedule activation service failed to start: {str(e)}")
-            
-            logging.info("Background services initialization completed")
+            from services.cap_monitoring_service import CapMonitoringService
+            cap_service = CapMonitoringService()
+            cap_service.start_monitoring_service()
+            logging.info("✅ Cap monitoring service started")
         except Exception as e:
-            logging.error(f"Error in background services initialization: {str(e)}")
-    else:
-        logging.warning("Database connection failed - app will run without database")
-    
-    # Run the application
+            logging.warning(f"⚠️ Cap monitoring service failed to start: {str(e)}")
+        
+        # Try to import and start tracking service (IMPORTANT for postbacks!)
+        try:
+            from services.tracking_service import TrackingService
+            tracking_service = TrackingService()
+            tracking_service.start_postback_processor()
+            logging.info("✅ Tracking service started - Postbacks will be processed")
+        except Exception as e:
+            logging.warning(f"⚠️ Tracking service failed to start: {str(e)}")
+        
+        # Try to import and start schedule activation service
+        try:
+            from services.schedule_activation_service import setup_activation_scheduler
+            setup_activation_scheduler()
+            logging.info("✅ Schedule activation service started")
+        except Exception as e:
+            logging.warning(f"⚠️ Schedule activation service failed to start: {str(e)}")
+        
+        logging.info("Background services initialization completed")
+    except Exception as e:
+        logging.error(f"Error in background services initialization: {str(e)}")
+else:
+    logging.warning("Database connection failed - app will run without database")
+
+if __name__ == '__main__':
+    # Run the application directly (not via Gunicorn)
     logging.info(f"Starting Ascend Backend API on port {Config.PORT}")
     app.run(
         host='0.0.0.0',
