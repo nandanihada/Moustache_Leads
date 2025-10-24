@@ -936,12 +936,12 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
 
                   <div>
                     <Label htmlFor="partner_id">Partner (for Postbacks)</Label>
-                    <Select value={formData.partner_id || ''} onValueChange={(value) => handleInputChange('partner_id', value)}>
+                    <Select value={formData.partner_id || 'none'} onValueChange={(value) => handleInputChange('partner_id', value === 'none' ? '' : value)}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select partner (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">No Partner</SelectItem>
+                        <SelectItem value="none">No Partner</SelectItem>
                         {partners.map(partner => (
                           <SelectItem key={partner._id} value={partner.partner_id}>
                             {partner.partner_name}
