@@ -28,6 +28,7 @@ file_upload_bp = safe_import_blueprint('routes.file_upload', 'file_upload_bp')
 test_schedule_rules_bp = safe_import_blueprint('routes.test_schedule_rules', 'test_schedule_rules_bp')
 partners_bp = safe_import_blueprint('routes.partners', 'partners_bp')
 postback_logs_bp = safe_import_blueprint('routes.postback_logs', 'postback_logs_bp')
+postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postback_receiver_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -43,7 +44,8 @@ blueprints = [
     (file_upload_bp, '/api'),
     (test_schedule_rules_bp, '/api'),  # Test routes
     (partners_bp, '/api/admin'),  # Partner management
-    (postback_logs_bp, '/api/admin')  # Postback logs
+    (postback_logs_bp, '/api/admin'),  # Postback logs
+    (postback_receiver_bp, '')  # Postback receiver - no prefix for /postback/{key}
 ]
 
 def create_app():
