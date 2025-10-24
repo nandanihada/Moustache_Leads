@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Search, Info, Ban, Smartphone, Monitor, Globe } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, Info, Ban, Smartphone, Monitor, Globe, Loader2, AlertCircle, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -20,77 +20,91 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-const offers = [
-  {
-    id: "OFF001",
-    name: "Mobile Game Install - Fantasy RPG",
-    image: "🎮",
-    countries: ["US", "UK", "CA"],
-    category: "App",
-    devices: ["ios", "android"],
-    payout: "$2.50",
-    status: "active"
-  },
-  {
-    id: "OFF002", 
-    name: "Credit Card Signup - Premium Rewards",
-    image: "💳",
-    countries: ["US"],
-    category: "Web",
-    devices: ["desktop", "mobile"],
-    payout: "$150.00",
-    status: "active"
-  },
-  {
-    id: "OFF003",
-    name: "Insurance Quote - Auto Coverage",
-    image: "🚗",
-    countries: ["US", "CA"],
-    category: "Web", 
-    devices: ["desktop"],
-    payout: "$8.50",
-    status: "disabled"
-  },
-  {
-    id: "OFF004",
-    name: "Streaming Service Trial",
-    image: "📺",
-    countries: ["US", "UK", "AU"],
-    category: "Web",
-    devices: ["desktop", "mobile", "ios", "android"],
-    payout: "$12.00",
-    status: "active"
-  }
-];
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { offerApi, type Offer } from "@/services/offerApi";
+import { useToast } from "@/hooks/use-toast";
 
 const countryFlags = {
-  US: "🇺🇸",
-  UK: "🇬🇧", 
-  CA: "🇨🇦",
-  AU: "🇦🇺"
+  US: "",
+  UK: "",
+  CA: "",
+  AU: "",
 };
 
 const deviceIcons = {
   desktop: Monitor,
   mobile: Smartphone,
   ios: Smartphone,
-  android: Smartphone
+  android: Smartphone,
 };
 
 const Offers = () => {
   const [activeTab, setActiveTab] = useState("active");
   const [searchTerm, setSearchTerm] = useState("");
   const [searchBy, setSearchBy] = useState("name");
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchOffers();
+  }, []);
+
+  const fetchOffers = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      console.log("");
+      
+      const response = await offerApi.fetchOffers({ status: 'all', limit: 100 });
+      console.log("", response.offers.length);
+      
+      setOffers(response.offers);
+      
+      if (response.offers.length === 0) {
+        toast({
+          title: "No offers found",
+          description: "Admin hasn't added any offers yet.",
+          variant: "default",
+        });
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch offers';
+      console.error("", errorMessage);
+      setError(errorMessage);
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredOffers = offers.filter(offer => {
     const matchesTab = activeTab === "all" || offer.status === activeTab;
-    const matchesSearch = offer[searchBy as keyof typeof offer]
+    const searchValue = searchBy === "name" ? offer.title : 
+                       searchBy === "id" ? offer.id : 
+                       offer.category;
+    const matchesSearch = searchValue
       ?.toString()
       .toLowerCase()
       .includes(searchTerm.toLowerCase());
     return matchesTab && matchesSearch;
   });
+
+  const handleOfferClick = async (offer: Offer) => {
+    try {
+      await offerApi.trackOfferClick(offer.id);
+      window.open(offer.click_url, '_blank');
+    } catch (err) {
+      console.error('Error tracking click:', err);
+      // Still open the offer even if tracking fails
+      window.open(offer.click_url, '_blank');
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -134,70 +148,136 @@ const Offers = () => {
             </div>
 
             <TabsContent value={activeTab} className="space-y-4">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Offer ID</TableHead>
-                    <TableHead>Offer Name</TableHead>
-                    <TableHead>Countries</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Devices</TableHead>
-                    <TableHead>Payout</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredOffers.map((offer) => (
-                    <TableRow key={offer.id}>
-                      <TableCell className="font-mono text-sm">{offer.id}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl">{offer.image}</span>
-                          <div>
-                            <p className="font-medium">{offer.name}</p>
-                            <Badge variant={offer.status === "active" ? "default" : "secondary"}>
-                              {offer.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          {offer.countries.map((country) => (
-                            <span key={country} className="text-lg">
-                              {countryFlags[country as keyof typeof countryFlags]}
-                            </span>
-                          ))}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{offer.category}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          {offer.devices.map((device) => {
-                            const IconComponent = deviceIcons[device as keyof typeof deviceIcons];
-                            return (
-                              <IconComponent key={device} className="h-4 w-4 text-muted-foreground" />
-                            );
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell className="font-semibold text-primary">{offer.payout}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="ghost">
-                            <Info className="h-4 w-4" />
-                          </Button>
-                          <Button size="sm" variant="ghost">
-                            <Ban className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              {loading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <span className="ml-3 text-muted-foreground">Loading offers...</span>
+                </div>
+              )}
+
+              {error && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Error</AlertTitle>
+                  <AlertDescription>
+                    {error}
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="ml-4"
+                      onClick={fetchOffers}
+                    >
+                      Retry
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {!loading && !error && filteredOffers.length === 0 && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>No offers found</AlertTitle>
+                  <AlertDescription>
+                    {searchTerm ? 'No offers match your search criteria.' : 'No offers available at the moment.'}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {!loading && !error && filteredOffers.length > 0 && (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Offer ID</TableHead>
+                      <TableHead>Offer Name</TableHead>
+                      <TableHead>Countries</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Devices</TableHead>
+                      <TableHead>Payout</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredOffers.map((offer) => (
+                      <TableRow key={offer.id}>
+                        <TableCell className="font-mono text-sm">{offer.id}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            {offer.image_url && (
+                              <img 
+                                src={offer.image_url} 
+                                alt={offer.title}
+                                className="w-12 h-12 object-cover rounded"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none';
+                                }}
+                              />
+                            )}
+                            <div>
+                              <p className="font-medium">{offer.title}</p>
+                              <Badge variant={offer.status === "active" ? "default" : "secondary"}>
+                                {offer.status}
+                              </Badge>
+                              {offer.network && (
+                                <Badge variant="outline" className="ml-2">
+                                  {offer.network}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 flex-wrap">
+                            {offer.countries && offer.countries.length > 0 ? (
+                              offer.countries.map((country) => (
+                                <span key={country} className="text-lg">
+                                  {countryFlags[country as keyof typeof countryFlags] || country}
+                                </span>
+                              ))
+                            ) : (
+                              <Globe className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{offer.category}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            {offer.devices && offer.devices.length > 0 ? (
+                              offer.devices.map((device) => {
+                                const IconComponent = deviceIcons[device as keyof typeof deviceIcons];
+                                return IconComponent ? (
+                                  <IconComponent key={device} className="h-4 w-4 text-muted-foreground" />
+                                ) : null;
+                              })
+                            ) : (
+                              <span className="text-sm text-muted-foreground">All</span>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-semibold text-primary">
+                          {offer.reward_currency} {offer.reward_amount}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button 
+                              size="sm" 
+                              variant="ghost"
+                              onClick={() => handleOfferClick(offer)}
+                              title="Open offer"
+                            >
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="ghost" title="View details">
+                              <Info className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </TabsContent>
           </Tabs>
         </CardContent>

@@ -35,8 +35,8 @@ const Settings = () => {
   });
 
   const [credentials] = useState({
-    apiKey: "sk_live_51H7qGwHcY8Z9mK3w2pQ5v6X8N7sF4aR2dE9gT1yU3iO6pL",
-    secretKey: "sk_secret_B2nF8qW5rE3tY7uI9oP1aS6dF4gH8jK2lZ5xC9vB7nM4qW"
+    apiKey: "your_api_key_here",
+    secretKey: "your_secret_key_here"
   });
 
   const copyToClipboard = (text: string, type: string) => {

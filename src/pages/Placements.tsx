@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo } from "react";
-import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus } from "lucide-react";
+import { useState, useCallback, useMemo, useEffect } from "react";
+import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus, CheckCircle, AlertCircle, Loader2, Package, Code, Copy } from "lucide-react";
+import { placementApi } from "../services/placementApi";
 
 // --- Data Structures ---
 
@@ -15,11 +16,12 @@ const EXISTING_PLACEMENT_DATA = {
   description: 'Provide a comprehensive overview of the app\'s traffic patterns across different geographical locations, the strategies employed for promotion, and the measures implemented to prevent fraud.',
   postbackFailureNotification: true,
   platformType: 'Website',
+  status: 'LIVE',
   // Testing tab fields initialization
   userId: 'user_12345',
   rewardValue: '100',
   offerName: 'Survey - Top Offers',
-  status: 'Completed',
+  testStatus: 'Completed',
   offerId: 'OFR-54321',
   userIp: '192.168.1.1',
   // Mock event data now part of the placement object
@@ -41,10 +43,11 @@ const NEW_PLACEMENT_DATA = {
   description: '',
   postbackFailureNotification: false,
   platformType: '',
+  status: 'LIVE',
   userId: '',
   rewardValue: '',
   offerName: '',
-  status: 'Completed',
+  testStatus: 'Completed',
   offerId: '',
   userIp: '',
   events: [],
@@ -197,6 +200,104 @@ const ToggleSwitch = ({ label, checked, onChange }) => (
   </div>
 );
 
+const StatusToggle = ({ status, onChange, disabled = false }) => {
+  const statusOptions = [
+    { value: 'LIVE', label: 'Live', color: 'bg-green-500', description: 'Placement is active and receiving traffic' },
+    { value: 'PAUSED', label: 'Paused', color: 'bg-yellow-500', description: 'Placement is temporarily disabled' },
+    { value: 'INACTIVE', label: 'Inactive', color: 'bg-red-500', description: 'Placement is permanently disabled' }
+  ];
+
+  return (
+    <div className="space-y-3">
+      <label className="text-sm font-medium text-gray-700 flex items-center">
+        Placement Status
+        <Info className="h-3 w-3 ml-1 text-gray-400 cursor-pointer hover:text-violet-500 transition" />
+      </label>
+      <div className="grid grid-cols-3 gap-2">
+        {statusOptions.map(option => (
+          <button
+            key={option.value}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange('status', option.value)}
+            className={`
+              p-3 rounded-lg border-2 transition-all duration-200 text-sm font-medium
+              ${status === option.value 
+                ? `${option.color} text-white border-transparent shadow-lg` 
+                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
+              }
+              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}
+            `}
+            title={option.description}
+          >
+            <div className="flex items-center justify-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${status === option.value ? 'bg-white' : option.color}`}></div>
+              <span>{option.label}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-gray-500">
+        {statusOptions.find(opt => opt.value === status)?.description || 'Select a status for this placement'}
+      </p>
+    </div>
+  );
+};
+
+const Toast = ({ message, type, isVisible, onClose }) => {
+  useEffect(() => {
+    if (isVisible) {
+      const timer = setTimeout(() => {
+        onClose();
+      }, 5000); // Auto-close after 5 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [isVisible, onClose]);
+
+  if (!isVisible) return null;
+
+  const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
+  const Icon = type === 'success' ? CheckCircle : AlertCircle;
+
+  return (
+    <div className={`fixed top-4 right-4 z-50 ${bgColor} text-white px-6 py-4 rounded-lg shadow-lg flex items-center space-x-3 transform transition-all duration-300 ${isVisible ? 'translate-x-0 opacity-100' : 'translate-x-full opacity-0'}`}>
+      <Icon className="h-5 w-5" />
+      <span className="font-medium">{message}</span>
+      <button onClick={onClose} className="ml-4 text-white hover:text-gray-200">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
+
+const LoadingSpinner = ({ size = 'md', text = 'Loading...' }) => {
+  const sizeClasses = {
+    sm: 'h-4 w-4',
+    md: 'h-6 w-6',
+    lg: 'h-8 w-8'
+  };
+
+  return (
+    <div className="flex items-center justify-center space-x-2">
+      <Loader2 className={`${sizeClasses[size]} animate-spin text-violet-600`} />
+      <span className="text-gray-600 font-medium">{text}</span>
+    </div>
+  );
+};
+
+const EmptyState = ({ icon: Icon = Package, title, description, actionButton }) => {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4">
+      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+        <Icon className="h-8 w-8 text-gray-400" />
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+      <p className="text-gray-500 text-center mb-6 max-w-sm">{description}</p>
+      {actionButton && actionButton}
+    </div>
+  );
+};
+
 
 // --- Event CRUD Modal ---
 
@@ -284,7 +385,7 @@ const EventModal = ({ eventData, isEditing, isOpen, onClose, onSubmit }) => {
 }
 
 // 1. Placement Configuration Tab
-const PlacementConfiguration = ({ data, onChange, onSubmit, isNew }) => {
+const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = false }) => {
   // isPlatformLocked determines if the user can still change the platform type
   const isPlatformLocked = useMemo(() => !isNew && !!data.placementIdentifier, [isNew, data.placementIdentifier]);
 
@@ -399,6 +500,14 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew }) => {
           />
 
           <div className="mt-6">
+            <StatusToggle
+              status={data.status || 'LIVE'}
+              onChange={onChange}
+              disabled={false}
+            />
+          </div>
+
+          <div className="mt-6">
             <ToggleSwitch
               label="Enable Postback Failure Notification"
               checked={data.postbackFailureNotification}
@@ -412,8 +521,15 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew }) => {
           **Documentation Tip:** Review the "Postback URI" section in our API docs before deploying.
         </p>
 
-        <Button onClick={onSubmit} className="w-full mt-6" icon={data.placementIdentifier ? Edit : Play}>
-          {data.placementIdentifier ? 'Save Configuration Changes' : 'Create New Placement'}
+        <Button onClick={onSubmit} className="w-full mt-6" icon={data.placementIdentifier ? Edit : Play} disabled={loading}>
+          {loading ? (
+            <div className="flex items-center space-x-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>{data.placementIdentifier ? 'Saving...' : 'Creating...'}</span>
+            </div>
+          ) : (
+            data.placementIdentifier ? 'Save Configuration Changes' : 'Create New Placement'
+          )}
         </Button>
       </div>
 
@@ -557,7 +673,145 @@ const EventsManager = ({ events, onAdd, onEdit, onDelete }) => {
 };
 
 // 3. Testing Tab
-const TestingPostback = ({ data, onChange, onSubmit }) => {
+// 3. Integration Tab - Iframe Generator
+const IntegrationGuide = ({ data }) => {
+  const [copied, setCopied] = useState(false);
+  
+  const iframeSnippet = `<iframe 
+  src="http://localhost:5000/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id={user_id}&api_key=${data.apiKey || 'YOUR_API_KEY'}"
+  style="height:100vh;width:100%;border:0;"
+  title="${data.offerwallTitle || 'Offerwall'}">
+</iframe>`;
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(iframeSnippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  const isReady = data.placementIdentifier && data.apiKey;
+
+  return (
+    <Card title="Iframe Integration" description="Embed this offerwall on your website using the iframe snippet below." className="space-y-6">
+      {!isReady && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <Info className="h-5 w-5 text-yellow-600 mr-2" />
+            <p className="text-yellow-800">
+              <strong>Setup Required:</strong> Please save your placement configuration first to generate the iframe snippet.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Iframe Snippet
+          </label>
+          <div className="relative">
+            <pre className="bg-gray-900 text-green-400 p-4 rounded-lg text-sm overflow-x-auto font-mono">
+              <code>{iframeSnippet}</code>
+            </pre>
+            <button
+              onClick={copyToClipboard}
+              className="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white p-2 rounded transition-colors"
+              title="Copy to clipboard"
+            >
+              {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            </button>
+          </div>
+          {copied && (
+            <p className="text-sm text-green-600 mt-1">✓ Copied to clipboard!</p>
+          )}
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h4 className="font-medium text-blue-900 mb-2 flex items-center">
+            <Code className="h-4 w-4 mr-2" />
+            Implementation Notes
+          </h4>
+          <ul className="text-sm text-blue-800 space-y-1">
+            <li>• Replace <code className="bg-blue-100 px-1 rounded">{'{user_id}'}</code> with your actual user ID dynamically</li>
+            <li>• The iframe will automatically track impressions and clicks</li>
+            <li>• Ensure your domain is whitelisted for CORS if needed</li>
+            <li>• The offerwall is fully responsive and mobile-friendly</li>
+          </ul>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h5 className="font-medium text-gray-900 mb-2">Placement Details</h5>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Placement ID:</span>
+                <code className="bg-gray-200 px-2 py-1 rounded text-xs">
+                  {data.placementIdentifier || 'Not generated yet'}
+                </code>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">API Key:</span>
+                <code className="bg-gray-200 px-2 py-1 rounded text-xs">
+                  {data.apiKey ? `${data.apiKey.substring(0, 8)}...` : 'Not generated yet'}
+                </code>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Status:</span>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  data.status === 'LIVE' ? 'bg-green-100 text-green-800' : 
+                  data.status === 'PAUSED' ? 'bg-yellow-100 text-yellow-800' : 
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {data.status || 'DRAFT'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h5 className="font-medium text-gray-900 mb-2">Security Notes</h5>
+            <ul className="text-sm text-gray-600 space-y-1">
+              <li>• API key validates placement access</li>
+              <li>• Only LIVE placements are accessible</li>
+              <li>• All interactions are tracked securely</li>
+              <li>• User data is handled per privacy policy</li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <h4 className="font-medium text-green-900 mb-2 flex items-center">
+            <Info className="h-4 w-4 mr-2" />
+            Testing Your Integration
+          </h4>
+          <p className="text-sm text-green-800 mb-3">
+            You can test your offerwall integration by visiting the direct URL:
+          </p>
+          <div className="bg-white border rounded p-2">
+            <code className="text-sm text-gray-800 break-all">
+              http://localhost:5000/offerwall?placement_id={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=test_user&api_key={data.apiKey || 'YOUR_API_KEY'}
+            </code>
+          </div>
+          {isReady && (
+            <button
+              onClick={() => window.open(`http://localhost:5000/offerwall?placement_id=${data.placementIdentifier}&user_id=test_user&api_key=${data.apiKey}`, '_blank')}
+              className="mt-3 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+            >
+              Test Offerwall
+            </button>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+};
+
+// 4. Testing Tab
+const TestingPostback = ({ data, onChange, onSubmit, loading = false }) => {
   const STATUS_OPTIONS = [
     { value: 'Completed', label: 'Completed' },
     { value: 'Rejected', label: 'Rejected' },
@@ -629,8 +883,15 @@ const TestingPostback = ({ data, onChange, onSubmit }) => {
         **Caution:** Test postbacks do not affect live user accounts or revenue reports.
       </p>
 
-      <Button onClick={onSubmit} className="w-full" icon={Send} disabled={!isPlacementReady}>
-        Send Test Postback
+      <Button onClick={onSubmit} className="w-full" icon={Send} disabled={!isPlacementReady || loading}>
+        {loading ? (
+          <div className="flex items-center space-x-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Testing Postback...</span>
+          </div>
+        ) : (
+          'Send Test Postback'
+        )}
       </Button>
     </Card>
   );
@@ -642,16 +903,82 @@ const TestingPostback = ({ data, onChange, onSubmit }) => {
 export const Placements = () => {
   const [activeTab, setActiveTab] = useState('placement');
   const [isNewPlacement, setIsNewPlacement] = useState(false); 
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [placements, setPlacements] = useState([]);
+  const [selectedPlacementIndex, setSelectedPlacementIndex] = useState(0);
+  
+  // Toast notification state
+  const [toast, setToast] = useState({ message: '', type: '', isVisible: false });
+
+  // Helper function to show toast notifications
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type, isVisible: true });
+  };
+
+  const hideToast = () => {
+    setToast(prev => ({ ...prev, isVisible: false }));
+  };
 
   // Simple state to hold the currently selected placement configuration and events
-  const initialData = useMemo(() => isNewPlacement ? NEW_PLACEMENT_DATA : EXISTING_PLACEMENT_DATA, [isNewPlacement]);
+  const initialData = useMemo(() => {
+    if (isNewPlacement) {
+      return NEW_PLACEMENT_DATA;
+    }
+    // Use data from API if available, otherwise fallback to existing data
+    return placements.length > 0 ? placements[selectedPlacementIndex] : EXISTING_PLACEMENT_DATA;
+  }, [isNewPlacement, placements, selectedPlacementIndex]);
+  
   const [placementData, setPlacementData] = useState(initialData);
 
-  // Sync placementData state when initialData changes (i.e., when switching between existing/new)
+  // Load placements from API on component mount
+  useEffect(() => {
+    loadPlacements();
+  }, []);
+
+  // Sync placementData state when initialData changes
   useMemo(() => {
     setPlacementData(initialData);
     setActiveTab('placement'); 
   }, [initialData]);
+
+  const loadPlacements = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Check if user is authenticated
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login first to access placements');
+        setPlacements([EXISTING_PLACEMENT_DATA]); // Fallback to demo data
+        setLoading(false);
+        return;
+      }
+      
+      const response = await placementApi.getPlacements();
+      setPlacements(response.placements);
+      
+      // If no placements exist, show new placement form
+      if (response.placements.length === 0) {
+        setIsNewPlacement(true);
+      }
+    } catch (err) {
+      console.error('Error loading placements:', err);
+      
+      // Handle authentication errors
+      if (err.message.includes('authentication') || err.message.includes('login')) {
+        setError('Authentication required. Please login to access placements.');
+      } else {
+        setError(err.message);
+      }
+      
+      // Fallback to existing data if API fails
+      setPlacements([EXISTING_PLACEMENT_DATA]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
 
   // --- Placement Configuration Handlers ---
@@ -661,29 +988,57 @@ export const Placements = () => {
     setPlacementData((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const handlePlacementSubmit = () => {
-    const action = placementData.placementIdentifier ? 'Updated' : 'Created';
-    
-    if (action === 'Created') {
-        // Simulate creation: set a mock identifier and switch back to view mode
-        const newId = 'MOCK-' + Math.random().toString(36).substring(2, 10).toUpperCase();
-        const newPlatformName = placementData.platformName || 'New Platform';
-        const newPlatformType = placementData.platformType || 'Website';
+  const handlePlacementSubmit = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // Check authentication first
+      const token = localStorage.getItem('token');
+      if (!token) {
+        showToast('Please login first to create or update placements', 'error');
+        return;
+      }
+      
+      const action = placementData.placementIdentifier ? 'Updated' : 'Created';
+      
+      if (action === 'Created') {
+        // Create new placement via API
+        const newPlacement = await placementApi.createPlacement(placementData);
         
-        setPlacementData(prev => ({ 
-            ...prev, 
-            placementIdentifier: newId, 
-            platformName: newPlatformName,
-            platformType: newPlatformType
-        }));
+        // Add to placements list and select it
+        setPlacements(prev => [...prev, newPlacement]);
+        setSelectedPlacementIndex(placements.length); // Select the new placement
         setIsNewPlacement(false);
-        console.log(`Placement '${newPlatformName}' created with ID: ${newId}`);
-    } else {
-        // Simulate update
-        console.log(`Placement '${placementData.platformName}' configuration updated. Placement ID: ${placementData.placementIdentifier}`);
-        // In a real app, this is where you'd call a Firestore 'setDoc' or 'updateDoc'
+        
+        console.log(`Placement '${newPlacement.offerwallTitle}' created with ID: ${newPlacement.placementIdentifier}`);
+        showToast(`Placement "${newPlacement.offerwallTitle}" created successfully!`, 'success');
+      } else {
+        // Update existing placement via API
+        const updatedPlacement = await placementApi.updatePlacement(placementData.id, placementData);
+        
+        // Update in placements list
+        setPlacements(prev => prev.map((p, index) => 
+          index === selectedPlacementIndex ? updatedPlacement : p
+        ));
+        
+        console.log(`Placement '${updatedPlacement.offerwallTitle}' updated. ID: ${updatedPlacement.placementIdentifier}`);
+        showToast(`Placement "${updatedPlacement.offerwallTitle}" updated successfully!`, 'success');
+      }
+    } catch (err) {
+      console.error('Error saving placement:', err);
+      
+      // Handle authentication errors
+      if (err.message.includes('authentication') || err.message.includes('login')) {
+        setError('Authentication required. Please login to manage placements.');
+        showToast('Please login first to create or update placements', 'error');
+      } else {
+        setError(err.message);
+        showToast(`Error ${placementData.placementIdentifier ? 'updating' : 'creating'} placement: ${err.message}`, 'error');
+      }
+    } finally {
+      setLoading(false);
     }
-    console.log("Submitted Data:", placementData);
   };
 
   // --- Event Management Handlers ---
@@ -718,23 +1073,62 @@ export const Placements = () => {
 
   // --- Postback Testing Handler ---
 
-  const handleTestPostback = () => {
-    console.log('--- Test Postback Sent (Simulated) ---');
-    console.log({
-      userId: placementData.userId,
-      rewardValue: placementData.rewardValue,
-      offerName: placementData.offerName,
-      status: placementData.status,
-      offerId: placementData.offerId,
-      userIp: placementData.userIp,
-      postbackUri: placementData.postbackUri,
-    });
-    console.log("Test postback initiated! Check your server logs for data sent to:", placementData.postbackUri);
+  const handleTestPostback = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const testData = {
+        userId: placementData.userId,
+        rewardValue: placementData.rewardValue,
+        offerName: placementData.offerName,
+        status: placementData.status,
+        offerId: placementData.offerId,
+        userIp: placementData.userIp,
+        postbackUri: placementData.postbackUri,
+        placementIdentifier: placementData.placementIdentifier
+      };
+      
+      const result = await placementApi.testPostback(testData);
+      
+      console.log('--- Test Postback Result ---');
+      console.log(result);
+      
+      if (result.success) {
+        showToast(`Test postback sent successfully! ${result.message}`, 'success');
+      } else {
+        showToast(`Test postback failed: ${result.message}`, 'error');
+      }
+    } catch (err) {
+      console.error('Error testing postback:', err);
+      setError(err.message);
+      showToast(`Error testing postback: ${err.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // --- Rendering Logic ---
 
   const renderActiveTab = () => {
+    // Show empty state if user is authenticated but has no placements and isn't creating a new one
+    if (!isNewPlacement && placements.length === 0 && localStorage.getItem('token') && !loading) {
+      return (
+        <Card title="Welcome to Placement Management" description="Get started with your first placement">
+          <EmptyState
+            icon={Package}
+            title="No Placements Yet"
+            description="Get started by creating your first ad placement. You can configure offerwalls, set exchange rates, and manage postback URLs."
+            actionButton={
+              <Button onClick={() => setIsNewPlacement(true)} icon={Plus} className="bg-violet-600 hover:bg-violet-700">
+                Create Your First Placement
+              </Button>
+            }
+          />
+        </Card>
+      );
+    }
+
     switch (activeTab) {
       case 'placement':
         return (
@@ -743,13 +1137,23 @@ export const Placements = () => {
             onChange={handleInputChange}
             onSubmit={handlePlacementSubmit}
             isNew={isNewPlacement}
+            loading={loading}
           />
         );
       case 'events':
         // Disable event management if no placement is active (i.e., creating a new one)
         return isNewPlacement 
-          ? <Card title="Events" description="Events can only be managed after a placement is created." className="h-64 flex items-center justify-center text-center">
-              <p className="text-gray-500">Please first <span className="text-violet-600 font-medium">Create</span> or <span className="text-violet-600 font-medium">Select</span> a placement to manage events.</p>
+          ? <Card title="Events" description="Events can only be managed after a placement is created.">
+              <EmptyState
+                icon={Calendar}
+                title="No Events Yet"
+                description="Create a placement first, then you can add events and multipliers to boost your earnings."
+                actionButton={
+                  <Button onClick={() => setActiveTab('placement')} icon={Grid} className="text-sm">
+                    Go to Placement Setup
+                  </Button>
+                }
+              />
             </Card> 
           : <EventsManager 
                 events={placementData.events} 
@@ -757,12 +1161,19 @@ export const Placements = () => {
                 onEdit={handleUpdateEvent}
                 onDelete={handleDeleteEvent}
             />;
+      case 'integration':
+        return (
+          <IntegrationGuide
+            data={placementData}
+          />
+        );
       case 'testing':
         return (
           <TestingPostback
             data={placementData}
             onChange={handleInputChange}
             onSubmit={handleTestPostback}
+            loading={loading}
           />
         );
       default:
@@ -804,19 +1215,60 @@ export const Placements = () => {
   return (
     <div className="min-h-screen bg-gray-50 font-sans p-4 sm:p-8">
       <div className="max-w-7xl mx-auto">
+        {/* Authentication Status */}
+        <div className="mb-4">
+          {!localStorage.getItem('token') ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <div className="flex items-center">
+                <Info className="h-5 w-5 text-yellow-600 mr-2" />
+                <p className="text-yellow-800">
+                  <strong>Authentication Required:</strong> Please login first to create and manage real placements. 
+                  Currently showing demo data only.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center">
+                <Info className="h-5 w-5 text-green-600 mr-2" />
+                <p className="text-green-800">
+                  <strong>Authenticated:</strong> You can now create and manage real placements.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Top Navigation Buttons */}
-        <div className="flex space-x-4 mb-10 items-center">
+        <div className="flex space-x-4 mb-10 items-center flex-wrap">
             <NavButton 
                 label="Add New Placement" 
                 isActive={isNewPlacement} 
                 onClick={() => setIsNewPlacement(true)} 
             />
-            <NavButton 
-                label={EXISTING_PLACEMENT_DATA.platformName} 
-                secondaryLabel={EXISTING_PLACEMENT_DATA.platformLink.split('//')[1]}
-                isActive={!isNewPlacement} 
-                onClick={() => setIsNewPlacement(false)} 
-            />
+            {loading ? (
+              <LoadingSpinner size="sm" text="Loading placements..." />
+            ) : placements.length > 0 ? (
+              placements.map((placement, index) => (
+                <NavButton 
+                  key={placement.id || index}
+                  label={placement.platformName || placement.offerwallTitle} 
+                  secondaryLabel={placement.platformLink ? placement.platformLink.split('//')[1] : placement.placementIdentifier?.substring(0, 8) + '...'}
+                  isActive={!isNewPlacement && selectedPlacementIndex === index} 
+                  onClick={() => {
+                    setIsNewPlacement(false);
+                    setSelectedPlacementIndex(index);
+                  }} 
+                />
+              ))
+            ) : !error && localStorage.getItem('token') ? (
+              <div className="px-4 py-2 text-gray-500 text-sm italic">
+                No placements yet. Create your first one!
+              </div>
+            ) : null}
+            {error && (
+              <div className="px-4 py-2 text-red-500 text-sm">Error: {error}</div>
+            )}
         </div>
 
         {/* Header (Changed dynamically) */}
@@ -830,9 +1282,10 @@ export const Placements = () => {
         </header>
 
         {/* Tab Navigation */}
-        <div className="flex space-x-1 mb-0 border-b border-gray-300">
+        <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl shadow-inner border border-gray-300">
           <TabButton tabKey="placement" Icon={Grid} label="Placement Details" />
           <TabButton tabKey="events" Icon={Calendar} label="Event Management" />
+          <TabButton tabKey="integration" Icon={Code} label="Iframe Integration" />
           <TabButton tabKey="testing" Icon={Play} label="Postback Testing" />
         </div>
 
@@ -841,6 +1294,14 @@ export const Placements = () => {
             {renderActiveTab()}
         </div>
       </div>
+
+      {/* Toast Notifications */}
+      <Toast
+        message={toast.message}
+        type={toast.type}
+        isVisible={toast.isVisible}
+        onClose={hideToast}
+      />
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift } from "lucide-react";
 import { KPIWidget } from "@/components/dashboard/KPIWidget";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -160,57 +160,9 @@ const DashboardContent = () => {
 };
 
 /* -------------------------
-   Main with Login
+   Main Dashboard Component
 ------------------------- */
 const Dashboard = () => {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  // Dummy authentication (replace with API/Firebase later)
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (email === "admin@example.com" && password === "password123") {
-      setIsLoggedIn(true);
-    } else {
-      alert("Invalid credentials. Try admin@example.com / password123");
-    }
-  };
-
-  if (!isLoggedIn) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50">
-        <div className="w-full max-w-md bg-white shadow-lg rounded-xl p-6">
-          <h2 className="text-2xl font-bold mb-4 text-center">Login</h2>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input
-              type="email"
-              placeholder="Email"
-              className="w-full border p-3 rounded-lg"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              className="w-full border p-3 rounded-lg"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-            <button
-              type="submit"
-              className="w-full bg-primary text-white p-3 rounded-lg font-medium hover:opacity-90"
-            >
-              Login
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
   return <DashboardContent />;
 };
 
