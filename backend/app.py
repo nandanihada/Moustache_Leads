@@ -58,23 +58,37 @@ def create_app():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Enable CORS for all routes (local + production)
-    CORS(app, origins=[
-        "http://localhost:3000", 
-        "http://localhost:5173", 
-        "http://localhost:8080", 
-        "http://localhost:8081", 
-        "http://127.0.0.1:3000", 
-        "http://127.0.0.1:5173", 
-        "http://127.0.0.1:8080", 
-        "http://127.0.0.1:8081",
-        "https://moustache-leads.vercel.app",  # Production frontend
-        "https://*.vercel.app",  # Allow all Vercel preview deployments
-        "https://vercel.app"
-    ], 
-         methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-         allow_headers=['Content-Type', 'Authorization'],
-         supports_credentials=True)
+    # Custom CORS handler to allow all Vercel deployments
+    @app.after_request
+    def after_request(response):
+        origin = request.headers.get('Origin')
+        
+        # List of allowed origins
+        allowed_origins = [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:8080",
+            "http://localhost:8081",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:5173",
+            "http://127.0.0.1:8080",
+            "http://127.0.0.1:8081",
+            "https://moustache-leads.vercel.app"
+        ]
+        
+        # Allow all Vercel preview deployments
+        if origin and (origin in allowed_origins or '.vercel.app' in origin):
+            response.headers['Access-Control-Allow-Origin'] = origin
+            response.headers['Access-Control-Allow-Credentials'] = 'true'
+            response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+            response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
+            response.headers['Access-Control-Max-Age'] = '3600'
+        
+        return response
+    
+    # Enable basic CORS
+    CORS(app, supports_credentials=True)
     
     # Register blueprints (only if successfully imported)
     for blueprint, url_prefix in blueprints:
