@@ -672,13 +672,13 @@ const EventsManager = ({ events, onAdd, onEdit, onDelete }) => {
     );
 };
 
-// 3. Testing Tab
 // 3. Integration Tab - Iframe Generator
 const IntegrationGuide = ({ data }) => {
   const [copied, setCopied] = useState(false);
   
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const iframeSnippet = `<iframe 
-  src="http://localhost:5000/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id={user_id}&api_key=${data.apiKey || 'YOUR_API_KEY'}"
+  src="${baseUrl}/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id={user_id}&api_key=${data.apiKey || 'YOUR_API_KEY'}"
   style="height:100vh;width:100%;border:0;"
   title="${data.offerwallTitle || 'Offerwall'}">
 </iframe>`;
@@ -793,12 +793,12 @@ const IntegrationGuide = ({ data }) => {
           </p>
           <div className="bg-white border rounded p-2">
             <code className="text-sm text-gray-800 break-all">
-              http://localhost:5000/offerwall?placement_id={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=test_user&api_key={data.apiKey || 'YOUR_API_KEY'}
+              {baseUrl}/offerwall?placement_id={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=test_user&api_key={data.apiKey || 'YOUR_API_KEY'}
             </code>
           </div>
           {isReady && (
             <button
-              onClick={() => window.open(`http://localhost:5000/offerwall?placement_id=${data.placementIdentifier}&user_id=test_user&api_key=${data.apiKey}`, '_blank')}
+              onClick={() => window.open(`${baseUrl}/offerwall?placement_id=${data.placementIdentifier}&user_id=test_user&api_key=${data.apiKey}`, '_blank')}
               className="mt-3 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
             >
               Test Offerwall

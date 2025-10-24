@@ -28,6 +28,7 @@ import { format, parseISO } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Offer, CreateOfferData, adminOfferApi } from '@/services/adminOfferApi';
 import { fileUploadApi } from '@/services/accessControlApi';
+import { partnerApi } from '@/services/partnerApi';
 import { useToast } from '@/hooks/use-toast';
 
 interface EditOfferModalProps {
@@ -143,6 +144,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   const [scheduleStatus, setScheduleStatus] = useState('Active');
   const [smartRules, setSmartRules] = useState<SmartRule[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
+  const [partners, setPartners] = useState<any[]>([]);
 
   const [formData, setFormData] = useState<any>({
     campaign_id: '',
@@ -162,6 +164,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
     preview_url: '',
     expiration_date: '',
     device_targeting: 'all',
+    partner_id: '',
     // Additional comprehensive fields
     category: '',
     offer_type: '',
@@ -225,6 +228,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         preview_url: offer.preview_url || '',
         expiration_date: offer.expiration_date || '',
         device_targeting: offer.device_targeting,
+        partner_id: (offer as any).partner_id || '',
         // Additional fields (using any to handle missing type definitions)
         category: (offer as any).category || '',
         offer_type: (offer as any).offer_type || '',
@@ -297,6 +301,27 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
       }
     }
   }, [offer, open]);
+
+  // Fetch partners list
+  useEffect(() => {
+    const fetchPartners = async () => {
+      try {
+        const response = await partnerApi.getPartners();
+        setPartners(response.partners || []);
+      } catch (error) {
+        console.error('Failed to fetch partners:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load partners list",
+          variant: "destructive"
+        });
+      }
+    };
+    
+    if (open) {
+      fetchPartners();
+    }
+  }, [open]);
 
   const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({
@@ -907,6 +932,26 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="partner_id">Partner (for Postbacks)</Label>
+                    <Select value={formData.partner_id || ''} onValueChange={(value) => handleInputChange('partner_id', value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select partner (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">No Partner</SelectItem>
+                        {partners.map(partner => (
+                          <SelectItem key={partner._id} value={partner.partner_id}>
+                            {partner.partner_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Assign a partner to enable postback notifications when conversions occur
+                    </p>
                   </div>
 
                   <div>

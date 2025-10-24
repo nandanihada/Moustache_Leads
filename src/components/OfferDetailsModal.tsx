@@ -33,7 +33,7 @@ const getFlagUrl = (countryCode: string) => {
 
 // Helper function to generate tracking link
 const generateTrackingLink = (offer: Offer) => {
-  const baseUrl = 'http://localhost:5000/track/click';
+  const baseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/track/click`;
   const params = new URLSearchParams({
     offer_id: offer.offer_id,
     campaign_id: offer.campaign_id,

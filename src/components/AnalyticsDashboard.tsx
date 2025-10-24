@@ -98,7 +98,8 @@ export const AnalyticsDashboard: React.FC = () => {
       };
 
       // Load analytics dashboard
-      const analyticsResponse = await fetch(`http://localhost:5000/api/analytics/dashboard?date_range=${dateRange}`, {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const analyticsResponse = await fetch(`${API_URL}/api/analytics/dashboard?date_range=${dateRange}`, {
         headers
       });
 
@@ -108,7 +109,7 @@ export const AnalyticsDashboard: React.FC = () => {
       }
 
       // Load fraud report
-      const fraudResponse = await fetch(`http://localhost:5000/api/analytics/fraud-report?date_range=${dateRange}`, {
+      const fraudResponse = await fetch(`${API_URL}/api/analytics/fraud-report?date_range=${dateRange}`, {
         headers
       });
 
