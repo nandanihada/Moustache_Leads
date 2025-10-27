@@ -12,6 +12,9 @@ export interface Partner {
   description?: string;
   created_at?: string;
   updated_at?: string;
+  // Postback receiver fields
+  unique_postback_key?: string;
+  postback_receiver_url?: string;
 }
 
 export interface CreatePartnerData {
@@ -43,7 +46,8 @@ class PartnerApi {
 
   async getPartners(status?: string): Promise<{ partners: Partner[]; total: number }> {
     try {
-      const params = status ? { status } : {};
+      const params: any = status ? { status } : {};
+      params.v = new Date().getTime();
       const response = await axios.get(`${API_BASE_URL}/partners`, {
         headers: this.getAuthHeaders(),
         params

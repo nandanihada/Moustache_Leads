@@ -37,7 +37,9 @@ import {
   CheckCircle,
   XCircle,
   Send,
-  Key
+  Key,
+  Plus,
+  TestTube
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -52,6 +54,36 @@ const PostbackReceiver: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [generatedUrl, setGeneratedUrl] = useState('');
+  
+  // Quick postback generator state
+  const [isQuickGenerateModalOpen, setIsQuickGenerateModalOpen] = useState(false);
+  const [selectedParameters, setSelectedParameters] = useState<string[]>([]);
+  const [customParams, setCustomParams] = useState<string[]>(['']);
+  const [partnerName, setPartnerName] = useState('');
+  const [quickGeneratedUrl, setQuickGeneratedUrl] = useState<{
+    unique_key: string;
+    base_url: string;
+    full_url: string;
+    parameters: string[];
+    partner_name: string;
+  } | null>(null);
+  const [isGeneratingQuick, setIsGeneratingQuick] = useState(false);
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [isQuickUrlResultModalOpen, setIsQuickUrlResultModalOpen] = useState(false);
+  const [testParams, setTestParams] = useState<Record<string, string>>({});
+  const [generatedUrls, setGeneratedUrls] = useState<Array<{ id: string; url: string; partnerName: string; timestamp: string; type: 'quick' | 'partner' }>>([]);
+
+  // Predefined parameters
+  const predefinedParameters = [
+    { key: 'username', label: 'Username', placeholder: '{username}' },
+    { key: 'email', label: 'Email', placeholder: '{email}' },
+    { key: 'status', label: 'Status', placeholder: '{status}' },
+    { key: 'payout', label: 'Payout', placeholder: '{payout}' },
+    { key: 'transaction_id', label: 'Transaction ID', placeholder: '{transaction_id}' },
+    { key: 'click_id', label: 'Click ID', placeholder: '{click_id}' },
+    { key: 'user_id', label: 'User ID', placeholder: '{user_id}' },
+    { key: 'offer_id', label: 'Offer ID', placeholder: '{offer_id}' }
+  ];
 
   useEffect(() => {
     loadData();
@@ -92,6 +124,13 @@ const PostbackReceiver: React.FC = () => {
         description: 'Postback URL generated successfully'
       });
       
+      setGeneratedUrls(prev => [...prev, {
+        id: result.unique_key, // Assuming result.unique_key is available or generate one
+        url: result.postback_url,
+        partnerName: partner.partner_name,
+        timestamp: new Date().toISOString(),
+        type: 'partner'
+      }]);
       // Reload partners to show updated URL
       await loadData();
     } catch (error: any) {
@@ -122,6 +161,111 @@ const PostbackReceiver: React.FC = () => {
     return new Date(timestamp).toLocaleString();
   };
 
+  // Quick postback generator handlers
+  const handleParameterToggle = (parameter: string) => {
+    setSelectedParameters(prev => 
+      prev.includes(parameter) 
+        ? prev.filter(p => p !== parameter)
+        : [...prev, parameter]
+    );
+  };
+
+  const handleCustomParamChange = (index: number, value: string) => {
+    const newCustomParams = [...customParams];
+    newCustomParams[index] = value;
+    setCustomParams(newCustomParams);
+  };
+
+  const addCustomParam = () => {
+    setCustomParams([...customParams, '']);
+  };
+
+  const removeCustomParam = (index: number) => {
+    setCustomParams(customParams.filter((_, i) => i !== index));
+  };
+
+  const generateQuickUrl = async () => {
+    if (!partnerName.trim()) {
+      toast({
+        title: 'Error',
+        description: 'Please enter a partner name',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (selectedParameters.length === 0 && customParams.every(p => !p.trim())) {
+      toast({
+        title: 'Error',
+        description: 'Please select at least one parameter',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    try {
+      setIsGeneratingQuick(true);
+      const validCustomParams = customParams.filter(p => p.trim());
+      const result = await postbackReceiverApi.generateQuickPostback(selectedParameters, validCustomParams, partnerName.trim());
+      
+      setQuickGeneratedUrl(result);
+      setIsQuickGenerateModalOpen(false);
+      setIsQuickUrlResultModalOpen(true);
+
+      setGeneratedUrls(prev => [...prev, {
+        id: result.unique_key,
+        url: result.full_url,
+        partnerName: result.partner_name,
+        timestamp: new Date().toISOString(),
+        type: 'quick'
+      }]);
+      
+      toast({
+        title: 'Success',
+        description: `Quick postback URL generated successfully for ${partnerName.trim()}`
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setIsGeneratingQuick(false);
+    }
+  };
+
+  const testQuickUrl = async () => {
+    if (!quickGeneratedUrl) return;
+
+    try {
+      const result = await postbackReceiverApi.testQuickPostback(quickGeneratedUrl.unique_key, testParams);
+      
+      // Open the test URL in a new tab
+      window.open(result.test_url, '_blank');
+      
+      toast({
+        title: 'Success',
+        description: 'Test URL opened in new tab'
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message,
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const resetQuickGenerator = () => {
+    setSelectedParameters([]);
+    setCustomParams(['']);
+    setPartnerName('');
+    setQuickGeneratedUrl(null);
+    setTestParams({});
+    setIsQuickUrlResultModalOpen(false);
+  };
+
   return (
     <div className="container mx-auto p-6">
       <div className="mb-6">
@@ -139,9 +283,148 @@ const PostbackReceiver: React.FC = () => {
 
         {/* Generate URLs Tab */}
         <TabsContent value="generate" className="space-y-4">
+          {/* Quick Generate Button */}
+          <div className="flex justify-between items-center">
+            <div>
+              <h3 className="text-lg font-semibold">Quick Postback Generator</h3>
+              <p className="text-sm text-gray-600">Generate postback URLs instantly without partner setup</p>
+            </div>
+            <Button 
+              onClick={() => setIsQuickGenerateModalOpen(true)}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Generate New Postback URL
+            </Button>
+          </div>
+
+          {/* Quick Generated URLs Display */}
+          {quickGeneratedUrl && (
+            <Card className="border-green-200 bg-green-50">
+              <CardHeader>
+                <CardTitle className="text-green-800">Quick Generated URL</CardTitle>
+                <CardDescription className="text-green-700">
+                  This URL was generated for <strong>{quickGeneratedUrl.partner_name}</strong> and is ready to share
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-sm font-medium text-green-800">Base URL</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      value={quickGeneratedUrl.base_url}
+                      readOnly
+                      className="font-mono text-sm bg-white"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(quickGeneratedUrl.base_url)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                
+                <div>
+                  <Label className="text-sm font-medium text-green-800">Full URL with Parameters</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      value={quickGeneratedUrl.full_url}
+                      readOnly
+                      className="font-mono text-sm bg-white"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard(quickGeneratedUrl.full_url)}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsTestModalOpen(true)}
+                  >
+                    <TestTube className="h-4 w-4 mr-2" />
+                    Test URL
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setQuickGeneratedUrl(null)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    Clear
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* All Generated URLs Display */}
+          {generatedUrls.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>All Generated Postback URLs</CardTitle>
+                <CardDescription>
+                  A history of all postback URLs generated in this session.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Timestamp</TableHead>
+                      <TableHead>Partner Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>URL</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {generatedUrls.map((genUrl) => (
+                      <TableRow key={genUrl.id}>
+                        <TableCell className="text-sm">
+                          {formatTimestamp(genUrl.timestamp)}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {genUrl.partnerName}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={genUrl.type === 'quick' ? 'default' : 'secondary'}>
+                            {genUrl.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-xs">
+                          <code className="text-xs bg-gray-100 px-2 py-1 rounded truncate">
+                            {genUrl.url}
+                          </code>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => copyToClipboard(genUrl.url)}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
-              <CardTitle>Generate Postback URLs</CardTitle>
+              <CardTitle>Partner Postback URLs</CardTitle>
               <CardDescription>
                 Create unique postback receiver URLs for each partner
               </CardDescription>
@@ -181,15 +464,15 @@ const PostbackReceiver: React.FC = () => {
                             </code>
                           </TableCell>
                           <TableCell className="max-w-xs">
-                            {(partner as any).postback_receiver_url ? (
+                            {partner.postback_receiver_url ? (
                               <div className="flex items-center gap-2">
                                 <code className="text-xs bg-green-50 px-2 py-1 rounded truncate">
-                                  {(partner as any).postback_receiver_url}
+                                  {partner.postback_receiver_url}
                                 </code>
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => copyToClipboard((partner as any).postback_receiver_url)}
+                                  onClick={() => copyToClipboard(partner.postback_receiver_url!)}
                                 >
                                   <Copy className="h-3 w-3" />
                                 </Button>
@@ -214,7 +497,7 @@ const PostbackReceiver: React.FC = () => {
                               ) : (
                                 <Key className="h-4 w-4 mr-2" />
                               )}
-                              {(partner as any).postback_receiver_url ? 'Regenerate' : 'Generate'} URL
+                              {partner.postback_receiver_url ? 'Regenerate' : 'Generate'} URL
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -245,7 +528,7 @@ const PostbackReceiver: React.FC = () => {
                   Give the generated URL to your partner. They can add parameters like:
                 </p>
                 <code className="block text-xs bg-gray-100 p-2 rounded mt-2">
-                  https://moustacheleads-backend.onrender.com/postback/abc123?username=&#123;username&#125;&status=&#123;status&#125;&payout=&#123;payout&#125;&transaction_id=&#123;transaction_id&#125;
+                  https://your-backend.com/postback/UNIQUE_KEY?username=...&status=...
                 </code>
               </div>
 
@@ -374,11 +657,11 @@ const PostbackReceiver: React.FC = () => {
               <Label>URL with Parameters (Example)</Label>
               <div className="flex gap-2 mt-1">
                 <Input
-                  value={`${generatedUrl}?username={username}&status={status}&payout={payout}&transaction_id={transaction_id}`}
+                  value={generatedUrl + "?username={username}&status={status}&payout={payout}&transaction_id={transaction_id}"}
                   readOnly
                   className="font-mono text-sm"
                 />
-                <Button onClick={() => copyToClipboard(`${generatedUrl}?username={username}&status={status}&payout={payout}&transaction_id={transaction_id}`)}>
+                <Button onClick={() => copyToClipboard(generatedUrl + "?username={username}&status={status}&payout={payout}&transaction_id={transaction_id}")}>
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
@@ -457,6 +740,297 @@ const PostbackReceiver: React.FC = () => {
               <div>
                 <Label className="text-gray-600">User Agent</Label>
                 <div className="text-sm text-gray-700 mt-1">{selectedPostback.user_agent}</div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Generate Modal */}
+      <Dialog open={isQuickGenerateModalOpen} onOpenChange={setIsQuickGenerateModalOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Generate Custom Postback URL</DialogTitle>
+            <DialogDescription>
+              Select parameters and generate a postback URL instantly
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6">
+            {/* Partner Name Input */}
+            <div>
+              <Label className="text-base font-semibold mb-4 block">Partner Information</Label>
+              <div className="space-y-2">
+                <Label htmlFor="partner-name">Partner Name *</Label>
+                <Input
+                  id="partner-name"
+                  value={partnerName}
+                  onChange={(e) => setPartnerName(e.target.value)}
+                  placeholder="Enter partner name (e.g., Advertiser ABC, Network XYZ)"
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500">
+                  This helps identify which partner the postback URL is for
+                </p>
+              </div>
+            </div>
+
+            {/* Parameter Selection */}
+            <div>
+              <Label className="text-base font-semibold mb-4 block">Select Parameters</Label>
+              <div className="grid grid-cols-2 gap-3">
+                {predefinedParameters.map((param) => (
+                  <div key={param.key} className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id={param.key}
+                      checked={selectedParameters.includes(param.key)}
+                      onChange={() => handleParameterToggle(param.key)}
+                      className="rounded border-gray-300"
+                    />
+                    <Label htmlFor={param.key} className="text-sm font-medium">
+                      {param.label}
+                    </Label>
+                    <code className="text-xs bg-gray-100 px-2 py-1 rounded">
+                      {param.placeholder}
+                    </code>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Parameters */}
+            <div>
+              <Label className="text-base font-semibold mb-4 block">Custom Parameters</Label>
+              <div className="space-y-2">
+                {customParams.map((param, index) => (
+                  <div key={index} className="flex items-center space-x-2">
+                    <Input
+                      value={param}
+                      onChange={(e) => handleCustomParamChange(index, e.target.value)}
+                      placeholder="Enter custom parameter name"
+                      className="flex-1"
+                    />
+                    {customParams.length > 1 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => removeCustomParam(index)}
+                        className="text-red-600 hover:text-red-700"
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={addCustomParam}
+                  className="w-full"
+                >
+                  Add Custom Parameter
+                </Button>
+              </div>
+            </div>
+
+            {/* URL Preview */}
+            <div>
+              <Label className="text-base font-semibold mb-4 block">URL Preview</Label>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-sm text-gray-600">Base URL</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      value="https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+                      readOnly
+                      className="font-mono text-sm"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyToClipboard("https://moustacheleads-backend.onrender.com/postback/{unique_key}")}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+                
+                <div>
+                  <Label className="text-sm text-gray-600">Full URL with Parameters</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      value={(() => {
+                        const allParams = [...selectedParameters, ...customParams.filter(p => p.trim())];
+                        if (allParams.length === 0) {
+                          return "https://moustacheleads-backend.onrender.com/postback/{unique_key}";
+                        }
+                        const paramString = allParams.map(p => `${p}={${p}}`).join('&');
+                        return `https://moustacheleads-backend.onrender.com/postback/{unique_key}?${paramString}`;
+                      })()}
+                      readOnly
+                      className="font-mono text-sm"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const allParams = [...selectedParameters, ...customParams.filter(p => p.trim())];
+                        if (allParams.length === 0) {
+                          copyToClipboard("https://moustacheleads-backend.onrender.com/postback/{unique_key}");
+                        } else {
+                          const paramString = allParams.map(p => `${p}={${p}}`).join('&');
+                          copyToClipboard(`https://moustacheleads-backend.onrender.com/postback/{unique_key}?${paramString}`);
+                        }
+                      }}
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex justify-end space-x-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsQuickGenerateModalOpen(false);
+                  resetQuickGenerator();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={generateQuickUrl}
+                disabled={isGeneratingQuick || !partnerName.trim() || (selectedParameters.length === 0 && customParams.every(p => !p.trim()))}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                {isGeneratingQuick ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Key className="h-4 w-4 mr-2" />
+                )}
+                Generate URL
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Generated URL Modal */}
+      <Dialog open={isQuickUrlResultModalOpen} onOpenChange={setIsQuickUrlResultModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Postback URL Generated</DialogTitle>
+            <DialogDescription>
+              Your custom postback URL for <strong>{quickGeneratedUrl?.partner_name}</strong> is ready to share
+            </DialogDescription>
+          </DialogHeader>
+          
+          {quickGeneratedUrl && (
+            <div className="space-y-4">
+              <div>
+                <Label>Base URL</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    value={quickGeneratedUrl.base_url}
+                    readOnly
+                    className="font-mono text-sm"
+                  />
+                  <Button onClick={() => copyToClipboard(quickGeneratedUrl.base_url)}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <Label>Full URL with Parameters</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    value={quickGeneratedUrl.full_url}
+                    readOnly
+                    className="font-mono text-sm"
+                  />
+                  <Button onClick={() => copyToClipboard(quickGeneratedUrl.full_url)}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 mb-2">Instructions:</h4>
+                <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                  <li>Share this URL with your partner</li>
+                  <li>They can add their data in place of the parameter placeholders</li>
+                  <li>All postbacks will be logged and visible in the "Received Postbacks" tab</li>
+                </ol>
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsTestModalOpen(true)}
+                >
+                  <TestTube className="h-4 w-4 mr-2" />
+                  Test URL
+                </Button>
+                <Button
+                  onClick={() => {
+                    setQuickGeneratedUrl(null);
+                    setIsQuickUrlResultModalOpen(false);
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700"
+                >
+                  Done
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Test Modal */}
+      <Dialog open={isTestModalOpen} onOpenChange={setIsTestModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Test Postback URL</DialogTitle>
+            <DialogDescription>
+              Enter test values to test your postback URL
+            </DialogDescription>
+          </DialogHeader>
+          
+          {quickGeneratedUrl && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                {quickGeneratedUrl.parameters.map((param) => (
+                  <div key={param}>
+                    <Label htmlFor={`test-${param}`}>{param}</Label>
+                    <Input
+                      id={`test-${param}`}
+                      value={testParams[param] || ''}
+                      onChange={(e) => setTestParams(prev => ({ ...prev, [param]: e.target.value }))}
+                      placeholder={`Enter test ${param}`}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsTestModalOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={testQuickUrl}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <TestTube className="h-4 w-4 mr-2" />
+                  Test URL
+                </Button>
               </div>
             </div>
           )}
