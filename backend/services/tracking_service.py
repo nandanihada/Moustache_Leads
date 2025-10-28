@@ -56,7 +56,7 @@ class TrackingService:
             tracking_hash = hashlib.md5(hash_data.encode()).hexdigest()
             
             # Create tracking URL
-            base_url = "http://localhost:5000"  # Configure this
+            base_url = "https://moustacheleads-backend.onrender.com"  # Live backend URL
             tracking_url = f"{base_url}/track/click/{click_id}"
             
             # Add parameters

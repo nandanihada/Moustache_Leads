@@ -40,8 +40,8 @@ const TrackingTest = () => {
       
       // Load offers and users in parallel
       const [offersResponse, usersResponse] = await Promise.all([
-        fetch('http://localhost:5000/api/test/available-offers'),
-        fetch('http://localhost:5000/api/test/sample-users')
+        fetch('https://moustacheleads-backend.onrender.com/api/test/available-offers'),
+        fetch('https://moustacheleads-backend.onrender.com/api/test/sample-users')
       ]);
 
       if (offersResponse.ok) {
@@ -65,9 +65,11 @@ const TrackingTest = () => {
         
         // Auto-select first user if available
         if (usersData.users && usersData.users.length > 0) {
+          const firstUser = usersData.users[0];
+          const userId = firstUser.user_id || firstUser._id || firstUser.username;
           setTestForm(prev => ({
             ...prev,
-            affiliateId: usersData.users[0].user_id
+            affiliateId: userId
           }));
         }
       }
@@ -88,7 +90,7 @@ const TrackingTest = () => {
     try {
       setLoading(true);
       
-      const response = await fetch('http://localhost:5000/api/test/setup-test-offer', {
+      const response = await fetch('https://moustacheleads-backend.onrender.com/api/test/setup-test-offer', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -128,10 +130,10 @@ const TrackingTest = () => {
   };
 
   const runCompleteTest = async () => {
-    if (!testForm.offerId || !testForm.affiliateId) {
+    if (!testForm.offerId || !testForm.affiliateId || testForm.affiliateId === 'nan') {
       toast({
         title: "Error",
-        description: "Offer ID and Affiliate ID are required",
+        description: "Please select valid Offer ID and Affiliate ID",
         variant: "destructive",
       });
       return;
@@ -141,7 +143,7 @@ const TrackingTest = () => {
       setLoading(true);
       
       // Call the test endpoint
-      const response = await fetch('http://localhost:5000/test-complete-flow', {
+      const response = await fetch('https://moustacheleads-backend.onrender.com/test-complete-flow', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -207,7 +209,7 @@ const TrackingTest = () => {
     try {
       setLoading(true);
       
-      const response = await fetch('http://localhost:5000/generate-tracking-link', {
+      const response = await fetch('https://moustacheleads-backend.onrender.com/generate-tracking-link', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -357,16 +359,19 @@ const TrackingTest = () => {
                     <SelectValue placeholder="Select a user" />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableUsers.map((user) => (
-                      <SelectItem key={user.user_id} value={user.user_id}>
-                        <div className="flex flex-col">
-                          <span>{user.username}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {user.role} - {user.user_id.slice(0, 8)}...
-                          </span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {availableUsers.map((user) => {
+                      const userId = user.user_id || user._id || user.username;
+                      return (
+                        <SelectItem key={userId} value={userId}>
+                          <div className="flex flex-col">
+                            <span>{user.username || 'Unknown User'}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {user.role || 'user'} - {userId?.slice(0, 8)}...
+                            </span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               ) : (
@@ -431,6 +436,23 @@ const TrackingTest = () => {
               <li><strong>5. Check Results:</strong> View in Admin → Tracking and Admin → Postback Logs</li>
             </ol>
           </div>
+
+          {(testForm.affiliateId === 'nan' || testForm.affiliateId === '') && (
+            <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+              <h4 className="font-medium text-yellow-900 mb-2">⚠️ Manual Setup Required</h4>
+              <p className="text-sm text-yellow-800 mb-3">
+                Auto-loading failed. Please enter a valid user ID manually:
+              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-yellow-700">
+                  <strong>Option 1:</strong> Use any MongoDB ObjectId (24 characters): <code>67123abc456def789012345</code>
+                </p>
+                <p className="text-xs text-yellow-700">
+                  <strong>Option 2:</strong> Use a simple test ID: <code>test_user_123</code>
+                </p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

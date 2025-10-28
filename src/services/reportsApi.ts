@@ -3,7 +3,7 @@
  * Handles all reports-related API calls for admin dashboard
  */
 
-const API_BASE_URL = 'http://localhost:5000/api/admin';
+const API_BASE_URL = 'https://moustacheleads-backend.onrender.com/api/admin';
 
 export interface ReportSummaryMetrics {
   total_clicks: number;
