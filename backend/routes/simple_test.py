@@ -167,6 +167,59 @@ def simple_tracking_test():
             'error': str(e)
         }), 500
 
+@simple_test_bp.route('/check-offer/<offer_id>', methods=['GET'])
+def check_offer_postback_setup(offer_id):
+    """
+    Check if an offer is properly set up for postbacks
+    """
+    try:
+        offers_collection = db_instance.get_collection('offers')
+        partners_collection = db_instance.get_collection('partners')
+        
+        if offers_collection is None:
+            return jsonify({'error': 'Cannot connect to offers collection'}), 500
+        
+        # Get the offer
+        offer = offers_collection.find_one({'offer_id': offer_id})
+        if not offer:
+            return jsonify({
+                'status': 'error',
+                'message': f'Offer {offer_id} not found'
+            }), 404
+        
+        # Check partner setup
+        partner_id = offer.get('partner_id')
+        partner_info = None
+        
+        if partner_id and partners_collection is not None:
+            partner_info = partners_collection.find_one({'partner_id': partner_id})
+        
+        return jsonify({
+            'status': 'success',
+            'offer': {
+                'offer_id': offer['offer_id'],
+                'name': offer.get('name'),
+                'status': offer.get('status'),
+                'partner_id': partner_id,
+                'has_partner_id': bool(partner_id)
+            },
+            'partner': {
+                'exists': partner_info is not None,
+                'partner_id': partner_info.get('partner_id') if partner_info else None,
+                'name': partner_info.get('name') if partner_info else None,
+                'postback_url': partner_info.get('postback_url') if partner_info else None,
+                'has_postback_url': bool(partner_info.get('postback_url')) if partner_info else False
+            },
+            'postback_ready': bool(partner_id and partner_info and partner_info.get('postback_url'))
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Check offer error: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 @simple_test_bp.route('/health', methods=['GET'])
 def health():
     """Health check"""
@@ -176,6 +229,7 @@ def health():
         'endpoints': [
             '/quick-test',
             '/test-db', 
-            '/simple-tracking-test'
+            '/simple-tracking-test',
+            '/check-offer/<offer_id>'
         ]
     }), 200
