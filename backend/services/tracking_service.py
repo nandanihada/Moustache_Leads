@@ -114,8 +114,18 @@ class TrackingService:
             affiliate_id = request_info.get('aff_id')
             provided_hash = request_info.get('hash')
             
-            if not all([offer_id, affiliate_id, provided_hash]):
-                return {'error': 'Missing required parameters'}
+            self.logger.info(f"🔍 Validating parameters: offer_id={offer_id}, aff_id={affiliate_id}, hash={provided_hash}")
+            
+            missing_params = []
+            if not offer_id:
+                missing_params.append('offer_id')
+            if not affiliate_id:
+                missing_params.append('aff_id')
+            if not provided_hash:
+                missing_params.append('hash')
+            
+            if missing_params:
+                return {'error': f'Missing required parameters: {", ".join(missing_params)}'}
             
             # Get offer
             offer = self.offers_collection.find_one({

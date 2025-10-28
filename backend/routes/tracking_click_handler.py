@@ -23,6 +23,9 @@ def handle_tracking_click(click_id):
     Expected URL format: /track/click/{click_id}?offer_id=ML-001&aff_id=123&hash=abc123
     """
     try:
+        logger.info(f"🌐 Full request URL: {request.url}")
+        logger.info(f"📋 URL args: {dict(request.args)}")
+        
         # Extract request information
         request_info = {
             'ip_address': request.remote_addr,
@@ -30,7 +33,7 @@ def handle_tracking_click(click_id):
             'referer': request.headers.get('Referer', ''),
             'country': request.args.get('country', 'US'),
             'offer_id': request.args.get('offer_id'),
-            'affiliate_id': request.args.get('aff_id'),
+            'aff_id': request.args.get('aff_id'),  # Fixed: was 'affiliate_id'
             'hash': request.args.get('hash'),
             'sub1': request.args.get('sub1', ''),
             'sub2': request.args.get('sub2', ''),
@@ -41,7 +44,8 @@ def handle_tracking_click(click_id):
         }
         
         logger.info(f"🔗 Processing tracking click: {click_id}")
-        logger.info(f"📊 Request info: offer_id={request_info['offer_id']}, aff_id={request_info['affiliate_id']}")
+        logger.info(f"📊 Request info: offer_id={request_info['offer_id']}, aff_id={request_info['aff_id']}")
+        logger.info(f"📋 All URL params: {dict(request.args)}")
         
         # Record the click using our tracking service
         result = tracking_service.record_click(click_id, request_info)
