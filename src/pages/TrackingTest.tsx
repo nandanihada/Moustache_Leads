@@ -142,8 +142,8 @@ const TrackingTest = () => {
     try {
       setLoading(true);
       
-      // Call the test endpoint
-      const response = await fetch('https://moustacheleads-backend.onrender.com/test-complete-flow', {
+      // Call the simple test endpoint (fallback)
+      const response = await fetch('https://moustacheleads-backend.onrender.com/simple-tracking-test', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

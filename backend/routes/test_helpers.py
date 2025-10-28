@@ -21,7 +21,7 @@ def get_available_offers():
         offers_collection = db_instance.get_collection('offers')
         partners_collection = db_instance.get_collection('partners')
         
-        if not offers_collection:
+        if offers_collection is None:
             return jsonify({'error': 'Database connection not available'}), 500
         
         # Get active offers
@@ -40,7 +40,7 @@ def get_available_offers():
         
         # Get all partners for reference
         partners = {}
-        if partners_collection:
+        if partners_collection is not None:
             partner_docs = list(partners_collection.find({}, {
                 'partner_id': 1,
                 'name': 1,
@@ -84,7 +84,7 @@ def get_sample_users():
     try:
         users_collection = db_instance.get_collection('users')
         
-        if not users_collection:
+        if users_collection is None:
             return jsonify({'error': 'Database connection not available'}), 500
         
         # Get sample users (publishers and regular users)
@@ -121,7 +121,7 @@ def create_test_partner():
     try:
         partners_collection = db_instance.get_collection('partners')
         
-        if not partners_collection:
+        if partners_collection is None:
             return jsonify({'error': 'Database connection not available'}), 500
         
         # Check if test partner already exists
@@ -175,7 +175,7 @@ def setup_test_offer():
         offers_collection = db_instance.get_collection('offers')
         partners_collection = db_instance.get_collection('partners')
         
-        if not offers_collection or not partners_collection:
+        if offers_collection is None or partners_collection is None:
             return jsonify({'error': 'Database connection not available'}), 500
         
         # Create test partner first
