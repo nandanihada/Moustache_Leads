@@ -178,16 +178,17 @@ def test_complete_flow():
         # Step 2: Simulate click
         logger.info("🖱️ Step 2: Simulating click...")
         click_id = link_result['click_id']
+        logger.info(f"📋 Link result data: {link_result}")
         
-        # Create mock request info
+        # Create mock request info using the same data from the generated link
         mock_request_info = {
             'ip_address': '127.0.0.1',
             'user_agent': 'Test Bot',
             'referer': 'https://test.com',
             'country': 'US',
             'offer_id': offer_id,
-            'affiliate_id': affiliate_id,
-            'hash': request.args.get('hash', ''),  # This would come from the URL
+            'aff_id': affiliate_id,  # Fixed: use 'aff_id' not 'affiliate_id'
+            'hash': link_result['hash'],  # Use the hash from the generated link
             'sub1': 'test_sub1',
             'sub2': '',
             'sub3': '',
@@ -196,6 +197,7 @@ def test_complete_flow():
             'timestamp': datetime.utcnow()
         }
         
+        logger.info(f"📋 Mock request info: {mock_request_info}")
         click_result = tracking_service.record_click(click_id, mock_request_info)
         
         if 'error' in click_result:

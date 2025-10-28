@@ -39,9 +39,10 @@ const TrackingTest = () => {
       setLoadingData(true);
       
       // Load offers and users in parallel
+      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
       const [offersResponse, usersResponse] = await Promise.all([
-        fetch('https://moustacheleads-backend.onrender.com/api/test/available-offers'),
-        fetch('https://moustacheleads-backend.onrender.com/api/test/sample-users')
+        fetch(`${baseUrl}/api/test/available-offers`),
+        fetch(`${baseUrl}/api/test/sample-users`)
       ]);
 
       if (offersResponse.ok) {
@@ -90,7 +91,8 @@ const TrackingTest = () => {
     try {
       setLoading(true);
       
-      const response = await fetch('https://moustacheleads-backend.onrender.com/api/test/setup-test-offer', {
+      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
+      const response = await fetch(`${baseUrl}/api/test/setup-test-offer`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -143,7 +145,8 @@ const TrackingTest = () => {
       setLoading(true);
       
       // Call the real test endpoint for actual postbacks
-      const response = await fetch('https://moustacheleads-backend.onrender.com/test-complete-flow', {
+      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
+      const response = await fetch(`${baseUrl}/test-complete-flow`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -209,7 +212,8 @@ const TrackingTest = () => {
     try {
       setLoading(true);
       
-      const response = await fetch('https://moustacheleads-backend.onrender.com/generate-tracking-link', {
+      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
+      const response = await fetch(`${baseUrl}/generate-tracking-link`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
