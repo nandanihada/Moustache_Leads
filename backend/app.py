@@ -29,6 +29,10 @@ test_schedule_rules_bp = safe_import_blueprint('routes.test_schedule_rules', 'te
 partners_bp = safe_import_blueprint('routes.partners', 'partners_bp')
 postback_logs_bp = safe_import_blueprint('routes.postback_logs', 'postback_logs_bp')
 postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postback_receiver_bp')
+tracking_api_bp = safe_import_blueprint('routes.tracking_api', 'tracking_api_bp')
+reports_api_bp = safe_import_blueprint('routes.reports_api', 'reports_api_bp')
+tracking_click_bp = safe_import_blueprint('routes.tracking_click_handler', 'tracking_click_bp')
+test_helpers_bp = safe_import_blueprint('routes.test_helpers', 'test_helpers_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -45,7 +49,11 @@ blueprints = [
     (test_schedule_rules_bp, '/api'),  # Test routes
     (partners_bp, '/api/admin'),  # Partner management
     (postback_logs_bp, '/api/admin'),  # Postback logs
-    (postback_receiver_bp, '')  # Postback receiver - no prefix for /postback/{key}
+    (postback_receiver_bp, ''),  # Postback receiver - no prefix for /postback/{key}
+    (tracking_api_bp, '/api'),  # Tracking API
+    (reports_api_bp, '/api/admin'),  # Reports API
+    (tracking_click_bp, ''),  # Tracking click handler - no prefix for /track/click
+    (test_helpers_bp, '/api')  # Test helpers
 ]
 
 def create_app():
@@ -92,14 +100,20 @@ def create_app():
     
     # Register blueprints (only if successfully imported)
     for blueprint, url_prefix in blueprints:
-        if blueprint is not None:
-            if url_prefix:
-                app.register_blueprint(blueprint, url_prefix=url_prefix)
-            else:
-                app.register_blueprint(blueprint)
-            logging.info(f"✅ Registered blueprint: {blueprint.name}")
+        if blueprint:
+            app.register_blueprint(blueprint, url_prefix=url_prefix)
+            print(f"✅ Registered blueprint: {blueprint.name} at {url_prefix}")
         else:
-            logging.warning(f"⚠️ Skipped blueprint registration (import failed)")
+            print(f"❌ Failed to register blueprint with prefix: {url_prefix}")
+    
+    # Start postback processor
+    try:
+        from services.tracking_service import TrackingService
+        tracking_service = TrackingService()
+        tracking_service.start_postback_processor()
+        print("✅ Postback processor started")
+    except Exception as e:
+        print(f"❌ Failed to start postback processor: {str(e)}")
     
     # Health check endpoint
     @app.route('/health', methods=['GET'])

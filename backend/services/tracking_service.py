@@ -9,6 +9,7 @@ from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 import json
 from threading import Thread
 import time
+from models.tracking_events import TrackingEvents
 
 class TrackingService:
     """Service to handle offer tracking, clicks, and postbacks"""
@@ -21,6 +22,7 @@ class TrackingService:
         self.postback_queue_collection = db_instance.get_collection('postback_queue')
         self.postback_logs_collection = db_instance.get_collection('postback_logs')
         self.partners_collection = db_instance.get_collection('partners')
+        self.tracking_events = TrackingEvents()
     
     def generate_tracking_link(self, offer_id, affiliate_id, sub_ids=None):
         """
@@ -36,9 +38,12 @@ class TrackingService:
         """
         try:
             # Get offer
-            offer = self.offers_collection.find_one({'offer_id': offer_id, 'is_active': True})
+            offer = self.offers_collection.find_one({
+                'offer_id': offer_id, 
+                'status': {'$in': ['Active', 'active']}
+            })
             if not offer:
-                return {'error': 'Offer not found'}
+                return {'error': f'Offer {offer_id} not found or not active'}
             
             # Generate unique click ID
             click_id = str(uuid.uuid4())
@@ -113,9 +118,12 @@ class TrackingService:
                 return {'error': 'Missing required parameters'}
             
             # Get offer
-            offer = self.offers_collection.find_one({'offer_id': offer_id, 'is_active': True})
+            offer = self.offers_collection.find_one({
+                'offer_id': offer_id, 
+                'status': {'$in': ['Active', 'active']}
+            })
             if not offer:
-                return {'error': 'Offer not found or inactive'}
+                return {'error': f'Offer {offer_id} not found or inactive'}
             
             # Verify hash
             hash_data = f"{offer_id}:{affiliate_id}:{click_id}"
@@ -165,6 +173,17 @@ class TrackingService:
             # Insert click record
             result = self.clicks_collection.insert_one(click_doc)
             click_doc['_id'] = str(result.inserted_id)
+            
+            # Log tracking event
+            self.tracking_events.log_click_event(
+                offer_id=offer_id,
+                user_id=affiliate_id,
+                click_id=click_id,
+                ip_address=request_info.get('ip_address'),
+                user_agent=request_info.get('user_agent'),
+                country=request_info.get('country'),
+                referer=request_info.get('referer')
+            )
             
             # Increment offer hits
             self.offers_collection.update_one(
@@ -264,6 +283,16 @@ class TrackingService:
             self.clicks_collection.update_one(
                 {'click_id': click_id},
                 {'$set': {'status': 'converted', 'converted_at': datetime.utcnow()}}
+            )
+            
+            # STEP 2.5: Log completion tracking event
+            self.tracking_events.log_completion_event(
+                offer_id=conversion_doc['offer_id'],
+                user_id=conversion_doc['affiliate_id'],
+                conversion_id=conversion_doc['conversion_id'],
+                payout=conversion_doc['payout'],
+                partner_id=conversion_doc.get('partner_id'),
+                external_transaction_id=conversion_doc.get('external_id')
             )
             
             # STEP 3: Queue postback AFTER conversion is saved (use partner_id if available)
@@ -428,6 +457,18 @@ class TrackingService:
                                 '$inc': {'attempts': 1}
                             }
                         )
+                        
+                        # Log successful postback event
+                        self.tracking_events.log_postback_event(
+                            event_type='postback_sent',
+                            offer_id=postback.get('offer_id', ''),
+                            partner_id=postback.get('partner_id', ''),
+                            postback_url=postback['url'],
+                            response_code=response.status_code,
+                            response_body=response.text,
+                            conversion_id=postback.get('conversion_id', '')
+                        )
+                        
                         self.logger.info(f"✅ Postback sent successfully: {postback['postback_id']}")
                     else:
                         # Retry later with exponential backoff
@@ -443,6 +484,18 @@ class TrackingService:
                                 '$inc': {'attempts': 1}
                             }
                         )
+                        
+                        # Log failed postback event
+                        self.tracking_events.log_postback_event(
+                            event_type='postback_failed',
+                            offer_id=postback.get('offer_id', ''),
+                            partner_id=postback.get('partner_id', ''),
+                            postback_url=postback['url'],
+                            response_code=response.status_code,
+                            response_body=response.text,
+                            conversion_id=postback.get('conversion_id', '')
+                        )
+                        
                         self.logger.warning(f"⚠️ Postback failed (will retry): {postback['postback_id']}")
                         
                 except requests.RequestException as e:
@@ -540,3 +593,153 @@ class TrackingService:
         self.logger.info("Postback processor started")
         
         return processor_thread
+    
+    def track_offer_completion(self, offer_id: str, user_id: str, external_data: dict = None) -> dict:
+        """
+        Track offer completion from external source (e.g., offer wall completion)
+        
+        Args:
+            offer_id: Offer ID that was completed
+            user_id: User who completed the offer
+            external_data: Additional data from external completion (transaction_id, payout, etc.)
+        
+        Returns:
+            dict: Completion tracking result
+        """
+        try:
+            # Find the most recent click for this user and offer
+            recent_click = self.clicks_collection.find_one({
+                'offer_id': offer_id,
+                'affiliate_id': user_id,
+                'status': 'clicked'
+            }, sort=[('created_at', -1)])
+            
+            if not recent_click:
+                # Create a synthetic click record for direct completions
+                click_id = str(uuid.uuid4())
+                click_doc = {
+                    'click_id': click_id,
+                    'offer_id': offer_id,
+                    'affiliate_id': user_id,
+                    'ip_address': external_data.get('ip_address', ''),
+                    'user_agent': external_data.get('user_agent', ''),
+                    'country': external_data.get('country', ''),
+                    'referer': 'direct_completion',
+                    'sub_ids': external_data.get('sub_ids', {}),
+                    'click_time': datetime.utcnow(),
+                    'conversion_window_expires': datetime.utcnow() + timedelta(days=30),
+                    'status': 'clicked',
+                    'created_at': datetime.utcnow(),
+                    'synthetic': True  # Mark as synthetic click
+                }
+                
+                result = self.clicks_collection.insert_one(click_doc)
+                click_id = click_doc['click_id']
+                self.logger.info(f"Created synthetic click for direct completion: {click_id}")
+            else:
+                click_id = recent_click['click_id']
+            
+            # Create conversion data
+            conversion_data = {
+                'click_id': click_id,
+                'transaction_id': external_data.get('transaction_id', str(uuid.uuid4())),
+                'payout': external_data.get('payout'),
+                'status': external_data.get('status', 'approved'),
+                'external_id': external_data.get('external_id'),
+                'revenue': external_data.get('revenue'),
+                'response_data': external_data or {}
+            }
+            
+            # Record the conversion
+            result = self.record_conversion(conversion_data)
+            
+            if 'error' in result:
+                return {'error': result['error']}
+            
+            return {
+                'success': True,
+                'click_id': click_id,
+                'conversion_id': result['conversion']['conversion_id'],
+                'message': 'Offer completion tracked successfully'
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error tracking offer completion: {str(e)}")
+            return {'error': str(e)}
+    
+    def get_tracking_stats(self, offer_id: str = None, user_id: str = None, 
+                          date_range: dict = None) -> dict:
+        """
+        Get tracking statistics
+        
+        Args:
+            offer_id: Filter by specific offer
+            user_id: Filter by specific user
+            date_range: {'start': datetime, 'end': datetime}
+        
+        Returns:
+            dict: Tracking statistics
+        """
+        try:
+            # Build filter
+            filter_query = {}
+            if offer_id:
+                filter_query['offer_id'] = offer_id
+            if user_id:
+                filter_query['affiliate_id'] = user_id
+            if date_range:
+                filter_query['created_at'] = {
+                    '$gte': date_range['start'],
+                    '$lte': date_range['end']
+                }
+            
+            # Get click stats
+            total_clicks = self.clicks_collection.count_documents(filter_query)
+            converted_clicks = self.clicks_collection.count_documents({
+                **filter_query,
+                'status': 'converted'
+            })
+            
+            # Get conversion stats
+            conversion_filter = dict(filter_query)
+            if 'affiliate_id' in conversion_filter:
+                conversion_filter['affiliate_id'] = conversion_filter.pop('affiliate_id')
+            
+            total_conversions = self.conversions_collection.count_documents(conversion_filter)
+            
+            # Calculate conversion rate
+            conversion_rate = (converted_clicks / total_clicks * 100) if total_clicks > 0 else 0
+            
+            # Get revenue stats
+            revenue_pipeline = [
+                {'$match': conversion_filter},
+                {'$group': {
+                    '_id': None,
+                    'total_payout': {'$sum': '$payout'},
+                    'avg_payout': {'$avg': '$payout'},
+                    'total_revenue': {'$sum': '$revenue'}
+                }}
+            ]
+            
+            revenue_result = list(self.conversions_collection.aggregate(revenue_pipeline))
+            revenue_data = revenue_result[0] if revenue_result else {
+                'total_payout': 0, 'avg_payout': 0, 'total_revenue': 0
+            }
+            
+            return {
+                'clicks': {
+                    'total': total_clicks,
+                    'converted': converted_clicks,
+                    'conversion_rate': round(conversion_rate, 2)
+                },
+                'conversions': {
+                    'total': total_conversions,
+                    'total_payout': revenue_data['total_payout'],
+                    'avg_payout': round(revenue_data['avg_payout'], 2) if revenue_data['avg_payout'] else 0,
+                    'total_revenue': revenue_data['total_revenue']
+                }
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting tracking stats: {str(e)}")
+            return {'error': str(e)}

@@ -19,6 +19,9 @@ import AscendIframe from "@/pages/AscendIframe";   // ✅ Updated import
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminOffers from "./pages/AdminOffers";
 import AdminAnalytics from "./pages/AdminAnalytics";
+import AdminReports from "./pages/AdminReports";
+import AdminTracking from "./pages/AdminTracking";
+import TrackingTest from "./pages/TrackingTest";
 import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
 import PostbackReceiver from "./pages/PostbackReceiver";
@@ -81,6 +84,9 @@ const App = () => (
               <Route index element={<AdminDashboard />} />
               <Route path="offers" element={<AdminOffers />} />
               <Route path="analytics" element={<AdminAnalytics />} />
+              <Route path="reports" element={<AdminReports />} />
+              <Route path="tracking" element={<AdminTracking />} />
+              <Route path="test-tracking" element={<TrackingTest />} />
               <Route path="partners" element={<Partners />} />
               <Route path="postback-logs" element={<PostbackLogs />} />
               <Route path="postback-receiver" element={<PostbackReceiver />} />

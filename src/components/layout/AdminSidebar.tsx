@@ -8,7 +8,10 @@ import {
   ArrowLeft,
   Handshake,
   Activity,
-  Inbox
+  Inbox,
+  FileText,
+  Monitor,
+  TestTube
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -27,6 +30,9 @@ import {
 const adminMenuItems = [
   { title: "Overview", url: "/admin", icon: Shield },
   { title: "Offers", url: "/admin/offers", icon: Gift },
+  { title: "Reports", url: "/admin/reports", icon: FileText },
+  { title: "Tracking", url: "/admin/tracking", icon: Monitor },
+  { title: "Test Tracking", url: "/admin/test-tracking", icon: TestTube },
   { title: "Partners", url: "/admin/partners", icon: Handshake },
   { title: "Postback Receiver", url: "/admin/postback-receiver", icon: Inbox },
   { title: "Postback Logs", url: "/admin/postback-logs", icon: Activity },
