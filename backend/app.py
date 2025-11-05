@@ -34,6 +34,8 @@ reports_api_bp = safe_import_blueprint('routes.reports_api', 'reports_api_bp')
 tracking_click_bp = safe_import_blueprint('routes.tracking_click_handler', 'tracking_click_bp')
 test_helpers_bp = safe_import_blueprint('routes.test_helpers', 'test_helpers_bp')
 simple_test_bp = safe_import_blueprint('routes.simple_test', 'simple_test_bp')
+partner_profile_bp = safe_import_blueprint('routes.partner_profile', 'partner_profile_bp')
+partner_postback_logs_bp = safe_import_blueprint('routes.partner_postback_logs', 'partner_postback_logs_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -55,7 +57,9 @@ blueprints = [
     (reports_api_bp, '/api/admin'),  # Reports API
     (tracking_click_bp, ''),  # Tracking click handler - no prefix for /track/click
     (test_helpers_bp, '/api'),  # Test helpers
-    (simple_test_bp, '')  # Simple test - no prefix
+    (simple_test_bp, ''),  # Simple test - no prefix
+    (partner_profile_bp, '/api'),  # Partner profile routes
+    (partner_postback_logs_bp, '')  # Partner postback logs - admin routes
 ]
 
 def create_app():

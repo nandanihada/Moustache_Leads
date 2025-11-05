@@ -19,8 +19,8 @@ class User:
         except Exception:
             return False
     
-    def create_user(self, username, email, password):
-        """Create a new user with hashed password"""
+    def create_user(self, username, email, password, **kwargs):
+        """Create a new user with hashed password and optional partner fields"""
         if not self._check_db_connection():
             return None, "Database connection not available"
         
@@ -34,15 +34,30 @@ class User:
         # Hash password
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
         
+        # Base user data
         user_data = {
             'username': username,
             'email': email,
             'password': hashed_password,
-            'role': 'user',  # Default role is 'user', can be 'admin'
+            'role': kwargs.get('role', 'user'),  # Default role is 'user', can be 'admin' or 'partner'
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
             'is_active': True
         }
+        
+        # Add partner-specific fields if provided
+        if kwargs.get('first_name'):
+            user_data['first_name'] = kwargs.get('first_name')
+        if kwargs.get('last_name'):
+            user_data['last_name'] = kwargs.get('last_name')
+        if kwargs.get('company_name'):
+            user_data['company_name'] = kwargs.get('company_name')
+        if kwargs.get('website'):
+            user_data['website'] = kwargs.get('website')
+        if kwargs.get('postback_url'):
+            user_data['postback_url'] = kwargs.get('postback_url')
+        if kwargs.get('postback_method'):
+            user_data['postback_method'] = kwargs.get('postback_method', 'GET')
         
         try:
             result = self.collection.insert_one(user_data)

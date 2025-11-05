@@ -94,10 +94,63 @@ def receive_postback(unique_key):
         
         logger.info(f"✅ Postback logged: {result.inserted_id}")
         
+        # 🚀 AUTOMATIC DISTRIBUTION TO PARTNERS
+        # Prepare postback data for distribution
+        distribution_data = {
+            'click_id': params.get('click_id', [''])[0] if isinstance(params.get('click_id'), list) else params.get('click_id', ''),
+            'status': params.get('status', [''])[0] if isinstance(params.get('status'), list) else params.get('status', ''),
+            'payout': params.get('payout', [''])[0] if isinstance(params.get('payout'), list) else params.get('payout', ''),
+            'offer_id': params.get('offer_id', [''])[0] if isinstance(params.get('offer_id'), list) else params.get('offer_id', ''),
+            'conversion_id': params.get('conversion_id', [''])[0] if isinstance(params.get('conversion_id'), list) else params.get('conversion_id', ''),
+            'transaction_id': params.get('transaction_id', [''])[0] if isinstance(params.get('transaction_id'), list) else params.get('transaction_id', ''),
+            'user_id': params.get('user_id', [''])[0] if isinstance(params.get('user_id'), list) else params.get('user_id', ''),
+            'affiliate_id': params.get('affiliate_id', [''])[0] if isinstance(params.get('affiliate_id'), list) else params.get('affiliate_id', ''),
+            'campaign_id': params.get('campaign_id', [''])[0] if isinstance(params.get('campaign_id'), list) else params.get('campaign_id', ''),
+            'sub_id': params.get('sub_id', [''])[0] if isinstance(params.get('sub_id'), list) else params.get('sub_id', ''),
+            'sub_id1': params.get('sub_id1', [''])[0] if isinstance(params.get('sub_id1'), list) else params.get('sub_id1', ''),
+            'sub_id2': params.get('sub_id2', [''])[0] if isinstance(params.get('sub_id2'), list) else params.get('sub_id2', ''),
+            'sub_id3': params.get('sub_id3', [''])[0] if isinstance(params.get('sub_id3'), list) else params.get('sub_id3', ''),
+            'sub_id4': params.get('sub_id4', [''])[0] if isinstance(params.get('sub_id4'), list) else params.get('sub_id4', ''),
+            'sub_id5': params.get('sub_id5', [''])[0] if isinstance(params.get('sub_id5'), list) else params.get('sub_id5', ''),
+            'ip': ip_address,
+            'country': params.get('country', [''])[0] if isinstance(params.get('country'), list) else params.get('country', ''),
+            'device_id': params.get('device_id', [''])[0] if isinstance(params.get('device_id'), list) else params.get('device_id', ''),
+            'timestamp': str(int(datetime.utcnow().timestamp())),
+        }
+        
+        # Add any additional params from POST data
+        if post_data:
+            distribution_data.update(post_data)
+        
+        # Distribute to all active partners
+        logger.info(f"🚀 Starting distribution process...")
+        logger.info(f"📦 Distribution data: {distribution_data}")
+        
+        try:
+            from services.partner_postback_service import partner_postback_service
+            from database import db_instance
+            
+            logger.info(f"✅ Imported partner_postback_service successfully")
+            
+            distribution_result = partner_postback_service.distribute_to_all_partners(
+                postback_data=distribution_data,
+                db_instance=db_instance,
+                source_log_id=str(result.inserted_id)
+            )
+            
+            logger.info(f"📊 Distribution summary: {distribution_result['successful']}/{distribution_result['total_partners']} partners notified")
+            logger.info(f"📋 Full distribution result: {distribution_result}")
+            
+        except Exception as dist_error:
+            logger.error(f"❌ Error distributing to partners: {str(dist_error)}", exc_info=True)
+            import traceback
+            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
+            # Don't fail the main postback - continue even if distribution fails
+        
         # Return success response
         return jsonify({
             'status': 'success',
-            'message': 'Postback received',
+            'message': 'Postback received and distributed',
             'log_id': str(result.inserted_id)
         }), 200
         
@@ -240,7 +293,6 @@ def generate_quick_postback():
         data = request.get_json()
         parameters = data.get('parameters', [])
         custom_params = data.get('custom_params', [])
-        partner_name = data.get('partner_name', 'Quick Generated')
         
         # Generate unique key (32 characters)
         unique_key = secrets.token_urlsafe(24)
@@ -269,8 +321,7 @@ def generate_quick_postback():
             'unique_key': unique_key,
             'base_url': base_url,
             'full_url': full_url,
-            'parameters': all_params,
-            'partner_name': partner_name
+            'parameters': all_params
         }), 200
         
     except Exception as e:

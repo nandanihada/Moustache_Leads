@@ -19,7 +19,7 @@ def validate_password(password):
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    """User registration endpoint"""
+    """User registration endpoint with partner support"""
     try:
         data = request.get_json()
         
@@ -53,9 +53,30 @@ def register():
         if len(username) < 3:
             return jsonify({'error': 'Username must be at least 3 characters long'}), 400
         
+        # Extract optional partner fields
+        optional_fields = {}
+        if data.get('first_name'):
+            optional_fields['first_name'] = data.get('first_name').strip()
+        if data.get('last_name'):
+            optional_fields['last_name'] = data.get('last_name').strip()
+        if data.get('company_name'):
+            optional_fields['company_name'] = data.get('company_name').strip()
+        if data.get('website'):
+            optional_fields['website'] = data.get('website').strip()
+        if data.get('postback_url'):
+            optional_fields['postback_url'] = data.get('postback_url').strip()
+        if data.get('postback_method'):
+            optional_fields['postback_method'] = data.get('postback_method')
+        if data.get('role'):
+            # Validate role
+            allowed_roles = ['user', 'partner', 'admin']
+            role = data.get('role')
+            if role in allowed_roles:
+                optional_fields['role'] = role
+        
         # Create user
         user_model = User()
-        user_data, error = user_model.create_user(username, email, password)
+        user_data, error = user_model.create_user(username, email, password, **optional_fields)
         
         if error:
             return jsonify({'error': error}), 400
@@ -70,7 +91,12 @@ def register():
                 'id': str(user_data['_id']),
                 'username': user_data['username'],
                 'email': user_data['email'],
-                'role': user_data.get('role', 'user')
+                'role': user_data.get('role', 'user'),
+                'first_name': user_data.get('first_name'),
+                'last_name': user_data.get('last_name'),
+                'company_name': user_data.get('company_name'),
+                'website': user_data.get('website'),
+                'postback_url': user_data.get('postback_url')
             }
         }), 201
         
@@ -141,11 +167,69 @@ def get_profile():
                 'id': str(user['_id']),
                 'username': user['username'],
                 'email': user['email'],
+                'role': user.get('role', 'user'),
+                'first_name': user.get('first_name'),
+                'last_name': user.get('last_name'),
+                'company_name': user.get('company_name'),
+                'website': user.get('website'),
+                'postback_url': user.get('postback_url'),
+                'postback_method': user.get('postback_method', 'GET'),
                 'created_at': user['created_at'].isoformat() if user.get('created_at') else None
             }
         }), 200
     except Exception as e:
         return jsonify({'error': f'Failed to get profile: {str(e)}'}), 500
+
+@auth_bp.route('/profile/update', methods=['PUT'])
+@token_required
+def update_profile():
+    """Update user profile (protected route)"""
+    try:
+        user = request.current_user
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Build update document
+        update_doc = {}
+        
+        # Allowed fields for update
+        allowed_fields = ['first_name', 'last_name', 'company_name', 'website', 'postback_url', 'postback_method']
+        for field in allowed_fields:
+            if field in data:
+                update_doc[field] = data[field].strip() if isinstance(data[field], str) else data[field]
+        
+        if not update_doc:
+            return jsonify({'error': 'No valid fields to update'}), 400
+        
+        # Update user in database
+        user_model = User()
+        success = user_model.update_user(str(user['_id']), update_doc)
+        
+        if success:
+            # Get updated user data
+            updated_user = user_model.find_by_id(str(user['_id']))
+            return jsonify({
+                'message': 'Profile updated successfully',
+                'user': {
+                    'id': str(updated_user['_id']),
+                    'username': updated_user['username'],
+                    'email': updated_user['email'],
+                    'role': updated_user.get('role', 'user'),
+                    'first_name': updated_user.get('first_name'),
+                    'last_name': updated_user.get('last_name'),
+                    'company_name': updated_user.get('company_name'),
+                    'website': updated_user.get('website'),
+                    'postback_url': updated_user.get('postback_url'),
+                    'postback_method': updated_user.get('postback_method', 'GET')
+                }
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to update profile'}), 500
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to update profile: {str(e)}'}), 500
 
 @auth_bp.route('/verify-token', methods=['POST'])
 @token_required

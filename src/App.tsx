@@ -25,6 +25,7 @@ import TrackingTest from "./pages/TrackingTest";
 import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
 import PostbackReceiver from "./pages/PostbackReceiver";
+import PartnerProfile from "./pages/PartnerProfile";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Landing from "./pages/Landing";
@@ -68,6 +69,7 @@ const App = () => (
               <Route path="assets" element={<Assets />} />
               <Route path="payments" element={<Payments />} />
               <Route path="settings" element={<Settings />} />
+              <Route path="profile" element={<PartnerProfile />} />
               <Route path="campaign-builder" element={<CampaignBuilder />} /> 
               <Route path="ascend" element={<AscendIframe />} />
             </Route>
