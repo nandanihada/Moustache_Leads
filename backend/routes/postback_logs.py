@@ -18,6 +18,63 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+@postback_logs_bp.route('/partner-distribution-logs', methods=['GET'])
+@token_required
+@admin_required
+def get_partner_distribution_logs():
+    """Get partner postback distribution logs"""
+    try:
+        partner_logs_collection = db_instance.get_collection('partner_postback_logs')
+        
+        # Get query parameters
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 50))
+        partner_id = request.args.get('partner_id')
+        success = request.args.get('success')
+        hours = int(request.args.get('hours', 24))
+        
+        # Build query
+        query = {}
+        
+        if partner_id:
+            query['partner_id'] = partner_id
+        
+        if success is not None:
+            query['success'] = success.lower() == 'true'
+        
+        # Time filter
+        if hours > 0:
+            cutoff_time = datetime.utcnow() - timedelta(hours=hours)
+            query['timestamp'] = {'$gte': cutoff_time}
+        
+        # Get logs
+        skip = (page - 1) * limit
+        logs = list(partner_logs_collection.find(query)
+                   .sort('timestamp', -1)
+                   .skip(skip)
+                   .limit(limit))
+        
+        # Convert ObjectId to string
+        for log in logs:
+            if '_id' in log:
+                log['_id'] = str(log['_id'])
+            if 'partner_id' in log and hasattr(log['partner_id'], '__str__'):
+                log['partner_id'] = str(log['partner_id'])
+        
+        total = partner_logs_collection.count_documents(query)
+        
+        return jsonify({
+            'logs': logs,
+            'total': total,
+            'page': page,
+            'limit': limit,
+            'pages': (total + limit - 1) // limit
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching partner distribution logs: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 @postback_logs_bp.route('/postback-logs', methods=['GET'])
 @token_required
 @admin_required
