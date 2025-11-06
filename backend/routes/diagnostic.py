@@ -29,7 +29,7 @@ def check_distribution_status():
             
             # Check active partners
             users_collection = db_instance.get_collection('users')
-            if users_collection:
+            if users_collection is not None:
                 partners = list(users_collection.find({
                     'role': 'partner',
                     'is_active': True,
@@ -49,7 +49,7 @@ def check_distribution_status():
             
             # Check recent received postbacks
             received_collection = db_instance.get_collection('received_postbacks')
-            if received_collection:
+            if received_collection is not None:
                 from datetime import datetime, timedelta
                 cutoff = datetime.utcnow() - timedelta(hours=24)
                 status['recent_received_postbacks'] = received_collection.count_documents({
@@ -58,7 +58,7 @@ def check_distribution_status():
             
             # Check distribution logs
             partner_logs_collection = db_instance.get_collection('partner_postback_logs')
-            if partner_logs_collection:
+            if partner_logs_collection is not None:
                 from datetime import datetime, timedelta
                 cutoff = datetime.utcnow() - timedelta(hours=24)
                 status['recent_distribution_logs'] = partner_logs_collection.count_documents({

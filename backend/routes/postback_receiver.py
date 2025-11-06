@@ -38,6 +38,7 @@ def receive_postback(unique_key):
     Receive postback from external partners
     URL format: https://moustacheleads-backend.onrender.com/postback/{unique_key}?param1=value1&param2=value2
     """
+    logger.info(f"🔔 POSTBACK RECEIVER FUNCTION CALLED - VERSION WITH DISTRIBUTION")
     try:
         partners_collection = get_collection('partners')
         received_postbacks_collection = get_collection('received_postbacks')
@@ -96,27 +97,38 @@ def receive_postback(unique_key):
         
         # 🚀 AUTOMATIC DISTRIBUTION TO PARTNERS
         # Prepare postback data for distribution
+        logger.info("📝 Building distribution data...")
+        
+        # Helper function to safely get parameter value
+        def get_param_value(key):
+            val = params.get(key, '')
+            if isinstance(val, list):
+                return val[0] if val else ''
+            return str(val) if val else ''
+        
         distribution_data = {
-            'click_id': params.get('click_id', [''])[0] if isinstance(params.get('click_id'), list) else params.get('click_id', ''),
-            'status': params.get('status', [''])[0] if isinstance(params.get('status'), list) else params.get('status', ''),
-            'payout': params.get('payout', [''])[0] if isinstance(params.get('payout'), list) else params.get('payout', ''),
-            'offer_id': params.get('offer_id', [''])[0] if isinstance(params.get('offer_id'), list) else params.get('offer_id', ''),
-            'conversion_id': params.get('conversion_id', [''])[0] if isinstance(params.get('conversion_id'), list) else params.get('conversion_id', ''),
-            'transaction_id': params.get('transaction_id', [''])[0] if isinstance(params.get('transaction_id'), list) else params.get('transaction_id', ''),
-            'user_id': params.get('user_id', [''])[0] if isinstance(params.get('user_id'), list) else params.get('user_id', ''),
-            'affiliate_id': params.get('affiliate_id', [''])[0] if isinstance(params.get('affiliate_id'), list) else params.get('affiliate_id', ''),
-            'campaign_id': params.get('campaign_id', [''])[0] if isinstance(params.get('campaign_id'), list) else params.get('campaign_id', ''),
-            'sub_id': params.get('sub_id', [''])[0] if isinstance(params.get('sub_id'), list) else params.get('sub_id', ''),
-            'sub_id1': params.get('sub_id1', [''])[0] if isinstance(params.get('sub_id1'), list) else params.get('sub_id1', ''),
-            'sub_id2': params.get('sub_id2', [''])[0] if isinstance(params.get('sub_id2'), list) else params.get('sub_id2', ''),
-            'sub_id3': params.get('sub_id3', [''])[0] if isinstance(params.get('sub_id3'), list) else params.get('sub_id3', ''),
-            'sub_id4': params.get('sub_id4', [''])[0] if isinstance(params.get('sub_id4'), list) else params.get('sub_id4', ''),
-            'sub_id5': params.get('sub_id5', [''])[0] if isinstance(params.get('sub_id5'), list) else params.get('sub_id5', ''),
+            'click_id': get_param_value('click_id'),
+            'status': get_param_value('status'),
+            'payout': get_param_value('payout'),
+            'offer_id': get_param_value('offer_id'),
+            'conversion_id': get_param_value('conversion_id'),
+            'transaction_id': get_param_value('transaction_id'),
+            'user_id': get_param_value('user_id'),
+            'affiliate_id': get_param_value('affiliate_id'),
+            'campaign_id': get_param_value('campaign_id'),
+            'sub_id': get_param_value('sub_id'),
+            'sub_id1': get_param_value('sub_id1'),
+            'sub_id2': get_param_value('sub_id2'),
+            'sub_id3': get_param_value('sub_id3'),
+            'sub_id4': get_param_value('sub_id4'),
+            'sub_id5': get_param_value('sub_id5'),
             'ip': ip_address,
-            'country': params.get('country', [''])[0] if isinstance(params.get('country'), list) else params.get('country', ''),
-            'device_id': params.get('device_id', [''])[0] if isinstance(params.get('device_id'), list) else params.get('device_id', ''),
+            'country': get_param_value('country'),
+            'device_id': get_param_value('device_id'),
             'timestamp': str(int(datetime.utcnow().timestamp())),
         }
+        
+        logger.info(f"✅ Distribution data built successfully")
         
         # Add any additional params from POST data
         if post_data:
@@ -365,6 +377,43 @@ def test_quick_postback():
     except Exception as e:
         logger.error(f"Error testing quick postback: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+@postback_receiver_bp.route('/test-distribution-now', methods=['GET'])
+def test_distribution_now():
+    """Test distribution immediately - no auth required for debugging"""
+    try:
+        logger.info("🧪 TEST DISTRIBUTION ENDPOINT CALLED")
+        
+        from services.partner_postback_service import partner_postback_service
+        from database import db_instance
+        
+        logger.info("✅ Service imported in test endpoint")
+        
+        test_data = {
+            'click_id': 'TEST_MANUAL',
+            'status': 'test',
+            'payout': '1.00',
+            'offer_id': 'TEST'
+        }
+        
+        result = partner_postback_service.distribute_to_all_partners(
+            postback_data=test_data,
+            db_instance=db_instance,
+            source_log_id='manual_test'
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': 'Distribution test completed',
+            'result': result
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Test distribution error: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @postback_receiver_bp.route('/api/admin/postback-receiver/test', methods=['POST'])
 @token_required

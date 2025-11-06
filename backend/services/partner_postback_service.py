@@ -105,21 +105,57 @@ class PartnerPostbackService:
             # Replace macros in URL
             final_url = self.replace_macros(postback_url, postback_data)
             
+            # Filter out empty values from postback_data
+            clean_data = {k: v for k, v in postback_data.items() if v and v != ''}
+            
             logger.info(f"📤 Sending postback to {partner_name} ({method}): {final_url}")
+            logger.info(f"📦 Data being sent: {clean_data}")
             
             # Send request based on method
             start_time = time.time()
             
             if method == 'POST':
+                # Send data as JSON in POST body
                 response = requests.post(
                     final_url,
-                    json=postback_data,
+                    json=clean_data,
                     timeout=self.timeout,
-                    headers={'User-Agent': 'PepeLeads-Postback-Distributor/1.0'}
+                    headers={
+                        'User-Agent': 'PepeLeads-Postback-Distributor/1.0',
+                        'Content-Type': 'application/json'
+                    }
                 )
             else:  # GET
+                # Append data as query parameters
+                import urllib.parse
+                
+                # Parse existing URL
+                parsed = urllib.parse.urlparse(final_url)
+                
+                # Get existing query params
+                existing_params = urllib.parse.parse_qs(parsed.query)
+                
+                # Add new params (flatten list values)
+                for key, value in clean_data.items():
+                    existing_params[key] = [str(value)]
+                
+                # Rebuild query string
+                new_query = urllib.parse.urlencode(existing_params, doseq=True)
+                
+                # Rebuild URL
+                final_url_with_params = urllib.parse.urlunparse((
+                    parsed.scheme,
+                    parsed.netloc,
+                    parsed.path,
+                    parsed.params,
+                    new_query,
+                    parsed.fragment
+                ))
+                
+                logger.info(f"📍 Final URL with params: {final_url_with_params}")
+                
                 response = requests.get(
-                    final_url,
+                    final_url_with_params,
                     timeout=self.timeout,
                     headers={'User-Agent': 'PepeLeads-Postback-Distributor/1.0'}
                 )
@@ -134,11 +170,14 @@ class PartnerPostbackService:
             else:
                 logger.warning(f"⚠️ Postback failed for {partner_name} - Status: {response.status_code}")
             
+            # Determine which URL was actually used
+            actual_url = final_url_with_params if method == 'GET' else final_url
+            
             return {
                 'partner_id': partner_id,
                 'partner_name': partner_name,
                 'partner_email': partner.get('email', ''),
-                'postback_url': final_url,
+                'postback_url': actual_url,
                 'method': method,
                 'success': success,
                 'status_code': response.status_code,

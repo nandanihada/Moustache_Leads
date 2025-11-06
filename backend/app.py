@@ -4,6 +4,14 @@ from config import Config
 from database import db_instance
 import logging
 
+# Import partner postback service to ensure it's available
+try:
+    from services.partner_postback_service import partner_postback_service
+    logging.info("✅ Partner postback service imported successfully at startup")
+except Exception as e:
+    logging.error(f"❌ Failed to import partner_postback_service: {str(e)}")
+    partner_postback_service = None
+
 # Import routes with error handling
 def safe_import_blueprint(module_path, blueprint_name):
     """Safely import blueprint with error handling"""

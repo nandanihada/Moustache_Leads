@@ -31,19 +31,25 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const PostbackLogs: React.FC = () => {
   const { toast } = useToast();
   const [logs, setLogs] = useState<PostbackLog[]>([]);
+  const [forwardedLogs, setForwardedLogs] = useState<any[]>([]);
   const [stats, setStats] = useState<PostbackStats | null>(null);
   const [partners, setPartners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [forwardedLoading, setForwardedLoading] = useState(false);
   const [statsLoading, setStatsLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [forwardedPage, setForwardedPage] = useState(1);
+  const [forwardedTotalPages, setForwardedTotalPages] = useState(1);
   const [selectedLog, setSelectedLog] = useState<PostbackLog | null>(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
+  const [activeTab, setActiveTab] = useState('received');
   
   // Filters
   const [filters, setFilters] = useState({
@@ -52,25 +58,6 @@ const PostbackLogs: React.FC = () => {
     date_from: '',
     date_to: ''
   });
-
-  useEffect(() => {
-    fetchLogs();
-    fetchStats();
-    fetchPartners();
-  }, [page, filters]);
-
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (autoRefresh) {
-      interval = setInterval(() => {
-        fetchLogs();
-        fetchStats();
-      }, 30000); // Refresh every 30 seconds
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [autoRefresh, page, filters]);
 
   const fetchLogs = async () => {
     try {
@@ -124,6 +111,42 @@ const PostbackLogs: React.FC = () => {
     }
   };
 
+  const fetchForwardedLogs = async () => {
+    try {
+      setForwardedLoading(true);
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const token = localStorage.getItem('token');
+      
+      const params = new URLSearchParams({
+        page: forwardedPage.toString(),
+        limit: '20',
+        hours: '168' // Last 7 days
+      });
+      
+      const response = await fetch(`${API_URL}/api/admin/partner-distribution-logs?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch forwarded logs');
+      }
+      
+      const data = await response.json();
+      setForwardedLogs(data.logs || []);
+      setForwardedTotalPages(data.pages || 1);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to fetch forwarded postback logs',
+        variant: 'destructive'
+      });
+    } finally {
+      setForwardedLoading(false);
+    }
+  };
+
   const handleRetry = async (log: PostbackLog) => {
     try {
       await postbackLogsApi.retryPostback(log.log_id);
@@ -154,7 +177,36 @@ const PostbackLogs: React.FC = () => {
       date_to: ''
     });
     setPage(1);
+    setForwardedPage(1);
   };
+
+  // useEffects - run after functions are defined
+  useEffect(() => {
+    if (activeTab === 'received') {
+      fetchLogs();
+      fetchStats();
+    } else {
+      fetchForwardedLogs();
+    }
+    fetchPartners();
+  }, [page, forwardedPage, filters, activeTab]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (autoRefresh) {
+      interval = setInterval(() => {
+        if (activeTab === 'received') {
+          fetchLogs();
+          fetchStats();
+        } else {
+          fetchForwardedLogs();
+        }
+      }, 30000); // Refresh every 30 seconds
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [autoRefresh, page, forwardedPage, filters, activeTab]);
 
   const getStatusBadge = (status: string) => {
     if (status === 'success') {
@@ -182,7 +234,14 @@ const PostbackLogs: React.FC = () => {
             <RefreshCw className={`mr-2 h-4 w-4 ${autoRefresh ? 'animate-spin' : ''}`} />
             {autoRefresh ? 'Auto-Refresh On' : 'Auto-Refresh Off'}
           </Button>
-          <Button onClick={() => { fetchLogs(); fetchStats(); }}>
+          <Button onClick={() => { 
+            if (activeTab === 'received') {
+              fetchLogs(); 
+              fetchStats(); 
+            } else {
+              fetchForwardedLogs();
+            }
+          }}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
           </Button>
@@ -232,6 +291,14 @@ const PostbackLogs: React.FC = () => {
         </div>
       ) : null}
 
+      {/* Tabs for Received vs Forwarded */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-6">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="received">Received Postbacks</TabsTrigger>
+          <TabsTrigger value="forwarded">Forwarded to Partners</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="received">
       {/* Filters */}
       <Card className="mb-6">
         <CardHeader>
@@ -400,6 +467,104 @@ const PostbackLogs: React.FC = () => {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="forwarded">
+          <Card>
+            <CardHeader>
+              <CardTitle>Forwarded Postbacks</CardTitle>
+              <CardDescription>Postbacks sent to your partners</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {forwardedLoading ? (
+                <div className="flex justify-center items-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : forwardedLogs.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  No forwarded postbacks found
+                </div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Partner</TableHead>
+                        <TableHead>Method</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Status Code</TableHead>
+                        <TableHead>Response Time</TableHead>
+                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {forwardedLogs.map((log: any) => (
+                        <TableRow key={log._id}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{log.partner_name}</div>
+                              <div className="text-xs text-gray-500">{log.partner_email}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getMethodBadge(log.method)}</TableCell>
+                          <TableCell>
+                            {log.success ? (
+                              <Badge className="bg-green-500"><CheckCircle className="h-3 w-3 mr-1" />Success</Badge>
+                            ) : (
+                              <Badge variant="destructive"><XCircle className="h-3 w-3 mr-1" />Failed</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>{log.status_code || 'N/A'}</TableCell>
+                          <TableCell>{log.response_time ? `${log.response_time.toFixed(2)}s` : 'N/A'}</TableCell>
+                          <TableCell>
+                            {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'N/A'}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedLog(log as any);
+                                setIsDetailsModalOpen(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+
+                  {/* Pagination */}
+                  {forwardedTotalPages > 1 && (
+                    <div className="flex justify-center items-center gap-2 mt-4">
+                      <Button
+                        variant="outline"
+                        onClick={() => setForwardedPage(Math.max(1, forwardedPage - 1))}
+                        disabled={forwardedPage === 1}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm">
+                        Page {forwardedPage} of {forwardedTotalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        onClick={() => setForwardedPage(Math.min(forwardedTotalPages, forwardedPage + 1))}
+                        disabled={forwardedPage === forwardedTotalPages}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Details Modal */}
       <Dialog open={isDetailsModalOpen} onOpenChange={setIsDetailsModalOpen}>
