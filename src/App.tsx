@@ -8,6 +8,7 @@ import DashboardLayout from "./components/layout/DashboardLayout";
 import AdminLayout from "./components/layout/AdminLayout";
 import Dashboard from "./pages/Dashboard";
 import Offers from "./pages/Offers";
+import PublisherOffers from "./pages/PublisherOffers";
 import Reports from "./pages/Reports";
 import Users from "./pages/Users";
 import Placements from "./pages/Placements";
@@ -26,6 +27,8 @@ import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
 import PostbackReceiver from "./pages/PostbackReceiver";
 import PartnerProfile from "./pages/PartnerProfile";
+import PerformanceReport from "./pages/PerformanceReport";
+import ConversionReport from "./pages/ConversionReport";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Landing from "./pages/Landing";
@@ -62,8 +65,10 @@ const App = () => (
               }
             >
               <Route index element={<Dashboard />} />
-              <Route path="offers" element={<Offers />} />
+              <Route path="offers" element={<PublisherOffers />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="performance-report" element={<PerformanceReport />} />
+              <Route path="conversion-report" element={<ConversionReport />} />
               <Route path="users" element={<Users />} />
               <Route path="placements" element={<Placements />} />
               <Route path="assets" element={<Assets />} />

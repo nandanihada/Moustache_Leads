@@ -62,6 +62,7 @@ export const LinkMaskingModal: React.FC<LinkMaskingModalProps> = ({
   const [rotationUrls, setRotationUrls] = useState<string[]>([]);
   const [newRotationUrl, setNewRotationUrl] = useState('');
   const [generatedLink, setGeneratedLink] = useState<string>('');
+  const [activeTab, setActiveTab] = useState('basic');
 
   const [maskingSettings, setMaskingSettings] = useState<MaskingSettings>({
     domain_id: '',
@@ -80,6 +81,7 @@ export const LinkMaskingModal: React.FC<LinkMaskingModalProps> = ({
     if (open) {
       loadDomains();
       resetForm();
+      setActiveTab('basic');
     }
   }, [open]);
 
@@ -234,7 +236,7 @@ export const LinkMaskingModal: React.FC<LinkMaskingModalProps> = ({
         </DialogHeader>
 
         <div className="space-y-6">
-          <Tabs defaultValue="basic" className="w-full">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="basic">Basic Settings</TabsTrigger>
               <TabsTrigger value="advanced">Advanced</TabsTrigger>
@@ -347,6 +349,15 @@ export const LinkMaskingModal: React.FC<LinkMaskingModalProps> = ({
                     <p className="text-sm text-blue-700 break-all">
                       {offer.target_url}
                     </p>
+                  </div>
+
+                  <div className="flex justify-end pt-4">
+                    <Button 
+                      onClick={() => setActiveTab('preview')} 
+                      disabled={!maskingSettings.domain_id}
+                    >
+                      Continue to Generate Link →
+                    </Button>
                   </div>
                 </CardContent>
               </Card>

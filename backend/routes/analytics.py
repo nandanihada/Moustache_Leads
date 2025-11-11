@@ -213,42 +213,101 @@ def get_conversions():
         logging.error(f"Get conversions error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get conversions: {str(e)}'}), 500
 
-# Postback endpoint for external networks
+# Enhanced Postback endpoint - Captures ALL survey data
 @analytics_bp.route('/postback', methods=['GET', 'POST'])
 def handle_postback():
-    """Handle conversion postbacks from external networks"""
+    """
+    Enhanced postback endpoint that captures ALL data from survey partners
+    
+    Required: click_id
+    Optional: status, payout, transaction_id, + ANY custom survey data
+    """
     try:
-        # Get parameters from query string or form data
+        # Get ALL parameters
         if request.method == 'GET':
-            params = request.args
+            all_params = dict(request.args)
         else:
-            params = request.form
+            all_params = dict(request.form)
         
-        # Extract common postback parameters
-        subid = params.get('subid') or params.get('s1') or params.get('clickid')
-        payout = float(params.get('payout', 0))
-        status = params.get('status', 'approved')
+        # Log incoming postback
+        logging.info(f"📥 POSTBACK RECEIVED: {all_params}")
         
-        if not subid:
-            return jsonify({'error': 'SubID required'}), 400
+        # Extract click_id (try multiple param names)
+        click_id = (all_params.get('click_id') or 
+                   all_params.get('clickid') or 
+                   all_params.get('subid') or 
+                   all_params.get('s1'))
         
-        # Track conversion
+        if not click_id:
+            logging.warning("❌ Postback missing click_id")
+            return "ERROR: click_id required", 400
+        
+        # Find original click
+        from database import db_instance
+        import secrets
+        from datetime import datetime
+        
+        clicks_collection = db_instance.get_collection('clicks')
+        click = clicks_collection.find_one({'click_id': click_id})
+        
+        if not click:
+            logging.warning(f"❌ Click not found: {click_id}")
+            return "ERROR: Click not found", 404
+        
+        # Extract standard fields
+        status = all_params.get('status', 'approved').lower()
+        payout = float(all_params.get('payout', 0))
+        transaction_id = (all_params.get('transaction_id') or 
+                         all_params.get('txn_id') or 
+                         f'TXN-{secrets.token_hex(8).upper()}')
+        
+        # Capture ALL extra data as custom_data
+        standard_fields = ['click_id', 'clickid', 'subid', 's1', 'status', 'payout', 'transaction_id', 'txn_id']
+        custom_data = {k: v for k, v in all_params.items() if k not in standard_fields}
+        
+        # Create conversion with ALL data
+        conversions_collection = db_instance.get_collection('conversions')
+        conversion_id = f"CONV-{secrets.token_hex(6).upper()}"
+        
         conversion_data = {
-            'subid': subid,
+            'conversion_id': conversion_id,
+            'click_id': click_id,
+            'transaction_id': transaction_id,
+            'offer_id': click.get('offer_id'),
+            'user_id': click.get('user_id'),
+            'affiliate_id': click.get('affiliate_id'),
+            'status': status,
             'payout': payout,
-            'conversion_type': params.get('type', 'lead'),
-            'conversion_value': params.get('value'),
-            'revenue': payout  # Assuming 1:1 for simplicity
+            'currency': all_params.get('currency', 'USD'),
+            'country': click.get('country', 'Unknown'),
+            'device_type': click.get('device_type', 'unknown'),
+            'ip_address': click.get('ip_address'),
+            'sub_id1': click.get('sub_id1'),
+            'sub_id2': click.get('sub_id2'),
+            'sub_id3': click.get('sub_id3'),
+            'conversion_time': datetime.utcnow(),
+            
+            # ✨ CAPTURE ALL SURVEY RESPONSES
+            'custom_data': custom_data,
+            'raw_postback': all_params,
+            'survey_id': all_params.get('survey_id'),
+            'partner_id': all_params.get('partner_id') or all_params.get('pid'),
+            'session_id': all_params.get('session_id'),
+            'postback_ip': request.remote_addr,
         }
         
-        conversion_record, error = analytics_model.track_conversion(conversion_data)
+        conversions_collection.insert_one(conversion_data)
         
-        if error:
-            logging.warning(f"Postback conversion error: {error}")
-            return "ERROR", 400
+        # Mark click as converted
+        clicks_collection.update_one(
+            {'click_id': click_id},
+            {'$set': {'converted': True}}
+        )
+        
+        logging.info(f"✅ Conversion: {conversion_id} | ${payout} | {len(custom_data)} custom fields")
         
         return "OK", 200
         
     except Exception as e:
-        logging.error(f"Postback error: {str(e)}", exc_info=True)
+        logging.error(f"❌ Postback error: {str(e)}", exc_info=True)
         return "ERROR", 500

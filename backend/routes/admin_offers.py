@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models.offer import Offer
 from models.offer_extended import OfferExtended
+from models.link_masking import LinkMasking
 from utils.auth import token_required
 from utils.json_serializer import safe_json_response, serialize_for_json
 from utils.frontend_mapping import FrontendDatabaseMapper
@@ -12,6 +13,7 @@ admin_offers_bp = Blueprint('admin_offers', __name__)
 offer_model = Offer()
 extended_offer_model = OfferExtended()  # For schedule + smart rules operations
 admin_offer_model = offer_model  # Use the same model instance
+link_masking_model = LinkMasking()  # For automatic link masking
 
 def admin_required(f):
     """Decorator to require admin role"""
@@ -58,7 +60,57 @@ def create_offer():
         if error:
             return jsonify({'error': error}), 400
         
-        logging.info("✅ Offer created successfully, now triggering email notifications...")
+        logging.info("✅ Offer created successfully, now creating masked link...")
+        
+        # 🔥 AUTO-GENERATE MASKED LINK
+        try:
+            # Get or create default masking domain
+            domains = link_masking_model.get_masking_domains(active_only=True)
+            
+            if domains and len(domains) > 0:
+                default_domain = domains[0]
+                
+                # Create masked link with default settings
+                masking_settings = {
+                    'domain_id': str(default_domain['_id']),
+                    'redirect_type': '302',
+                    'subid_append': True,
+                    'preview_mode': False,
+                    'auto_rotation': False,
+                    'code_length': 8
+                }
+                
+                masked_link, mask_error = link_masking_model.create_masked_link(
+                    offer_data['offer_id'],
+                    offer_data['target_url'],
+                    masking_settings,
+                    str(user['_id'])
+                )
+                
+                if masked_link and not mask_error:
+                    # Update offer with masked URL
+                    from bson import ObjectId
+                    offer_collection = db_instance.get_collection('offers')
+                    if offer_collection is not None:
+                        offer_collection.update_one(
+                            {'offer_id': offer_data['offer_id']},
+                            {'$set': {
+                                'masked_url': masked_link['masked_url'],
+                                'masked_link_id': str(masked_link['_id'])
+                            }}
+                        )
+                        offer_data['masked_url'] = masked_link['masked_url']
+                        offer_data['masked_link_id'] = str(masked_link['_id'])
+                        logging.info(f"✅ Masked link created: {masked_link['masked_url']}")
+                else:
+                    logging.warning(f"⚠️ Failed to create masked link: {mask_error}")
+            else:
+                logging.warning("⚠️ No masking domains available, skipping auto-masking")
+        except Exception as mask_error:
+            # Don't fail offer creation if masking fails
+            logging.error(f"❌ Masked link creation error (non-critical): {str(mask_error)}")
+        
+        logging.info("✅ Now triggering email notifications...")
         
         # Send email notifications to all publishers (non-blocking)
         try:

@@ -1,350 +1,414 @@
-# Complete Postback Distribution System - Testing Guide
+# 🧪 Complete Testing Guide - User Reports System
 
-## System Overview
+## 📋 Overview
 
-Your system works as a **mediator** between external platforms and your partners:
-1. External platforms send postbacks to your system
-2. Your system automatically forwards them to ALL registered partners
-3. Partners receive postbacks with their configured URLs and macros
+This guide will walk you through testing the **entire User Reports Analytics System** with test data.
 
-## Prerequisites
+---
 
-### Backend Setup
+## ⚙️ Prerequisites
+
+✅ Backend server running (`python app.py` in backend folder)  
+✅ Frontend server running (`npm run dev` in root folder)  
+✅ MongoDB connected  
+✅ User account created  
+
+---
+
+## 🚀 Step-by-Step Testing Process
+
+### **Step 1: Generate Test Data** (5 minutes)
+
+First, we need to create sample clicks and conversions data:
+
 ```bash
 cd backend
-python app.py
-# Backend should run on http://localhost:5000
+python create_test_data.py
 ```
 
-### Frontend Setup
+**What it does:**
+- Lists all users in your database
+- Lets you select a user
+- Asks how many days of data (default: 7 days)
+- Asks clicks per day (default: 50/day)
+- Generates realistic test data:
+  - Clicks with random times, countries, devices
+  - Conversions (10-20% conversion rate)
+  - Different statuses (approved/pending/rejected)
+
+**Example output:**
+```
+🔍 FIND YOUR USER ID
+======================================================================
+
+📋 Available Users:
+======================================================================
+1. Username: admin                Role: admin      ID: 68e4e41a4ad6...
+2. Username: testpublisher        Role: publisher  ID: 68e4e52b3cd7...
+
+======================================================================
+
+👤 Enter user number (or press Enter for first user): 2
+
+✅ Selected: testpublisher
+
+📅 How many days of data? (default: 7): 14
+📊 Clicks per day? (default: 50): 100
+
+🚀 GENERATING TEST DATA
+======================================================================
+User ID: 68e4e52b3cd7...
+Days: 14
+Clicks per day: ~100
+======================================================================
+
+📦 Using 2 offers for test data
+   - Premium Survey App
+   - Gaming Offer - Play & Earn
+
+📅 2024-11-07: Generating 98 clicks...
+📅 2024-11-06: Generating 105 clicks...
+...
+
+======================================================================
+✅ TEST DATA GENERATED SUCCESSFULLY!
+======================================================================
+📊 Total Clicks: 1,456
+💰 Total Conversions: 218
+📈 Conversion Rate: 14.97%
+💵 Estimated Revenue: $545.00
+
+🎉 Ready to test reports!
+```
+
+---
+
+### **Step 2: Test Backend API** (5 minutes)
+
+Now test the API endpoints directly:
+
+#### 2.1 Get JWT Token
 ```bash
-npm run dev
-# Frontend should run on http://localhost:5173
+python get_token.py
 ```
 
----
+Enter your username and password. Copy the token.
 
-## Test Flow - Step by Step
+#### 2.2 Test Endpoints
 
-### Step 1: Register Partner Accounts
-
-#### Partner 1:
-1. Go to `http://localhost:5173/register`
-2. Fill in the form:
-   - **First Name:** John
-   - **Last Name:** Doe
-   - **Company Name:** Test Company 1
-   - **Website:** https://example1.com
-   - **Email:** partner1@test.com
-   - **Postback URL:** `https://webhook.site/YOUR-UNIQUE-ID-1?click_id={click_id}&status={status}&payout={payout}`
-   - **Password:** test123
-3. Click "Create Account"
-4. You should be logged in automatically
-
-**Get a webhook.site URL:**
-- Go to https://webhook.site
-- Copy your unique URL
-- Use it in the Postback URL field with macros
-
-#### Partner 2 (Optional - to test multiple partners):
-1. Logout from Partner 1
-2. Register another partner with different email and webhook.site URL
-3. **Postback URL:** `https://webhook.site/YOUR-UNIQUE-ID-2?click_id={click_id}&status={status}`
-
----
-
-### Step 2: Verify Partner Registration
-
-#### Check Database:
-```javascript
-// In MongoDB, check users collection
-db.users.find({ role: 'partner' })
+Update `test_user_reports.py` with your token:
+```python
+TOKEN = "your_token_here"
 ```
 
-You should see:
-- `role: 'partner'`
-- `is_active: true`
-- `postback_url: 'https://webhook.site/...'`
-- `postback_method: 'GET'` (default)
-
-#### Check Partner Profile:
-1. Login as partner
-2. Go to Profile (click user icon → Profile)
-3. Verify all details are saved
-4. Test the postback URL using "Test Postback" button
-5. Check webhook.site - you should see a test request
-
----
-
-### Step 3: Generate Postback Receiver URL
-
-#### As Admin:
-1. Login as admin (or create admin account)
-2. Go to `/admin/postback-receiver`
-3. Click "Generate Quick Postback URL"
-4. Select parameters you want to track:
-   - click_id
-   - status
-   - payout
-   - offer_id
-5. Copy the generated URL
-
-**Example URL:**
-```
-https://your-backend.com/postback/abc123xyz?click_id={click_id}&status={status}&payout={payout}
-```
-
----
-
-### Step 4: Send Test Postback
-
-#### Option A: Using Browser/Postman
-Send a GET request to your postback receiver URL with actual values:
-```
-http://localhost:5000/postback/abc123xyz?click_id=TEST001&status=approved&payout=10.50&offer_id=OFFER123
-```
-
-#### Option B: Using cURL
+Then run:
 ```bash
-curl "http://localhost:5000/postback/abc123xyz?click_id=TEST001&status=approved&payout=10.50&offer_id=OFFER123"
+python test_user_reports.py
 ```
 
-#### Option C: Using Postman
-1. Create new GET request
-2. URL: `http://localhost:5000/postback/abc123xyz`
-3. Add query params:
-   - click_id: TEST001
-   - status: approved
-   - payout: 10.50
-   - offer_id: OFFER123
-4. Send
-
----
-
-### Step 5: Verify Distribution
-
-#### Check Webhook.site:
-1. Go to your webhook.site URLs for both partners
-2. You should see incoming requests with:
-   - Replaced macros (TEST001, approved, 10.50, OFFER123)
-   - Timestamp of request
-   - User-Agent: PepeLeads-Postback-Distributor/1.0
-
-#### Check Backend Logs:
-Look for these log messages:
+**Expected Results:**
 ```
-📥 Postback received: key=abc123xyz
-✅ Postback logged: {log_id}
-📋 Found 2 active partners with postback URLs
-📤 Sending postback to John Doe (GET): https://webhook.site/...
-✅ Postback sent successfully to John Doe - Status: 200
-📊 Distribution summary: 2/2 partners notified
-```
+🧪 TESTING SUMMARY
+======================================================================
+Status Code: 200
+✅ Summary Retrieved Successfully!
 
-#### Check Database:
+Today:
+  Clicks: 98
+  Conversions: 15
+  Payout: $37.50
 
-**received_postbacks collection:**
-```javascript
-db.received_postbacks.find().sort({timestamp: -1}).limit(1)
-```
-Should show your incoming postback
+Last 7 Days:
+  Clicks: 687
+  Conversions: 103
+  Payout: $257.50
 
-**partner_postback_logs collection:**
-```javascript
-db.partner_postback_logs.find().sort({timestamp: -1}).limit(10)
-```
-Should show 2 entries (one per partner) with:
-- success: true
-- status_code: 200
-- response_time: ~0.5s
-- postback_url with replaced macros
+======================================================================
+🧪 TESTING PERFORMANCE REPORT
+======================================================================
+Status Code: 200
+✅ Performance Report Retrieved Successfully!
 
----
+Summary:
+  Total Clicks: 687
+  Total Conversions: 103
+  Total Payout: $257.50
+  Avg CR: 14.99%
+  Avg EPC: $0.37
 
-### Step 6: Check Partner Statistics
+Data Rows: 7
 
-1. Login as Partner 1
-2. Go to Profile → Statistics tab
-3. You should see:
-   - Total Postbacks: 1
-   - Successful: 1
-   - Failed: 0
-   - Success Rate: 100%
+======================================================================
+🧪 TESTING CONVERSION REPORT
+======================================================================
+Status Code: 200
+✅ Conversion Report Retrieved Successfully!
 
----
+Summary:
+  Approved Payout: $195.00
+  Pending Payout: $42.50
+  Total Conversions: 103
 
-### Step 7: Test Failed Postback & Retry
+Conversions: 20
 
-#### Simulate Failure:
-1. In Partner Profile, change postback URL to invalid URL:
-   - `https://invalid-domain-that-does-not-exist.com/postback`
-2. Save
-3. Send another test postback
-4. Check logs - should show failed delivery
-
-#### Retry Failed Postbacks:
-As admin, call the retry endpoint:
-```bash
-curl -X POST http://localhost:5000/api/admin/partner-postback-logs/retry-failed \
-  -H "Authorization: Bearer YOUR_ADMIN_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"hours": 24}'
+======================================================================
+✅ ALL TESTS COMPLETED
+======================================================================
 ```
 
 ---
 
-## Expected Results Summary
+### **Step 3: Test Frontend UI** (10 minutes)
 
-### ✅ Success Indicators:
+#### 3.1 Login
+1. Go to: **http://localhost:8080**
+2. Click **Login**
+3. Enter your credentials
+4. You should see the dashboard
 
-1. **Partner Registration:**
-   - Partner account created with role='partner'
-   - Postback URL saved
-   - Can login and view profile
+#### 3.2 Test Performance Report
 
-2. **Postback Reception:**
-   - Incoming postback logged to `received_postbacks`
-   - Returns 200 OK response
+**Navigate:** Click **📈 Performance Report** in sidebar
 
-3. **Automatic Distribution:**
-   - All active partners receive postback
-   - Macros correctly replaced
-   - Each delivery logged to `partner_postback_logs`
+**Test Checklist:**
+- [ ] Page loads without errors
+- [ ] Date range picker shows (default: last 7 days)
+- [ ] **4 Summary Cards** display:
+  - [ ] Total Clicks (should show number)
+  - [ ] Total Conversions (should show number)
+  - [ ] Total Payout (should show $$$)
+  - [ ] Avg CR% (should show percentage)
+- [ ] **📈 Line Chart** appears:
+  - [ ] Chart shows blue line with data points
+  - [ ] X-axis shows dates
+  - [ ] Y-axis shows conversion counts
+  - [ ] Hover shows tooltip with exact values
+  - [ ] Legend shows "Conversions"
+- [ ] **Data Table** shows rows:
+  - [ ] Columns: Date, Offer, Clicks, Conversions, CR%, Payout, EPC
+  - [ ] Data is sorted by date (newest first)
+  - [ ] Numbers are formatted correctly
+- [ ] **Pagination** works (if > 20 rows):
+  - [ ] "Previous" and "Next" buttons
+  - [ ] Shows "Showing X to Y of Z results"
+- [ ] **Refresh button** works:
+  - [ ] Click refresh → data reloads
+  - [ ] Loading spinner appears
+- [ ] **Export CSV** works:
+  - [ ] Click Export → CSV downloads
+  - [ ] File named: `performance_report_YYYY-MM-DD.csv`
+  - [ ] Opens in Excel/Sheets correctly
+- [ ] **Date Range Change** works:
+  - [ ] Change start date → data updates
+  - [ ] Change end date → data updates
+  - [ ] Chart updates with new date range
+  - [ ] Summary cards update
 
-4. **Partner Receives:**
-   - Webhook.site shows incoming request
-   - All parameters present
-   - Values match what was sent
+#### 3.3 Test Conversion Report
 
-5. **Logging:**
-   - Backend logs show distribution summary
-   - Database has complete audit trail
-   - Partner statistics update
+**Navigate:** Click **📝 Conversion Report** in sidebar
 
----
-
-## Troubleshooting
-
-### Partners Not Receiving Postbacks?
-
-**Check 1: Partner is Active**
-```javascript
-db.users.findOne({ email: 'partner1@test.com' })
-// Verify: is_active: true, role: 'partner'
-```
-
-**Check 2: Postback URL Configured**
-```javascript
-db.users.findOne({ email: 'partner1@test.com' }, { postback_url: 1 })
-// Should not be empty
-```
-
-**Check 3: Backend Logs**
-Look for error messages in backend console
-
-**Check 4: Database Connection**
-Verify MongoDB is running and connected
-
-### Postback Receiver Not Working?
-
-**Check 1: Correct URL**
-- Should be: `/postback/{unique_key}`
-- Not: `/api/postback/{unique_key}`
-
-**Check 2: Backend Running**
-```bash
-curl http://localhost:5000/health
-```
-
-**Check 3: CORS Issues**
-- Frontend and backend on different ports
-- Check browser console for CORS errors
-
-### Macros Not Replaced?
-
-**Check 1: Macro Format**
-- Use: `{click_id}` (with curly braces)
-- Not: `{{click_id}}` or `$click_id`
-
-**Check 2: Parameter Sent**
-- Verify parameter exists in incoming postback
-- Check `received_postbacks` collection
-
----
-
-## Advanced Testing
-
-### Test Multiple Parameters:
-```
-http://localhost:5000/postback/abc123xyz?click_id=TEST001&status=approved&payout=10.50&offer_id=OFFER123&sub_id1=campaign1&sub_id2=source2&country=US&ip=192.168.1.1
-```
-
-### Test POST Method:
-1. Change partner postback_method to 'POST'
-2. Send test postback
-3. Partner should receive POST request with JSON body
-
-### Test Concurrent Partners:
-1. Register 5+ partners
-2. Send one postback
-3. All should receive within seconds
-4. Check response times in logs
-
-### Test Retry Mechanism:
-1. Set partner URL to fail
-2. Send postback (will fail)
-3. Fix partner URL
-4. Call retry endpoint
-5. Should succeed on retry
+**Test Checklist:**
+- [ ] Page loads without errors
+- [ ] Date range picker shows (default: today)
+- [ ] **3 Summary Cards** display:
+  - [ ] Approved Payout (green text)
+  - [ ] Pending Payout (yellow text)
+  - [ ] Total Conversions
+- [ ] **📊 Bar Chart** appears:
+  - [ ] Chart shows green bars
+  - [ ] X-axis shows dates
+  - [ ] Y-axis shows revenue
+  - [ ] Hover shows tooltip with exact revenue
+  - [ ] Legend shows "Revenue ($)"
+- [ ] **Transaction Table** shows rows:
+  - [ ] Columns: Time, Transaction ID, Offer, Status, Payout, Country, Device
+  - [ ] Transaction IDs are formatted (monospace font)
+  - [ ] Times show full date/time
+- [ ] **Status Badges** work:
+  - [ ] 🟢 Approved (green badge with checkmark)
+  - [ ] 🟡 Pending (yellow badge with clock)
+  - [ ] 🔴 Rejected (red badge with X)
+- [ ] **Pagination** works (if > 20 rows)
+- [ ] **Refresh button** works
+- [ ] **Export CSV** works:
+  - [ ] Downloads `conversion_report_YYYY-MM-DD.csv`
+- [ ] **Date Range Change** works:
+  - [ ] Change dates → data updates
+  - [ ] Chart updates
+  - [ ] Summary cards update
 
 ---
 
-## Production Checklist
+## 🎯 Advanced Testing
 
-Before going live:
+### Test Different Scenarios
 
-- [ ] MongoDB properly configured with indexes
-- [ ] Backend deployed and accessible
-- [ ] Environment variables set (MONGODB_URI, JWT_SECRET)
-- [ ] Partner registration tested
-- [ ] Postback distribution tested with real partners
-- [ ] Logging verified
-- [ ] Retry mechanism tested
-- [ ] Error handling verified
-- [ ] Performance tested with multiple partners
-- [ ] Security: Rate limiting considered
-- [ ] Monitoring: Set up alerts for failed postbacks
+#### 1. **Empty State**
+- Change date range to future dates
+- Should show "No data available" message
+- Chart should show "No chart data available"
 
----
+#### 2. **Different Date Ranges**
+- Test: Today only
+- Test: Last 7 days
+- Test: Last 30 days
+- Test: Custom range (e.g., specific week)
 
-## API Endpoints Reference
+#### 3. **Pagination**
+If you have more than 20 conversions:
+- Go to page 2
+- Check URL updates
+- Go back to page 1
+- Check data loads correctly
 
-### Public Endpoints:
-- `POST /api/auth/register` - Register partner
-- `POST /api/auth/login` - Login
-- `GET /postback/{unique_key}` - Receive postback (public)
+#### 4. **Browser Compatibility**
+- Test in Chrome ✅
+- Test in Firefox
+- Test in Safari
+- Test in Edge
 
-### Partner Endpoints:
-- `GET /api/auth/profile` - Get profile
-- `PUT /api/auth/profile/update` - Update profile
-- `POST /api/partner/test-postback` - Test postback URL
-- `GET /api/partner/stats` - Get statistics
-
-### Admin Endpoints:
-- `GET /api/admin/partner-postback-logs` - View logs
-- `GET /api/admin/partner-postback-logs/stats` - Statistics
-- `POST /api/admin/partner-postback-logs/retry-failed` - Retry failed
-- `POST /api/admin/postback-receiver/generate-quick` - Generate URL
+#### 5. **Responsive Design**
+- Desktop view (1920x1080)
+- Tablet view (768px)
+- Mobile view (375px)
+- Check charts resize correctly
+- Check tables scroll horizontally on mobile
 
 ---
 
-## Support
+## 🐛 Common Issues & Solutions
 
-If you encounter issues:
-1. Check backend logs
-2. Check browser console
-3. Verify database collections
-4. Test with webhook.site first
-5. Check this guide's troubleshooting section
+### Issue 1: "No data available"
+**Solution:**
+- Make sure you ran `create_test_data.py`
+- Check you're logged in as the correct user
+- Verify date range includes test data dates
 
-**System is ready for testing!** 🚀
+### Issue 2: "Failed to load report"
+**Solution:**
+- Check backend is running on port 5000
+- Check browser console for errors (F12)
+- Verify JWT token is valid (not expired)
+
+### Issue 3: Charts not showing
+**Solution:**
+- Check browser console for errors
+- Verify Recharts is installed: `npm list recharts`
+- Make sure date range has data
+- Try refreshing the page (Ctrl+R)
+
+### Issue 4: Export doesn't work
+**Solution:**
+- Check browser allows downloads
+- Check popup blocker isn't blocking download
+- Verify backend `/api/reports/export` endpoint works
+
+### Issue 5: Pagination missing
+**Solution:**
+- Normal if you have < 20 results
+- Generate more test data with more clicks per day
+
+---
+
+## 📸 What Success Looks Like
+
+### Performance Report (With Data):
+```
+┌─────────────────────────────────────────────┐
+│ Performance Report                          │
+│ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌────┐│
+│ │  1,456  │ │   218   │ │ $545.00 │ │15% ││
+│ │ Clicks  │ │Converts │ │ Payout  │ │ CR ││
+│ └─────────┘ └─────────┘ └─────────┘ └────┘│
+│                                             │
+│ [📈 Line Chart showing trend line]          │
+│                                             │
+│ ┌─────────────────────────────────────────┐│
+│ │ Date       │ Offer  │ Clicks │ Conv  │ ││
+│ │ 2024-11-07 │ Survey │   98   │  15   │ ││
+│ │ 2024-11-06 │ Survey │  105   │  16   │ ││
+│ └─────────────────────────────────────────┘│
+└─────────────────────────────────────────────┘
+```
+
+### Conversion Report (With Data):
+```
+┌─────────────────────────────────────────────┐
+│ Conversion Report                           │
+│ ┌───────────┐ ┌───────────┐ ┌────────────┐│
+│ │ $195.00   │ │  $42.50   │ │    103     ││
+│ │ Approved  │ │  Pending  │ │   Total    ││
+│ └───────────┘ └───────────┘ └────────────┘│
+│                                             │
+│ [📊 Bar Chart showing green bars]           │
+│                                             │
+│ ┌─────────────────────────────────────────┐│
+│ │ Time     │ TXN-ID    │ Status │ Payout││
+│ │ 3:45 PM  │ TXN-ABC   │ 🟢 App │ $2.50 ││
+│ │ 2:30 PM  │ TXN-XYZ   │ 🟡 Pnd │ $2.50 ││
+│ └─────────────────────────────────────────┘│
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## ✅ Final Checklist
+
+### Backend
+- [ ] All 5 API endpoints return 200 OK
+- [ ] JWT authentication works
+- [ ] User sees only their own data
+- [ ] Date filtering works
+- [ ] Pagination works
+- [ ] CSV export generates file
+
+### Frontend
+- [ ] Both pages load without errors
+- [ ] Navigation menu shows report links
+- [ ] Date pickers work
+- [ ] Summary cards display correctly
+- [ ] **Line chart renders** (Performance Report)
+- [ ] **Bar chart renders** (Conversion Report)
+- [ ] Charts have interactive tooltips
+- [ ] Data tables display rows
+- [ ] Pagination buttons work
+- [ ] Export buttons download CSVs
+- [ ] Refresh buttons reload data
+- [ ] Loading states appear
+- [ ] Empty states show when no data
+
+### Data
+- [ ] Test data generated successfully
+- [ ] Clicks created in database
+- [ ] Conversions created in database
+- [ ] Data spans multiple days
+- [ ] Multiple offers used
+- [ ] Different statuses present
+
+---
+
+## 🎉 Success!
+
+If all checkboxes are ticked, your **User Reports Analytics System is working perfectly!**
+
+### Next Steps:
+- Demo to your manager ✅
+- Deploy to production 🚀
+- Monitor with real traffic 📊
+- Collect user feedback 💬
+
+---
+
+## 📞 Need Help?
+
+If something isn't working:
+1. Check browser console (F12) for errors
+2. Check backend terminal for errors
+3. Verify MongoDB is connected
+4. Review this testing guide again
+5. Check `USER_REPORTS_COMPLETE.md` for documentation
+
+---
+
+**Happy Testing! 🧪✨**

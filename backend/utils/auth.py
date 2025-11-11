@@ -78,3 +78,13 @@ def token_required(f):
         return f(*args, **kwargs)
     
     return decorated
+
+def admin_required(f):
+    """Decorator to require admin role"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = getattr(request, 'current_user', None)
+        if not user or user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function

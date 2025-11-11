@@ -409,7 +409,7 @@ def get_offers():
                 'category': offer.get('category', 'general'),
                 'status': offer.get('status', 'active'),
                 'image_url': offer.get('creative_url') or offer.get('preview_url') or 'https://via.placeholder.com/300x200/4F46E5/FFFFFF?text=Offer',
-                'click_url': offer.get('target_url', '#'),
+                'click_url': offer.get('masked_url') or offer.get('target_url', '#'),
                 'network': offer.get('network', 'Unknown'),
                 'countries': offer.get('countries', []),
                 'devices': offer.get('devices', []),

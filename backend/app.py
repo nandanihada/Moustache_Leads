@@ -30,6 +30,7 @@ admin_offers_bp = safe_import_blueprint('routes.admin_offers', 'admin_offers_bp'
 schedule_rules_bp = safe_import_blueprint('routes.offer_schedule_rules', 'schedule_rules_bp')
 click_handler_bp = safe_import_blueprint('routes.offer_click_handler', 'click_handler_bp')
 link_masking_bp = safe_import_blueprint('routes.link_masking', 'link_masking_bp')
+link_redirect_bp = safe_import_blueprint('routes.link_masking', 'link_redirect_bp')
 analytics_bp = safe_import_blueprint('routes.analytics', 'analytics_bp')
 offer_serving_bp = safe_import_blueprint('routes.offer_serving', 'offer_serving_bp')
 file_upload_bp = safe_import_blueprint('routes.file_upload', 'file_upload_bp')
@@ -45,6 +46,9 @@ simple_test_bp = safe_import_blueprint('routes.simple_test', 'simple_test_bp')
 partner_profile_bp = safe_import_blueprint('routes.partner_profile', 'partner_profile_bp')
 partner_postback_logs_bp = safe_import_blueprint('routes.partner_postback_logs', 'partner_postback_logs_bp')
 diagnostic_bp = safe_import_blueprint('routes.diagnostic', 'diagnostic_bp')
+user_reports_bp = safe_import_blueprint('routes.user_reports', 'user_reports_bp')
+simple_tracking_bp = safe_import_blueprint('routes.simple_tracking', 'simple_tracking_bp')
+publisher_offers_bp = safe_import_blueprint('routes.publisher_offers', 'publisher_offers_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -54,8 +58,10 @@ blueprints = [
     (admin_offers_bp, '/api/admin'),
     (schedule_rules_bp, '/api/admin'),
     (click_handler_bp, '/api'),
-    (link_masking_bp, '/api'),
+    (link_masking_bp, '/api/masking'),
+    (link_redirect_bp, ''),  # Masked link redirects at root level
     (analytics_bp, '/api/analytics'),
+    (user_reports_bp, '/api'),  # User reports - publisher-facing
     (offer_serving_bp, ''),  # No prefix so /track/click works directly
     (file_upload_bp, '/api'),
     (test_schedule_rules_bp, '/api'),  # Test routes
@@ -69,7 +75,9 @@ blueprints = [
     (simple_test_bp, ''),  # Simple test - no prefix
     (partner_profile_bp, '/api'),  # Partner profile routes
     (partner_postback_logs_bp, ''),  # Partner postback logs - admin routes
-    (diagnostic_bp, '')  # Diagnostic routes
+    (diagnostic_bp, ''),  # Diagnostic routes
+    (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
+    (publisher_offers_bp, '/api/publisher')  # Publisher offers - no admin required
 ]
 
 def create_app():

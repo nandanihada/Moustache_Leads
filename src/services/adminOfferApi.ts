@@ -51,6 +51,8 @@ export interface Offer {
   hash_code?: string;
   target_url: string;
   preview_url?: string;
+  masked_url?: string;  // Auto-generated masked link
+  masked_link_id?: string;  // Reference to masked link document
   tracking?: {
     protocol?: string;
     postback_url?: string;

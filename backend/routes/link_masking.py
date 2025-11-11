@@ -1,24 +1,15 @@
 from flask import Blueprint, request, jsonify, redirect
 from models.link_masking import LinkMasking
 from models.offer import Offer
-from utils.auth import token_required
+from utils.auth import token_required, admin_required
 import logging
+import random
 from datetime import datetime
 
 link_masking_bp = Blueprint('link_masking', __name__)
+link_redirect_bp = Blueprint('link_redirect', __name__)
 link_masking_model = LinkMasking()
 offer_model = Offer()
-
-def admin_required(f):
-    """Decorator to require admin role"""
-    from functools import wraps
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        user = getattr(request, 'current_user', None)
-        if not user or user.get('role') != 'admin':
-            return jsonify({'error': 'Admin access required'}), 403
-        return f(*args, **kwargs)
-    return decorated_function
 
 # Masked Link Routes
 
@@ -251,11 +242,15 @@ def delete_masking_domain(domain_id):
         return jsonify({'error': f'Failed to delete masking domain: {str(e)}'}), 500
 
 # Public Redirect Route (No authentication required)
+# Registered at root level to handle https://domain.com/<short_code>
 
-@link_masking_bp.route('/<domain_name>/<short_code>')
-def redirect_masked_link(domain_name, short_code):
+@link_redirect_bp.route('/<short_code>')
+def redirect_masked_link(short_code):
     """Public redirect endpoint for masked links"""
     try:
+        # Extract domain from request host
+        domain_name = request.host.split(':')[0]  # Remove port if present
+        
         # Get masked link
         masked_link = link_masking_model.get_masked_link_by_code(short_code, domain_name)
         

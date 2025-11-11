@@ -95,6 +95,17 @@ def receive_postback(unique_key):
         
         logger.info(f"✅ Postback logged: {result.inserted_id}")
         
+        # 🎯 AUTO-CREATE CONVERSION
+        try:
+            from routes.postback_processor import process_single_postback
+            success, conversion_id = process_single_postback(received_log)
+            if success:
+                logger.info(f"✅ Auto-created conversion: {conversion_id}")
+            else:
+                logger.warning(f"⚠️ Could not auto-create conversion: {conversion_id}")
+        except Exception as conv_error:
+            logger.error(f"❌ Conversion creation error: {conv_error}")
+        
         # 🚀 AUTOMATIC DISTRIBUTION TO PARTNERS
         # Prepare postback data for distribution
         logger.info("📝 Building distribution data...")

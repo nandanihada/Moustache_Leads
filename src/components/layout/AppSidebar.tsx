@@ -10,7 +10,9 @@ import {
   LogOut,
   Zap,
   Rocket, // 🚀 New icon for Ascend
-  Shield // 🛡️ Admin icon
+  Shield, // 🛡️ Admin icon
+  TrendingUp, // 📈 Performance Report
+  Receipt // 📝 Conversion Report
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -32,6 +34,8 @@ const menuItems = [
   { title: "Assets", url: "/dashboard/assets", icon: FileImage },
   { title: "Offers", url: "/dashboard/offers", icon: Gift },
   { title: "Reports", url: "/dashboard/reports", icon: BarChart3 },
+  { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
+  { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },
   { title: "Users", url: "/dashboard/users", icon: Users },
   { title: "Payments", url: "/dashboard/payments", icon: CreditCard },
   { title: "Campaign Builder", url: "/dashboard/campaign-builder", icon: Zap },

@@ -32,14 +32,30 @@ const getFlagUrl = (countryCode: string) => {
 };
 
 // Helper function to generate tracking link
-const generateTrackingLink = (offer: Offer) => {
-  const baseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/track/click`;
-  const params = new URLSearchParams({
-    offer_id: offer.offer_id,
-    campaign_id: offer.campaign_id,
-    target: encodeURIComponent(offer.target_url)
-  });
-  return `${baseUrl}?${params.toString()}`;
+const generateTrackingLink = (offer: Offer, userId?: string) => {
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  
+  // Get user from localStorage if not provided
+  if (!userId) {
+    try {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        userId = user._id || user.id;
+      }
+    } catch (e) {
+      console.error('Error getting user ID:', e);
+    }
+  }
+  
+  // Build tracking link: http://localhost:5000/track/{offer_id}?user_id={userId}&sub1=...
+  const params = new URLSearchParams();
+  if (userId) {
+    params.append('user_id', userId);
+  }
+  params.append('sub1', 'default');  // Publishers can customize this
+  
+  return `${baseUrl}/track/${offer.offer_id}?${params.toString()}`;
 };
 
 // Helper function to generate QR code URL
@@ -101,10 +117,15 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
 
   // Generate tracking link when offer changes - MUST be before early return
   React.useEffect(() => {
-    if (offer && offer.offer_id && offer.campaign_id && offer.target_url) {
+    if (offer) {
       try {
-        const link = generateTrackingLink(offer);
-        setTrackingLink(link);
+        // Generate tracking link for this offer with user's ID
+        if (offer.offer_id) {
+          const link = generateTrackingLink(offer);
+          setTrackingLink(link);
+        } else {
+          setTrackingLink('');
+        }
       } catch (error) {
         console.error('Error generating tracking link:', error);
         setTrackingLink('');
