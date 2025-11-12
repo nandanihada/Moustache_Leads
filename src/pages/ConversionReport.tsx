@@ -8,7 +8,40 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import { DatePresets } from '../components/reports/DatePresets';
 import { ReportFilters } from '../components/reports/ReportFilters';
 import { ReportOptions, ReportColumnOptions } from '../components/reports/ReportOptions';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
+import { ColumnSelector, ColumnDefinition } from '../components/reports/ColumnSelector';
+
+// Column definitions for Conversion Report - ALL FIELDS SAME AS PERFORMANCE REPORT
+const CONVERSION_COLUMNS: ColumnDefinition[] = [
+  { id: 'time', label: 'Time', defaultVisible: true, alwaysVisible: true },
+  { id: 'transaction_id', label: 'Transaction ID', defaultVisible: true },
+  { id: 'offer_name', label: 'Offer Name', defaultVisible: true },
+  { id: 'offer_url', label: 'Offer URL', defaultVisible: false },
+  { id: 'category', label: 'Category', defaultVisible: false },
+  { id: 'currency', label: 'Currency', defaultVisible: false },
+  { id: 'ad_group', label: 'Ad Group', defaultVisible: false },
+  { id: 'goal', label: 'Goal', defaultVisible: false },
+  { id: 'promo_code', label: 'Promo Code', defaultVisible: false },
+  { id: 'creative', label: 'Creative', defaultVisible: false },
+  { id: 'app_version', label: 'App Version', defaultVisible: false },
+  { id: 'status', label: 'Status', defaultVisible: true },
+  { id: 'payout', label: 'Payout', defaultVisible: true },
+  { id: 'country', label: 'Country', defaultVisible: false },
+  { id: 'browser', label: 'Browser', defaultVisible: false },
+  { id: 'device_type', label: 'Device', defaultVisible: false },
+  { id: 'source', label: 'Source', defaultVisible: false },
+  { id: 'advertiser_sub_id1', label: 'Advertiser Sub ID 1', defaultVisible: false },
+  { id: 'advertiser_sub_id2', label: 'Advertiser Sub ID 2', defaultVisible: false },
+  { id: 'advertiser_sub_id3', label: 'Advertiser Sub ID 3', defaultVisible: false },
+  { id: 'advertiser_sub_id4', label: 'Advertiser Sub ID 4', defaultVisible: false },
+  { id: 'advertiser_sub_id5', label: 'Advertiser Sub ID 5', defaultVisible: false },
+  { id: 'sub_id1', label: 'Sub ID 1', defaultVisible: false },
+  { id: 'sub_id2', label: 'Sub ID 2', defaultVisible: false },
+  { id: 'sub_id3', label: 'Sub ID 3', defaultVisible: false },
+  { id: 'sub_id4', label: 'Sub ID 4', defaultVisible: false },
+  { id: 'sub_id5', label: 'Sub ID 5', defaultVisible: false },
+  { id: 'actions', label: 'Actions', defaultVisible: true, alwaysVisible: true },
+];
 
 export default function ConversionReport() {
   const [loading, setLoading] = useState(false);
@@ -20,15 +53,58 @@ export default function ConversionReport() {
   const [activeFilters, setActiveFilters] = useState<any>({});
   const [selectedConversion, setSelectedConversion] = useState<Conversion | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+
+  // Column visibility state - load from localStorage or use defaults
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('conversion_visible_columns');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        // Fall through to defaults
+      }
+    }
+    // Default visibility
+    return CONVERSION_COLUMNS.reduce((acc, col) => {
+      acc[col.id] = col.defaultVisible;
+      return acc;
+    }, {} as Record<string, boolean>);
+  });
+
+  // Save column visibility to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('conversion_visible_columns', JSON.stringify(visibleColumns));
+  }, [visibleColumns]);
+
+  // Column handlers
+  const handleColumnChange = (columnId: string, visible: boolean) => {
+    setVisibleColumns(prev => ({ ...prev, [columnId]: visible }));
+  };
+
+  const handleSelectAllColumns = () => {
+    const all = CONVERSION_COLUMNS.reduce((acc, col) => {
+      acc[col.id] = true;
+      return acc;
+    }, {} as Record<string, boolean>);
+    setVisibleColumns(all);
+    toast.success('All columns selected');
+  };
+
+  const handleClearAllColumns = () => {
+    const cleared = CONVERSION_COLUMNS.reduce((acc, col) => {
+      acc[col.id] = col.alwaysVisible || false;
+      return acc;
+    }, {} as Record<string, boolean>);
+    setVisibleColumns(cleared);
+    toast.success('Columns cleared');
+  };
   
-  // Date range state (default: last 7 days)
+  // Date range state (default: includes test data from 2025)
   const [dateRange, setDateRange] = useState(() => {
-    const end = new Date();
-    const start = new Date();
-    start.setDate(start.getDate() - 7);
+    // Use a date range that includes our test data (2025-11-04 to 2025-11-12)
     return {
-      start: start.toISOString().split('T')[0],
-      end: end.toISOString().split('T')[0]
+      start: '2025-11-01',
+      end: '2025-11-15'
     };
   });
 
@@ -177,6 +253,15 @@ export default function ConversionReport() {
             }}
             availableOffers={[]}
           />
+
+          {/* Column Selector */}
+          <ColumnSelector
+            columns={CONVERSION_COLUMNS}
+            visibleColumns={visibleColumns}
+            onColumnChange={handleColumnChange}
+            onSelectAll={handleSelectAllColumns}
+            onClearAll={handleClearAllColumns}
+          />
         </div>
       </Card>
 
@@ -235,60 +320,114 @@ export default function ConversionReport() {
           <table className="w-full">
             <thead className="bg-muted">
               <tr>
-                <th className="p-3 text-left">Time</th>
-                <th className="p-3 text-left">Transaction ID</th>
-                <th className="p-3 text-left">Offer</th>
-                <th className="p-3 text-left">Status</th>
-                <th className="p-3 text-right">Payout</th>
-                <th className="p-3 text-left">Country</th>
-                <th className="p-3 text-left">Device</th>
-                <th className="p-3 text-center">Actions</th>
+                {visibleColumns.time && <th className="p-3 text-left">Time</th>}
+                {visibleColumns.transaction_id && <th className="p-3 text-left">Transaction ID</th>}
+                {visibleColumns.offer_name && <th className="p-3 text-left">Offer</th>}
+                {visibleColumns.offer_url && <th className="p-3 text-left">Offer URL</th>}
+                {visibleColumns.category && <th className="p-3 text-left">Category</th>}
+                {visibleColumns.currency && <th className="p-3 text-left">Currency</th>}
+                {visibleColumns.ad_group && <th className="p-3 text-left">Ad Group</th>}
+                {visibleColumns.goal && <th className="p-3 text-left">Goal</th>}
+                {visibleColumns.promo_code && <th className="p-3 text-left">Promo Code</th>}
+                {visibleColumns.creative && <th className="p-3 text-left">Creative</th>}
+                {visibleColumns.app_version && <th className="p-3 text-left">App Version</th>}
+                {visibleColumns.status && <th className="p-3 text-left">Status</th>}
+                {visibleColumns.payout && <th className="p-3 text-right">Payout</th>}
+                {visibleColumns.country && <th className="p-3 text-left">Country</th>}
+                {visibleColumns.browser && <th className="p-3 text-left">Browser</th>}
+                {visibleColumns.device_type && <th className="p-3 text-left">Device</th>}
+                {visibleColumns.source && <th className="p-3 text-left">Source</th>}
+                {visibleColumns.advertiser_sub_id1 && <th className="p-3 text-left">Adv Sub 1</th>}
+                {visibleColumns.advertiser_sub_id2 && <th className="p-3 text-left">Adv Sub 2</th>}
+                {visibleColumns.advertiser_sub_id3 && <th className="p-3 text-left">Adv Sub 3</th>}
+                {visibleColumns.advertiser_sub_id4 && <th className="p-3 text-left">Adv Sub 4</th>}
+                {visibleColumns.advertiser_sub_id5 && <th className="p-3 text-left">Adv Sub 5</th>}
+                {visibleColumns.sub_id1 && <th className="p-3 text-left">Sub ID 1</th>}
+                {visibleColumns.sub_id2 && <th className="p-3 text-left">Sub ID 2</th>}
+                {visibleColumns.sub_id3 && <th className="p-3 text-left">Sub ID 3</th>}
+                {visibleColumns.sub_id4 && <th className="p-3 text-left">Sub ID 4</th>}
+                {visibleColumns.sub_id5 && <th className="p-3 text-left">Sub ID 5</th>}
+                {visibleColumns.actions && <th className="p-3 text-center">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={Object.values(visibleColumns).filter(Boolean).length} className="p-8 text-center text-muted-foreground">
                     Loading...
                   </td>
                 </tr>
               ) : conversions.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-muted-foreground">
+                  <td colSpan={Object.values(visibleColumns).filter(Boolean).length} className="p-8 text-center text-muted-foreground">
                     No conversions found for selected date range
                   </td>
                 </tr>
               ) : (
                 conversions.map((conv) => (
                   <tr key={conv._id} className="border-b hover:bg-muted/50">
-                    <td className="p-3 text-sm">
-                      {new Date(conv.time).toLocaleString()}
-                    </td>
-                    <td className="p-3 font-mono text-xs">
-                      {conv.transaction_id}
-                    </td>
-                    <td className="p-3">{conv.offer_name}</td>
-                    <td className="p-3">{getStatusBadge(conv.status)}</td>
-                    <td className="p-3 text-right font-semibold">
-                      ${conv.payout.toFixed(2)}
-                    </td>
-                    <td className="p-3">{conv.country}</td>
-                    <td className="p-3 text-sm text-muted-foreground">
-                      {conv.device_type || '-'}
-                    </td>
-                    <td className="p-3 text-center">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedConversion(conv);
-                          setShowDetailsModal(true);
-                        }}
-                      >
-                        <Eye className="h-4 w-4 mr-1" />
-                        View
-                      </Button>
-                    </td>
+                    {visibleColumns.time && (
+                      <td className="p-3 text-sm">
+                        {new Date(conv.time).toLocaleString()}
+                      </td>
+                    )}
+                    {visibleColumns.transaction_id && (
+                      <td className="p-3 font-mono text-xs">
+                        {conv.transaction_id}
+                      </td>
+                    )}
+                    {visibleColumns.offer_name && <td className="p-3">{conv.offer_name}</td>}
+                    {visibleColumns.offer_url && <td className="p-3 text-xs"><a href={conv.offer_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{conv.offer_url ? (conv.offer_url.length > 40 ? conv.offer_url.substring(0, 40) + '...' : conv.offer_url) : '-'}</a></td>}
+                    {visibleColumns.category && <td className="p-3">{conv.category || '-'}</td>}
+                    {visibleColumns.currency && <td className="p-3">{conv.currency || 'USD'}</td>}
+                    {visibleColumns.ad_group && <td className="p-3">{conv.ad_group || '-'}</td>}
+                    {visibleColumns.goal && <td className="p-3">{conv.goal || '-'}</td>}
+                    {visibleColumns.promo_code && <td className="p-3">{conv.promo_code || '-'}</td>}
+                    {visibleColumns.creative && <td className="p-3">{conv.creative || '-'}</td>}
+                    {visibleColumns.app_version && <td className="p-3">{conv.app_version || '-'}</td>}
+                    {visibleColumns.status && <td className="p-3">{getStatusBadge(conv.status)}</td>}
+                    {visibleColumns.payout && (
+                      <td className="p-3 text-right font-semibold">
+                        ${conv.payout.toFixed(2)}
+                      </td>
+                    )}
+                    {visibleColumns.country && <td className="p-3">{conv.country}</td>}
+                    {visibleColumns.browser && (
+                      <td className="p-3 text-sm text-muted-foreground">
+                        {conv.browser || '-'}
+                      </td>
+                    )}
+                    {visibleColumns.device_type && (
+                      <td className="p-3 text-sm text-muted-foreground">
+                        {conv.device_type || '-'}
+                      </td>
+                    )}
+                    {visibleColumns.source && <td className="p-3 text-xs" title={conv.source}>{conv.source ? (conv.source.length > 30 ? conv.source.substring(0, 30) + '...' : conv.source) : '-'}</td>}
+                    {visibleColumns.advertiser_sub_id1 && <td className="p-3">{conv.advertiser_sub_id1 || '-'}</td>}
+                    {visibleColumns.advertiser_sub_id2 && <td className="p-3">{conv.advertiser_sub_id2 || '-'}</td>}
+                    {visibleColumns.advertiser_sub_id3 && <td className="p-3">{conv.advertiser_sub_id3 || '-'}</td>}
+                    {visibleColumns.advertiser_sub_id4 && <td className="p-3">{conv.advertiser_sub_id4 || '-'}</td>}
+                    {visibleColumns.advertiser_sub_id5 && <td className="p-3">{conv.advertiser_sub_id5 || '-'}</td>}
+                    {visibleColumns.sub_id1 && <td className="p-3">{conv.sub_id1 || '-'}</td>}
+                    {visibleColumns.sub_id2 && <td className="p-3">{conv.sub_id2 || '-'}</td>}
+                    {visibleColumns.sub_id3 && <td className="p-3">{conv.sub_id3 || '-'}</td>}
+                    {visibleColumns.sub_id4 && <td className="p-3">{conv.sub_id4 || '-'}</td>}
+                    {visibleColumns.sub_id5 && <td className="p-3">{conv.sub_id5 || '-'}</td>}
+                    {visibleColumns.actions && (
+                      <td className="p-3 text-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedConversion(conv);
+                            setShowDetailsModal(true);
+                          }}
+                        >
+                          <Eye className="h-4 w-4 mr-1" />
+                          View
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -329,6 +468,9 @@ export default function ConversionReport() {
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Conversion Details</DialogTitle>
+            <DialogDescription>
+              View detailed information about this conversion
+            </DialogDescription>
           </DialogHeader>
           
           {selectedConversion && (

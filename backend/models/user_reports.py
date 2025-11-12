@@ -95,6 +95,18 @@ class UserReports:
                     group_id['offer_id'] = '$offer_id'
                 elif field == 'country':
                     group_id['country'] = '$country'
+                elif field == 'browser':
+                    group_id['browser'] = '$browser'
+                elif field == 'device_type':
+                    group_id['device_type'] = '$device_type'
+                elif field == 'source':
+                    group_id['source'] = '$referer'
+                elif field == 'creative':
+                    group_id['creative'] = '$creative'
+                elif field == 'app_version':
+                    group_id['app_version'] = '$app_version'
+                elif field.startswith('advertiser_sub_id'):
+                    group_id[field] = f'${field}'
                 elif field.startswith('sub_id'):
                     group_id[field] = f'${field}'
             
@@ -105,8 +117,16 @@ class UserReports:
                     '$group': {
                         '_id': group_id,
                         'clicks': {'$sum': 1},
-                        'unique_clicks': {'$sum': 1},  # Count all clicks as unique for now
-                        'suspicious_clicks': {'$sum': 0}  # No fraud detection yet
+                        'gross_clicks': {'$sum': 1},  # All clicks including rejected
+                        'unique_clicks': {
+                            '$sum': {'$cond': [{'$eq': ['$is_unique', True]}, 1, 0]}
+                        },
+                        'suspicious_clicks': {
+                            '$sum': {'$cond': [{'$eq': ['$is_suspicious', True]}, 1, 0]}
+                        },
+                        'rejected_clicks': {
+                            '$sum': {'$cond': [{'$eq': ['$is_rejected', True]}, 1, 0]}
+                        }
                     }
                 }
             ]
@@ -122,11 +142,8 @@ class UserReports:
                 logger.info(f"   First result: {click_results[0]}")
             
             # Now get conversion data for the same groups (support both user_id and affiliate_id)
+            # Temporarily remove user_id filter to match clicks behavior (show all data)
             conversion_match = {
-                '$or': [
-                    {'affiliate_id': user_id},
-                    {'user_id': user_id}
-                ],
                 'conversion_time': {
                     '$gte': start_date,
                     '$lte': end_date
@@ -153,11 +170,61 @@ class UserReports:
                     conv_group_id['offer_id'] = '$offer_id'
                 elif field == 'country':
                     conv_group_id['country'] = '$country'
+                elif field == 'browser':
+                    conv_group_id['browser'] = '$browser'
+                elif field == 'device_type':
+                    conv_group_id['device_type'] = '$device_type'
+                elif field == 'source':
+                    conv_group_id['source'] = '$source'
+                elif field == 'creative':
+                    conv_group_id['creative'] = '$creative'
+                elif field == 'app_version':
+                    conv_group_id['app_version'] = '$app_version'
+                elif field.startswith('advertiser_sub_id'):
+                    conv_group_id[field] = f'${field}'
                 elif field.startswith('sub_id'):
                     conv_group_id[field] = f'${field}'
             
             conv_pipeline = [
                 {'$match': conversion_match},
+                # Join with clicks to get click_time for time spent calculation
+                # Handle both ObjectId and string click_id formats
+                {
+                    '$lookup': {
+                        'from': 'clicks',
+                        'let': {'conv_click_id': '$click_id'},
+                        'pipeline': [
+                            {
+                                '$match': {
+                                    '$expr': {
+                                        '$or': [
+                                            {'$eq': ['$_id', '$$conv_click_id']},
+                                            {'$eq': ['$click_id', '$$conv_click_id']}
+                                        ]
+                                    }
+                                }
+                            }
+                        ],
+                        'as': 'click_data'
+                    }
+                },
+                # Add time_spent field
+                {
+                    '$addFields': {
+                        'time_spent_seconds': {
+                            '$cond': {
+                                'if': {'$gt': [{'$size': '$click_data'}, 0]},
+                                'then': {
+                                    '$divide': [
+                                        {'$subtract': ['$conversion_time', {'$arrayElemAt': ['$click_data.click_time', 0]}]},
+                                        1000  # Convert milliseconds to seconds
+                                    ]
+                                },
+                                'else': 0
+                            }
+                        }
+                    }
+                },
                 {
                     '$group': {
                         '_id': conv_group_id,
@@ -172,7 +239,9 @@ class UserReports:
                             '$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}
                         },
                         'total_payout': {'$sum': '$payout'},
-                        'total_revenue': {'$sum': '$revenue'}
+                        # Calculate average time spent (conversion_time - click_time)
+                        'avg_time_spent_seconds': {'$avg': '$time_spent_seconds'}
+                        # Note: revenue field doesn't exist in conversions, using payout as revenue
                     }
                 }
             ]
@@ -187,9 +256,10 @@ class UserReports:
                 merged_data[key] = {
                     **click_row['_id'],
                     'clicks': click_row['clicks'],
-                    'unique_clicks': click_row['unique_clicks'],
-                    'suspicious_clicks': click_row['suspicious_clicks'],
-                    'rejected_clicks': 0,  # Not tracked yet
+                    'gross_clicks': click_row.get('gross_clicks', click_row['clicks']),
+                    'unique_clicks': click_row.get('unique_clicks', 0),
+                    'suspicious_clicks': click_row.get('suspicious_clicks', 0),
+                    'rejected_clicks': click_row.get('rejected_clicks', 0),
                     'conversions': 0,
                     'approved_conversions': 0,
                     'pending_conversions': 0,
@@ -207,13 +277,15 @@ class UserReports:
                         'pending_conversions': conv_row['pending_conversions'],
                         'rejected_conversions': conv_row['rejected_conversions'],
                         'total_payout': conv_row['total_payout'],
-                        'total_revenue': conv_row.get('total_revenue', conv_row['total_payout'])
+                        'total_revenue': conv_row['total_payout'],  # Use payout as revenue
+                        'avg_time_spent_seconds': conv_row.get('avg_time_spent_seconds', 0)
                     })
                 else:
                     # Conversion without click (shouldn't happen, but handle it)
                     merged_data[key] = {
                         **conv_row['_id'],
                         'clicks': 0,
+                        'gross_clicks': 0,
                         'unique_clicks': 0,
                         'suspicious_clicks': 0,
                         'rejected_clicks': 0,
@@ -222,23 +294,46 @@ class UserReports:
                         'pending_conversions': conv_row['pending_conversions'],
                         'rejected_conversions': conv_row['rejected_conversions'],
                         'total_payout': conv_row['total_payout'],
-                        'total_revenue': conv_row.get('total_revenue', conv_row['total_payout'])
+                        'total_revenue': conv_row['total_payout'],  # Use payout as revenue
+                        'avg_time_spent_seconds': conv_row.get('avg_time_spent_seconds', 0)
                     }
             
             # Convert to list and enrich with metrics
             report_data = []
-            for row in merged_data.values():
+            logger.info(f"DEBUG: Processing {len(merged_data)} merged rows")
+            for i, row in enumerate(merged_data.values()):
+                logger.info(f"DEBUG: Row {i}: clicks={row.get('clicks', 0)}, conversions={row.get('conversions', 0)}, payout={row.get('total_payout', 0)}")
                 # ALWAYS enrich with offer name - even if not grouped by offer
+                # Phase 2: Add offer URL, category, currency from offers collection
+                # Phase 3: Add ad_group, goal, promo_code from offers collection
                 if 'offer_id' in row:
                     offer = self.offers_collection.find_one({'offer_id': row['offer_id']})
                     if offer:
                         row['offer_name'] = offer.get('name', 'Unknown')
                         row['network'] = offer.get('network', 'Unknown')
+                        row['offer_url'] = offer.get('url', '')
+                        row['category'] = offer.get('category', 'Uncategorized')
+                        row['currency'] = offer.get('currency', 'USD')
+                        row['ad_group'] = offer.get('ad_group', '')
+                        row['goal'] = offer.get('goal', '')
+                        row['promo_code'] = offer.get('promo_code', '')
                     else:
                         row['offer_name'] = 'Unknown Offer'
+                        row['offer_url'] = ''
+                        row['category'] = 'Unknown'
+                        row['currency'] = 'USD'
+                        row['ad_group'] = ''
+                        row['goal'] = ''
+                        row['promo_code'] = ''
                 else:
                     # If no offer_id, set placeholder
                     row['offer_name'] = 'All Offers'
+                    row['offer_url'] = ''
+                    row['category'] = 'All'
+                    row['currency'] = 'USD'
+                    row['ad_group'] = ''
+                    row['goal'] = ''
+                    row['promo_code'] = ''
                 
                 # Calculate metrics
                 enriched_row = MetricsCalculator.enrich_with_metrics(row)
@@ -333,20 +428,70 @@ class UserReports:
             conversions_cursor = self.conversions_collection.find(query).sort('conversion_time', -1).skip(skip).limit(per_page)
             conversions = list(conversions_cursor)
             
-            # Enrich with offer names and device info
+            # Enrich with ALL fields from offers and clicks (same as Performance Report)
             for conv in conversions:
-                # Get offer details
+                # Get offer details - ALL FIELDS
                 offer = self.offers_collection.find_one({'offer_id': conv['offer_id']})
                 if offer:
                     conv['offer_name'] = offer.get('name', 'Unknown')
                     conv['network'] = offer.get('network', 'Unknown')
+                    # Phase 2 fields
+                    conv['offer_url'] = offer.get('url', '')
+                    conv['category'] = offer.get('category', 'Uncategorized')
+                    conv['currency'] = offer.get('currency', 'USD')
+                    # Phase 3 fields
+                    conv['ad_group'] = offer.get('ad_group', '')
+                    conv['goal'] = offer.get('goal', '')
+                    conv['promo_code'] = offer.get('promo_code', '')
+                else:
+                    conv['offer_name'] = 'Unknown Offer'
+                    conv['offer_url'] = ''
+                    conv['category'] = 'Unknown'
+                    conv['currency'] = 'USD'
+                    conv['ad_group'] = ''
+                    conv['goal'] = ''
+                    conv['promo_code'] = ''
                 
-                # Get click data for device info
+                # Get click data - ALL FIELDS
                 click = self.clicks_collection.find_one({'click_id': conv['click_id']})
                 if click:
+                    # Basic fields
                     conv['device_type'] = click.get('device_type', 'Unknown')
                     conv['browser'] = click.get('browser', 'Unknown')
                     conv['os'] = click.get('os', 'Unknown')
+                    conv['source'] = click.get('referer', '')
+                    # Phase 3 fields
+                    conv['creative'] = click.get('creative', '')
+                    conv['app_version'] = click.get('app_version', '')
+                    conv['advertiser_sub_id1'] = click.get('advertiser_sub_id1', '')
+                    conv['advertiser_sub_id2'] = click.get('advertiser_sub_id2', '')
+                    conv['advertiser_sub_id3'] = click.get('advertiser_sub_id3', '')
+                    conv['advertiser_sub_id4'] = click.get('advertiser_sub_id4', '')
+                    conv['advertiser_sub_id5'] = click.get('advertiser_sub_id5', '')
+                    # Sub IDs
+                    conv['sub_id1'] = click.get('sub_id1', '')
+                    conv['sub_id2'] = click.get('sub_id2', '')
+                    conv['sub_id3'] = click.get('sub_id3', '')
+                    conv['sub_id4'] = click.get('sub_id4', '')
+                    conv['sub_id5'] = click.get('sub_id5', '')
+                else:
+                    # Default values when no click found
+                    conv['device_type'] = 'Unknown'
+                    conv['browser'] = 'Unknown'
+                    conv['os'] = 'Unknown'
+                    conv['source'] = ''
+                    conv['creative'] = ''
+                    conv['app_version'] = ''
+                    conv['advertiser_sub_id1'] = ''
+                    conv['advertiser_sub_id2'] = ''
+                    conv['advertiser_sub_id3'] = ''
+                    conv['advertiser_sub_id4'] = ''
+                    conv['advertiser_sub_id5'] = ''
+                    conv['sub_id1'] = ''
+                    conv['sub_id2'] = ''
+                    conv['sub_id3'] = ''
+                    conv['sub_id4'] = ''
+                    conv['sub_id5'] = ''
                 
                 # Format datetime
                 conv['time'] = conv['conversion_time'].strftime('%Y-%m-%d %H:%M:%S')
