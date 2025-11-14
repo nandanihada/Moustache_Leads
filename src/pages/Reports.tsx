@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import PlacementRequired from '@/components/PlacementRequired';
 
 // --- TYPE DEFINITIONS ---
 interface SvgIconProps extends React.SVGProps<SVGSVGElement> {}
@@ -617,7 +618,7 @@ const ReportView: React.FC<ReportViewProps> = ({ activeTab }) => {
  * --- MAIN APP COMPONENT (Reports) ---
  */
 
-const Reports: React.FC = () => { // Renamed from ReportsPage to Reports
+const ReportsContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('Conversion');
 
   return (
@@ -634,6 +635,14 @@ const Reports: React.FC = () => { // Renamed from ReportsPage to Reports
         <ReportsHeader activeTab={activeTab} setActiveTab={setActiveTab} />
         <ReportView activeTab={activeTab} />
     </div>
+  );
+};
+
+const Reports: React.FC = () => {
+  return (
+    <PlacementRequired>
+      <ReportsContent />
+    </PlacementRequired>
   );
 };
 

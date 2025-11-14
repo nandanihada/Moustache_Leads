@@ -49,8 +49,8 @@ export default function Register() {
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       
-      // Create username from first and last name
-      const username = `${formData.firstName.toLowerCase()}_${formData.lastName.toLowerCase()}`;
+      // Use firstname as username (as requested by user)
+      const username = formData.firstName.toLowerCase();
       
       const res = await fetch(`${API_URL}/api/auth/register`, {
         method: "POST",

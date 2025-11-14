@@ -537,9 +537,19 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
         <Card title="Current Status" className="sticky top-4">
           <div className="space-y-4">
             <div className="flex justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+              <span className="text-gray-600 font-medium">Approval Status:</span>
+              <span className={`font-bold px-2 py-1 rounded text-xs ${
+                data.approvalStatus === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                data.approvalStatus === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                'bg-yellow-100 text-yellow-800'
+              }`}>
+                {data.approvalStatus || 'PENDING_APPROVAL'}
+              </span>
+            </div>
+            <div className="flex justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
               <span className="text-gray-600 font-medium">Status:</span>
               <span className={`font-bold ${data.placementIdentifier ? 'text-green-600' : 'text-yellow-600'}`}>
-                {data.placementIdentifier ? 'LIVE' : 'DRAFT'}
+                {data.status || 'DRAFT'}
               </span>
             </div>
             <div className="flex justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
@@ -554,6 +564,13 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                 {data.placementIdentifier ? `${data.placementIdentifier.substring(0, 10)}...` : 'N/A'}
               </span>
             </div>
+            
+            {data.reviewMessage && (
+              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                <h5 className="font-medium text-blue-900 mb-1">Review Message</h5>
+                <p className="text-sm text-blue-800">{data.reviewMessage}</p>
+              </div>
+            )}
             
             <hr className="border-gray-200 my-4" />
             <div className="pt-2">

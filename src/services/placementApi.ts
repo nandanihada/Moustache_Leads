@@ -69,14 +69,32 @@ class PlacementApiService {
   }
 
   // Convert backend response to frontend format
-  private convertToFrontendFormat(backendData: PlacementResponse): any {
+  private convertToFrontendFormat(backendData: any): any {
     return {
-      ...backendData,
-      platformName: backendData.offerwallTitle, // Use offerwall title as platform name
+      id: backendData._id || backendData.id,
+      placementIdentifier: backendData.placementIdentifier,
+      apiKey: backendData.apiKey,
+      platformType: backendData.platformType,
+      offerwallTitle: backendData.offerwallTitle,
+      currencyName: backendData.currencyName,
+      exchangeRate: backendData.exchangeRate,
+      postbackUrl: backendData.postbackUrl,
+      status: backendData.status,
+      approvalStatus: backendData.approvalStatus || 'PENDING_APPROVAL',
+      approvedBy: backendData.approvedBy,
+      approvedAt: backendData.approvedAt,
+      rejectionReason: backendData.rejectionReason,
+      reviewMessage: backendData.reviewMessage,
+      createdAt: backendData.createdAt,
+      updatedAt: backendData.updatedAt,
+      
+      // Map to frontend field names
+      platformName: backendData.platformName || '',
+      platformLink: backendData.platformLink || '',
       postbackUri: backendData.postbackUrl,
-      description: '', // Default empty description
-      postbackFailureNotification: false, // Default false
-      events: [], // Default empty events array
+      description: backendData.description || '',
+      postbackFailureNotification: backendData.postbackFailureNotification || false,
+      
       // Testing fields
       userId: '',
       rewardValue: '',

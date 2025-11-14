@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Search, Info, Ban, Smartphone, Monitor, Globe, Loader2, AlertCircle, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import PlacementRequired from "@/components/PlacementRequired";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,7 +39,7 @@ const deviceIcons = {
   android: Smartphone,
 };
 
-const Offers = () => {
+const OffersContent = () => {
   const [activeTab, setActiveTab] = useState("active");
   const [searchTerm, setSearchTerm] = useState("");
   const [searchBy, setSearchBy] = useState("name");
@@ -283,6 +284,14 @@ const Offers = () => {
         </CardContent>
       </Card>
     </div>
+  );
+};
+
+const Offers = () => {
+  return (
+    <PlacementRequired>
+      <OffersContent />
+    </PlacementRequired>
   );
 };
 

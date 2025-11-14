@@ -3,6 +3,7 @@ import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift } from "lucid
 import { KPIWidget } from "@/components/dashboard/KPIWidget";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import PlacementRequired from "@/components/PlacementRequired";
 import {
   Table,
   TableBody,
@@ -163,7 +164,11 @@ const DashboardContent = () => {
    Main Dashboard Component
 ------------------------- */
 const Dashboard = () => {
-  return <DashboardContent />;
+  return (
+    <PlacementRequired>
+      <DashboardContent />
+    </PlacementRequired>
+  );
 };
 
 export default Dashboard;

@@ -26,6 +26,7 @@ import TrackingTest from "./pages/TrackingTest";
 import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
 import PostbackReceiver from "./pages/PostbackReceiver";
+import AdminPlacementApproval from "./pages/AdminPlacementApproval";
 import PartnerProfile from "./pages/PartnerProfile";
 import PerformanceReport from "./pages/PerformanceReport";
 import ConversionReport from "./pages/ConversionReport";
@@ -90,6 +91,7 @@ const App = () => (
             >
               <Route index element={<AdminDashboard />} />
               <Route path="offers" element={<AdminOffers />} />
+              <Route path="placement-approval" element={<AdminPlacementApproval />} />
               <Route path="analytics" element={<AdminAnalytics />} />
               <Route path="reports" element={<AdminReports />} />
               <Route path="tracking" element={<AdminTracking />} />

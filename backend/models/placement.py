@@ -74,9 +74,9 @@ class Placement:
         if not validate_url(placement_data['postbackUrl']):
             return None, "Invalid postback URL format"
         
-        # Validate status
-        valid_statuses = ['LIVE', 'PAUSED', 'INACTIVE']
-        status = placement_data.get('status', 'LIVE')
+        # Validate status - now includes approval statuses
+        valid_statuses = ['PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'LIVE', 'PAUSED', 'INACTIVE']
+        status = placement_data.get('status', 'PENDING_APPROVAL')  # Default to pending approval
         if status not in valid_statuses:
             return None, f"Status must be one of: {', '.join(valid_statuses)}"
         
@@ -91,6 +91,11 @@ class Placement:
             'exchangeRate': exchange_rate,
             'postbackUrl': placement_data['postbackUrl'].strip(),
             'status': status,
+            'approvalStatus': status if status in ['PENDING_APPROVAL', 'APPROVED', 'REJECTED'] else 'PENDING_APPROVAL',
+            'approvedBy': None,
+            'approvedAt': None,
+            'rejectionReason': None,
+            'reviewMessage': 'Your placement is under review. We will notify you once it\'s approved.',
             'createdAt': datetime.utcnow(),
             'updatedAt': datetime.utcnow()
         }
@@ -304,3 +309,149 @@ class Placement:
         except Exception as e:
             logger.error(f"Error migrating API keys: {e}")
             return False, f"Error migrating API keys: {str(e)}"
+    
+    def get_all_placements_for_admin(self, page=1, size=10, status_filter=None, platform_filter=None):
+        """Get all placements for admin review with pagination and filters"""
+        if not self._check_db_connection():
+            return [], 0, "Database connection not available"
+        
+        try:
+            # Build query filter
+            query_filter = {}
+            
+            if status_filter:
+                query_filter['approvalStatus'] = status_filter
+            
+            if platform_filter:
+                query_filter['platformType'] = platform_filter
+            
+            # Calculate skip value for pagination
+            skip = (page - 1) * size
+            
+            # Get total count
+            total = self.collection.count_documents(query_filter)
+            
+            # Get placements with pagination and populate publisher info
+            pipeline = [
+                {'$match': query_filter},
+                {'$lookup': {
+                    'from': 'users',
+                    'localField': 'publisherId',
+                    'foreignField': '_id',
+                    'as': 'publisher'
+                }},
+                {'$unwind': {
+                    'path': '$publisher',
+                    'preserveNullAndEmptyArrays': True
+                }},
+                {'$addFields': {
+                    'publisherName': {'$ifNull': ['$publisher.username', 'Unknown']},
+                    'publisherEmail': {'$ifNull': ['$publisher.email', 'N/A']},
+                    'publisherRole': {'$ifNull': ['$publisher.role', 'user']},
+                    'publisherCreatedAt': {'$ifNull': ['$publisher.created_at', None]}
+                }},
+                {'$sort': {'createdAt': -1}},
+                {'$skip': skip},
+                {'$limit': size}
+            ]
+            
+            placements = list(self.collection.aggregate(pipeline))
+            
+            return placements, total, None
+        except Exception as e:
+            logger.error(f"Error fetching admin placements: {e}")
+            return [], 0, f"Error fetching admin placements: {str(e)}"
+    
+    def approve_placement(self, placement_id, admin_user_id, message=None):
+        """Approve a placement"""
+        if not self._check_db_connection():
+            return None, "Database connection not available"
+        
+        try:
+            # Check if placement exists and is pending
+            placement = self.collection.find_one({
+                '_id': ObjectId(placement_id),
+                'approvalStatus': 'PENDING_APPROVAL'
+            })
+            
+            if not placement:
+                return None, "Placement not found or already processed"
+            
+            # Update placement to approved
+            update_doc = {
+                'approvalStatus': 'APPROVED',
+                'status': 'LIVE',  # Automatically set to LIVE when approved
+                'approvedBy': ObjectId(admin_user_id),
+                'approvedAt': datetime.utcnow(),
+                'reviewMessage': message or 'Your placement has been approved and is now live!',
+                'updatedAt': datetime.utcnow()
+            }
+            
+            result = self.collection.update_one(
+                {'_id': ObjectId(placement_id)},
+                {'$set': update_doc}
+            )
+            
+            if result.modified_count == 0:
+                return None, "Failed to approve placement"
+            
+            # Return updated placement
+            updated_placement = self.collection.find_one({'_id': ObjectId(placement_id)})
+            return updated_placement, None
+            
+        except Exception as e:
+            logger.error(f"Error approving placement: {e}")
+            return None, f"Error approving placement: {str(e)}"
+    
+    def reject_placement(self, placement_id, admin_user_id, reason, message=None):
+        """Reject a placement"""
+        if not self._check_db_connection():
+            return None, "Database connection not available"
+        
+        try:
+            # Check if placement exists and is pending
+            placement = self.collection.find_one({
+                '_id': ObjectId(placement_id),
+                'approvalStatus': 'PENDING_APPROVAL'
+            })
+            
+            if not placement:
+                return None, "Placement not found or already processed"
+            
+            # Update placement to rejected
+            update_doc = {
+                'approvalStatus': 'REJECTED',
+                'status': 'INACTIVE',  # Set to inactive when rejected
+                'approvedBy': ObjectId(admin_user_id),
+                'approvedAt': datetime.utcnow(),
+                'rejectionReason': reason,
+                'reviewMessage': message or f'Your placement has been rejected. Reason: {reason}',
+                'updatedAt': datetime.utcnow()
+            }
+            
+            result = self.collection.update_one(
+                {'_id': ObjectId(placement_id)},
+                {'$set': update_doc}
+            )
+            
+            if result.modified_count == 0:
+                return None, "Failed to reject placement"
+            
+            # Return updated placement
+            updated_placement = self.collection.find_one({'_id': ObjectId(placement_id)})
+            return updated_placement, None
+            
+        except Exception as e:
+            logger.error(f"Error rejecting placement: {e}")
+            return None, f"Error rejecting placement: {str(e)}"
+    
+    def get_pending_placements_count(self):
+        """Get count of pending placements for admin dashboard"""
+        if not self._check_db_connection():
+            return 0
+        
+        try:
+            return self.collection.count_documents({'approvalStatus': 'PENDING_APPROVAL'})
+        except Exception as e:
+            logger.error(f"Error getting pending count: {e}")
+            return 0

@@ -12,10 +12,15 @@ import {
   Rocket, // 🚀 New icon for Ascend
   Shield, // 🛡️ Admin icon
   TrendingUp, // 📈 Performance Report
-  Receipt // 📝 Conversion Report
+  Receipt, // 📝 Conversion Report
+  Clock,
+  CheckCircle,
+  XCircle
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
+import { useRequireApprovedPlacement } from "../../hooks/usePlacementApproval";
+import { Badge } from "@/components/ui/badge";
 import {
   Sidebar,
   SidebarContent,
@@ -46,10 +51,46 @@ const menuItems = [
 export function AppSidebar() {
   const navigate = useNavigate();
   const { logout, isAdmin } = useAuth();
+  const { 
+    hasApprovedPlacement, 
+    hasPendingPlacement, 
+    hasRejectedPlacement,
+    canAccessPlatform 
+  } = useRequireApprovedPlacement();
 
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const getPlacementStatusBadge = () => {
+    if (hasApprovedPlacement) {
+      return (
+        <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300 text-xs">
+          <CheckCircle className="h-3 w-3 mr-1" />
+          Approved
+        </Badge>
+      );
+    } else if (hasPendingPlacement) {
+      return (
+        <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-300 text-xs">
+          <Clock className="h-3 w-3 mr-1" />
+          Pending
+        </Badge>
+      );
+    } else if (hasRejectedPlacement) {
+      return (
+        <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 text-xs">
+          <XCircle className="h-3 w-3 mr-1" />
+          Rejected
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="outline" className="bg-gray-100 text-gray-800 border-gray-300 text-xs">
+        Required
+      </Badge>
+    );
   };
 
   return (
@@ -64,28 +105,65 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* Placement Status Section */}
+        <SidebarGroup>
+          <div className="px-3 py-2">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-muted-foreground">Placement Status</span>
+              {getPlacementStatusBadge()}
+            </div>
+            {!canAccessPlatform && (
+              <p className="text-xs text-muted-foreground">
+                {hasPendingPlacement 
+                  ? "Your placement is under review" 
+                  : "Create a placement to access offers"
+                }
+              </p>
+            )}
+          </div>
+        </SidebarGroup>
+
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url} 
-                      className={({ isActive }) => 
-                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                          isActive 
-                            ? "bg-primary/10 text-primary border-r-2 border-primary" 
-                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                        }`
-                      }
-                    >
-                      <item.icon className="h-5 w-5" />
-                      <span className="font-medium">{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {menuItems.map((item) => {
+                // Items that require placement approval
+                const requiresPlacement = ['Offers', 'Reports', 'Performance Report', 'Conversion Report'].includes(item.title);
+                const isDisabled = requiresPlacement && !canAccessPlatform;
+                
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink 
+                        to={isDisabled ? '#' : item.url}
+                        onClick={(e) => {
+                          if (isDisabled) {
+                            e.preventDefault();
+                            navigate('/dashboard/placements');
+                          }
+                        }}
+                        className={({ isActive }) => 
+                          `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
+                            isDisabled 
+                              ? "text-muted-foreground/50 cursor-not-allowed opacity-50"
+                              : isActive 
+                                ? "bg-primary/10 text-primary border-r-2 border-primary" 
+                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                          }`
+                        }
+                      >
+                        <item.icon className="h-5 w-5" />
+                        <span className="font-medium">{item.title}</span>
+                        {isDisabled && (
+                          <Badge variant="outline" className="ml-auto text-xs bg-yellow-100 text-yellow-800 border-yellow-300">
+                            <Clock className="h-3 w-3 mr-1" />
+                          </Badge>
+                        )}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
               
               {/* Admin Dashboard - Only show for admin users */}
               {isAdmin && (

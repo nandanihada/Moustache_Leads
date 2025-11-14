@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from utils.auth import token_required
+from utils.auth import token_required, admin_required
 from models.publisher import Publisher
 from models.placement import Placement
 import logging
@@ -31,15 +31,10 @@ def create_placement():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # Get or create publisher for current user
-        publisher, error = get_current_publisher(current_user)
-        if error:
-            return jsonify({'error': error}), 500
-        
-        # Create placement
+        # Create placement directly with user ID (no separate publisher model needed)
         placement_model = Placement()
         placement, error = placement_model.create_placement(
-            publisher_id=str(publisher['_id']),
+            publisher_id=str(current_user['_id']),  # Use user ID directly
             placement_data=data
         )
         
@@ -58,6 +53,11 @@ def create_placement():
             'exchangeRate': placement['exchangeRate'],
             'postbackUrl': placement['postbackUrl'],
             'status': placement['status'],
+            'approvalStatus': placement.get('approvalStatus', 'PENDING_APPROVAL'),
+            'approvedBy': str(placement.get('approvedBy')) if placement.get('approvedBy') else None,
+            'approvedAt': placement.get('approvedAt').isoformat() if placement.get('approvedAt') and hasattr(placement.get('approvedAt'), 'isoformat') else None,
+            'rejectionReason': placement.get('rejectionReason'),
+            'reviewMessage': placement.get('reviewMessage'),
             'createdAt': placement['createdAt'].isoformat()
         }
         
@@ -81,15 +81,10 @@ def get_placements():
         status_filter = request.args.get('status_filter')
         platform_filter = request.args.get('platform_filter')
         
-        # Get or create publisher for current user
-        publisher, error = get_current_publisher(current_user)
-        if error:
-            return jsonify({'error': error}), 500
-        
-        # Get placements
+        # Get placements directly by user ID (since placements are linked to users)
         placement_model = Placement()
         placements, total, error = placement_model.get_placements_by_publisher(
-            publisher_id=str(publisher['_id']),
+            publisher_id=str(current_user['_id']),  # Use user ID directly
             page=page,
             size=size,
             status_filter=status_filter,
@@ -113,6 +108,11 @@ def get_placements():
                 'exchangeRate': placement['exchangeRate'],
                 'postbackUrl': placement['postbackUrl'],
                 'status': placement['status'],
+                'approvalStatus': placement.get('approvalStatus', 'PENDING_APPROVAL'),
+                'approvedBy': str(placement.get('approvedBy')) if placement.get('approvedBy') else None,
+                'approvedAt': placement.get('approvedAt').isoformat() if placement.get('approvedAt') and hasattr(placement.get('approvedAt'), 'isoformat') else None,
+                'rejectionReason': placement.get('rejectionReason'),
+                'reviewMessage': placement.get('reviewMessage'),
                 'createdAt': placement['createdAt'].isoformat()
             })
         
@@ -133,20 +133,15 @@ def get_placements():
 @placements_bp.route('/<placement_id>', methods=['GET'])
 @token_required
 def get_placement(placement_id):
-    """Get a specific placement by ID"""
+    """Get a specific placement"""
     try:
         current_user = request.current_user
-        
-        # Get or create publisher for current user
-        publisher, error = get_current_publisher(current_user)
-        if error:
-            return jsonify({'error': error}), 500
         
         # Get placement
         placement_model = Placement()
         placement, error = placement_model.get_placement_by_id(
             placement_id=placement_id,
-            publisher_id=str(publisher['_id'])
+            publisher_id=str(current_user['_id'])
         )
         
         if error:
@@ -167,6 +162,11 @@ def get_placement(placement_id):
             'exchangeRate': placement['exchangeRate'],
             'postbackUrl': placement['postbackUrl'],
             'status': placement['status'],
+            'approvalStatus': placement.get('approvalStatus', 'PENDING_APPROVAL'),
+            'approvedBy': str(placement.get('approvedBy')) if placement.get('approvedBy') else None,
+            'approvedAt': placement.get('approvedAt').isoformat() if placement.get('approvedAt') and hasattr(placement.get('approvedAt'), 'isoformat') else None,
+            'rejectionReason': placement.get('rejectionReason'),
+            'reviewMessage': placement.get('reviewMessage'),
             'createdAt': placement['createdAt'].isoformat()
         }
         
@@ -188,16 +188,11 @@ def update_placement(placement_id):
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # Get or create publisher for current user
-        publisher, error = get_current_publisher(current_user)
-        if error:
-            return jsonify({'error': error}), 500
-        
-        # Update placement
+        # Update placement directly with user ID
         placement_model = Placement()
         placement, error = placement_model.update_placement(
             placement_id=placement_id,
-            publisher_id=str(publisher['_id']),
+            publisher_id=str(current_user['_id']),
             update_data=data
         )
         
@@ -219,6 +214,11 @@ def update_placement(placement_id):
             'exchangeRate': placement['exchangeRate'],
             'postbackUrl': placement['postbackUrl'],
             'status': placement['status'],
+            'approvalStatus': placement.get('approvalStatus', 'PENDING_APPROVAL'),
+            'approvedBy': str(placement.get('approvedBy')) if placement.get('approvedBy') else None,
+            'approvedAt': placement.get('approvedAt').isoformat() if placement.get('approvedAt') and hasattr(placement.get('approvedAt'), 'isoformat') else None,
+            'rejectionReason': placement.get('rejectionReason'),
+            'reviewMessage': placement.get('reviewMessage'),
             'createdAt': placement['createdAt'].isoformat()
         }
         
@@ -236,16 +236,11 @@ def delete_placement(placement_id):
     try:
         current_user = request.current_user
         
-        # Get or create publisher for current user
-        publisher, error = get_current_publisher(current_user)
-        if error:
-            return jsonify({'error': error}), 500
-        
-        # Delete placement
+        # Delete placement directly with user ID
         placement_model = Placement()
         success, error = placement_model.delete_placement(
             placement_id=placement_id,
-            publisher_id=str(publisher['_id'])
+            publisher_id=str(current_user['_id'])
         )
         
         if error:
@@ -410,4 +405,178 @@ def migrate_add_api_keys():
             
     except Exception as e:
         logger.error(f"Error running migration: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+# Admin-only endpoints for placement approval
+@placements_bp.route('/admin/all', methods=['GET'])
+@token_required
+@admin_required
+def get_all_placements_admin():
+    """Get all placements for admin review"""
+    try:
+        # Get query parameters
+        page = int(request.args.get('page', 1))
+        size = min(int(request.args.get('size', 10)), 100)  # Max 100 per page
+        status_filter = request.args.get('status_filter')
+        platform_filter = request.args.get('platform_filter')
+        
+        # Get placements
+        placement_model = Placement()
+        placements, total, error = placement_model.get_all_placements_for_admin(
+            page=page,
+            size=size,
+            status_filter=status_filter,
+            platform_filter=platform_filter
+        )
+        
+        if error:
+            return jsonify({'error': error}), 500
+        
+        # Format response
+        placement_list = []
+        for placement in placements:
+            publisher = placement.get('publisher', {})
+            placement_list.append({
+                'id': str(placement['_id']),
+                'publisherId': str(placement['publisherId']),
+                'publisherName': publisher.get('username', 'Unknown'),
+                'publisherEmail': publisher.get('email', 'Unknown'),
+                'placementIdentifier': placement['placementIdentifier'],
+                'platformType': placement['platformType'],
+                'offerwallTitle': placement['offerwallTitle'],
+                'currencyName': placement['currencyName'],
+                'exchangeRate': placement['exchangeRate'],
+                'postbackUrl': placement['postbackUrl'],
+                'status': placement['status'],
+                'approvalStatus': placement.get('approvalStatus', 'PENDING_APPROVAL'),
+                'approvedBy': str(placement['approvedBy']) if placement.get('approvedBy') else None,
+                'approvedAt': placement['approvedAt'].isoformat() if placement.get('approvedAt') else None,
+                'rejectionReason': placement.get('rejectionReason'),
+                'reviewMessage': placement.get('reviewMessage'),
+                'createdAt': placement['createdAt'].isoformat()
+            })
+        
+        response_data = {
+            'placements': placement_list,
+            'total': total,
+            'page': page,
+            'size': size
+        }
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching admin placements: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@placements_bp.route('/admin/<placement_id>/approve', methods=['POST'])
+@token_required
+@admin_required
+def approve_placement_admin(placement_id):
+    """Approve a placement"""
+    try:
+        current_user = request.current_user
+        data = request.get_json() or {}
+        message = data.get('message')
+        
+        # Approve placement
+        placement_model = Placement()
+        placement, error = placement_model.approve_placement(
+            placement_id=placement_id,
+            admin_user_id=str(current_user['_id']),
+            message=message
+        )
+        
+        if error:
+            return jsonify({'error': error}), 400
+        
+        if not placement:
+            return jsonify({'error': 'Placement not found'}), 404
+        
+        return jsonify({
+            'message': 'Placement approved successfully',
+            'placement': {
+                'id': str(placement['_id']),
+                'approvalStatus': placement['approvalStatus'],
+                'status': placement['status'],
+                'reviewMessage': placement['reviewMessage']
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error approving placement: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@placements_bp.route('/admin/<placement_id>/reject', methods=['POST'])
+@token_required
+@admin_required
+def reject_placement_admin(placement_id):
+    """Reject a placement"""
+    try:
+        current_user = request.current_user
+        data = request.get_json()
+        
+        if not data or not data.get('reason'):
+            return jsonify({'error': 'Rejection reason is required'}), 400
+        
+        reason = data['reason']
+        message = data.get('message')
+        
+        # Reject placement
+        placement_model = Placement()
+        placement, error = placement_model.reject_placement(
+            placement_id=placement_id,
+            admin_user_id=str(current_user['_id']),
+            reason=reason,
+            message=message
+        )
+        
+        if error:
+            return jsonify({'error': error}), 400
+        
+        if not placement:
+            return jsonify({'error': 'Placement not found'}), 404
+        
+        return jsonify({
+            'message': 'Placement rejected successfully',
+            'placement': {
+                'id': str(placement['_id']),
+                'approvalStatus': placement['approvalStatus'],
+                'status': placement['status'],
+                'rejectionReason': placement['rejectionReason'],
+                'reviewMessage': placement['reviewMessage']
+            }
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error rejecting placement: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@placements_bp.route('/admin/stats', methods=['GET'])
+@token_required
+@admin_required
+def get_placement_stats_admin():
+    """Get placement statistics for admin dashboard"""
+    try:
+        placement_model = Placement()
+        
+        # Get counts by status
+        pending_count = placement_model.get_pending_placements_count()
+        
+        # Get total counts (you can extend this with more stats)
+        stats = {
+            'pending_approval': pending_count,
+            'total_placements': 0,  # You can implement this
+            'approved_today': 0,    # You can implement this
+            'rejected_today': 0     # You can implement this
+        }
+        
+        return jsonify({'stats': stats}), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching placement stats: {e}")
         return jsonify({'error': 'Internal server error'}), 500
