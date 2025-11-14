@@ -27,6 +27,7 @@ import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
 import PostbackReceiver from "./pages/PostbackReceiver";
 import AdminPlacementApproval from "./pages/AdminPlacementApproval";
+import AdminPublisherManagementFixed from "./pages/AdminPublisherManagementFixed";
 import PartnerProfile from "./pages/PartnerProfile";
 import PerformanceReport from "./pages/PerformanceReport";
 import ConversionReport from "./pages/ConversionReport";

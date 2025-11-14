@@ -49,6 +49,9 @@ diagnostic_bp = safe_import_blueprint('routes.diagnostic', 'diagnostic_bp')
 user_reports_bp = safe_import_blueprint('routes.user_reports', 'user_reports_bp')
 simple_tracking_bp = safe_import_blueprint('routes.simple_tracking', 'simple_tracking_bp')
 publisher_offers_bp = safe_import_blueprint('routes.publisher_offers', 'publisher_offers_bp')
+admin_publishers_bp = safe_import_blueprint('routes.admin_publishers', 'admin_publishers_bp')
+admin_publishers_simple_bp = safe_import_blueprint('routes.admin_publishers_simple', 'admin_publishers_simple_bp')
+test_admin_simple_bp = safe_import_blueprint('routes.test_admin_simple', 'test_admin_simple_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -77,7 +80,9 @@ blueprints = [
     (partner_postback_logs_bp, ''),  # Partner postback logs - admin routes
     (diagnostic_bp, ''),  # Diagnostic routes
     (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
-    (publisher_offers_bp, '/api/publisher')  # Publisher offers - no admin required
+    (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
+    (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
+    (test_admin_simple_bp, '/api/admin')  # Test admin routes
 ]
 
 def create_app():
