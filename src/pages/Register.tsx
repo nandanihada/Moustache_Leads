@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Eye, EyeOff } from "lucide-react";
+import EmailVerificationPrompt from "../components/EmailVerificationPrompt";
+import EmailPreferencesPopup from "../components/EmailPreferencesPopup";
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -17,6 +19,14 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+  const [showEmailPreferences, setShowEmailPreferences] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [registrationData, setRegistrationData] = useState<{
+    email: string;
+    username: string;
+    token: string;
+  } | null>(null);
   const navigate = useNavigate();
   const { login } = useAuth();
 
@@ -71,9 +81,16 @@ export default function Register() {
       const data = await res.json();
       
       if (data.token) {
+        // Store registration data and show email verification prompt first
+        setRegistrationData({
+          email: formData.email,
+          username: username,
+          token: data.token
+        });
+        setShowVerificationPrompt(true);
+        
+        // Also login the user so they can browse while verifying
         login(data.token, data.user);
-        alert("Registration successful!");
-        navigate("/dashboard");
       } else {
         alert(data.error || "Registration failed");
       }
@@ -298,6 +315,33 @@ export default function Register() {
           animation-delay: 4s;
         }
       `}</style>
+
+      {/* Email Verification Prompt - FIRST */}
+      {showVerificationPrompt && registrationData && !emailVerified && (
+        <EmailVerificationPrompt
+          email={registrationData.email}
+          username={registrationData.username}
+          token={registrationData.token}
+          onVerified={() => {
+            setShowVerificationPrompt(false);
+            setEmailVerified(true);
+            setShowEmailPreferences(true);
+          }}
+        />
+      )}
+
+      {/* Email Preferences Popup - AFTER verification */}
+      {showEmailPreferences && registrationData && emailVerified && (
+        <EmailPreferencesPopup
+          isOpen={showEmailPreferences}
+          onClose={() => {
+            setShowEmailPreferences(false);
+            navigate("/dashboard");
+          }}
+          token={registrationData.token}
+          username={registrationData.username}
+        />
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import json
 from threading import Thread
 import time
 from models.tracking_events import TrackingEvents
+from services.bonus_calculation_service import BonusCalculationService
 
 class TrackingService:
     """Service to handle offer tracking, clicks, and postbacks"""
@@ -23,6 +24,7 @@ class TrackingService:
         self.postback_logs_collection = db_instance.get_collection('postback_logs')
         self.partners_collection = db_instance.get_collection('partners')
         self.tracking_events = TrackingEvents()
+        self.bonus_service = BonusCalculationService()  # Initialize bonus calculation
     
     def generate_tracking_link(self, offer_id, affiliate_id, sub_ids=None):
         """
@@ -314,8 +316,16 @@ class TrackingService:
                 self._queue_postback(offer, conversion_doc)
                 self.logger.info(f"📤 Postback queued (legacy mode)")
             
+            # STEP 4: Calculate and apply promo code bonuses
+            bonus_result = self.bonus_service.apply_bonus_to_conversion(conversion_doc['conversion_id'])
+            if 'error' not in bonus_result and bonus_result.get('bonus_amount', 0) > 0:
+                self.logger.info(f"💰 Bonus applied: ${bonus_result['bonus_amount']} for conversion {conversion_doc['conversion_id']}")
+                conversion_doc['bonus_amount'] = bonus_result['bonus_amount']
+                conversion_doc['promo_codes_applied'] = bonus_result.get('codes_applied', [])
+            
             return {
                 'conversion': conversion_doc,
+                'bonus': bonus_result if 'error' not in bonus_result else None,
                 'message': 'Conversion recorded successfully'
             }
             

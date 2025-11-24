@@ -27,12 +27,17 @@ import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
 import PostbackReceiver from "./pages/PostbackReceiver";
 import AdminPlacementApproval from "./pages/AdminPlacementApproval";
+import AdminOfferAccessRequests from "./pages/AdminOfferAccessRequests";
 import AdminPublisherManagementFixed from "./pages/AdminPublisherManagementFixed";
 import PartnerProfile from "./pages/PartnerProfile";
 import PerformanceReport from "./pages/PerformanceReport";
 import ConversionReport from "./pages/ConversionReport";
+import AdminPromoCodeManagement from "./pages/AdminPromoCodeManagement";
+import PublisherPromoCodeManagement from "./pages/PublisherPromoCodeManagement";
+import AdminBonusManagement from "./pages/AdminBonusManagement";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import VerifyEmail from "./pages/VerifyEmail";
 import Landing from "./pages/Landing";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -55,6 +60,7 @@ const App = () => (
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/test-modal" element={<TestOfferModal />} />
             
             {/* Protected dashboard routes */}
@@ -68,6 +74,7 @@ const App = () => (
             >
               <Route index element={<Dashboard />} />
               <Route path="offers" element={<PublisherOffers />} />
+              <Route path="promo-codes" element={<PublisherPromoCodeManagement />} />
               <Route path="reports" element={<Reports />} />
               <Route path="performance-report" element={<PerformanceReport />} />
               <Route path="conversion-report" element={<ConversionReport />} />
@@ -92,6 +99,9 @@ const App = () => (
             >
               <Route index element={<AdminDashboard />} />
               <Route path="offers" element={<AdminOffers />} />
+              <Route path="promo-codes" element={<AdminPromoCodeManagement />} />
+              <Route path="bonus-management" element={<AdminBonusManagement />} />
+              <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
               <Route path="placement-approval" element={<AdminPlacementApproval />} />
               <Route path="analytics" element={<AdminAnalytics />} />
               <Route path="reports" element={<AdminReports />} />

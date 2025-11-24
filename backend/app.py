@@ -52,6 +52,12 @@ publisher_offers_bp = safe_import_blueprint('routes.publisher_offers', 'publishe
 admin_publishers_bp = safe_import_blueprint('routes.admin_publishers', 'admin_publishers_bp')
 admin_publishers_simple_bp = safe_import_blueprint('routes.admin_publishers_simple', 'admin_publishers_simple_bp')
 test_admin_simple_bp = safe_import_blueprint('routes.test_admin_simple', 'test_admin_simple_bp')
+admin_offer_requests_bp = safe_import_blueprint('routes.admin_offer_requests', 'admin_offer_requests_bp')
+publisher_settings_bp = safe_import_blueprint('routes.publisher_settings', 'publisher_settings_bp')
+admin_promo_codes_bp = safe_import_blueprint('routes.admin_promo_codes', 'admin_promo_codes_bp')
+publisher_promo_codes_bp = safe_import_blueprint('routes.publisher_promo_codes', 'publisher_promo_codes_bp')
+publisher_promo_codes_mgmt_bp = safe_import_blueprint('routes.publisher_promo_codes_management', 'publisher_promo_codes_mgmt_bp')
+bonus_management_bp = safe_import_blueprint('routes.bonus_management', 'bonus_management_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -82,7 +88,13 @@ blueprints = [
     (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
     (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
     (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
-    (test_admin_simple_bp, '/api/admin')  # Test admin routes
+    (test_admin_simple_bp, '/api/admin'),  # Test admin routes
+    (admin_offer_requests_bp, '/api/admin'),  # Admin offer access requests management
+    (publisher_settings_bp, ''),  # Publisher settings - routes include /api/publisher prefix
+    (admin_promo_codes_bp, ''),  # Admin promo code management - routes include /api/admin prefix
+    (publisher_promo_codes_bp, ''),  # Publisher promo code routes - routes include /api/publisher prefix
+    (publisher_promo_codes_mgmt_bp, ''),  # Publisher promo code management - routes include /api/publisher prefix
+    (bonus_management_bp, '')  # Bonus management routes - routes include /api/admin and /api/publisher prefix
 ]
 
 def create_app():
@@ -95,7 +107,29 @@ def create_app():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Custom CORS handler to allow all Vercel deployments
+    # Enable CORS with detailed configuration
+    CORS(app, 
+         resources={r"/api/*": {
+             "origins": [
+                 "http://localhost:3000",
+                 "http://localhost:5173",
+                 "http://localhost:8080",
+                 "http://localhost:8081",
+                 "http://127.0.0.1:3000",
+                 "http://127.0.0.1:5173",
+                 "http://127.0.0.1:8080",
+                 "http://127.0.0.1:8081",
+                 "https://moustache-leads.vercel.app"
+             ],
+             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+             "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+             "expose_headers": ["Content-Type", "Authorization"],
+             "supports_credentials": True,
+             "max_age": 3600
+         }},
+         supports_credentials=True)
+    
+    # Custom CORS handler for additional origins (Vercel deployments)
     @app.after_request
     def after_request(response):
         origin = request.headers.get('Origin')
@@ -124,9 +158,6 @@ def create_app():
         
         return response
     
-    # Enable basic CORS
-    CORS(app, supports_credentials=True)
-    
     # Register blueprints (only if successfully imported)
     for blueprint, url_prefix in blueprints:
         if blueprint:
@@ -143,6 +174,14 @@ def create_app():
         print("✅ Postback processor started")
     except Exception as e:
         print(f"❌ Failed to start postback processor: {str(e)}")
+    
+    # Start offer scheduler service
+    try:
+        from services.offer_scheduler_service import offer_scheduler_service
+        offer_scheduler_service.start_scheduler()
+        print("✅ Offer scheduler service started")
+    except Exception as e:
+        print(f"❌ Failed to start offer scheduler service: {str(e)}")
     
     # Health check endpoint
     @app.route('/health', methods=['GET'])

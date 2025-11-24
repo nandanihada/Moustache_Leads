@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { Search, Loader2, AlertCircle, Info } from "lucide-react";
+import { Search, Loader2, AlertCircle, Info, UserCheck, Clock, CheckCircle, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -15,15 +16,19 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { publisherOfferApi, type PublisherOffer } from "@/services/publisherOfferApi";
 import { useToast } from "@/hooks/use-toast";
 import OfferDetailsModalNew from "@/components/OfferDetailsModalNew";
+import OfferCardWithApproval from "@/components/OfferCardWithApproval";
 
 const PublisherOffers = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchBy, setSearchBy] = useState("name");
   const [offers, setOffers] = useState<PublisherOffer[]>([]);
+  const [myRequests, setMyRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [requestsLoading, setRequestsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedOffer, setSelectedOffer] = useState<PublisherOffer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState("offers");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -72,10 +77,45 @@ const PublisherOffers = () => {
     }
   });
 
+  const fetchMyRequests = async () => {
+    try {
+      setRequestsLoading(true);
+      const response = await publisherOfferApi.getMyAccessRequests({
+        page: 1,
+        per_page: 50
+      });
+      setMyRequests(response.requests || []);
+    } catch (err: any) {
+      console.error('Error fetching requests:', err);
+      toast({
+        title: "Error",
+        description: "Failed to load your requests. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
   const handleViewDetails = (offer: PublisherOffer) => {
     setSelectedOffer(offer);
     setModalOpen(true);
   };
+
+  const handleAccessGranted = () => {
+    // Refresh offers and requests when access is granted
+    fetchOffers();
+    if (activeTab === 'requests') {
+      fetchMyRequests();
+    }
+  };
+
+  // Load requests when switching to requests tab
+  useEffect(() => {
+    if (activeTab === 'requests' && myRequests.length === 0) {
+      fetchMyRequests();
+    }
+  }, [activeTab]);
 
   return (
     <div className="space-y-6 p-6">
@@ -84,36 +124,43 @@ const PublisherOffers = () => {
         <p className="text-muted-foreground">Browse and promote offers to earn commissions</p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>🎯 Active Offers</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Search Controls */}
-          <div className="flex gap-4 items-center">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search offers..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={searchBy} onValueChange={setSearchBy}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Search by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="name">Name</SelectItem>
-                <SelectItem value="id">Offer ID</SelectItem>
-                <SelectItem value="category">Category</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button onClick={fetchOffers} variant="outline">
-              Refresh
-            </Button>
-          </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="offers">Available Offers</TabsTrigger>
+          <TabsTrigger value="requests">My Requests</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="offers" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>🎯 Active Offers</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Search Controls */}
+              <div className="flex gap-4 items-center">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search offers..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Select value={searchBy} onValueChange={setSearchBy}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Search by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="name">Name</SelectItem>
+                    <SelectItem value="id">Offer ID</SelectItem>
+                    <SelectItem value="category">Category</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={fetchOffers} variant="outline">
+                  Refresh
+                </Button>
+              </div>
 
           {/* Loading State */}
           {loading && (
@@ -153,96 +200,111 @@ const PublisherOffers = () => {
             </Alert>
           )}
 
-          {/* Offers Grid */}
-          {!loading && !error && filteredOffers.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredOffers.map((offer) => (
-                <Card 
-                  key={offer.offer_id} 
-                  className="hover:shadow-lg transition-shadow cursor-pointer border-2 hover:border-blue-500"
-                  onClick={() => handleViewDetails(offer)}
-                >
-                  <CardContent className="p-4">
-                    {/* Offer Image */}
-                    {(offer.thumbnail_url || offer.image_url) && (
-                      <div className="mb-3">
-                        <img 
-                          src={offer.thumbnail_url || offer.image_url} 
-                          alt={offer.name}
-                          className="w-full h-32 object-cover rounded"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      </div>
-                    )}
+              {/* Offers Grid */}
+              {!loading && !error && filteredOffers.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredOffers.map((offer) => (
+                    <OfferCardWithApproval
+                      key={offer.offer_id}
+                      offer={offer}
+                      onViewDetails={handleViewDetails}
+                      onAccessGranted={handleAccessGranted}
+                    />
+                  ))}
+                </div>
+              )}
 
-                    {/* Offer Name */}
-                    <h3 className="font-bold text-lg mb-2 line-clamp-2">{offer.name}</h3>
+              {/* Results Count */}
+              {!loading && filteredOffers.length > 0 && (
+                <div className="text-sm text-muted-foreground text-center pt-4 border-t">
+                  Showing {filteredOffers.length} of {offers.length} offers
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-                    {/* Offer ID */}
-                    <div className="text-xs text-muted-foreground font-mono mb-2">
-                      ID: {offer.offer_id}
-                    </div>
+        <TabsContent value="requests" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UserCheck className="w-5 h-5" />
+                My Access Requests
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {/* Loading State */}
+              {requestsLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <span className="ml-3 text-muted-foreground">Loading requests...</span>
+                </div>
+              )}
 
-                    {/* Payout */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm text-muted-foreground">Payout:</span>
-                      <Badge className="bg-green-500 text-white text-lg font-bold">
-                        ${offer.payout.toFixed(2)}
-                      </Badge>
-                    </div>
+              {/* Empty State */}
+              {!requestsLoading && myRequests.length === 0 && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>No requests found</AlertTitle>
+                  <AlertDescription>
+                    You haven't submitted any access requests yet.
+                  </AlertDescription>
+                </Alert>
+              )}
 
-                    {/* Countries */}
-                    {offer.countries && offer.countries.length > 0 && (
-                      <div className="mb-3">
-                        <div className="text-xs text-muted-foreground mb-1">Countries:</div>
-                        <div className="flex flex-wrap gap-1">
-                          {offer.countries.slice(0, 5).map((country) => (
-                            <Badge key={country} variant="outline" className="text-xs">
-                              {country}
-                            </Badge>
-                          ))}
-                          {offer.countries.length > 5 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{offer.countries.length - 5}
-                            </Badge>
-                          )}
+              {/* Requests List */}
+              {!requestsLoading && myRequests.length > 0 && (
+                <div className="space-y-4">
+                  {myRequests.map((request) => (
+                    <Card key={request._id} className="border-l-4 border-l-blue-500">
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <h3 className="font-medium text-lg mb-1">
+                              {request.offer_details?.name || request.offer_id}
+                            </h3>
+                            <div className="text-sm text-muted-foreground mb-2">
+                              Offer ID: {request.offer_id} • Payout: ${request.offer_details?.payout}
+                            </div>
+                            {request.message && (
+                              <div className="text-sm mb-2">
+                                <span className="font-medium">Message:</span> {request.message}
+                              </div>
+                            )}
+                            <div className="text-xs text-muted-foreground">
+                              Requested: {new Date(request.requested_at).toLocaleDateString()}
+                            </div>
+                          </div>
+                          <div className="flex flex-col items-end gap-2">
+                            {request.status === 'pending' && (
+                              <Badge variant="outline" className="text-yellow-600 border-yellow-600">
+                                <Clock className="w-3 h-3 mr-1" />
+                                Pending
+                              </Badge>
+                            )}
+                            {request.status === 'approved' && (
+                              <Badge variant="outline" className="text-green-600 border-green-600">
+                                <CheckCircle className="w-3 h-3 mr-1" />
+                                Approved
+                              </Badge>
+                            )}
+                            {request.status === 'rejected' && (
+                              <Badge variant="outline" className="text-red-600 border-red-600">
+                                <XCircle className="w-3 h-3 mr-1" />
+                                Rejected
+                              </Badge>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    )}
-
-                    {/* Device Targeting */}
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-xs text-muted-foreground">Device:</span>
-                      <Badge variant="outline" className="text-xs capitalize">
-                        {offer.device_targeting}
-                      </Badge>
-                    </div>
-
-                    {/* Status */}
-                    <div className="flex items-center justify-between">
-                      <Badge className={offer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                        {offer.status.toUpperCase()}
-                      </Badge>
-                      <Button size="sm" onClick={() => handleViewDetails(offer)}>
-                        View Details
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {/* Results Count */}
-          {!loading && filteredOffers.length > 0 && (
-            <div className="text-sm text-muted-foreground text-center pt-4 border-t">
-              Showing {filteredOffers.length} of {offers.length} offers
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       {/* Offer Details Modal */}
       <OfferDetailsModalNew

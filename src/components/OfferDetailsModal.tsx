@@ -225,7 +225,7 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
             <div className="ml-auto flex items-center gap-2">
               {getStatusIcon(offer.status)}
               <Badge className={getStatusColor(offer.status)}>
-                {offer.status.toUpperCase()}
+                {offer.status?.toUpperCase() || 'UNKNOWN'}
               </Badge>
             </div>
           </DialogTitle>

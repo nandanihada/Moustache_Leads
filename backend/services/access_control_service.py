@@ -1,6 +1,8 @@
 from database import db_instance
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+import threading
+import time
 
 class AccessControlService:
     """Service to handle offer access control and affiliate permissions"""
@@ -98,7 +100,7 @@ class AccessControlService:
     
     def request_offer_access(self, offer_id, user_id, message=None):
         """
-        Request access to an offer
+        Request access to an offer with enhanced approval workflow
         
         Args:
             offer_id: Offer ID
@@ -114,8 +116,17 @@ class AccessControlService:
             if not offer:
                 return {'error': 'Offer not found'}
             
-            if offer.get('affiliates') != 'request':
-                return {'error': 'This offer does not require access requests'}
+            # Check offer approval status
+            if offer.get('approval_status') != 'active':
+                return {'error': f'Offer is currently {offer.get("approval_status", "inactive")}'}
+            
+            # Check if offer requires approval
+            approval_settings = offer.get('approval_settings', {})
+            approval_type = approval_settings.get('type', 'auto_approve')
+            
+            if approval_type == 'auto_approve' and not approval_settings.get('require_approval', False):
+                # Auto-approve immediately
+                return self._auto_approve_request(offer_id, user_id, message, offer)
             
             # Check if request already exists
             existing_request = self.affiliate_requests_collection.find_one({
@@ -144,6 +155,50 @@ class AccessControlService:
                 'message': message or '',
                 'status': 'pending',
                 'requested_at': datetime.utcnow(),
+                'created_at': datetime.utcnow(),
+                'approval_type': approval_type,
+                'approval_settings': approval_settings
+            }
+            
+            result = self.affiliate_requests_collection.insert_one(request_doc)
+            request_doc['_id'] = str(result.inserted_id)
+            
+            # Handle time-based approval
+            if approval_type == 'time_based':
+                delay_minutes = approval_settings.get('auto_approve_delay', 60)
+                self._schedule_auto_approval(request_doc['request_id'], delay_minutes)
+            
+            return {
+                'request': request_doc,
+                'message': 'Access request submitted successfully',
+                'approval_type': approval_type,
+                'estimated_approval_time': self._get_estimated_approval_time(approval_type, approval_settings)
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error requesting offer access: {str(e)}")
+            return {'error': str(e)}
+    
+    def _auto_approve_request(self, offer_id, user_id, message, offer):
+        """Auto-approve a request immediately"""
+        try:
+            user = self.users_collection.find_one({'_id': user_id})
+            if not user:
+                return {'error': 'User not found'}
+            
+            # Create and immediately approve request
+            request_doc = {
+                'request_id': f"REQ-{offer_id}-{user_id}-{int(datetime.utcnow().timestamp())}",
+                'offer_id': offer_id,
+                'user_id': user_id,
+                'username': user.get('username'),
+                'email': user.get('email'),
+                'message': message or '',
+                'status': 'approved',
+                'requested_at': datetime.utcnow(),
+                'approved_at': datetime.utcnow(),
+                'approved_by': 'system',
+                'approval_type': 'auto_approve',
                 'created_at': datetime.utcnow()
             }
             
@@ -152,12 +207,62 @@ class AccessControlService:
             
             return {
                 'request': request_doc,
-                'message': 'Access request submitted successfully'
+                'message': 'Access granted immediately',
+                'status': 'approved'
             }
             
         except Exception as e:
-            self.logger.error(f"Error requesting offer access: {str(e)}")
+            self.logger.error(f"Error auto-approving request: {str(e)}")
             return {'error': str(e)}
+    
+    def _schedule_auto_approval(self, request_id, delay_minutes):
+        """Schedule automatic approval after delay"""
+        def auto_approve_after_delay():
+            time.sleep(delay_minutes * 60)  # Convert minutes to seconds
+            try:
+                # Check if request still exists and is pending
+                request = self.affiliate_requests_collection.find_one({
+                    'request_id': request_id,
+                    'status': 'pending'
+                })
+                
+                if request:
+                    # Auto-approve the request
+                    self.affiliate_requests_collection.update_one(
+                        {'request_id': request_id},
+                        {
+                            '$set': {
+                                'status': 'approved',
+                                'approved_at': datetime.utcnow(),
+                                'approved_by': 'system_auto',
+                                'approval_notes': f'Auto-approved after {delay_minutes} minutes'
+                            }
+                        }
+                    )
+                    self.logger.info(f"Auto-approved request {request_id} after {delay_minutes} minutes")
+                
+            except Exception as e:
+                self.logger.error(f"Error in auto-approval: {str(e)}")
+        
+        # Start background thread for auto-approval
+        thread = threading.Thread(target=auto_approve_after_delay)
+        thread.daemon = True
+        thread.start()
+    
+    def _get_estimated_approval_time(self, approval_type, approval_settings):
+        """Get estimated approval time for display"""
+        if approval_type == 'auto_approve':
+            return 'Immediate'
+        elif approval_type == 'time_based':
+            delay = approval_settings.get('auto_approve_delay', 60)
+            if delay < 60:
+                return f'{delay} minutes'
+            elif delay < 1440:
+                return f'{delay // 60} hours'
+            else:
+                return f'{delay // 1440} days'
+        else:
+            return 'Manual review required'
     
     def approve_access_request(self, request_id, approved_by, notes=None):
         """

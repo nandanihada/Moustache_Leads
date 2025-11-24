@@ -8,6 +8,7 @@ from utils.frontend_mapping import FrontendDatabaseMapper
 from services.email_service import get_email_service
 from database import db_instance
 import logging
+from datetime import datetime
 
 admin_offers_bp = Blueprint('admin_offers', __name__)
 offer_model = Offer()
@@ -50,6 +51,32 @@ def create_offer():
             data = mapped_data
         
         user = request.current_user
+        
+        # If promo code is being assigned, fetch its details and add to data
+        promo_code_id = data.get('promo_code_id')
+        if promo_code_id:
+            try:
+                from bson import ObjectId
+                promo_codes_collection = db_instance.get_collection('promo_codes')
+                promo_code = promo_codes_collection.find_one({'_id': ObjectId(promo_code_id)})
+                
+                if promo_code:
+                    # Add promo code details to data
+                    data['promo_code'] = promo_code.get('code')
+                    data['bonus_amount'] = promo_code.get('bonus_amount')
+                    data['bonus_type'] = promo_code.get('bonus_type')
+                    data['promo_code_assigned_at'] = datetime.utcnow()
+                    data['promo_code_assigned_by'] = str(user['_id'])
+                    logging.info(f"✅ Promo code {promo_code.get('code')} will be assigned to new offer")
+            except Exception as e:
+                logging.error(f"Error fetching promo code details: {str(e)}")
+        else:
+            # Ensure promo code fields are null if not assigned
+            data['promo_code'] = None
+            data['bonus_amount'] = None
+            data['bonus_type'] = None
+            data['promo_code_assigned_at'] = None
+            data['promo_code_assigned_by'] = None
         
         # Use extended model if schedule/smart rules data is present
         if 'schedule' in data or 'smartRules' in data:
@@ -110,46 +137,101 @@ def create_offer():
             # Don't fail offer creation if masking fails
             logging.error(f"❌ Masked link creation error (non-critical): {str(mask_error)}")
         
+        # Send email if promo code was assigned during offer creation
+        if promo_code_id:
+            try:
+                from bson import ObjectId
+                promo_codes_collection = db_instance.get_collection('promo_codes')
+                users_collection = db_instance.get_collection('users')
+                
+                # Get promo code details
+                try:
+                    promo_code = promo_codes_collection.find_one({'_id': ObjectId(promo_code_id)})
+                except:
+                    promo_code = None
+                
+                if promo_code:
+                    # Send email to all publishers
+                    publishers = users_collection.find({'role': 'publisher'})
+                    email_service = get_email_service()
+                    
+                    email_count = 0
+                    for publisher in publishers:
+                        if publisher.get('email'):
+                            try:
+                                email_service.send_promo_code_assigned_to_offer(
+                                    recipient_email=publisher['email'],
+                                    offer_name=offer_data.get('name', 'Unknown Offer'),
+                                    code=promo_code['code'],
+                                    bonus_amount=promo_code['bonus_amount'],
+                                    bonus_type=promo_code['bonus_type'],
+                                    offer_id=str(offer_data['offer_id'])
+                                )
+                                email_count += 1
+                            except Exception as e:
+                                logging.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+                    
+                    logging.info(f"✅ Promo code {promo_code['code']} assigned to offer {offer_data.get('name')}")
+                    logging.info(f"📧 Emails sent to {email_count} publishers")
+            except Exception as e:
+                logging.error(f"Failed to send promo code assignment emails: {str(e)}")
+        
         logging.info("✅ Now triggering email notifications...")
         
-        # Send email notifications to all publishers (non-blocking)
+        # Send email notifications to all users and publishers (non-blocking)
         try:
-            logging.info("📧 Preparing to send email notifications to publishers...")
+            logging.info("📧 Preparing to send email notifications to all users and publishers...")
             logging.info(f"📧 Offer data for email: {offer_data.get('name', 'Unknown')}")
             
-            # Get all publishers from database
+            # Get all users and publishers from database
             users_collection = db_instance.get_collection('users')
             if users_collection is not None:
-                publishers = list(users_collection.find(
-                    {'role': 'publisher'},
-                    {'email': 1, 'username': 1}
+                # Get all users with email (includes both publishers and regular users)
+                all_users = list(users_collection.find(
+                    {'email': {'$exists': True, '$ne': ''}},
+                    {'email': 1, 'username': 1, 'role': 1}
                 ))
                 
+                logging.info(f"📧 Total users in database: {len(all_users)}")
+                
                 # Extract email addresses
-                publisher_emails = [
-                    pub.get('email') for pub in publishers 
-                    if pub.get('email')
+                all_emails = [
+                    user.get('email') for user in all_users 
+                    if user.get('email')
                 ]
                 
-                if publisher_emails:
-                    logging.info(f"📧 Found {len(publisher_emails)} publisher emails")
+                # Count by role for logging
+                publishers = [u for u in all_users if u.get('role') == 'publisher']
+                other_users = [u for u in all_users if u.get('role') != 'publisher']
+                
+                logging.info(f"📧 Publishers with valid emails: {len(publishers)}")
+                logging.info(f"📧 Other users with valid emails: {len(other_users)}")
+                logging.info(f"📧 Total recipients: {len(all_emails)}")
+                
+                for email in all_emails:
+                    logging.info(f"   📧 Will send to: {email}")
+                
+                if all_emails:
+                    logging.info(f"📧 Found {len(all_emails)} total emails - STARTING EMAIL SEND")
                     
                     # Send emails asynchronously (non-blocking)
                     email_service = get_email_service()
+                    logging.info(f"📧 Email service configured: {email_service.is_configured}")
+                    
                     email_service.send_new_offer_notification_async(
                         offer_data=offer_data,
-                        recipients=publisher_emails
+                        recipients=all_emails
                     )
                     
                     logging.info("✅ Email notification process started in background")
                 else:
-                    logging.warning("⚠️ No publisher emails found")
+                    logging.warning("⚠️ No user emails found - NO EMAILS WILL BE SENT")
             else:
                 logging.warning("⚠️ Could not access users collection for email notifications")
                 
         except Exception as email_error:
             # Don't fail offer creation if email fails
-            logging.error(f"❌ Email notification error (non-critical): {str(email_error)}")
+            logging.error(f"❌ Email notification error (non-critical): {str(email_error)}", exc_info=True)
         
         return safe_json_response({
             'message': 'Offer created successfully',
@@ -244,6 +326,62 @@ def update_offer(offer_id):
         
         user = request.current_user
         
+        # 🔥 APPROVAL WORKFLOW FIX: Auto-set affiliates to 'request' if approval is required
+        if 'approval_type' in data or 'require_approval' in data:
+            approval_type = data.get('approval_type', 'auto_approve')
+            require_approval = data.get('require_approval', False)
+            
+            # If approval is required, set affiliates to 'request'
+            if require_approval or approval_type in ['time_based', 'manual']:
+                data['affiliates'] = 'request'
+                logging.info(f"🔒 Approval workflow enabled - Setting affiliates to 'request' for offer {offer_id}")
+                
+                # Also update approval_settings
+                if 'approval_settings' not in data:
+                    data['approval_settings'] = {}
+                
+                data['approval_settings']['type'] = approval_type
+                data['approval_settings']['require_approval'] = require_approval
+                
+                if 'auto_approve_delay' in data:
+                    data['approval_settings']['auto_approve_delay'] = data['auto_approve_delay']
+                if 'approval_message' in data:
+                    data['approval_settings']['approval_message'] = data['approval_message']
+                if 'max_inactive_days' in data:
+                    data['approval_settings']['max_inactive_days'] = data['max_inactive_days']
+        
+        # Check if promo code is being assigned/updated
+        promo_code_id = data.get('promo_code_id')
+        old_offer = offer_model.get_offer_by_id(offer_id)
+        old_promo_code_id = old_offer.get('promo_code_id') if old_offer else None
+        
+        # If promo code is being assigned, fetch its details and add to update data
+        if promo_code_id:
+            try:
+                from bson import ObjectId
+                promo_codes_collection = db_instance.get_collection('promo_codes')
+                promo_code = promo_codes_collection.find_one({'_id': ObjectId(promo_code_id)})
+                
+                if promo_code:
+                    # Add promo code details to update data
+                    data['promo_code'] = promo_code.get('code')
+                    data['bonus_amount'] = promo_code.get('bonus_amount')
+                    data['bonus_type'] = promo_code.get('bonus_type')
+                    data['promo_code_assigned_at'] = datetime.utcnow()
+                    data['promo_code_assigned_by'] = str(user['_id'])
+                    logging.info(f"✅ Promo code {promo_code.get('code')} will be assigned to offer {offer_id}")
+            except Exception as e:
+                logging.error(f"Error fetching promo code details: {str(e)}")
+        else:
+            # If promo_code_id is empty/null, clear all promo code fields
+            if 'promo_code_id' in data:
+                data['promo_code'] = None
+                data['bonus_amount'] = None
+                data['bonus_type'] = None
+                data['promo_code_assigned_at'] = None
+                data['promo_code_assigned_by'] = None
+                logging.info(f"🗑️ Promo code removed from offer {offer_id}")
+        
         # Use extended model if schedule/smart rules data is present
         if 'schedule' in data or 'smartRules' in data:
             success, error = extended_offer_model.update_offer(offer_id, data, str(user['_id']))
@@ -258,6 +396,47 @@ def update_offer(offer_id):
             updated_offer = extended_offer_model.get_offer_by_id(offer_id)
         else:
             updated_offer = offer_model.get_offer_by_id(offer_id)
+        
+        # Send email if promo code was assigned or changed
+        if promo_code_id and promo_code_id != old_promo_code_id:
+            try:
+                from bson import ObjectId
+                from services.email_service import get_email_service
+                
+                promo_codes_collection = db_instance.get_collection('promo_codes')
+                users_collection = db_instance.get_collection('users')
+                
+                # Get promo code details
+                try:
+                    promo_code = promo_codes_collection.find_one({'_id': ObjectId(promo_code_id)})
+                except:
+                    promo_code = None
+                
+                if promo_code:
+                    # Send email to all publishers
+                    publishers = users_collection.find({'role': 'publisher'})
+                    email_service = get_email_service()
+                    
+                    email_count = 0
+                    for publisher in publishers:
+                        if publisher.get('email'):
+                            try:
+                                email_service.send_promo_code_assigned_to_offer(
+                                    recipient_email=publisher['email'],
+                                    offer_name=updated_offer.get('name', 'Unknown Offer'),
+                                    code=promo_code['code'],
+                                    bonus_amount=promo_code['bonus_amount'],
+                                    bonus_type=promo_code['bonus_type'],
+                                    offer_id=str(offer_id)
+                                )
+                                email_count += 1
+                            except Exception as e:
+                                logging.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+                    
+                    logging.info(f"✅ Promo code {promo_code['code']} assigned to offer {updated_offer.get('name')}")
+                    logging.info(f"📧 Emails sent to {email_count} publishers")
+            except Exception as e:
+                logging.error(f"Failed to send promo code assignment emails: {str(e)}")
         
         return safe_json_response({
             'message': 'Offer updated successfully',
@@ -522,3 +701,85 @@ def get_offers_stats():
     except Exception as e:
         logging.error(f"Get offers stats error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get stats: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/<offer_id>/assign-promo-code', methods=['PUT'])
+@token_required
+@admin_required
+def assign_promo_code_to_offer(offer_id):
+    """Assign promo code to offer and notify all publishers"""
+    try:
+        from bson import ObjectId
+        from datetime import datetime
+        
+        data = request.get_json()
+        
+        if not data or not data.get('promo_code_id'):
+            return jsonify({'error': 'Promo code ID is required'}), 400
+        
+        # Get collections
+        offers_collection = db_instance.get_collection('offers')
+        promo_codes_collection = db_instance.get_collection('promo_codes')
+        users_collection = db_instance.get_collection('users')
+        
+        # Get offer
+        offer = offers_collection.find_one({'_id': ObjectId(offer_id)})
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+        
+        # Get promo code
+        try:
+            promo_code_id = ObjectId(data.get('promo_code_id'))
+        except:
+            return jsonify({'error': 'Invalid promo code ID'}), 400
+        
+        promo_code = promo_codes_collection.find_one({'_id': promo_code_id})
+        if not promo_code:
+            return jsonify({'error': 'Promo code not found'}), 404
+        
+        # Update offer with promo code
+        offers_collection.update_one(
+            {'_id': ObjectId(offer_id)},
+            {
+                '$set': {
+                    'promo_code_id': promo_code_id,
+                    'promo_code': promo_code['code'],
+                    'promo_code_assigned_at': datetime.utcnow(),
+                    'promo_code_assigned_by': str(request.current_user['_id']),
+                    'updated_at': datetime.utcnow()
+                }
+            }
+        )
+        
+        # Send email to all publishers
+        publishers = users_collection.find({'role': 'publisher'})
+        email_service = get_email_service()
+        
+        email_count = 0
+        for publisher in publishers:
+            if publisher.get('email'):
+                try:
+                    email_service.send_promo_code_assigned_to_offer(
+                        recipient_email=publisher['email'],
+                        offer_name=offer['name'],
+                        code=promo_code['code'],
+                        bonus_amount=promo_code['bonus_amount'],
+                        bonus_type=promo_code['bonus_type'],
+                        offer_id=str(offer_id)
+                    )
+                    email_count += 1
+                except Exception as e:
+                    logging.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+        
+        logging.info(f"✅ Promo code {promo_code['code']} assigned to offer {offer['name']}")
+        logging.info(f"📧 Emails sent to {email_count} publishers")
+        
+        return jsonify({
+            'message': f'Promo code assigned and emails sent to {email_count} publishers',
+            'offer_id': str(offer_id),
+            'promo_code': promo_code['code'],
+            'emails_sent': email_count
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Assign promo code error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to assign promo code: {str(e)}'}), 500

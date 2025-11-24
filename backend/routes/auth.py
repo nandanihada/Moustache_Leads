@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models.user import User
 from utils.auth import generate_token, token_required
+from services.email_verification_service import get_email_verification_service
 import re
 import logging
 
@@ -81,17 +82,41 @@ def register():
         if error:
             return jsonify({'error': error}), 400
         
+        # Generate verification token and send email
+        verification_service = get_email_verification_service()
+        verification_token = verification_service.generate_verification_token(
+            email, 
+            str(user_data['_id'])
+        )
+        
+        if verification_token:
+            # Send verification email
+            email_sent = verification_service.send_verification_email(
+                email, 
+                verification_token, 
+                username
+            )
+            
+            if email_sent:
+                logging.info(f"✅ Verification email sent to {email}")
+            else:
+                logging.warning(f"⚠️ Failed to send verification email to {email}")
+        else:
+            logging.warning(f"⚠️ Failed to generate verification token for {email}")
+        
         # Generate token
         token = generate_token(user_data)
         
         return jsonify({
-            'message': 'User registered successfully',
+            'message': 'User registered successfully. Please check your email to verify your account.',
             'token': token,
+            'email_verification_required': True,
             'user': {
                 'id': str(user_data['_id']),
                 'username': user_data['username'],
                 'email': user_data['email'],
                 'role': user_data.get('role', 'user'),
+                'email_verified': user_data.get('email_verified', False),
                 'first_name': user_data.get('first_name'),
                 'last_name': user_data.get('last_name'),
                 'company_name': user_data.get('company_name'),
@@ -300,3 +325,101 @@ def create_admin():
         
     except Exception as e:
         return jsonify({'error': f'Admin creation failed: {str(e)}'}), 500
+
+@auth_bp.route('/verify-email', methods=['POST'])
+def verify_email():
+    """Verify email using verification token"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        token = data.get('token', '').strip()
+        
+        if not token:
+            return jsonify({'error': 'Verification token is required'}), 400
+        
+        # Verify token
+        verification_service = get_email_verification_service()
+        is_valid, email, user_id = verification_service.verify_email_token(token)
+        
+        if not is_valid:
+            return jsonify({'error': 'Invalid or expired verification token'}), 400
+        
+        # Mark email as verified in user model
+        user_model = User()
+        if user_model.mark_email_verified(user_id):
+            logging.info(f"✅ Email verified for user {user_id} ({email})")
+            
+            # Get updated user data
+            user_data = user_model.find_by_id(user_id)
+            
+            return jsonify({
+                'message': 'Email verified successfully',
+                'user': {
+                    'id': str(user_data['_id']),
+                    'username': user_data['username'],
+                    'email': user_data['email'],
+                    'email_verified': user_data.get('email_verified', False),
+                    'role': user_data.get('role', 'user')
+                }
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to verify email'}), 500
+        
+    except Exception as e:
+        logging.error(f"Email verification error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Email verification failed: {str(e)}'}), 500
+
+@auth_bp.route('/verification-status', methods=['GET'])
+@token_required
+def get_verification_status():
+    """Get email verification status for current user"""
+    try:
+        user = request.current_user
+        user_id = str(user['_id'])
+        
+        verification_service = get_email_verification_service()
+        status = verification_service.get_verification_status(user_id)
+        
+        return jsonify({
+            'email': user.get('email'),
+            'email_verified': user.get('email_verified', False),
+            'verification_status': status
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error getting verification status: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get verification status: {str(e)}'}), 500
+
+@auth_bp.route('/resend-verification', methods=['POST'])
+@token_required
+def resend_verification():
+    """Resend verification email to current user"""
+    try:
+        user = request.current_user
+        email = user.get('email')
+        username = user.get('username')
+        
+        # Check if email is already verified
+        if user.get('email_verified'):
+            return jsonify({'error': 'Email is already verified'}), 400
+        
+        # Resend verification email
+        verification_service = get_email_verification_service()
+        success, message = verification_service.resend_verification_email(email, username)
+        
+        if success:
+            logging.info(f"✅ Verification email resent to {email}")
+            return jsonify({
+                'message': message,
+                'email': email
+            }), 200
+        else:
+            logging.warning(f"⚠️ Failed to resend verification email to {email}: {message}")
+            return jsonify({'error': message}), 400
+        
+    except Exception as e:
+        logging.error(f"Error resending verification email: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to resend verification email: {str(e)}'}), 500

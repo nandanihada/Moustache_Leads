@@ -477,6 +477,9 @@ def get_all_placements_admin():
 def approve_placement_admin(placement_id):
     """Approve a placement"""
     try:
+        from models.user import User
+        from services.email_service import get_email_service
+        
         current_user = request.current_user
         data = request.get_json() or {}
         message = data.get('message')
@@ -494,6 +497,41 @@ def approve_placement_admin(placement_id):
         
         if not placement:
             return jsonify({'error': 'Placement not found'}), 404
+        
+        # Send approval email notification
+        try:
+            logger.info(f"📧 Preparing to send placement approval email for placement {placement_id}")
+            
+            # Get publisher email - use publisherId (camelCase)
+            user_model = User()
+            publisher_id = placement.get('publisherId')
+            logger.info(f"📧 Publisher ID from placement: {publisher_id}")
+            
+            publisher = user_model.find_by_id(str(publisher_id)) if publisher_id else None
+            
+            logger.info(f"📧 Publisher found: {publisher.get('username') if publisher else 'NOT FOUND'}")
+            
+            if publisher and publisher.get('email'):
+                # Get placement name
+                placement_name = placement.get('name', f"Placement {placement_id}")
+                
+                logger.info(f"📧 Placement name: {placement_name}")
+                logger.info(f"📧 Sending approval email to {publisher['email']}")
+                
+                # Send email
+                email_service = get_email_service()
+                email_service.send_approval_notification_async(
+                    recipient_email=publisher['email'],
+                    offer_name=placement_name,
+                    status='approved',
+                    reason='',
+                    offer_id=str(placement.get('_id', ''))
+                )
+                logger.info(f"✅ Placement approval email sent to {publisher['email']} for placement {placement_name}")
+            else:
+                logger.warning(f"⚠️ Publisher not found or no email: {placement.get('publisherId')}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send placement approval email: {str(e)}", exc_info=True)
         
         return jsonify({
             'message': 'Placement approved successfully',
@@ -516,6 +554,9 @@ def approve_placement_admin(placement_id):
 def reject_placement_admin(placement_id):
     """Reject a placement"""
     try:
+        from models.user import User
+        from services.email_service import get_email_service
+        
         current_user = request.current_user
         data = request.get_json()
         
@@ -539,6 +580,41 @@ def reject_placement_admin(placement_id):
         
         if not placement:
             return jsonify({'error': 'Placement not found'}), 404
+        
+        # Send rejection email notification
+        try:
+            logger.info(f"📧 Preparing to send placement rejection email for placement {placement_id}")
+            
+            # Get publisher email - use publisherId (camelCase)
+            user_model = User()
+            publisher_id = placement.get('publisherId')
+            logger.info(f"📧 Publisher ID from placement: {publisher_id}")
+            
+            publisher = user_model.find_by_id(str(publisher_id)) if publisher_id else None
+            
+            logger.info(f"📧 Publisher found: {publisher.get('username') if publisher else 'NOT FOUND'}")
+            
+            if publisher and publisher.get('email'):
+                # Get placement name
+                placement_name = placement.get('name', f"Placement {placement_id}")
+                
+                logger.info(f"📧 Placement name: {placement_name}")
+                logger.info(f"📧 Sending rejection email to {publisher['email']}")
+                
+                # Send email
+                email_service = get_email_service()
+                email_service.send_approval_notification_async(
+                    recipient_email=publisher['email'],
+                    offer_name=placement_name,
+                    status='rejected',
+                    reason=reason,
+                    offer_id=str(placement.get('_id', ''))
+                )
+                logger.info(f"✅ Placement rejection email sent to {publisher['email']} for placement {placement_name}")
+            else:
+                logger.warning(f"⚠️ Publisher not found or no email: {placement.get('publisherId')}")
+        except Exception as e:
+            logger.error(f"❌ Failed to send placement rejection email: {str(e)}", exc_info=True)
         
         return jsonify({
             'message': 'Placement rejected successfully',

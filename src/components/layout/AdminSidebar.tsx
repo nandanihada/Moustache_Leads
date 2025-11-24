@@ -12,7 +12,10 @@ import {
   FileText,
   Monitor,
   TestTube,
-  CheckSquare
+  CheckSquare,
+  UserCheck,
+  Zap,
+  Wallet
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -31,6 +34,9 @@ import {
 const adminMenuItems = [
   { title: "Overview", url: "/admin", icon: Shield },
   { title: "Offers", url: "/admin/offers", icon: Gift },
+  { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap },
+  { title: "Bonus Management", url: "/admin/bonus-management", icon: Wallet },
+  { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck },
   { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare },
   { title: "Reports", url: "/admin/reports", icon: FileText },
   { title: "Tracking", url: "/admin/tracking", icon: Monitor },

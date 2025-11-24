@@ -129,6 +129,17 @@ const AdminPlacementApproval = () => {
     size: 20,
     total: 0
   });
+  const [filters, setFilters] = useState({
+    search: '',
+    publisher_id: '',
+    publisher_name: '',
+    placement_id: '',
+    platform_type: '',
+    date_from: '',
+    date_to: '',
+    currency: '',
+    status: 'PENDING_APPROVAL'
+  });
 
   const getAuthHeaders = () => {
     const token = localStorage.getItem('token');
@@ -142,26 +153,25 @@ const AdminPlacementApproval = () => {
     try {
       setLoading(true);
       
-      // Determine status filter based on active tab
-      const currentStatusFilter = activeTab === 'pending' ? 'PENDING_APPROVAL' : 'APPROVED';
-      console.log('🔍 Fetching placements...', { activeTab, currentStatusFilter, searchTerm, pagination });
-      
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         size: pagination.size.toString(),
-        status_filter: currentStatusFilter,
-        ...(searchTerm && { search: searchTerm })
+        status_filter: filters.status,
+        ...(filters.search && { search: filters.search }),
+        ...(filters.publisher_id && { publisher_id: filters.publisher_id }),
+        ...(filters.publisher_name && { publisher_name: filters.publisher_name }),
+        ...(filters.placement_id && { placement_id: filters.placement_id }),
+        ...(filters.platform_type && { platform_type: filters.platform_type }),
+        ...(filters.date_from && { date_from: filters.date_from }),
+        ...(filters.date_to && { date_to: filters.date_to }),
+        ...(filters.currency && { currency: filters.currency })
       });
 
       const url = `${API_BASE_URL}/placements/admin/all?${params}`;
-      console.log('📡 API URL:', url);
-      console.log('🔑 Headers:', getAuthHeaders());
 
       const response = await fetch(url, {
         headers: getAuthHeaders(),
       });
-
-      console.log('📥 Response status:', response.status);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -170,7 +180,6 @@ const AdminPlacementApproval = () => {
       }
 
       const data = await response.json();
-      console.log('✅ API Response:', data);
       
       setPlacements(data.placements || []);
       setPagination(prev => ({
@@ -450,23 +459,11 @@ const AdminPlacementApproval = () => {
     } else if (activeTab === 'approved') {
       fetchPublishers();
     }
-  }, [pagination.page, statusFilter, activeTab]);
+  }, [pagination.page, statusFilter, activeTab, filters]);
 
   useEffect(() => {
-    const delayedSearch = setTimeout(() => {
-      if (pagination.page === 1) {
-        if (activeTab === 'pending') {
-          fetchPlacements();
-        } else if (activeTab === 'approved') {
-          fetchPublishers();
-        }
-      } else {
-        setPagination(prev => ({ ...prev, page: 1 }));
-      }
-    }, 500);
-
-    return () => clearTimeout(delayedSearch);
-  }, [searchTerm]);
+    setPagination(prev => ({ ...prev, page: 1 }));
+  }, [filters]);
 
   return (
     <div className="space-y-6">
@@ -498,19 +495,109 @@ const AdminPlacementApproval = () => {
         </TabsList>
 
         <TabsContent value="pending" className="space-y-6">
-          {/* Search and Filters for Pending */}
+          {/* Advanced Filters for Pending */}
           <Card>
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-4">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Filter className="h-5 w-5" />
+                Advanced Filters
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Row 1: Search and Status */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Search</label>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Publisher, email, placement..."
+                      value={filters.search}
+                      onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                      className="pl-8"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Publisher ID</label>
                   <Input
-                    placeholder="Search pending placements by publisher name, email, or placement title..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
+                    placeholder="Publisher ID..."
+                    value={filters.publisher_id}
+                    onChange={(e) => setFilters({ ...filters, publisher_id: e.target.value })}
                   />
                 </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Publisher Name</label>
+                  <Input
+                    placeholder="Publisher name..."
+                    value={filters.publisher_name}
+                    onChange={(e) => setFilters({ ...filters, publisher_name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Placement ID</label>
+                  <Input
+                    placeholder="Placement ID..."
+                    value={filters.placement_id}
+                    onChange={(e) => setFilters({ ...filters, placement_id: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Row 2: Platform and Currency */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Platform Type</label>
+                  <Input
+                    placeholder="Web, Mobile, etc..."
+                    value={filters.platform_type}
+                    onChange={(e) => setFilters({ ...filters, platform_type: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Currency</label>
+                  <Input
+                    placeholder="USD, EUR, etc..."
+                    value={filters.currency}
+                    onChange={(e) => setFilters({ ...filters, currency: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Date From</label>
+                  <Input
+                    type="date"
+                    value={filters.date_from}
+                    onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Date To</label>
+                  <Input
+                    type="date"
+                    value={filters.date_to}
+                    onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: Clear Filters */}
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setFilters({
+                    search: '',
+                    publisher_id: '',
+                    publisher_name: '',
+                    placement_id: '',
+                    platform_type: '',
+                    date_from: '',
+                    date_to: '',
+                    currency: '',
+                    status: 'PENDING_APPROVAL'
+                  })}
+                >
+                  Clear Filters
+                </Button>
               </div>
             </CardContent>
           </Card>

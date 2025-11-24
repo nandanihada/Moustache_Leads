@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 from database import db_instance
 import re
@@ -152,11 +152,24 @@ class Offer:
                 'duplicate_conversion_rule': offer_data.get('duplicate_conversion_rule', 'allow'),  # allow/deny/unique
                 
                 # SECTION 5: ACCESS & AFFILIATES
-                'affiliates': offer_data.get('affiliates', 'all'),  # all/specific
+                # 🔥 AUTO-SET AFFILIATES TO 'REQUEST' IF APPROVAL REQUIRED
+                'affiliates': 'request' if (offer_data.get('require_approval') or offer_data.get('approval_type') in ['time_based', 'manual']) else offer_data.get('affiliates', 'all'),
                 'access_type': offer_data.get('access_type', 'public'),  # public/private/request-only
                 'selected_users': offer_data.get('selected_users', []),  # Specific affiliate list
                 'manager': offer_data.get('manager', '').strip(),  # Campaign manager
                 'approval_notes': offer_data.get('approval_notes', '').strip(),  # Access instructions
+                
+                # SECTION 5.1: APPROVAL WORKFLOW SETTINGS
+                'approval_status': offer_data.get('approval_status', 'active'),  # active/pending/paused
+                'approval_settings': {
+                    'type': offer_data.get('approval_type', 'auto_approve'),  # auto_approve/time_based/manual
+                    'auto_approve_delay': offer_data.get('auto_approve_delay', 0),  # minutes for time-based
+                    'require_approval': offer_data.get('require_approval', False),  # override for manual
+                    'approval_message': offer_data.get('approval_message', '').strip(),  # custom message
+                    'max_inactive_days': offer_data.get('max_inactive_days', 30)  # days before auto-lock
+                },
+                'approved_by': offer_data.get('approved_by', '').strip(),  # admin who approved
+                'approval_date': offer_data.get('approval_date'),  # when approved
                 
                 # SECTION 6: CREATIVES & VISUALS
                 'creative_type': offer_data.get('creative_type', 'image'),  # image/html/email
@@ -206,6 +219,14 @@ class Offer:
                 'conversion_goal': offer_data.get('conversion_goal', 'lead'),  # lead/sale/install
                 'quality_threshold': offer_data.get('quality_threshold'),  # CR threshold
                 'validation_type': offer_data.get('validation_type', 'internal'),  # internal/external
+                
+                # SECTION 12: PROMO CODE ASSIGNMENT (Admin-assigned)
+                'promo_code_id': offer_data.get('promo_code_id'),  # ObjectId of assigned promo code
+                'promo_code': offer_data.get('promo_code'),  # Code name (e.g., "SUMMER20")
+                'bonus_amount': offer_data.get('bonus_amount'),  # Bonus amount (20 for 20%)
+                'bonus_type': offer_data.get('bonus_type'),  # Bonus type (percentage/fixed)
+                'promo_code_assigned_at': offer_data.get('promo_code_assigned_at'),  # When assigned
+                'promo_code_assigned_by': offer_data.get('promo_code_assigned_by'),  # Admin who assigned
                 
                 # SYSTEM FIELDS
                 'hits': 0,  # Click counter
@@ -443,3 +464,97 @@ class Offer:
             import logging
             logging.error(f"Error updating offer settings: {str(e)}")
             return False, f"Error updating offer settings: {str(e)}"
+    
+    def update_approval_status(self, offer_id, status, approved_by=None, notes=None):
+        """Update approval status of an offer"""
+        if not self._check_db_connection():
+            return False, "Database connection not available"
+        
+        try:
+            update_data = {
+                'approval_status': status,
+                'updated_at': datetime.utcnow()
+            }
+            
+            if approved_by:
+                update_data['approved_by'] = approved_by
+                update_data['approval_date'] = datetime.utcnow()
+            
+            if notes:
+                update_data['approval_notes'] = notes
+            
+            result = self.collection.update_one(
+                {'offer_id': offer_id, 'is_active': True},
+                {'$set': update_data}
+            )
+            
+            return result.modified_count > 0, None
+            
+        except Exception as e:
+            import logging
+            logging.error(f"Error updating approval status: {str(e)}")
+            return False, f"Error updating approval status: {str(e)}"
+    
+    def check_and_lock_inactive_offers(self):
+        """Check for offers that should be auto-locked due to inactivity"""
+        if not self._check_db_connection():
+            return []
+        
+        try:
+            from bson import ObjectId
+            
+            # Get all approved offers with auto-lock settings
+            pipeline = [
+                {
+                    '$match': {
+                        'is_active': True,
+                        'approval_status': 'active',
+                        'approval_settings.max_inactive_days': {'$exists': True, '$gt': 0}
+                    }
+                }
+            ]
+            
+            offers_to_check = list(self.collection.aggregate(pipeline))
+            locked_offers = []
+            
+            # Get access requests collection for checking last activity
+            access_requests_collection = db_instance.get_collection('affiliate_requests')
+            
+            for offer in offers_to_check:
+                max_inactive_days = offer.get('approval_settings', {}).get('max_inactive_days', 30)
+                cutoff_date = datetime.utcnow() - timedelta(days=max_inactive_days)
+                
+                # Check if there's any recent activity (approved requests)
+                recent_activity = access_requests_collection.find_one({
+                    'offer_id': offer['offer_id'],
+                    'status': 'approved',
+                    'approved_at': {'$gte': cutoff_date}
+                })
+                
+                # If no recent activity, lock the offer
+                if not recent_activity:
+                    # Update offer to locked status
+                    self.collection.update_one(
+                        {'offer_id': offer['offer_id']},
+                        {
+                            '$set': {
+                                'approval_status': 'locked',
+                                'locked_at': datetime.utcnow(),
+                                'lock_reason': f'Auto-locked due to {max_inactive_days} days of inactivity',
+                                'updated_at': datetime.utcnow()
+                            }
+                        }
+                    )
+                    
+                    locked_offers.append({
+                        'offer_id': offer['offer_id'],
+                        'name': offer.get('name'),
+                        'locked_reason': f'Auto-locked due to {max_inactive_days} days of inactivity'
+                    })
+            
+            return locked_offers
+            
+        except Exception as e:
+            import logging
+            logging.error(f"Error checking inactive offers: {str(e)}")
+            return []

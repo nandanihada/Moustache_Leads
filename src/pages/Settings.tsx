@@ -7,12 +7,15 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
+import PublisherEmailSettings from "@/components/PublisherEmailSettings";
 
 const Settings = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [showSecretKey, setShowSecretKey] = useState(false);
   const { toast } = useToast();
+  const { user, token } = useAuth();
 
   const [profile, setProfile] = useState({
     firstName: "John",
@@ -88,9 +91,10 @@ const Settings = () => {
         </CardHeader>
         <CardContent>
           <Tabs defaultValue="profile" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="profile">Profile Details</TabsTrigger>
               <TabsTrigger value="billing">Billing Info</TabsTrigger>
+              <TabsTrigger value="email">Email Preferences</TabsTrigger>
               <TabsTrigger value="credentials">Secret Credentials</TabsTrigger>
             </TabsList>
 
@@ -240,6 +244,16 @@ const Settings = () => {
                   Save Billing Info
                 </Button>
               </div>
+            </TabsContent>
+
+            <TabsContent value="email" className="space-y-4">
+              {token ? (
+                <PublisherEmailSettings token={token} />
+              ) : (
+                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-700">
+                  Please log in to manage email preferences
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="credentials" className="space-y-6">

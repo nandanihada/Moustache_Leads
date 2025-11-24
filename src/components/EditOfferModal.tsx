@@ -145,6 +145,10 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   const [smartRules, setSmartRules] = useState<SmartRule[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [partners, setPartners] = useState<any[]>([]);
+  
+  // Promo code state
+  const [promoCodes, setPromoCodes] = useState<any[]>([]);
+  const [selectedPromoCode, setSelectedPromoCode] = useState('');
 
   const [formData, setFormData] = useState<any>({
     campaign_id: '',
@@ -204,7 +208,15 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
     uploaded_file_size: 0,
     uploaded_file_id: '',
     uploaded_file_url: '',
-    file_description: ''
+    file_description: '',
+    // Promo code field
+    promo_code_id: '',
+    // 🔥 APPROVAL WORKFLOW FIELDS - Initialize with defaults
+    approval_type: 'auto_approve',
+    auto_approve_delay: 0,
+    require_approval: false,
+    approval_message: '',
+    max_inactive_days: 30
   });
 
   // Load offer data when modal opens
@@ -268,8 +280,21 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         uploaded_file_size: (offer as any).uploaded_file_size || 0,
         uploaded_file_id: (offer as any).uploaded_file_id || '',
         uploaded_file_url: (offer as any).uploaded_file_url || '',
-        file_description: (offer as any).file_description || ''
+        file_description: (offer as any).file_description || '',
+        // Promo code field
+        promo_code_id: (offer as any).promo_code_id || '',
+        // 🔥 APPROVAL WORKFLOW FIELDS - Load from offer
+        approval_type: (offer as any).approval_settings?.type || 'auto_approve',
+        auto_approve_delay: (offer as any).approval_settings?.auto_approve_delay || 0,
+        require_approval: (offer as any).approval_settings?.require_approval || false,
+        approval_message: (offer as any).approval_settings?.approval_message || '',
+        max_inactive_days: (offer as any).approval_settings?.max_inactive_days || 30
       });
+      
+      // Set selected promo code if offer has one
+      if ((offer as any).promo_code_id) {
+        setSelectedPromoCode((offer as any).promo_code_id);
+      }
 
       setSelectedCountries(offer.countries);
       setSelectedUsers(offer.selected_users || []);
@@ -302,9 +327,9 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
     }
   }, [offer, open]);
 
-  // Fetch partners list
+  // Fetch partners list and promo codes
   useEffect(() => {
-    const fetchPartners = async () => {
+    const fetchData = async () => {
       try {
         const response = await partnerApi.getPartners();
         setPartners(response.partners || []);
@@ -316,10 +341,25 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
           variant: "destructive"
         });
       }
+      
+      // Fetch promo codes
+      try {
+        const response = await fetch('/api/admin/promo-codes', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPromoCodes(data.promo_codes || []);
+        }
+      } catch (error) {
+        console.error('Error fetching promo codes:', error);
+      }
     };
     
     if (open) {
-      fetchPartners();
+      fetchData();
     }
   }, [open]);
 
@@ -483,7 +523,15 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
           cap: rule.cap,
           priority: rule.priority,
           active: rule.active
-        }))
+        })),
+        // 🔥 PROMO CODE ASSIGNMENT
+        promo_code_id: selectedPromoCode || undefined,
+        // 🔥 APPROVAL WORKFLOW DATA: Include all approval settings
+        approval_type: formData.approval_type || 'auto_approve',
+        auto_approve_delay: formData.auto_approve_delay || 0,
+        require_approval: formData.require_approval || false,
+        approval_message: formData.approval_message || '',
+        max_inactive_days: formData.max_inactive_days || 30
       };
 
       // 🔍 QA VERIFICATION: Debug logs
@@ -1111,6 +1159,49 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                       rows={3}
                     />
                   </div>
+                </CardContent>
+              </Card>
+              
+              {/* PROMO CODE ASSIGNMENT */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>🎉 Assign Promo Code</CardTitle>
+                  <CardDescription>Optionally assign or update promo code for this offer</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="promo_code">Promo Code (Optional)</Label>
+                    <Select value={selectedPromoCode || "none"} onValueChange={(value) => setSelectedPromoCode(value === "none" ? "" : value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a promo code..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {promoCodes.map((code: any) => (
+                          <SelectItem key={code._id} value={code._id}>
+                            {code.code} - {code.bonus_amount}% Bonus
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Publishers will receive an email notification when you assign a code to this offer
+                    </p>
+                  </div>
+                  
+                  {selectedPromoCode && promoCodes.find((c: any) => c._id === selectedPromoCode) && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <p className="text-sm font-medium text-blue-900">
+                        ✅ Promo Code Selected
+                      </p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        Code: <span className="font-mono font-bold">{promoCodes.find((c: any) => c._id === selectedPromoCode)?.code}</span>
+                      </p>
+                      <p className="text-xs text-blue-700">
+                        Bonus: {promoCodes.find((c: any) => c._id === selectedPromoCode)?.bonus_amount}% ({promoCodes.find((c: any) => c._id === selectedPromoCode)?.bonus_type})
+                      </p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

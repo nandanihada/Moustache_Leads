@@ -290,6 +290,14 @@ class OfferExtended:
                 'quality_threshold': offer_data.get('quality_threshold'),
                 'validation_type': offer_data.get('validation_type', 'internal'),
                 
+                # SECTION 12: PROMO CODE ASSIGNMENT (Admin-assigned)
+                'promo_code_id': offer_data.get('promo_code_id'),  # ObjectId of assigned promo code
+                'promo_code': offer_data.get('promo_code'),  # Code name (e.g., "SUMMER20")
+                'bonus_amount': offer_data.get('bonus_amount'),  # Bonus amount (20 for 20%)
+                'bonus_type': offer_data.get('bonus_type'),  # Bonus type (percentage/fixed)
+                'promo_code_assigned_at': offer_data.get('promo_code_assigned_at'),  # When assigned
+                'promo_code_assigned_by': offer_data.get('promo_code_assigned_by'),  # Admin who assigned
+                
                 # SYSTEM FIELDS
                 'hits': 0,
                 'limit': offer_data.get('limit'),
@@ -576,7 +584,10 @@ class OfferExtended:
                 'creative_type', 'html_code', 'banner_sizes', 'landing_pages',
                 'allowed_traffic_types', 'disallowed_traffic_types',
                 'creative_approval_required', 'affiliate_terms', 'brand_guidelines',
-                'terms_notes', 'conversion_goal'
+                'terms_notes', 'conversion_goal',
+                # Promo code fields
+                'promo_code_id', 'promo_code', 'bonus_amount', 'bonus_type',
+                'promo_code_assigned_at', 'promo_code_assigned_by'
             ]
             
             for field in regular_fields:

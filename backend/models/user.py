@@ -42,7 +42,17 @@ class User:
             'role': kwargs.get('role', 'user'),  # Default role is 'user', can be 'admin' or 'partner'
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
-            'is_active': True
+            'is_active': True,
+            'email_verified': False,  # Email verification status
+            'email_verified_at': None,  # When email was verified
+            # Email notification preferences
+            'email_preferences': {
+                'new_offers': True,  # Receive emails for new offers
+                'offer_updates': True,  # Receive emails when offers are updated (promo codes, etc)
+                'system_notifications': True,  # Receive system notifications
+                'marketing_emails': False,  # Receive marketing emails
+                'updated_at': datetime.utcnow()
+            }
         }
         
         # Add partner-specific fields if provided
@@ -147,7 +157,9 @@ class User:
             'role': 'admin',  # Admin role
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
-            'is_active': True
+            'is_active': True,
+            'email_verified': False,
+            'email_verified_at': None
         }
         
         try:
@@ -158,3 +170,80 @@ class User:
             return user_data, None
         except Exception as e:
             return None, f"Error creating admin user: {str(e)}"
+    
+    def mark_email_verified(self, user_id):
+        """Mark user's email as verified"""
+        if not self._check_db_connection():
+            return False
+        try:
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'email_verified': True,
+                        'email_verified_at': datetime.utcnow(),
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            return False
+    
+    def is_email_verified(self, user_id):
+        """Check if user's email is verified"""
+        if not self._check_db_connection():
+            return False
+        try:
+            user = self.find_by_id(user_id)
+            return user.get('email_verified', False) if user else False
+        except Exception:
+            return False
+    
+    def get_email_preferences(self, user_id):
+        """Get user's email notification preferences"""
+        if not self._check_db_connection():
+            return None
+        try:
+            user = self.find_by_id(user_id)
+            if user:
+                return user.get('email_preferences', {
+                    'new_offers': True,
+                    'offer_updates': True,
+                    'system_notifications': True,
+                    'marketing_emails': False
+                })
+            return None
+        except Exception:
+            return None
+    
+    def update_email_preferences(self, user_id, preferences):
+        """Update user's email notification preferences"""
+        if not self._check_db_connection():
+            return False
+        try:
+            preferences['updated_at'] = datetime.utcnow()
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'email_preferences': preferences,
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            return False
+    
+    def should_receive_email(self, user_id, email_type):
+        """Check if user should receive a specific type of email"""
+        if not self._check_db_connection():
+            return True  # Default to sending if we can't check
+        try:
+            preferences = self.get_email_preferences(user_id)
+            if preferences:
+                return preferences.get(email_type, True)
+            return True  # Default to sending
+        except Exception:
+            return True

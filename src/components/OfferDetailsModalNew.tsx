@@ -168,7 +168,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
   };
 
-  const daysRemaining = getDaysRemaining(offer.expiration_date || '');
+  const daysRemaining = getDaysRemaining((offer as any).expiration_date || '');
   const isExpiringSoon = daysRemaining !== null && daysRemaining <= 7 && daysRemaining > 0;
   const isExpired = daysRemaining !== null && daysRemaining <= 0;
 
@@ -198,8 +198,12 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
               <Badge className="bg-green-500 text-white">
                 ${offer.payout.toFixed(2)} {offer.currency || 'USD'}
               </Badge>
-              <Badge className={offer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
-                {offer.status.toUpperCase()}
+              <Badge className={
+                ('status' in offer ? offer.status : offer.approval_status) === 'active' 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-gray-100 text-gray-800'
+              }>
+                {('status' in offer ? offer.status : offer.approval_status)?.toUpperCase() || 'UNKNOWN'}
               </Badge>
             </div>
           </DialogTitle>
@@ -387,16 +391,16 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                   <div>
                     <div className="text-muted-foreground mb-1">Daily Cap</div>
                     <div className="font-medium">
-                      {(offer.caps?.daily || (offer as any).daily_cap)?.toLocaleString() || 'Unlimited'}
+                      {((offer as any).caps?.daily || (offer as any).daily_cap)?.toLocaleString() || 'Unlimited'}
                     </div>
                   </div>
                   <div>
                     <div className="text-muted-foreground mb-1">Expires</div>
                     <div className="flex items-center gap-2">
-                      {offer.expiration_date ? (
+                      {(offer as any).expiration_date ? (
                         <>
                           <span className="font-medium">
-                            {new Date(offer.expiration_date).toLocaleDateString()}
+                            {new Date((offer as any).expiration_date).toLocaleDateString()}
                           </span>
                           {daysRemaining !== null && (
                             <Badge 
@@ -442,9 +446,9 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Device:</span>
                   <Badge variant="outline" className="capitalize">
-                    {offer.device_targeting === 'mobile' && <Smartphone className="h-3 w-3 mr-1" />}
-                    {offer.device_targeting === 'desktop' && <Monitor className="h-3 w-3 mr-1" />}
-                    {offer.device_targeting}
+                    {(offer as any).device_targeting === 'mobile' && <Smartphone className="h-3 w-3 mr-1" />}
+                    {(offer as any).device_targeting === 'desktop' && <Monitor className="h-3 w-3 mr-1" />}
+                    {(offer as any).device_targeting || 'All Devices'}
                   </Badge>
                 </div>
                 <div className="flex justify-between items-center">

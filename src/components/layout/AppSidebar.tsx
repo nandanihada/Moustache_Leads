@@ -38,6 +38,7 @@ const menuItems = [
   { title: "Placements", url: "/dashboard/placements", icon: Target },
   { title: "Assets", url: "/dashboard/assets", icon: FileImage },
   { title: "Offers", url: "/dashboard/offers", icon: Gift },
+  { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
   { title: "Reports", url: "/dashboard/reports", icon: BarChart3 },
   { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
   { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },

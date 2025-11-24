@@ -157,19 +157,38 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const [scheduleStatus, setScheduleStatus] = useState('Active');
   const [smartRules, setSmartRules] = useState<SmartRule[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
+  
+  // Promo code state
+  const [promoCodes, setPromoCodes] = useState<any[]>([]);
+  const [selectedPromoCode, setSelectedPromoCode] = useState('');
 
-  // Fetch partners on mount
+  // Fetch partners and promo codes on mount
   useEffect(() => {
-    const fetchPartners = async () => {
+    const fetchData = async () => {
       try {
         const data = await partnerApi.getPartners('active');
         setPartners(data.partners);
       } catch (error) {
         console.error('Error fetching partners:', error);
       }
+      
+      // Fetch promo codes
+      try {
+        const response = await fetch('/api/admin/promo-codes', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setPromoCodes(data.promo_codes || []);
+        }
+      } catch (error) {
+        console.error('Error fetching promo codes:', error);
+      }
     };
     if (open) {
-      fetchPartners();
+      fetchData();
     }
   }, [open]);
 
@@ -196,7 +215,13 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     html_code: '',
     email_template: '',
     uploaded_file_name: '',
-    uploaded_file_size: 0
+    uploaded_file_size: 0,
+    // 🔥 APPROVAL WORKFLOW FIELDS - Initialize with defaults
+    approval_type: 'auto_approve',
+    auto_approve_delay: 0,
+    require_approval: false,
+    approval_message: '',
+    max_inactive_days: 30
   });
 
   // Update image preview when image_url changes
@@ -340,6 +365,12 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         browser_targeting: selectedBrowsers,
         carrier_targeting: selectedCarriers,
         languages: selectedLanguages,
+        // 🔥 APPROVAL WORKFLOW DATA: Include all approval settings
+        approval_type: formData.approval_type || 'auto_approve',
+        auto_approve_delay: formData.auto_approve_delay || 0,
+        require_approval: formData.require_approval || false,
+        approval_message: formData.approval_message || '',
+        max_inactive_days: formData.max_inactive_days || 30,
         // 🔥 CRITICAL FIX: Include Schedule + Smart Rules data
         schedule: {
           startDate: startDate ? format(startDate, 'yyyy-MM-dd') : null,
@@ -358,7 +389,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
           cap: rule.cap,
           priority: rule.priority,
           active: rule.active
-        }))
+        })),
+        // 🔥 PROMO CODE ASSIGNMENT
+        promo_code_id: selectedPromoCode || undefined
       };
 
       // Remove partner_id if it's empty
@@ -408,7 +441,13 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         html_code: '',
         email_template: '',
         uploaded_file_name: '',
-        uploaded_file_size: 0
+        uploaded_file_size: 0,
+        // 🔥 APPROVAL WORKFLOW FIELDS - Reset to defaults
+        approval_type: 'auto_approve',
+        auto_approve_delay: 0,
+        require_approval: false,
+        approval_message: '',
+        max_inactive_days: 30
       });
       setSelectedCountries([]);
       setSelectedUsers([]);
@@ -1122,6 +1161,138 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           </Badge>
                         ))}
                       </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Approval Workflow Settings */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Approval Workflow</CardTitle>
+                  <CardDescription>Configure how publishers get access to this offer</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="approval_type">Approval Type *</Label>
+                    <Select 
+                      value={formData.approval_type || 'auto_approve'} 
+                      onValueChange={(value) => handleInputChange('approval_type', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto_approve">Auto Approve (Immediate)</SelectItem>
+                        <SelectItem value="time_based">Time-based Approval</SelectItem>
+                        <SelectItem value="manual">Manual Approval</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Choose how publisher access requests are handled
+                    </p>
+                  </div>
+
+                  {formData.approval_type === 'time_based' && (
+                    <div>
+                      <Label htmlFor="auto_approve_delay">Auto-approve Delay (minutes)</Label>
+                      <Input
+                        id="auto_approve_delay"
+                        type="number"
+                        min="1"
+                        max="10080"
+                        value={formData.auto_approve_delay || 60}
+                        onChange={(e) => handleInputChange('auto_approve_delay', parseInt(e.target.value))}
+                        placeholder="60"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Requests will be auto-approved after this delay (1-10080 minutes)
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="require_approval"
+                      checked={formData.require_approval || false}
+                      onCheckedChange={(checked) => handleInputChange('require_approval', checked)}
+                    />
+                    <Label htmlFor="require_approval">Always require approval</Label>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Override auto-approval and always require manual approval
+                  </p>
+
+                  <div>
+                    <Label htmlFor="approval_message">Custom Approval Message</Label>
+                    <Textarea
+                      id="approval_message"
+                      value={formData.approval_message || ''}
+                      onChange={(e) => handleInputChange('approval_message', e.target.value)}
+                      placeholder="Enter a custom message for publishers requesting access..."
+                      rows={3}
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      This message will be shown to publishers when they request access
+                    </p>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="max_inactive_days">Auto-lock after inactive days</Label>
+                    <Input
+                      id="max_inactive_days"
+                      type="number"
+                      min="1"
+                      max="365"
+                      value={formData.max_inactive_days || 30}
+                      onChange={(e) => handleInputChange('max_inactive_days', parseInt(e.target.value))}
+                      placeholder="30"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Automatically lock offer access if not used for this many days (1-365)
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              {/* PROMO CODE ASSIGNMENT */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>🎉 Assign Promo Code</CardTitle>
+                  <CardDescription>Optionally assign a promo code to this offer</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <Label htmlFor="promo_code">Promo Code (Optional)</Label>
+                    <Select value={selectedPromoCode || "none"} onValueChange={(value) => setSelectedPromoCode(value === "none" ? "" : value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a promo code..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {promoCodes.map((code: any) => (
+                          <SelectItem key={code._id} value={code._id}>
+                            {code.code} - {code.bonus_amount}% Bonus
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Publishers will receive an email notification when you assign a code to this offer
+                    </p>
+                  </div>
+                  
+                  {selectedPromoCode && promoCodes.find((c: any) => c._id === selectedPromoCode) && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <p className="text-sm font-medium text-blue-900">
+                        ✅ Promo Code Selected
+                      </p>
+                      <p className="text-xs text-blue-700 mt-1">
+                        Code: <span className="font-mono font-bold">{promoCodes.find((c: any) => c._id === selectedPromoCode)?.code}</span>
+                      </p>
+                      <p className="text-xs text-blue-700">
+                        Bonus: {promoCodes.find((c: any) => c._id === selectedPromoCode)?.bonus_amount}% ({promoCodes.find((c: any) => c._id === selectedPromoCode)?.bonus_type})
+                      </p>
                     </div>
                   )}
                 </CardContent>
