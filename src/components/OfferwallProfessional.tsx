@@ -39,16 +39,21 @@ const getApiBaseUrl = (): string => {
     return 'http://localhost:5000';
   }
   
-  // For production, use the same domain as the frontend
-  const protocol = window.location.protocol;
+  // For production, use the correct backend URL
   const hostname = window.location.hostname;
+  
+  // If on Vercel frontend, use Render backend
+  if (hostname.includes('vercel.app') || hostname.includes('moustache-leads')) {
+    return 'https://moustacheleads-backend.onrender.com';
+  }
   
   // If on theinterwebsite.space, use api.theinterwebsite.space
   if (hostname.includes('theinterwebsite.space')) {
-    return `${protocol}//api.theinterwebsite.space`;
+    return 'https://api.theinterwebsite.space';
   }
   
-  // Default fallback
+  // Default fallback - use HTTPS for production
+  const protocol = window.location.protocol;
   return `${protocol}//${hostname}`;
 };
 

@@ -20,6 +20,33 @@ interface OfferwallIframeProps {
   country?: string;
 }
 
+// Determine the correct API base URL
+const getApiBaseUrl = (): string => {
+  // Check if we're in development (localhost)
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:5000';
+  }
+  
+  // For production, use the correct backend URL
+  const hostname = window.location.hostname;
+  
+  // If on Vercel frontend, use Render backend
+  if (hostname.includes('vercel.app') || hostname.includes('moustache-leads')) {
+    return 'https://moustacheleads-backend.onrender.com';
+  }
+  
+  // If on theinterwebsite.space, use api.theinterwebsite.space
+  if (hostname.includes('theinterwebsite.space')) {
+    return 'https://api.theinterwebsite.space';
+  }
+  
+  // Default fallback - use HTTPS for production
+  const protocol = window.location.protocol;
+  return `${protocol}//${hostname}`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
+
 export const OfferwallIframe: React.FC<OfferwallIframeProps> = ({
   placementId,
   userId,
@@ -66,7 +93,7 @@ export const OfferwallIframe: React.FC<OfferwallIframeProps> = ({
         setSessionId(sessionId);
 
         // Create session on backend
-        const response = await fetch('/api/offerwall/session/create', {
+        const response = await fetch(`${API_BASE_URL}/api/offerwall/session/create`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -116,14 +143,7 @@ export const OfferwallIframe: React.FC<OfferwallIframeProps> = ({
         ...(country && { country }),
       });
 
-      // Try multiple API endpoints
-      let response = await fetch(`/api/offerwall/offers?${params}`);
-      
-      // If relative path fails, try with localhost
-      if (!response.ok) {
-        console.warn('Relative path failed, trying localhost...');
-        response = await fetch(`http://localhost:5000/api/offerwall/offers?${params}`);
-      }
+      const response = await fetch(`${API_BASE_URL}/api/offerwall/offers?${params}`);
       
       if (!response.ok) {
         throw new Error(`Failed to load offers: ${response.status} ${response.statusText}`);
@@ -152,7 +172,7 @@ export const OfferwallIframe: React.FC<OfferwallIframeProps> = ({
   const handleOfferClick = async (offer: Offer) => {
     try {
       // Track click
-      const clickResponse = await fetch('/api/offerwall/track/click', {
+      const clickResponse = await fetch(`${API_BASE_URL}/api/offerwall/track/click`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
