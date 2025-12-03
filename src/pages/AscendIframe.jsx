@@ -164,6 +164,182 @@ const QuickstartContent = () => (
 );
 
 /* -------------------------
+   Offerwall Integration Content
+------------------------- */
+const OfferwallIntegrationContent = () => {
+  const [placementId, setPlacementId] = React.useState("YOUR_PLACEMENT_ID");
+  const [userId, setUserId] = React.useState("user123");
+  const [iframeUrl, setIframeUrl] = React.useState("");
+
+  React.useEffect(() => {
+    const baseUrl = window.location.origin;
+    setIframeUrl(`${baseUrl}/offerwall?placement_id=${placementId}&user_id=${userId}`);
+  }, [placementId, userId]);
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      <h1 className="text-3xl font-bold mb-2">🎯 Offerwall Integration</h1>
+      <p className="text-gray-600 mb-8">
+        Embed our offerwall iframe on your website or app to monetize your user base with rewarded offers.
+      </p>
+
+      {/* Step 1: Get Your Placement ID */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-4">Step 1: Get Your Placement ID</h2>
+        <p className="text-gray-600 mb-4">
+          Each placement gets a unique ID. Go to your <strong>Placements</strong> page to find your placement ID.
+        </p>
+        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+          <p className="text-blue-900 font-mono text-sm">
+            Example: <code>placement_abc123xyz789</code>
+          </p>
+        </div>
+      </div>
+
+      {/* Step 2: Embed the Iframe */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-4">Step 2: Embed the Iframe</h2>
+        <p className="text-gray-600 mb-4">
+          Copy this code and paste it where you want the offerwall to appear:
+        </p>
+        <CodeBlock
+          language="html"
+          code={`<iframe 
+  src="https://yourdomain.com/offerwall?placement_id=YOUR_PLACEMENT_ID&user_id=USER_ID"
+  width="100%" 
+  height="600" 
+  frameborder="0"
+  style="border: none; border-radius: 8px;">
+</iframe>`}
+        />
+        <p className="text-gray-600 mt-4 text-sm">
+          Replace <code>YOUR_PLACEMENT_ID</code> with your actual placement ID and <code>USER_ID</code> with the end user's unique ID.
+        </p>
+      </div>
+
+      {/* Step 3: Test Your Integration */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-4">Step 3: Test Your Integration</h2>
+        <p className="text-gray-600 mb-4">
+          Configure test parameters below and preview the iframe:
+        </p>
+        
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Placement ID</label>
+            <input
+              type="text"
+              value={placementId}
+              onChange={(e) => setPlacementId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="placement_abc123"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">User ID</label>
+            <input
+              type="text"
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="user123"
+            />
+          </div>
+        </div>
+
+        <div className="bg-gray-100 p-4 rounded-lg mb-4">
+          <p className="text-sm text-gray-600 mb-2">Generated URL:</p>
+          <code className="text-xs text-gray-800 break-all">{iframeUrl}</code>
+        </div>
+
+        <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+          <p className="text-yellow-900 text-sm">
+            <strong>Note:</strong> The iframe preview will load once you have a valid placement ID configured in your system.
+          </p>
+        </div>
+      </div>
+
+      {/* What Gets Tracked */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-4">📊 What Gets Tracked</h2>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="border-l-4 border-green-500 pl-4">
+            <h3 className="font-semibold text-gray-800 mb-2">User Tracking</h3>
+            <ul className="text-sm text-gray-600 space-y-1">
+              <li>✓ User ID</li>
+              <li>✓ Session ID</li>
+              <li>✓ Device Type</li>
+              <li>✓ Country/Geo</li>
+            </ul>
+          </div>
+          <div className="border-l-4 border-blue-500 pl-4">
+            <h3 className="font-semibold text-gray-800 mb-2">Engagement Metrics</h3>
+            <ul className="text-sm text-gray-600 space-y-1">
+              <li>✓ Impressions</li>
+              <li>✓ Clicks</li>
+              <li>✓ Time Spent</li>
+              <li>✓ Conversions</li>
+            </ul>
+          </div>
+          <div className="border-l-4 border-purple-500 pl-4">
+            <h3 className="font-semibold text-gray-800 mb-2">Fraud Detection</h3>
+            <ul className="text-sm text-gray-600 space-y-1">
+              <li>✓ Duplicate Clicks</li>
+              <li>✓ VPN Detection</li>
+              <li>✓ Bot Detection</li>
+              <li>✓ Fraud Scoring</li>
+            </ul>
+          </div>
+          <div className="border-l-4 border-orange-500 pl-4">
+            <h3 className="font-semibold text-gray-800 mb-2">Analytics</h3>
+            <ul className="text-sm text-gray-600 space-y-1">
+              <li>✓ CTR (Click-Through Rate)</li>
+              <li>✓ Conversion Rate</li>
+              <li>✓ EPC (Earnings Per Click)</li>
+              <li>✓ Country Breakdown</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      {/* Advanced Options */}
+      <div className="bg-white rounded-lg shadow p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-4">Advanced Options</h2>
+        
+        <h3 className="font-semibold text-gray-800 mb-3">Optional Parameters</h3>
+        <CodeBlock
+          language="html"
+          code={`<!-- Add these optional parameters to track external campaigns -->
+<iframe 
+  src="https://yourdomain.com/offerwall?placement_id=YOUR_PLACEMENT_ID&user_id=USER_ID&sub_id=CAMPAIGN_ID&country=US"
+  width="100%" 
+  height="600" 
+  frameborder="0">
+</iframe>`}
+        />
+
+        <div className="mt-4 space-y-2 text-sm text-gray-600">
+          <p><strong>sub_id:</strong> Your external campaign tracking ID</p>
+          <p><strong>country:</strong> Force specific country (2-letter code)</p>
+          <p><strong>category:</strong> Filter offers by category</p>
+        </div>
+      </div>
+
+      {/* Support */}
+      <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 mb-8">
+        <h2 className="text-xl font-semibold mb-2">Need Help?</h2>
+        <p className="text-gray-700 mb-4">
+          Check our analytics dashboard to monitor your offerwall performance in real-time.
+        </p>
+        <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition">
+          View Analytics Dashboard
+        </button>
+      </div>
+    </div>
+  );
+};
+
+/* -------------------------
    Web Offerwall Content (unchanged)
 ------------------------- */
 const WebOfferwallContent = () => (
@@ -243,6 +419,16 @@ const AscendContent = () => {
             Quickstart
           </button>
           <button
+            onClick={() => setActivePage("offerwall-integration")}
+            className={`block w-full text-left px-3 py-2 rounded ${
+              activePage === "offerwall-integration"
+                ? "bg-blue-100 text-blue-600 font-medium"
+                : "hover:bg-gray-100"
+            }`}
+          >
+            🎯 Offerwall Integration
+          </button>
+          <button
             onClick={() => setActivePage("offerwall")}
             className={`block w-full text-left px-3 py-2 rounded ${
               activePage === "offerwall"
@@ -250,7 +436,7 @@ const AscendContent = () => {
                 : "hover:bg-gray-100"
             }`}
           >
-            MoustacheLeads Web Offerwall
+            Web Offerwall
           </button>
         </nav>
       </div>
@@ -268,6 +454,7 @@ const AscendContent = () => {
         </header>
         <main className="flex-1">
           {activePage === "quickstart" && <QuickstartContent />}
+          {activePage === "offerwall-integration" && <OfferwallIntegrationContent />}
           {activePage === "offerwall" && <WebOfferwallContent />}
         </main>
       </div>

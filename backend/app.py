@@ -58,6 +58,9 @@ admin_promo_codes_bp = safe_import_blueprint('routes.admin_promo_codes', 'admin_
 publisher_promo_codes_bp = safe_import_blueprint('routes.publisher_promo_codes', 'publisher_promo_codes_bp')
 publisher_promo_codes_mgmt_bp = safe_import_blueprint('routes.publisher_promo_codes_management', 'publisher_promo_codes_mgmt_bp')
 bonus_management_bp = safe_import_blueprint('routes.bonus_management', 'bonus_management_bp')
+admin_offerwall_analytics_bp = safe_import_blueprint('routes.admin_offerwall_analytics', 'admin_offerwall_analytics_bp')
+user_offerwall_rewards_bp = safe_import_blueprint('routes.user_offerwall_rewards', 'user_offerwall_rewards_bp')
+comprehensive_analytics_bp = safe_import_blueprint('routes.comprehensive_analytics', 'comprehensive_analytics_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -94,7 +97,10 @@ blueprints = [
     (admin_promo_codes_bp, ''),  # Admin promo code management - routes include /api/admin prefix
     (publisher_promo_codes_bp, ''),  # Publisher promo code routes - routes include /api/publisher prefix
     (publisher_promo_codes_mgmt_bp, ''),  # Publisher promo code management - routes include /api/publisher prefix
-    (bonus_management_bp, '')  # Bonus management routes - routes include /api/admin and /api/publisher prefix
+    (bonus_management_bp, ''),  # Bonus management routes - routes include /api/admin and /api/publisher prefix
+    (admin_offerwall_analytics_bp, ''),  # Admin offerwall analytics - routes include /api/admin prefix
+    (user_offerwall_rewards_bp, ''),  # User offerwall rewards - routes include /api/user prefix
+    (comprehensive_analytics_bp, '')  # Comprehensive analytics - routes include /api/admin prefix
 ]
 
 def create_app():
@@ -119,7 +125,10 @@ def create_app():
                  "http://127.0.0.1:5173",
                  "http://127.0.0.1:8080",
                  "http://127.0.0.1:8081",
-                 "https://moustache-leads.vercel.app"
+                 "https://moustache-leads.vercel.app",
+                 "https://theinterwebsite.space",
+                 "https://www.theinterwebsite.space",
+                 "https://api.theinterwebsite.space"
              ],
              "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
              "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
@@ -129,7 +138,7 @@ def create_app():
          }},
          supports_credentials=True)
     
-    # Custom CORS handler for additional origins (Vercel deployments)
+    # Custom CORS handler for additional origins (Vercel deployments and production)
     @app.after_request
     def after_request(response):
         origin = request.headers.get('Origin')
@@ -144,11 +153,14 @@ def create_app():
             "http://127.0.0.1:5173",
             "http://127.0.0.1:8080",
             "http://127.0.0.1:8081",
-            "https://moustache-leads.vercel.app"
+            "https://moustache-leads.vercel.app",
+            "https://theinterwebsite.space",
+            "https://www.theinterwebsite.space",
+            "https://api.theinterwebsite.space"
         ]
         
-        # Allow all Vercel preview deployments
-        if origin and (origin in allowed_origins or '.vercel.app' in origin):
+        # Allow all Vercel preview deployments and theinterwebsite.space subdomains
+        if origin and (origin in allowed_origins or '.vercel.app' in origin or 'theinterwebsite.space' in origin):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
@@ -165,6 +177,19 @@ def create_app():
             print(f"✅ Registered blueprint: {blueprint.name} at {url_prefix}")
         else:
             print(f"❌ Failed to register blueprint with prefix: {url_prefix}")
+    
+    # Initialize comprehensive analytics tracker
+    try:
+        from models.comprehensive_tracking import ComprehensiveOfferwallTracker
+        from routes.comprehensive_analytics import set_tracker
+        from routes.offerwall import set_comprehensive_tracker
+        
+        tracker = ComprehensiveOfferwallTracker(db_instance)
+        set_tracker(tracker, db_instance)
+        set_comprehensive_tracker(tracker)
+        print("✅ Comprehensive analytics tracker initialized")
+    except Exception as e:
+        print(f"❌ Failed to initialize comprehensive analytics tracker: {str(e)}")
     
     # Start postback processor
     try:

@@ -15,7 +15,10 @@ import {
   CheckSquare,
   UserCheck,
   Zap,
-  Wallet
+  Wallet,
+  TrendingUp,
+  AlertTriangle,
+  MousePointerClick
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -38,6 +41,10 @@ const adminMenuItems = [
   { title: "Bonus Management", url: "/admin/bonus-management", icon: Wallet },
   { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck },
   { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare },
+  { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp },
+  { title: "Comprehensive Analytics", url: "/admin/comprehensive-analytics", icon: BarChart3 },
+  { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick },
+  { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle },
   { title: "Reports", url: "/admin/reports", icon: FileText },
   { title: "Tracking", url: "/admin/tracking", icon: Monitor },
   { title: "Test Tracking", url: "/admin/test-tracking", icon: TestTube },

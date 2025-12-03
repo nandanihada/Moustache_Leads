@@ -1,6 +1,8 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus, CheckCircle, AlertCircle, Loader2, Package, Code, Copy } from "lucide-react";
 import { placementApi } from "../services/placementApi";
+import { OfferwallIframeEnhanced } from "../components/OfferwallIframeEnhanced";
+import { OfferwallProfessional } from "../components/OfferwallProfessional";
 
 // --- Data Structures ---
 
@@ -689,9 +691,11 @@ const EventsManager = ({ events, onAdd, onEdit, onDelete }) => {
     );
 };
 
-// 3. Integration Tab - Iframe Generator
+// 3. Integration Tab - Iframe Generator with Live Preview
 const IntegrationGuide = ({ data }) => {
   const [copied, setCopied] = useState(false);
+  const [testUserId, setTestUserId] = useState('test_user_123');
+  const [showPreview, setShowPreview] = useState(true);
   
   const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const iframeSnippet = `<iframe 
@@ -699,6 +703,8 @@ const IntegrationGuide = ({ data }) => {
   style="height:100vh;width:100%;border:0;"
   title="${data.offerwallTitle || 'Offerwall'}">
 </iframe>`;
+
+  const previewUrl = `${baseUrl}/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=${testUserId}&api_key=${data.apiKey || 'YOUR_API_KEY'}`;
 
   const copyToClipboard = async () => {
     try {
@@ -713,117 +719,165 @@ const IntegrationGuide = ({ data }) => {
   const isReady = data.placementIdentifier && data.apiKey;
 
   return (
-    <Card title="Iframe Integration" description="Embed this offerwall on your website using the iframe snippet below." className="space-y-6">
-      {!isReady && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <Info className="h-5 w-5 text-yellow-600 mr-2" />
-            <p className="text-yellow-800">
-              <strong>Setup Required:</strong> Please save your placement configuration first to generate the iframe snippet.
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Iframe Snippet
-          </label>
-          <div className="relative">
-            <pre className="bg-gray-900 text-green-400 p-4 rounded-lg text-sm overflow-x-auto font-mono">
-              <code>{iframeSnippet}</code>
-            </pre>
+    <div className="space-y-6">
+      {/* Live Preview Section */}
+      {isReady && (
+        <Card title="🎬 Live Offerwall Preview" description="See how your offerwall looks in real-time" className="space-y-4">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Test User ID</label>
+              <input
+                type="text"
+                value={testUserId}
+                onChange={(e) => setTestUserId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
+                placeholder="test_user_123"
+              />
+            </div>
             <button
-              onClick={copyToClipboard}
-              className="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white p-2 rounded transition-colors"
-              title="Copy to clipboard"
+              onClick={() => setShowPreview(!showPreview)}
+              className="mt-6 bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
             >
-              {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {showPreview ? 'Hide Preview' : 'Show Preview'}
             </button>
           </div>
-          {copied && (
-            <p className="text-sm text-green-600 mt-1">✓ Copied to clipboard!</p>
+
+          {showPreview && (
+            <div className="border-2 border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+              <div className="bg-gradient-to-r from-violet-600 to-purple-600 text-white px-4 py-3 text-sm font-medium">
+                📱 Live Offerwall Preview ({data.offerwallTitle || 'Offerwall'})
+              </div>
+              <div style={{
+                width: '100%',
+                height: '800px',
+                overflow: 'auto',
+                borderRadius: '0 0 8px 8px'
+              }} className="bg-slate-900">
+                <OfferwallProfessional
+                  placementId={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}
+                  userId={testUserId}
+                  subId="test_sub"
+                  country="US"
+                />
+              </div>
+            </div>
           )}
-        </div>
+        </Card>
+      )}
 
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <h4 className="font-medium text-blue-900 mb-2 flex items-center">
-            <Code className="h-4 w-4 mr-2" />
-            Implementation Notes
-          </h4>
-          <ul className="text-sm text-blue-800 space-y-1">
-            <li>• Replace <code className="bg-blue-100 px-1 rounded">{'{user_id}'}</code> with your actual user ID dynamically</li>
-            <li>• The iframe will automatically track impressions and clicks</li>
-            <li>• Ensure your domain is whitelisted for CORS if needed</li>
-            <li>• The offerwall is fully responsive and mobile-friendly</li>
-          </ul>
-        </div>
+      {/* Integration Code Section */}
+      <Card title="📋 Iframe Integration" description="Copy and embed this code on your website" className="space-y-6">
+        {!isReady && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <Info className="h-5 w-5 text-yellow-600 mr-2" />
+              <p className="text-yellow-800">
+                <strong>Setup Required:</strong> Please save your placement configuration first to generate the iframe snippet.
+              </p>
+            </div>
+          </div>
+        )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h5 className="font-medium text-gray-900 mb-2">Placement Details</h5>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Placement ID:</span>
-                <code className="bg-gray-200 px-2 py-1 rounded text-xs">
-                  {data.placementIdentifier || 'Not generated yet'}
-                </code>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Iframe Code Snippet
+            </label>
+            <div className="relative">
+              <pre className="bg-gray-900 text-green-400 p-4 rounded-lg text-sm overflow-x-auto font-mono">
+                <code>{iframeSnippet}</code>
+              </pre>
+              <button
+                onClick={copyToClipboard}
+                className="absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white p-2 rounded transition-colors"
+                title="Copy to clipboard"
+              >
+                {copied ? <CheckCircle className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </button>
+            </div>
+            {copied && (
+              <p className="text-sm text-green-600 mt-1">✓ Copied to clipboard!</p>
+            )}
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h4 className="font-medium text-blue-900 mb-2 flex items-center">
+              <Code className="h-4 w-4 mr-2" />
+              Implementation Notes
+            </h4>
+            <ul className="text-sm text-blue-800 space-y-1">
+              <li>• Replace <code className="bg-blue-100 px-1 rounded">{'{user_id}'}</code> with your actual user ID dynamically</li>
+              <li>• The iframe will automatically track impressions and clicks</li>
+              <li>• Ensure your domain is whitelisted for CORS if needed</li>
+              <li>• The offerwall is fully responsive and mobile-friendly</li>
+            </ul>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h5 className="font-medium text-gray-900 mb-2">Placement Details</h5>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Placement ID:</span>
+                  <code className="bg-gray-200 px-2 py-1 rounded text-xs">
+                    {data.placementIdentifier || 'Not generated yet'}
+                  </code>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">API Key:</span>
+                  <code className="bg-gray-200 px-2 py-1 rounded text-xs">
+                    {data.apiKey ? `${data.apiKey.substring(0, 8)}...` : 'Not generated yet'}
+                  </code>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Status:</span>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    data.status === 'LIVE' ? 'bg-green-100 text-green-800' : 
+                    data.status === 'PAUSED' ? 'bg-yellow-100 text-yellow-800' : 
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {data.status || 'DRAFT'}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">API Key:</span>
-                <code className="bg-gray-200 px-2 py-1 rounded text-xs">
-                  {data.apiKey ? `${data.apiKey.substring(0, 8)}...` : 'Not generated yet'}
-                </code>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Status:</span>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  data.status === 'LIVE' ? 'bg-green-100 text-green-800' : 
-                  data.status === 'PAUSED' ? 'bg-yellow-100 text-yellow-800' : 
-                  'bg-red-100 text-red-800'
-                }`}>
-                  {data.status || 'DRAFT'}
-                </span>
-              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h5 className="font-medium text-gray-900 mb-2">Security Notes</h5>
+              <ul className="text-sm text-gray-600 space-y-1">
+                <li>• API key validates placement access</li>
+                <li>• Only LIVE placements are accessible</li>
+                <li>• All interactions are tracked securely</li>
+                <li>• User data is handled per privacy policy</li>
+              </ul>
             </div>
           </div>
 
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h5 className="font-medium text-gray-900 mb-2">Security Notes</h5>
-            <ul className="text-sm text-gray-600 space-y-1">
-              <li>• API key validates placement access</li>
-              <li>• Only LIVE placements are accessible</li>
-              <li>• All interactions are tracked securely</li>
-              <li>• User data is handled per privacy policy</li>
-            </ul>
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <h4 className="font-medium text-green-900 mb-2 flex items-center">
+              <Info className="h-4 w-4 mr-2" />
+              Testing Your Integration
+            </h4>
+            <p className="text-sm text-green-800 mb-3">
+              You can test your offerwall integration by visiting the direct URL:
+            </p>
+            <div className="bg-white border rounded p-2 mb-3">
+              <code className="text-sm text-gray-800 break-all">
+                {baseUrl}/offerwall?placement_id={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=test_user&api_key={data.apiKey || 'YOUR_API_KEY'}
+              </code>
+            </div>
+            {isReady && (
+              <button
+                onClick={() => window.open(`${baseUrl}/offerwall?placement_id=${data.placementIdentifier}&user_id=test_user&api_key=${data.apiKey}`, '_blank')}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
+              >
+                Open in New Tab
+              </button>
+            )}
           </div>
         </div>
-
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-          <h4 className="font-medium text-green-900 mb-2 flex items-center">
-            <Info className="h-4 w-4 mr-2" />
-            Testing Your Integration
-          </h4>
-          <p className="text-sm text-green-800 mb-3">
-            You can test your offerwall integration by visiting the direct URL:
-          </p>
-          <div className="bg-white border rounded p-2">
-            <code className="text-sm text-gray-800 break-all">
-              {baseUrl}/offerwall?placement_id={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=test_user&api_key={data.apiKey || 'YOUR_API_KEY'}
-            </code>
-          </div>
-          {isReady && (
-            <button
-              onClick={() => window.open(`${baseUrl}/offerwall?placement_id=${data.placementIdentifier}&user_id=test_user&api_key=${data.apiKey}`, '_blank')}
-              className="mt-3 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
-            >
-              Test Offerwall
-            </button>
-          )}
-        </div>
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
 };
 

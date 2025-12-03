@@ -15,7 +15,8 @@ import {
   Receipt, // 📝 Conversion Report
   Clock,
   CheckCircle,
-  XCircle
+  XCircle,
+  Trophy
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -39,6 +40,7 @@ const menuItems = [
   { title: "Assets", url: "/dashboard/assets", icon: FileImage },
   { title: "Offers", url: "/dashboard/offers", icon: Gift },
   { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
+  { title: "Rewards", url: "/dashboard/rewards", icon: Trophy },
   { title: "Reports", url: "/dashboard/reports", icon: BarChart3 },
   { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
   { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },

@@ -35,6 +35,13 @@ import ConversionReport from "./pages/ConversionReport";
 import AdminPromoCodeManagement from "./pages/AdminPromoCodeManagement";
 import PublisherPromoCodeManagement from "./pages/PublisherPromoCodeManagement";
 import AdminBonusManagement from "./pages/AdminBonusManagement";
+import TestPage from "./pages/TestPage";
+import AdminOfferwallAnalytics from "./pages/AdminOfferwallAnalytics";
+import AdminFraudManagement from "./pages/AdminFraudManagement";
+import UserRewardsDashboard from "./pages/UserRewardsDashboard";
+import ComprehensiveOfferwallAnalytics from "./pages/ComprehensiveOfferwallAnalytics";
+import AdminClickTracking from "./pages/AdminClickTracking";
+import OfferwallPage from "./pages/OfferwallPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import VerifyEmail from "./pages/VerifyEmail";
@@ -62,6 +69,7 @@ const App = () => (
             <Route path="/register" element={<Register />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/test-modal" element={<TestOfferModal />} />
+            <Route path="/offerwall" element={<OfferwallPage />} />
             
             {/* Protected dashboard routes */}
             <Route 
@@ -84,6 +92,8 @@ const App = () => (
               <Route path="payments" element={<Payments />} />
               <Route path="settings" element={<Settings />} />
               <Route path="profile" element={<PartnerProfile />} />
+              <Route path="test" element={<TestPage />} />
+              <Route path="rewards" element={<UserRewardsDashboard />} />
               <Route path="campaign-builder" element={<CampaignBuilder />} /> 
               <Route path="ascend" element={<AscendIframe />} />
             </Route>
@@ -103,6 +113,10 @@ const App = () => (
               <Route path="bonus-management" element={<AdminBonusManagement />} />
               <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
               <Route path="placement-approval" element={<AdminPlacementApproval />} />
+              <Route path="offerwall-analytics" element={<AdminOfferwallAnalytics />} />
+              <Route path="comprehensive-analytics" element={<ComprehensiveOfferwallAnalytics />} />
+              <Route path="click-tracking" element={<AdminClickTracking />} />
+              <Route path="fraud-management" element={<AdminFraudManagement />} />
               <Route path="analytics" element={<AdminAnalytics />} />
               <Route path="reports" element={<AdminReports />} />
               <Route path="tracking" element={<AdminTracking />} />
