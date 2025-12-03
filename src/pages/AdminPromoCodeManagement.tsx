@@ -75,7 +75,8 @@ export default function AdminPromoCodeManagement() {
   const fetchPromoCodes = async () => {
     try {
       setLoading(true);
-      const response = await fetch("http://localhost:5000/api/admin/promo-codes", {
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const response = await fetch(`${API_BASE_URL}/api/admin/promo-codes`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -112,7 +113,8 @@ export default function AdminPromoCodeManagement() {
         max_uses_per_user: parseInt(formData.max_uses_per_user),
       };
 
-      const response = await fetch("http://localhost:5000/api/admin/promo-codes", {
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const response = await fetch(`${API_BASE_URL}/api/admin/promo-codes`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -148,8 +150,9 @@ export default function AdminPromoCodeManagement() {
 
   const handlePauseCode = async (codeId: string) => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        `http://localhost:5000/api/admin/promo-codes/${codeId}/pause`,
+        `${API_BASE_URL}/api/admin/promo-codes/${codeId}/pause`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
@@ -170,8 +173,9 @@ export default function AdminPromoCodeManagement() {
 
   const handleResumeCode = async (codeId: string) => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        `http://localhost:5000/api/admin/promo-codes/${codeId}/resume`,
+        `${API_BASE_URL}/api/admin/promo-codes/${codeId}/resume`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
@@ -192,8 +196,9 @@ export default function AdminPromoCodeManagement() {
 
   const handleViewAnalytics = async (codeId: string) => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        `http://localhost:5000/api/admin/promo-codes/${codeId}/analytics`,
+        `${API_BASE_URL}/api/admin/promo-codes/${codeId}/analytics`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -214,8 +219,9 @@ export default function AdminPromoCodeManagement() {
 
   const handleViewUsers = async (codeId: string) => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        `http://localhost:5000/api/admin/promo-codes/${codeId}/users`,
+        `${API_BASE_URL}/api/admin/promo-codes/${codeId}/users`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }

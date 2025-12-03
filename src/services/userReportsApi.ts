@@ -3,7 +3,8 @@
  * Publisher-facing reports for performance and conversions
  */
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
+import { API_BASE_URL as BASE_URL } from './apiConfig';
+const API_BASE_URL = `${BASE_URL}/api`;
 
 // ===== INTERFACES =====
 

@@ -1,4 +1,5 @@
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin`;
+import { API_BASE_URL as BASE_URL } from './apiConfig';
+const API_BASE_URL = `${BASE_URL}/api/admin`;
 
 export interface Offer {
   _id?: string;
@@ -362,7 +363,7 @@ class AdminOfferApi {
 
   // Utility method for testing
   async quickLogin(username: string = 'admin', password: string = 'admin123'): Promise<void> {
-    const response = await fetch('http://localhost:5000/api/auth/login', {
+    const response = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),

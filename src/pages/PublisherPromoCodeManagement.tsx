@@ -82,8 +82,9 @@ export default function PublisherPromoCodeManagement() {
 
   const fetchAvailableCodes = async () => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        "http://localhost:5000/api/publisher/promo-codes/available",
+        `${API_BASE_URL}/api/publisher/promo-codes/available`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -100,8 +101,9 @@ export default function PublisherPromoCodeManagement() {
 
   const fetchActiveCodes = async () => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        "http://localhost:5000/api/publisher/promo-codes/active",
+        `${API_BASE_URL}/api/publisher/promo-codes/active`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -118,8 +120,9 @@ export default function PublisherPromoCodeManagement() {
 
   const fetchBonusSummary = async () => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        "http://localhost:5000/api/publisher/bonus/summary",
+        `${API_BASE_URL}/api/publisher/bonus/summary`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -136,8 +139,9 @@ export default function PublisherPromoCodeManagement() {
 
   const fetchBonusEarnings = async () => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        "http://localhost:5000/api/publisher/bonus/earnings?limit=20",
+        `${API_BASE_URL}/api/publisher/bonus/earnings?limit=20`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -154,8 +158,9 @@ export default function PublisherPromoCodeManagement() {
 
   const fetchAvailableOffers = async () => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        "http://localhost:5000/api/publisher/offers/available",
+        `${API_BASE_URL}/api/publisher/offers/available`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -198,10 +203,11 @@ export default function PublisherPromoCodeManagement() {
       setApplyingCode(selectedCodeForOffers._id);
 
       // Apply code to each selected offer
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const results = await Promise.all(
         selectedOffers.map(offerId =>
           fetch(
-            `http://localhost:5000/api/publisher/offers/${offerId}/apply-promo-code`,
+            `${API_BASE_URL}/api/publisher/offers/${offerId}/apply-promo-code`,
             {
               method: "POST",
               headers: {
@@ -240,8 +246,9 @@ export default function PublisherPromoCodeManagement() {
 
   const handleRemoveCode = async (codeId: string) => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        `http://localhost:5000/api/publisher/promo-codes/${codeId}/remove`,
+        `${API_BASE_URL}/api/publisher/promo-codes/${codeId}/remove`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },

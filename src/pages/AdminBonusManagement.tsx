@@ -68,8 +68,9 @@ export default function AdminBonusManagement() {
 
   const fetchStats = async () => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        "http://localhost:5000/api/admin/bonus/statistics",
+        `${API_BASE_URL}/api/admin/bonus/statistics`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -86,7 +87,8 @@ export default function AdminBonusManagement() {
 
   const fetchEarnings = async () => {
     try {
-      let url = `http://localhost:5000/api/admin/bonus/earnings?page=${page}&limit=50`;
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      let url = `${API_BASE_URL}/api/admin/bonus/earnings?page=${page}&limit=50`;
       if (filterStatus !== "all") {
         url += `&status=${filterStatus}`;
       }
@@ -111,8 +113,9 @@ export default function AdminBonusManagement() {
   const handleProcessPendingBonuses = async () => {
     try {
       setProcessing(true);
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        `http://localhost:5000/api/admin/bonus/process-pending?limit=${processLimit}`,
+        `${API_BASE_URL}/api/admin/bonus/process-pending?limit=${processLimit}`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
@@ -139,8 +142,9 @@ export default function AdminBonusManagement() {
 
   const handleCreditBonus = async (conversionId: string) => {
     try {
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
-        `http://localhost:5000/api/admin/bonus/credit/${conversionId}`,
+        `${API_BASE_URL}/api/admin/bonus/credit/${conversionId}`,
         {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },

@@ -1881,10 +1881,20 @@ def serve_offerwall():
         if error:
             return jsonify({'error': error}), 403
         
-        # Build redirect URL to frontend
-        # In development: http://localhost:8080
-        # In production: https://theinterwebsite.space
-        frontend_url = 'http://localhost:8080'
+        # Build redirect URL to frontend based on environment
+        # Determine the correct frontend URL
+        if 'localhost' in request.host or '127.0.0.1' in request.host:
+            # Local development
+            frontend_url = 'http://localhost:8080'
+        elif 'onrender.com' in request.host:
+            # Backend is on Render, frontend is on Vercel
+            frontend_url = 'https://moustache-leads.vercel.app'
+        elif 'theinterwebsite.space' in request.host:
+            # Both on theinterwebsite.space
+            frontend_url = 'https://theinterwebsite.space'
+        else:
+            # Default fallback
+            frontend_url = 'https://moustache-leads.vercel.app'
         
         # Build query string
         query_params = f'placement_id={placement_id}&user_id={user_id}'

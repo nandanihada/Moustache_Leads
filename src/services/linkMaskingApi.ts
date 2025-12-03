@@ -1,4 +1,5 @@
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/masking`;
+import { API_BASE_URL as BASE_URL } from './apiConfig';
+const API_BASE_URL = `${BASE_URL}/api/masking`;
 
 export interface MaskingDomain {
   _id: string;
@@ -206,7 +207,7 @@ class LinkMaskingApi {
 
   // Test redirect (public endpoint)
   async testRedirect(domain: string, shortCode: string): Promise<any> {
-    const response = await fetch(`http://localhost:5000/${domain}/${shortCode}`, {
+    const response = await fetch(`${BASE_URL}/${domain}/${shortCode}`, {
       method: 'GET',
       redirect: 'manual', // Don't follow redirects automatically
     });
@@ -224,7 +225,7 @@ class LinkMaskingApi {
 
   // Utility method for testing
   async quickLogin(username: string = 'admin', password: string = 'admin123'): Promise<void> {
-    const response = await fetch('http://localhost:5000/api/auth/login', {
+    const response = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),

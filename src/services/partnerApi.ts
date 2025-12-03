@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin`;
+import { API_BASE_URL as BASE_URL } from './apiConfig';
+const API_BASE_URL = `${BASE_URL}/api/admin`;
 
 export interface Partner {
   _id?: string;

@@ -114,7 +114,7 @@ const PostbackLogs: React.FC = () => {
   const fetchForwardedLogs = async () => {
     try {
       setForwardedLoading(true);
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const { API_BASE_URL } = await import('../services/apiConfig');
       const token = localStorage.getItem('token');
       
       const params = new URLSearchParams({
@@ -123,7 +123,7 @@ const PostbackLogs: React.FC = () => {
         hours: '168' // Last 7 days
       });
       
-      const response = await fetch(`${API_URL}/api/admin/partner-distribution-logs?${params}`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/partner-distribution-logs?${params}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }

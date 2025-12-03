@@ -75,8 +75,8 @@ const PartnerProfile: React.FC = () => {
   const loadProfile = async () => {
     try {
       setLoading(true);
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const res = await fetch(`${API_URL}/api/auth/profile`, {
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const res = await fetch(`${API_BASE_URL}/api/auth/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -110,8 +110,8 @@ const PartnerProfile: React.FC = () => {
 
   const loadStats = async () => {
     try {
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const res = await fetch(`${API_URL}/api/partner/stats`, {
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const res = await fetch(`${API_BASE_URL}/api/partner/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -143,8 +143,8 @@ const PartnerProfile: React.FC = () => {
   const handleSave = async () => {
     try {
       setSaving(true);
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const res = await fetch(`${API_URL}/api/auth/profile/update`, {
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const res = await fetch(`${API_BASE_URL}/api/auth/profile/update`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -196,8 +196,8 @@ const PartnerProfile: React.FC = () => {
 
     try {
       setTesting(true);
-      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-      const res = await fetch(`${API_URL}/api/partner/test-postback`, {
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const res = await fetch(`${API_BASE_URL}/api/partner/test-postback`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
