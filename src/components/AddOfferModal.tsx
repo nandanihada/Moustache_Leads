@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import { CreateOfferData, adminOfferApi } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { partnerApi } from '@/services/partnerApi';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface AddOfferModalProps {
   open: boolean;
@@ -89,7 +90,7 @@ const NETWORKS = [
 ];
 
 const TRAFFIC_TYPES = [
-  'Email', 'Search', 'Display', 'Push', 'Native', 'Incent', 'Non-Incent', 
+  'Email', 'Search', 'Display', 'Push', 'Native', 'Incent', 'Non-Incent',
   'Social', 'Video', 'Mobile', 'Desktop', 'Contextual'
 ];
 
@@ -146,7 +147,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const [newLandingPage, setNewLandingPage] = useState('');
   const [imagePreview, setImagePreview] = useState('');
   const [partners, setPartners] = useState<any[]>([]);
-  
+
   // Schedule + Smart Rules state
   const [startDate, setStartDate] = useState<Date>();
   const [endDate, setEndDate] = useState<Date>();
@@ -157,7 +158,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const [scheduleStatus, setScheduleStatus] = useState('Active');
   const [smartRules, setSmartRules] = useState<SmartRule[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
-  
+
   // Promo code state
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
   const [selectedPromoCode, setSelectedPromoCode] = useState('');
@@ -171,10 +172,10 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
       } catch (error) {
         console.error('Error fetching partners:', error);
       }
-      
+
       // Fetch promo codes
       try {
-        const response = await fetch('/api/admin/promo-codes', {
+        const response = await fetch(`${API_BASE_URL}/api/admin/promo-codes`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
@@ -267,7 +268,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
   // Helper functions for multi-select management
   const toggleArrayItem = (array: string[], setArray: (arr: string[]) => void, item: string, field: keyof CreateOfferData) => {
-    const updated = array.includes(item) 
+    const updated = array.includes(item)
       ? array.filter(i => i !== item)
       : [...array, item];
     setArray(updated);
@@ -306,7 +307,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   };
 
   const updateSmartRule = (id: string, field: keyof SmartRule, value: any) => {
-    setSmartRules(rules => rules.map(rule => 
+    setSmartRules(rules => rules.map(rule =>
       rule.id === id ? { ...rule, [field]: value } : rule
     ));
   };
@@ -316,8 +317,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   };
 
   const toggleWeekday = (day: string) => {
-    setSelectedWeekdays(prev => 
-      prev.includes(day) 
+    setSelectedWeekdays(prev =>
+      prev.includes(day)
         ? prev.filter(d => d !== day)
         : [...prev, day]
     );
@@ -412,7 +413,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
       });
 
       await adminOfferApi.createOffer(submitData);
-      
+
       toast({
         title: "Success",
         description: "Offer created successfully!",
@@ -564,7 +565,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       rows={3}
                     />
                   </div>
-                  
+
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <Label htmlFor="category">Category</Label>
@@ -621,8 +622,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           onClick={() => selectedCountries.includes(country.code) ? removeCountry(country.code) : addCountry(country.code)}
                           title={country.name}
                         >
-                          <img 
-                            src={getFlagUrl(country.code)} 
+                          <img
+                            src={getFlagUrl(country.code)}
                             alt={`${country.name} flag`}
                             className="w-6 h-4 object-cover rounded-sm"
                             onError={(e) => {
@@ -638,7 +639,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       Selected: {selectedCountries.length} countries
                     </p>
                   </div>
-                  
+
                   {/* Languages Selection */}
                   <div>
                     <Label>Languages</Label>
@@ -809,7 +810,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       </Select>
                     </div>
                   </div>
-                  
+
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="revenue">Revenue (Optional)</Label>
@@ -881,9 +882,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         type="email"
                         onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addArrayItem(capAlertEmails, setCapAlertEmails, newEmail, 'cap_alert_emails', setNewEmail))}
                       />
-                      <Button 
-                        type="button" 
-                        onClick={() => addArrayItem(capAlertEmails, setCapAlertEmails, newEmail, 'cap_alert_emails', setNewEmail)} 
+                      <Button
+                        type="button"
+                        onClick={() => addArrayItem(capAlertEmails, setCapAlertEmails, newEmail, 'cap_alert_emails', setNewEmail)}
                         size="sm"
                       >
                         <Plus className="h-4 w-4" />
@@ -893,8 +894,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       {capAlertEmails.map(email => (
                         <Badge key={email} variant="secondary" className="flex items-center gap-1">
                           {email}
-                          <X 
-                            className="h-3 w-3 cursor-pointer" 
+                          <X
+                            className="h-3 w-3 cursor-pointer"
                             onClick={() => removeArrayItem(capAlertEmails, setCapAlertEmails, email, 'cap_alert_emails')}
                           />
                         </Badge>
@@ -959,7 +960,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       </Select>
                     </div>
                   </div>
-                  
+
                   <div>
                     <Label htmlFor="target_url">Target URL *</Label>
                     <Input
@@ -971,7 +972,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       required
                     />
                   </div>
-                  
+
                   <div>
                     <Label htmlFor="preview_url">Preview URL</Label>
                     <Input
@@ -1060,9 +1061,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         placeholder="Enter traffic source"
                         onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addArrayItem(allowedTrafficSources, setAllowedTrafficSources, newTrafficSource, 'allowed_traffic_sources', setNewTrafficSource))}
                       />
-                      <Button 
-                        type="button" 
-                        onClick={() => addArrayItem(allowedTrafficSources, setAllowedTrafficSources, newTrafficSource, 'allowed_traffic_sources', setNewTrafficSource)} 
+                      <Button
+                        type="button"
+                        onClick={() => addArrayItem(allowedTrafficSources, setAllowedTrafficSources, newTrafficSource, 'allowed_traffic_sources', setNewTrafficSource)}
                         size="sm"
                       >
                         <Plus className="h-4 w-4" />
@@ -1072,8 +1073,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       {allowedTrafficSources.map(source => (
                         <Badge key={source} variant="secondary" className="flex items-center gap-1">
                           {source}
-                          <X 
-                            className="h-3 w-3 cursor-pointer" 
+                          <X
+                            className="h-3 w-3 cursor-pointer"
                             onClick={() => removeArrayItem(allowedTrafficSources, setAllowedTrafficSources, source, 'allowed_traffic_sources')}
                           />
                         </Badge>
@@ -1091,9 +1092,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         placeholder="Enter blocked source"
                         onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addArrayItem(blockedTrafficSources, setBlockedTrafficSources, newTrafficSource, 'blocked_traffic_sources', setNewTrafficSource))}
                       />
-                      <Button 
-                        type="button" 
-                        onClick={() => addArrayItem(blockedTrafficSources, setBlockedTrafficSources, newTrafficSource, 'blocked_traffic_sources', setNewTrafficSource)} 
+                      <Button
+                        type="button"
+                        onClick={() => addArrayItem(blockedTrafficSources, setBlockedTrafficSources, newTrafficSource, 'blocked_traffic_sources', setNewTrafficSource)}
                         size="sm"
                       >
                         <Plus className="h-4 w-4" />
@@ -1103,8 +1104,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       {blockedTrafficSources.map(source => (
                         <Badge key={source} variant="destructive" className="flex items-center gap-1">
                           {source}
-                          <X 
-                            className="h-3 w-3 cursor-pointer" 
+                          <X
+                            className="h-3 w-3 cursor-pointer"
                             onClick={() => removeArrayItem(blockedTrafficSources, setBlockedTrafficSources, source, 'blocked_traffic_sources')}
                           />
                         </Badge>
@@ -1154,8 +1155,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         {selectedUsers.map(user => (
                           <Badge key={user} variant="secondary" className="flex items-center gap-1">
                             {user}
-                            <X 
-                              className="h-3 w-3 cursor-pointer" 
+                            <X
+                              className="h-3 w-3 cursor-pointer"
                               onClick={() => removeUser(user)}
                             />
                           </Badge>
@@ -1175,8 +1176,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                 <CardContent className="space-y-4">
                   <div>
                     <Label htmlFor="approval_type">Approval Type *</Label>
-                    <Select 
-                      value={formData.approval_type || 'auto_approve'} 
+                    <Select
+                      value={formData.approval_type || 'auto_approve'}
                       onValueChange={(value) => handleInputChange('approval_type', value)}
                     >
                       <SelectTrigger>
@@ -1254,7 +1255,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                   </div>
                 </CardContent>
               </Card>
-              
+
               {/* PROMO CODE ASSIGNMENT */}
               <Card>
                 <CardHeader>
@@ -1281,7 +1282,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       Publishers will receive an email notification when you assign a code to this offer
                     </p>
                   </div>
-                  
+
                   {selectedPromoCode && promoCodes.find((c: any) => c._id === selectedPromoCode) && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                       <p className="text-sm font-medium text-blue-900">
@@ -1429,7 +1430,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                                 // Store file info
                                 handleInputChange('uploaded_file_name', file.name);
                                 handleInputChange('uploaded_file_size', file.size);
-                                
+
                                 toast({
                                   title: "Success",
                                   description: `Image "${file.name}" uploaded successfully!`,
@@ -1490,12 +1491,12 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                             </div>
                           )
                         ) : formData.creative_type === 'html' && formData.html_code ? (
-                          <div 
+                          <div
                             dangerouslySetInnerHTML={{ __html: formData.html_code }}
                             className="max-w-full overflow-hidden mb-2"
                           />
                         ) : formData.creative_type === 'email' && formData.email_template ? (
-                          <div 
+                          <div
                             dangerouslySetInnerHTML={{ __html: formData.email_template.replace('{offer_name}', formData.name || 'Sample Offer').replace('{payout}', formData.payout?.toString() || '0.00').replace('{tracking_link}', '#') }}
                             className="max-w-full overflow-hidden mb-2"
                           />
@@ -1504,7 +1505,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                             <p className="text-gray-500">No creative content</p>
                           </div>
                         )}
-                        
+
                         <h3 className="font-bold text-lg">{formData.name || 'Offer Name'}</h3>
                         <p className="text-sm text-gray-600 mb-2">
                           {formData.description || 'Offer description will appear here...'}
@@ -1530,9 +1531,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         type="url"
                         onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addArrayItem(landingPageVariants, setLandingPageVariants, newLandingPage, 'landing_page_variants', setNewLandingPage))}
                       />
-                      <Button 
-                        type="button" 
-                        onClick={() => addArrayItem(landingPageVariants, setLandingPageVariants, newLandingPage, 'landing_page_variants', setNewLandingPage)} 
+                      <Button
+                        type="button"
+                        onClick={() => addArrayItem(landingPageVariants, setLandingPageVariants, newLandingPage, 'landing_page_variants', setNewLandingPage)}
                         size="sm"
                       >
                         <Plus className="h-4 w-4" />
@@ -1542,8 +1543,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       {landingPageVariants.map(url => (
                         <Badge key={url} variant="secondary" className="flex items-center gap-1 max-w-xs">
                           <span className="truncate">{url}</span>
-                          <X 
-                            className="h-3 w-3 cursor-pointer" 
+                          <X
+                            className="h-3 w-3 cursor-pointer"
                             onClick={() => removeArrayItem(landingPageVariants, setLandingPageVariants, url, 'landing_page_variants')}
                           />
                         </Badge>
@@ -1650,7 +1651,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         />
                         <Label htmlFor="recurring">Recurring Schedule</Label>
                       </div>
-                      
+
                       {isRecurring && (
                         <div>
                           <Label className="text-sm">Select Weekdays</Label>
@@ -1746,8 +1747,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                             {/* Rule Type */}
                             <div>
                               <Label className="text-xs">Type</Label>
-                              <Select 
-                                value={rule.type} 
+                              <Select
+                                value={rule.type}
                                 onValueChange={(value) => updateSmartRule(rule.id, 'type', value)}
                               >
                                 <SelectTrigger className="h-8">
@@ -2027,7 +2028,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                     />
                     <p className="text-sm text-gray-500 mt-1">If synced from external network</p>
                   </div>
-                  
+
                   <div>
                     <Label htmlFor="webhook_template">Webhook / Postback Template</Label>
                     <Textarea

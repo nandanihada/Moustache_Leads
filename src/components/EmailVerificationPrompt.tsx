@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Mail, AlertCircle, Loader, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface EmailVerificationPromptProps {
   email: string;
@@ -25,7 +26,7 @@ export default function EmailVerificationPrompt({
     setResendError('');
 
     try {
-      const response = await fetch('/api/auth/resend-verification', {
+      const response = await fetch(`${API_BASE_URL}/api/auth/resend-verification`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

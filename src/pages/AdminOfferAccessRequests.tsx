@@ -10,13 +10,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { 
-  Search, 
-  Filter, 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  Eye, 
+import {
+  Search,
+  Filter,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Eye,
   MoreHorizontal,
   TrendingUp,
   Users,
@@ -24,6 +24,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface AccessRequest {
   _id: string;
@@ -114,7 +115,7 @@ const AdminOfferAccessRequests: React.FC = () => {
         ...(filters.device && { device: filters.device })
       });
 
-      const response = await fetch(`/api/admin/offer-access-requests?${queryParams}`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests?${queryParams}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -137,7 +138,7 @@ const AdminOfferAccessRequests: React.FC = () => {
   const fetchStats = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/admin/offer-access-requests/stats', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -159,7 +160,7 @@ const AdminOfferAccessRequests: React.FC = () => {
   const handleApproveRequest = async (requestId: string, notes: string) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/admin/offer-access-requests/${requestId}/approve`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/${requestId}/approve`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -187,7 +188,7 @@ const AdminOfferAccessRequests: React.FC = () => {
   const handleRejectRequest = async (requestId: string, reason: string) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/admin/offer-access-requests/${requestId}/reject`, {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/${requestId}/reject`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -517,10 +518,10 @@ const AdminOfferAccessRequests: React.FC = () => {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem
-                          onClick={() => setActionDialog({ 
-                            open: true, 
-                            type: 'view', 
-                            request 
+                          onClick={() => setActionDialog({
+                            open: true,
+                            type: 'view',
+                            request
                           })}
                         >
                           <Eye className="mr-2 h-4 w-4" />
@@ -529,20 +530,20 @@ const AdminOfferAccessRequests: React.FC = () => {
                         {request.status === 'pending' && (
                           <>
                             <DropdownMenuItem
-                              onClick={() => setActionDialog({ 
-                                open: true, 
-                                type: 'approve', 
-                                request 
+                              onClick={() => setActionDialog({
+                                open: true,
+                                type: 'approve',
+                                request
                               })}
                             >
                               <CheckCircle className="mr-2 h-4 w-4 text-green-600" />
                               Approve
                             </DropdownMenuItem>
                             <DropdownMenuItem
-                              onClick={() => setActionDialog({ 
-                                open: true, 
-                                type: 'reject', 
-                                request 
+                              onClick={() => setActionDialog({
+                                open: true,
+                                type: 'reject',
+                                request
                               })}
                             >
                               <XCircle className="mr-2 h-4 w-4 text-red-600" />
@@ -575,7 +576,7 @@ const AdminOfferAccessRequests: React.FC = () => {
               {actionDialog.type === 'view' && 'View detailed information about this request'}
             </DialogDescription>
           </DialogHeader>
-          
+
           {actionDialog.request && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -596,7 +597,7 @@ const AdminOfferAccessRequests: React.FC = () => {
                   <p className="text-sm">${actionDialog.request.offer_details?.payout}</p>
                 </div>
               </div>
-              
+
               <div>
                 <Label className="text-sm font-medium">Message</Label>
                 <p className="text-sm mt-1 p-2 bg-gray-50 rounded">
@@ -612,8 +613,8 @@ const AdminOfferAccessRequests: React.FC = () => {
                   <Textarea
                     id="notes"
                     placeholder={
-                      actionDialog.type === 'approve' 
-                        ? 'Add any notes for this approval...' 
+                      actionDialog.type === 'approve'
+                        ? 'Add any notes for this approval...'
                         : 'Please provide a reason for rejection...'
                     }
                     value={actionNotes}
@@ -626,14 +627,14 @@ const AdminOfferAccessRequests: React.FC = () => {
           )}
 
           <DialogFooter>
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => setActionDialog({ open: false, type: 'approve' })}
             >
               Cancel
             </Button>
             {actionDialog.type === 'approve' && (
-              <Button 
+              <Button
                 onClick={() => handleApproveRequest(actionDialog.request!.request_id, actionNotes)}
                 className="bg-green-600 hover:bg-green-700"
               >
@@ -642,7 +643,7 @@ const AdminOfferAccessRequests: React.FC = () => {
               </Button>
             )}
             {actionDialog.type === 'reject' && (
-              <Button 
+              <Button
                 variant="destructive"
                 onClick={() => handleRejectRequest(actionDialog.request!.request_id, actionNotes)}
                 disabled={!actionNotes.trim()}

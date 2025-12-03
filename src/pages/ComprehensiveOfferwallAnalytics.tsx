@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Filter, RefreshCw, BarChart3, TrendingUp, Users, AlertTriangle, DollarSign } from 'lucide-react';
 import { API_BASE_URL } from '../services/apiConfig';
 
 interface AnalyticsData {

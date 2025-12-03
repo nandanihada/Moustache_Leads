@@ -8,11 +8,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { 
-  TrendingUp, 
-  Users, 
-  MousePointer, 
-  DollarSign, 
+import {
+  TrendingUp,
+  Users,
+  MousePointer,
+  DollarSign,
   AlertTriangle,
   Activity,
   BarChart3,
@@ -20,6 +20,7 @@ import {
   Download,
   RefreshCw
 } from 'lucide-react';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface DashboardStats {
   total_sessions: number;
@@ -50,14 +51,14 @@ const AdminOfferwallAnalytics: React.FC = () => {
   const fetchStats = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/admin/offerwall/dashboard', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offerwall/dashboard`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
       if (!response.ok) throw new Error(`Failed to fetch stats: ${response.status}`);
-      
+
       const data = await response.json();
       if (data.success) {
         setStats(data.data);
@@ -74,14 +75,14 @@ const AdminOfferwallAnalytics: React.FC = () => {
   const fetchFraudSignals = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/admin/offerwall/fraud-signals', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offerwall/fraud-signals`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
       if (!response.ok) throw new Error('Failed to fetch fraud signals');
-      
+
       const data = await response.json();
       if (data.success) {
         setFraudSignals(data.data.slice(0, 10)); // Show latest 10
@@ -108,7 +109,7 @@ const AdminOfferwallAnalytics: React.FC = () => {
       await refreshData();
       setLoading(false);
     };
-    
+
     loadData();
   }, []);
 
@@ -229,7 +230,7 @@ const AdminOfferwallAnalytics: React.FC = () => {
                       <div className="flex justify-between">
                         <span>Avg Points per Conversion</span>
                         <span className="font-bold">
-                          {stats.total_conversions > 0 
+                          {stats.total_conversions > 0
                             ? Math.round(stats.total_points_awarded / stats.total_conversions)
                             : 0}
                         </span>
@@ -296,7 +297,7 @@ const AdminOfferwallAnalytics: React.FC = () => {
                         <TableCell>
                           <Badge variant={
                             signal.severity === 'high' ? 'destructive' :
-                            signal.severity === 'medium' ? 'default' : 'secondary'
+                              signal.severity === 'medium' ? 'default' : 'secondary'
                           }>
                             {signal.severity}
                           </Badge>

@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { 
+import {
   AlertTriangle,
   CheckCircle,
   XCircle,
@@ -18,6 +18,7 @@ import {
   Filter,
   Download
 } from 'lucide-react';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface FraudSignal {
   _id: string;
@@ -44,14 +45,14 @@ const AdminFraudManagement: React.FC = () => {
   const fetchFraudSignals = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('/api/admin/offerwall/fraud-signals', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offerwall/fraud-signals`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
       if (!response.ok) throw new Error('Failed to fetch fraud signals');
-      
+
       const data = await response.json();
       if (data.success) {
         setFraudSignals(data.data);
@@ -71,7 +72,7 @@ const AdminFraudManagement: React.FC = () => {
 
     // Apply search filter
     if (searchTerm) {
-      filtered = filtered.filter(signal => 
+      filtered = filtered.filter(signal =>
         signal.user_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         signal.signal_type.toLowerCase().includes(searchTerm.toLowerCase())
       );
@@ -102,8 +103,8 @@ const AdminFraudManagement: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       const status = action === 'approve' ? 'false_positive' : 'confirmed';
-      
-      const response = await fetch(`/api/admin/offerwall/fraud-signals/${signalId}`, {
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/offerwall/fraud-signals/${signalId}`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -111,11 +112,11 @@ const AdminFraudManagement: React.FC = () => {
         },
         body: JSON.stringify({ status })
       });
-      
+
       if (!response.ok) {
         throw new Error('Failed to update signal status');
       }
-      
+
       console.log(`✅ ${action} signal: ${signalId}`);
       setSelectedSignal(null);
       await refreshData();
@@ -132,7 +133,7 @@ const AdminFraudManagement: React.FC = () => {
       await fetchFraudSignals();
       setLoading(false);
     };
-    
+
     loadData();
   }, []);
 
@@ -273,7 +274,7 @@ const AdminFraudManagement: React.FC = () => {
                 />
               </div>
             </div>
-            
+
             <div className="w-48">
               <Label htmlFor="severity">Severity</Label>
               <Select value={severityFilter} onValueChange={setSeverityFilter}>
@@ -347,8 +348,8 @@ const AdminFraudManagement: React.FC = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           size="sm"
                           onClick={() => setSelectedSignal(signal)}
                         >
@@ -414,14 +415,14 @@ const AdminFraudManagement: React.FC = () => {
                 </pre>
               </div>
               <div className="flex space-x-2">
-                <Button 
+                <Button
                   onClick={() => handleSignalAction(selectedSignal._id, 'approve')}
                   variant="outline"
                 >
                   <CheckCircle className="h-4 w-4 mr-2" />
                   Mark as False Positive
                 </Button>
-                <Button 
+                <Button
                   onClick={() => handleSignalAction(selectedSignal._id, 'reject')}
                   variant="destructive"
                 >

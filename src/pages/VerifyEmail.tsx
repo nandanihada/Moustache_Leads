@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Mail, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { API_BASE_URL } from '../services/apiConfig';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -19,7 +20,7 @@ export default function VerifyEmail() {
       }
 
       try {
-        const response = await fetch('/api/auth/verify-email', {
+        const response = await fetch(`${API_BASE_URL}/api/auth/verify-email`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -30,6 +30,7 @@ import { Offer, CreateOfferData, adminOfferApi } from '@/services/adminOfferApi'
 import { fileUploadApi } from '@/services/accessControlApi';
 import { partnerApi } from '@/services/partnerApi';
 import { useToast } from '@/hooks/use-toast';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface EditOfferModalProps {
   open: boolean;
@@ -134,7 +135,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   const [newUser, setNewUser] = useState('');
   const [imagePreview, setImagePreview] = useState<string>('');
   const [thumbnailPreview, setThumbnailPreview] = useState<string>('');
-  
+
   // Schedule + Smart Rules state
   const [endDate, setEndDate] = useState<Date>();
   const [startTime, setStartTime] = useState('');
@@ -145,7 +146,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   const [smartRules, setSmartRules] = useState<SmartRule[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [partners, setPartners] = useState<any[]>([]);
-  
+
   // Promo code state
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
   const [selectedPromoCode, setSelectedPromoCode] = useState('');
@@ -290,7 +291,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         approval_message: (offer as any).approval_settings?.approval_message || '',
         max_inactive_days: (offer as any).approval_settings?.max_inactive_days || 30
       });
-      
+
       // Set selected promo code if offer has one
       if ((offer as any).promo_code_id) {
         setSelectedPromoCode((offer as any).promo_code_id);
@@ -304,7 +305,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
       setSelectedCarriers((offer as any).carrier_targeting || []);
       setImagePreview(offer.image_url || '');
       setThumbnailPreview(offer.thumbnail_url || '');
-      
+
       if (offer.expiration_date) {
         try {
           setExpirationDate(parseISO(offer.expiration_date));
@@ -341,10 +342,10 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
           variant: "destructive"
         });
       }
-      
+
       // Fetch promo codes
       try {
-        const response = await fetch('/api/admin/promo-codes', {
+        const response = await fetch(`${API_BASE_URL}/api/admin/promo-codes`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('token')}`
           }
@@ -357,7 +358,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         console.error('Error fetching promo codes:', error);
       }
     };
-    
+
     if (open) {
       fetchData();
     }
@@ -411,12 +412,12 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
 
   // Helper function for toggling array items
   const toggleArrayItem = (
-    currentArray: string[], 
-    setterFunction: React.Dispatch<React.SetStateAction<string[]>>, 
-    item: string, 
+    currentArray: string[],
+    setterFunction: React.Dispatch<React.SetStateAction<string[]>>,
+    item: string,
     formField: string
   ) => {
-    const updated = currentArray.includes(item) 
+    const updated = currentArray.includes(item)
       ? currentArray.filter(i => i !== item)
       : [...currentArray, item];
     setterFunction(updated);
@@ -439,7 +440,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   };
 
   const updateSmartRule = (id: string, field: keyof SmartRule, value: any) => {
-    setSmartRules(rules => rules.map(rule => 
+    setSmartRules(rules => rules.map(rule =>
       rule.id === id ? { ...rule, [field]: value } : rule
     ));
   };
@@ -449,8 +450,8 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   };
 
   const toggleWeekday = (day: string) => {
-    setSelectedWeekdays(prev => 
-      prev.includes(day) 
+    setSelectedWeekdays(prev =>
+      prev.includes(day)
         ? prev.filter(d => d !== day)
         : [...prev, day]
     );
@@ -539,7 +540,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
       console.log('🔍 EDIT - Smart Rules Data Being Sent:', submitData.smartRules);
 
       await adminOfferApi.updateOffer(offer.offer_id, submitData);
-      
+
       toast({
         title: "Success",
         description: "Offer updated successfully!",
@@ -643,7 +644,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                       rows={3}
                     />
                   </div>
-                  
+
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <Label htmlFor="category">Category</Label>
@@ -721,8 +722,8 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                           onClick={() => selectedCountries.includes(country.code) ? removeCountry(country.code) : addCountry(country.code)}
                           title={country.name}
                         >
-                          <img 
-                            src={getFlagUrl(country.code)} 
+                          <img
+                            src={getFlagUrl(country.code)}
                             alt={`${country.name} flag`}
                             className="w-6 h-4 object-cover rounded-sm"
                             onError={(e) => {
@@ -737,7 +738,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                       Selected: {selectedCountries.length} countries
                     </p>
                   </div>
-                  
+
                   <div>
                     <Label>Languages</Label>
                     <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-gray-50 max-h-32 overflow-y-auto">
@@ -1129,8 +1130,8 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                         {selectedUsers.map(user => (
                           <Badge key={user} variant="secondary" className="flex items-center gap-1">
                             {user}
-                            <X 
-                              className="h-3 w-3 cursor-pointer" 
+                            <X
+                              className="h-3 w-3 cursor-pointer"
                               onClick={() => removeUser(user)}
                             />
                           </Badge>
@@ -1161,7 +1162,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                   </div>
                 </CardContent>
               </Card>
-              
+
               {/* PROMO CODE ASSIGNMENT */}
               <Card>
                 <CardHeader>
@@ -1188,7 +1189,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                       Publishers will receive an email notification when you assign a code to this offer
                     </p>
                   </div>
-                  
+
                   {selectedPromoCode && promoCodes.find((c: any) => c._id === selectedPromoCode) && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                       <p className="text-sm font-medium text-blue-900">
@@ -1246,7 +1247,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                             placeholder="https://example.com/image.jpg"
                             className="mb-3"
                           />
-                          
+
                           {imagePreview ? (
                             <div className="border rounded-lg p-2 bg-gray-50">
                               <img
@@ -1275,7 +1276,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                             placeholder="https://example.com/thumb.jpg"
                             className="mb-3"
                           />
-                          
+
                           {thumbnailPreview ? (
                             <div className="border rounded-lg p-2 bg-gray-50">
                               <img
@@ -1365,7 +1366,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                           <Label>HTML Code Preview</Label>
                           <div className="border rounded-lg p-4 bg-gray-50">
                             <div className="bg-white p-2 rounded border">
-                              <div 
+                              <div
                                 dangerouslySetInnerHTML={{ __html: formData.html_code }}
                                 className="max-w-full overflow-hidden"
                               />
@@ -1450,11 +1451,11 @@ Your Team"
                                     // For non-images, clear the image preview
                                     handleInputChange('image_url', '');
                                   }
-                                  
+
                                   // Store file info
                                   handleInputChange('uploaded_file_name', file.name);
                                   handleInputChange('uploaded_file_size', file.size);
-                                  
+
                                   toast({
                                     title: "Success",
                                     description: `File "${file.name}" selected successfully!`,
@@ -1480,7 +1481,7 @@ Your Team"
                             </p>
                           </label>
                         </div>
-                        
+
                         {formData.uploaded_file_name && (
                           <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
                             <p className="text-sm font-medium text-green-800">
@@ -1527,7 +1528,7 @@ Your Team"
                             </div>
                           )
                         ) : formData.creative_type === 'html' && formData.html_code ? (
-                          <div 
+                          <div
                             dangerouslySetInnerHTML={{ __html: formData.html_code }}
                             className="max-w-full overflow-hidden mb-2"
                           />
@@ -1548,7 +1549,7 @@ Your Team"
                             <p className="text-gray-500">No creative selected</p>
                           </div>
                         )}
-                        
+
                         <h3 className="font-bold text-lg">{formData.name || 'Offer Name'}</h3>
                         <p className="text-sm text-gray-600 mb-2">
                           {formData.description || 'Offer description will appear here...'}
@@ -1661,7 +1662,7 @@ Your Team"
                         />
                         <Label htmlFor="recurring">Recurring Schedule</Label>
                       </div>
-                      
+
                       {isRecurring && (
                         <div>
                           <Label className="text-sm">Select Weekdays</Label>
@@ -1757,8 +1758,8 @@ Your Team"
                             {/* Rule Type */}
                             <div>
                               <Label className="text-xs">Type</Label>
-                              <Select 
-                                value={rule.type} 
+                              <Select
+                                value={rule.type}
                                 onValueChange={(value) => updateSmartRule(rule.id, 'type', value)}
                               >
                                 <SelectTrigger className="h-8">

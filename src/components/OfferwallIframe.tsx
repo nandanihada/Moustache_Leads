@@ -26,20 +26,20 @@ const getApiBaseUrl = (): string => {
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://localhost:5000';
   }
-  
+
   // For production, use the correct backend URL
   const hostname = window.location.hostname;
-  
+
   // If on Vercel frontend, use Render backend
   if (hostname.includes('vercel.app') || hostname.includes('moustache-leads')) {
     return 'https://moustacheleads-backend.onrender.com';
   }
-  
+
   // If on theinterwebsite.space, use api.theinterwebsite.space
   if (hostname.includes('theinterwebsite.space')) {
     return 'https://api.theinterwebsite.space';
   }
-  
+
   // Default fallback - use HTTPS for production
   const protocol = window.location.protocol;
   return `${protocol}//${hostname}`;
@@ -112,7 +112,7 @@ export const OfferwallIframe: React.FC<OfferwallIframeProps> = ({
         if (!response.ok) throw new Error('Failed to create session');
 
         // Track impression
-        await fetch('/api/offerwall/track/impression', {
+        await fetch(`${API_BASE_URL}/api/offerwall/track/impression`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -144,21 +144,21 @@ export const OfferwallIframe: React.FC<OfferwallIframeProps> = ({
       });
 
       const response = await fetch(`${API_BASE_URL}/api/offerwall/offers?${params}`);
-      
+
       if (!response.ok) {
         throw new Error(`Failed to load offers: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
       console.log('Offers loaded:', data);
-      
+
       if (!data.offers || data.offers.length === 0) {
         console.warn('No offers returned from API');
         setError('No offers available');
         setLoading(false);
         return;
       }
-      
+
       setOffers(data.offers);
       setError(null);
     } catch (err) {
@@ -267,7 +267,7 @@ export const OfferwallIframe: React.FC<OfferwallIframeProps> = ({
                     }}
                   />
                 ) : null}
-                
+
                 {/* Fallback Content - Always Show */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-blue-400 via-purple-400 to-pink-400 opacity-90">
                   <div className="text-6xl mb-3 drop-shadow-lg">
