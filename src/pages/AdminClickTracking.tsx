@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, Clock, MapPin, Smartphone, Globe, Shield, Zap } from 'lucide-react';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface Click {
   click_id: string;
@@ -129,14 +130,13 @@ export default function AdminClickTracking() {
   const [publisherTimeline, setPublisherTimeline] = useState<Click[]>([]);
 
   const token = localStorage.getItem('token');
-  const API_BASE = 'http://localhost:5000';
 
   // Fetch all clicks
   const fetchAllClicks = async () => {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/api/admin/offerwall/click-history?limit=50`,
+        `${API_BASE_URL}/api/admin/offerwall/click-history?limit=50`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -155,7 +155,7 @@ export default function AdminClickTracking() {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/api/admin/offerwall/click-history?user_id=${searchUserId}&limit=50`,
+        `${API_BASE_URL}/api/admin/offerwall/click-history?user_id=${searchUserId}&limit=50`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -174,7 +174,7 @@ export default function AdminClickTracking() {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/api/admin/offerwall/click-history?publisher_id=${searchPublisherId}&limit=50`,
+        `${API_BASE_URL}/api/admin/offerwall/click-history?publisher_id=${searchPublisherId}&limit=50`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -193,7 +193,7 @@ export default function AdminClickTracking() {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/api/admin/offerwall/click-history?offer_id=${searchOfferId}&limit=50`,
+        `${API_BASE_URL}/api/admin/offerwall/click-history?offer_id=${searchOfferId}&limit=50`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -211,7 +211,7 @@ export default function AdminClickTracking() {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/api/admin/offerwall/user-click-timeline/${userId}?limit=100`,
+        `${API_BASE_URL}/api/admin/offerwall/user-timeline/${userId}?limit=100`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -229,7 +229,7 @@ export default function AdminClickTracking() {
     setLoading(true);
     try {
       const response = await fetch(
-        `${API_BASE}/api/admin/offerwall/publisher-click-timeline/${publisherId}?limit=100`,
+        `${API_BASE_URL}/api/admin/offerwall/publisher-timeline/${publisherId}?limit=100`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -246,7 +246,7 @@ export default function AdminClickTracking() {
   const fetchClickDetails = async (clickId: string) => {
     try {
       const response = await fetch(
-        `${API_BASE}/api/admin/offerwall/click-details/${clickId}`,
+        `${API_BASE_URL}/api/admin/offerwall/click-details/${clickId}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }

@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, TrendingUp, Users, DollarSign, AlertTriangle, Download, RefreshCw, Filter } from 'lucide-react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { API_BASE_URL } from '../services/apiConfig';
 
 interface AnalyticsData {
   impressions: number;
@@ -69,7 +76,6 @@ export default function ComprehensiveOfferwallAnalytics() {
   });
 
   const token = localStorage.getItem('token');
-  const API_BASE_URL = 'http://localhost:5000';
 
   const headers = {
     'Authorization': `Bearer ${token}`,
