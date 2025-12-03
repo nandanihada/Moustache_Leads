@@ -698,11 +698,54 @@ def get_click_details(click_id):
         # Format response with all details
         event_type = click.get('event_type', 'click')
         
+        # Get publisher name if not in click data
+        publisher_name = click.get('publisher_name', 'Unknown')
+        publisher_id = click.get('publisher_id')
+        
+        if publisher_name == 'Unknown' and click.get('placement_id'):
+            try:
+                # Try to get publisher name from placement
+                placements_col = db_instance.get_collection('placements')
+                placement_id_to_search = click.get('placement_id')
+                
+                # Try multiple search strategies for placement
+                placement = None
+                
+                # Strategy 1: Try as ObjectId
+                try:
+                    from bson import ObjectId
+                    placement = placements_col.find_one({'_id': ObjectId(placement_id_to_search)})
+                except:
+                    pass
+                
+                # Strategy 2: Try by placement_id field as string
+                if not placement:
+                    placement = placements_col.find_one({'placement_id': placement_id_to_search})
+                
+                # Strategy 3: Try by _id as string
+                if not placement:
+                    placement = placements_col.find_one({'_id': placement_id_to_search})
+                
+                # Strategy 4: Try by placementId field (camelCase)
+                if not placement:
+                    placement = placements_col.find_one({'placementId': placement_id_to_search})
+                
+                if placement and placement.get('publisherId'):
+                    publishers_col = db_instance.get_collection('publishers')
+                    publisher = publishers_col.find_one({'_id': ObjectId(placement['publisherId'])})
+                    if publisher:
+                        publisher_name = publisher.get('name', 'Unknown')
+                        publisher_id = str(placement['publisherId'])
+                        logger.info(f"✅ Retrieved publisher name: {publisher_name}")
+            except Exception as e:
+                logger.warning(f"⚠️ Error fetching publisher name: {e}")
+        
+
         response = {
             'click_id': click.get('click_id') or click.get('conversion_id'),
             'user_id': click.get('user_id'),
-            'publisher_id': click.get('publisher_id'),
-            'publisher_name': click.get('publisher_name', 'Unknown'),
+            'publisher_id': publisher_id or click.get('publisher_id') or 'unknown',
+            'publisher_name': publisher_name,
             'offer_id': click.get('offer_id'),
             'offer_name': click.get('offer_name') or click.get('data', {}).get('offer_name', 'Unknown Offer'),
             'placement_id': click.get('placement_id'),

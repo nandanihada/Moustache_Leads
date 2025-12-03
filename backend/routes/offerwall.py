@@ -2226,7 +2226,45 @@ def track_offerwall_click():
         logger.info(f"🔍 Fetching placement for ID: {data['placement_id']}")
         try:
             placements_col = db_instance.get_collection('placements')
-            placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+            # Try multiple search strategies
+            placement = None
+            
+            # Strategy 1: Try as ObjectId
+            try:
+                from bson import ObjectId
+                placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+                if placement:
+                    logger.info(f"✅ Found placement by ObjectId _id")
+            except:
+                pass
+            
+            # Strategy 2: Try by placement_id field as string
+            if not placement:
+                placement = placements_col.find_one({'placement_id': data['placement_id']})
+                if placement:
+                    logger.info(f"✅ Found placement by placement_id field")
+            
+            # Strategy 3: Try by _id as string
+            if not placement:
+                placement = placements_col.find_one({'_id': data['placement_id']})
+                if placement:
+                    logger.info(f"✅ Found placement by _id as string")
+            
+            # Strategy 4: Try by placementId field (camelCase)
+            if not placement:
+                placement = placements_col.find_one({'placementId': data['placement_id']})
+                if placement:
+                    logger.info(f"✅ Found placement by placementId field")
+            
+            if not placement:
+                logger.warning(f"⚠️ Placement not found with ID: {data['placement_id']}")
+                logger.warning(f"⚠️ Tried: _id (ObjectId), placement_id, _id (string), placementId")
+                # List available placements for debugging
+                sample_placements = list(placements_col.find().limit(3))
+                logger.warning(f"⚠️ Sample placements in DB:")
+                for sp in sample_placements:
+                    logger.warning(f"   - _id: {sp.get('_id')}, placement_id: {sp.get('placement_id')}, placementId: {sp.get('placementId')}")
+            
             logger.info(f"🔍 Placement found: {placement is not None}")
             
             publisher_id = placement.get('publisherId', 'unknown') if placement else 'unknown'
@@ -2235,7 +2273,10 @@ def track_offerwall_click():
             logger.info(f"🔍 Publisher ID: {publisher_id}")
         except Exception as e:
             logger.error(f"❌ Error fetching placement: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             publisher_id = 'unknown'
+
         
         # Record click using enhanced tracker with fraud detection
         click_id, error = enhanced_tracker.record_click(
@@ -2259,19 +2300,25 @@ def track_offerwall_click():
         logger.info(f"✅ Click tracked: {click_id} for offer: {data['offer_id']} - Offer name: {data.get('offer_name')}")
         
         # ALSO track in comprehensive tracking system
+        logger.info("=" * 80)
         logger.info("🚀 STARTING COMPREHENSIVE TRACKING...")
+        logger.info("=" * 80)
         logger.info(f"🔍 comprehensive_tracker_global is: {comprehensive_tracker_global}")
         try:
+            logger.info("📦 Step 1: Importing modules...")
             from models.comprehensive_tracking import ComprehensiveOfferwallTracker
             from models.geolocation import GeolocationService, FraudDetectionService
             
-            logger.info("✅ Imported ComprehensiveOfferwallTracker")
+            logger.info("✅ Step 1 Complete: Modules imported successfully")
             
             # Get geolocation and IP info
+            logger.info("📦 Step 2: Getting geolocation data...")
             geo_service = GeolocationService()
             ip_address = request.remote_addr
+            logger.info(f"   IP Address: {ip_address}")
+            
             geo_info = geo_service.get_ip_info(ip_address)
-            logger.info(f"✅ Got geo info for {ip_address}: {geo_info.get('country')}, {geo_info.get('city')}")
+            logger.info(f"✅ Step 2 Complete: Got geo info - Country: {geo_info.get('country')}, City: {geo_info.get('city')}")
             
             # For local testing, provide default values if geolocation is unknown
             if ip_address in ['127.0.0.1', 'localhost', '::1']:
@@ -2295,54 +2342,97 @@ def track_offerwall_click():
                 }
             
             # Get publisher name
+            logger.info("📦 Step 3: Getting publisher name...")
             publisher_name = 'Unknown'
             try:
                 placements_col = db_instance.get_collection('placements')
-                placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+                # Try multiple search strategies
+                placement = None
+                
+                # Strategy 1: Try as ObjectId
+                try:
+                    from bson import ObjectId
+                    placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+                    if placement:
+                        logger.info(f"   Found placement by ObjectId _id")
+                except:
+                    pass
+                
+                # Strategy 2: Try by placement_id field as string
+                if not placement:
+                    placement = placements_col.find_one({'placement_id': data['placement_id']})
+                    if placement:
+                        logger.info(f"   Found placement by placement_id field")
+                
+                # Strategy 3: Try by _id as string
+                if not placement:
+                    placement = placements_col.find_one({'_id': data['placement_id']})
+                    if placement:
+                        logger.info(f"   Found placement by _id as string")
+                
+                # Strategy 4: Try by placementId field (camelCase)
+                if not placement:
+                    placement = placements_col.find_one({'placementId': data['placement_id']})
+                    if placement:
+                        logger.info(f"   Found placement by placementId field")
+                
                 if placement and placement.get('publisherId'):
+                    logger.info(f"   Found placement, publisher ID: {placement.get('publisherId')}")
                     publishers_col = db_instance.get_collection('publishers')
                     publisher = publishers_col.find_one({'_id': ObjectId(placement['publisherId'])})
                     if publisher:
                         publisher_name = publisher.get('name', 'Unknown')
-                        logger.info(f"✅ Got publisher name: {publisher_name}")
+                        logger.info(f"✅ Step 3 Complete: Got publisher name: {publisher_name}")
+                    else:
+                        logger.warning(f"⚠️ Step 3: Publisher not found for ID: {placement.get('publisherId')}")
+                else:
+                    logger.warning(f"⚠️ Step 3: Placement not found or has no publisherId")
+                    if not placement:
+                        logger.warning(f"   Placement ID searched: {data['placement_id']}")
+
             except Exception as e:
-                logger.warning(f"⚠️ Error getting publisher name: {e}")
+                logger.error(f"❌ Step 3 Error: Failed to get publisher name: {e}")
             
             # Detect fraud
+            logger.info("📦 Step 4: Running fraud detection...")
             fraud_service = FraudDetectionService(db_instance)
+            # Ensure user_agent is never None - provide empty string as default
+            user_agent_value = data.get('user_agent') or ''
             fraud_data = fraud_service.detect_fraud({
                 'user_id': data['user_id'],
                 'offer_id': data['offer_id'],
                 'placement_id': data['placement_id'],
                 'time_to_click': data.get('time_to_click', 0),
-                'user_agent': data.get('user_agent'),
+                'user_agent': user_agent_value,
                 'vpn_detected': geo_info.get('vpn_detected', False),
                 'proxy_detected': geo_info.get('proxy_detected', False),
                 'tor_detected': geo_info.get('tor_detected', False),
                 'hosting_detected': geo_info.get('hosting_detected', False),
             })
-            logger.info(f"✅ Fraud detection: {fraud_data['fraud_status']} (score: {fraud_data['fraud_score']})")
+            logger.info(f"✅ Step 4 Complete: Fraud status: {fraud_data['fraud_status']}, Score: {fraud_data['fraud_score']}")
             
             # Use global tracker if available, otherwise create new one
+            logger.info("📦 Step 5: Getting comprehensive tracker instance...")
             # Try to get from comprehensive_analytics module first
             try:
                 from routes import comprehensive_analytics
                 if hasattr(comprehensive_analytics, 'comprehensive_tracker') and comprehensive_analytics.comprehensive_tracker is not None:
                     direct_tracker = comprehensive_analytics.comprehensive_tracker
-                    logger.info("✅ Using tracker from comprehensive_analytics module")
+                    logger.info("✅ Step 5 Complete: Using tracker from comprehensive_analytics module")
                 elif comprehensive_tracker_global is not None:
                     direct_tracker = comprehensive_tracker_global
-                    logger.info("✅ Using global comprehensive tracker")
+                    logger.info("✅ Step 5 Complete: Using global comprehensive tracker")
                 else:
                     logger.info("⚠️ No global tracker available, creating new instance")
                     direct_tracker = ComprehensiveOfferwallTracker(db_instance)
-                    logger.info("✅ Created new tracker instance")
+                    logger.info("✅ Step 5 Complete: Created new tracker instance")
             except Exception as e:
                 logger.warning(f"⚠️ Error getting tracker from module: {e}, creating new instance")
                 direct_tracker = ComprehensiveOfferwallTracker(db_instance)
-                logger.info("✅ Created new tracker instance")
+                logger.info("✅ Step 5 Complete: Created new tracker instance")
             
             # Extract device info from user_agent if not provided
+            logger.info("📦 Step 6: Extracting device information...")
             user_agent = data.get('user_agent', '')
             device_type = data.get('device_type', 'desktop')
             browser = data.get('browser', 'Unknown')
@@ -2371,6 +2461,9 @@ def track_offerwall_click():
                 elif 'iPhone' in user_agent or 'iPad' in user_agent:
                     os = 'iOS'
             
+            logger.info(f"✅ Step 6 Complete: Device: {device_type}, OS: {os}, Browser: {browser}")
+            
+            logger.info("📦 Step 7: Building comprehensive click data...")
             comprehensive_click_data = {
                 'session_id': data['session_id'],
                 'user_id': data['user_id'],
@@ -2412,18 +2505,37 @@ def track_offerwall_click():
                 'fraud_status': fraud_data['fraud_status'],
             }
             
-            logger.info(f"📤 Sending comprehensive click data with geo and fraud info")
+            logger.info("✅ Step 7 Complete: Comprehensive click data built")
+            logger.info(f"   Publisher: {publisher_name} ({publisher_id})")
+            logger.info(f"   Location: {geo_info.get('city')}, {geo_info.get('country')}")
+            logger.info(f"   Device: {device_type}, {os}, {browser}")
+            logger.info(f"   Fraud: {fraud_data['fraud_status']}")
+            
+            logger.info("📦 Step 8: Saving to offerwall_clicks_detailed collection...")
             comp_click_id, comp_error = direct_tracker.track_click(comprehensive_click_data)
             
             if comp_error:
-                logger.warning(f"⚠️ Comprehensive tracking failed: {comp_error}")
+                logger.error(f"❌ Step 8 FAILED: Comprehensive tracking error: {comp_error}")
+                logger.error(f"   Error details: {comp_error}")
             else:
-                logger.info(f"✅ Comprehensive click tracked: {comp_click_id}")
+                logger.info(f"✅ Step 8 Complete: Comprehensive click tracked successfully!")
+                logger.info(f"   Comprehensive Click ID: {comp_click_id}")
+                logger.info(f"   Saved to: offerwall_clicks_detailed collection")
+                logger.info("=" * 80)
+                logger.info("🎉 COMPREHENSIVE TRACKING COMPLETED SUCCESSFULLY!")
+                logger.info("=" * 80)
                 
         except Exception as e:
-            logger.error(f"❌ Error in comprehensive tracking: {e}")
+            logger.error("=" * 80)
+            logger.error(f"❌ COMPREHENSIVE TRACKING FAILED!")
+            logger.error("=" * 80)
+            logger.error(f"❌ Error type: {type(e).__name__}")
+            logger.error(f"❌ Error message: {str(e)}")
             import traceback
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            logger.error(f"❌ Full traceback:")
+            logger.error(traceback.format_exc())
+            logger.error("=" * 80)
+        
         
         # Get offer URL for redirect
         try:
