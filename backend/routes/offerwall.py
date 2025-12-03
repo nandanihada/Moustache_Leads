@@ -1903,7 +1903,7 @@ def serve_offerwall():
         return jsonify({'error': 'Internal server error'}), 500
 
 
-@offerwall_bp.route('/api/offerwall/offers')
+@offerwall_bp.route('/api/offerwall/offers', methods=['GET'])
 def get_offers():
     """Get offers for the offerwall (JSON API) - fetches from admin's offer database"""
     try:
@@ -1975,10 +1975,21 @@ def get_offers():
             # 2. Generate proper tracking URL if no valid masked_url
             if not tracking_url and offer.get('target_url'):
                 try:
-                    # Generate tracking URL in the correct format
-                    base_url = "https://moustacheleads-backend.onrender.com"  # Live backend URL
-                    if os.getenv('FLASK_ENV') == 'development' or 'localhost' in request.host:
+                    # Determine the correct base URL based on the request
+                    if 'localhost' in request.host or '127.0.0.1' in request.host:
                         base_url = "http://localhost:5000"  # Local development URL
+                    else:
+                        # Use the same protocol and host as the request, but ensure we're pointing to backend
+                        protocol = request.scheme
+                        host = request.host.split(':')[0]  # Remove port if present
+                        
+                        # Map frontend domains to backend domains
+                        if 'theinterwebsite.space' in host:
+                            base_url = "https://api.theinterwebsite.space"
+                        elif 'vercel.app' in host:
+                            base_url = "https://moustacheleads-backend.onrender.com"
+                        else:
+                            base_url = f"{protocol}://{host}:5000"  # Assume backend on same host with port 5000
                     
                     # Create tracking URL in the format: /track/{offer_id}?user_id={user_id}&sub1={placement_id}
                     tracking_url = f"{base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}"
@@ -2035,59 +2046,7 @@ def get_offers():
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
-@offerwall_bp.route('/api/offerwall/track/impression', methods=['POST'])
-def track_impression():
-    """Track offerwall impression"""
-    try:
-        data = request.get_json()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        # Validate required fields
-        required_fields = ['placement_id', 'user_id']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'{field} is required'}), 400
-        
-        # Track impression
-        tracking = Tracking()
-        impression_id, error = tracking.track_impression(
-            placement_id=data['placement_id'],
-            user_id=data['user_id'],
-            user_ip=request.remote_addr,
-            user_agent=data.get('user_agent')
-        )
-        
-        if error:
-            return jsonify({'error': error}), 500
-        
-        return jsonify({
-            'success': True,
-            'impression_id': impression_id
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Error tracking impression: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-
-@offerwall_bp.route('/api/offerwall/stats/<placement_id>')
-def get_placement_stats(placement_id):
-    """Get placement statistics (protected endpoint for publishers)"""
-    try:
-        # This would normally require authentication, but for demo purposes we'll allow it
-        tracking = Tracking()
-        stats, error = tracking.get_placement_stats(placement_id)
-        
-        if error:
-            return jsonify({'error': error}), 500
-        
-        return jsonify(stats), 200
-        
-    except Exception as e:
-        logger.error(f"Error getting placement stats: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+# ⚠️ DEPRECATED: Old impression tracking endpoint removed - using track_offerwall_impression instead
 
 
 # ==================== NEW OFFERWALL TRACKING ENDPOINTS ====================

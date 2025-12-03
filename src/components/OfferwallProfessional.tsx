@@ -245,6 +245,10 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
           }),
         });
         
+        if (!sessionResponse.ok) {
+          throw new Error(`Session creation failed: ${sessionResponse.status} ${sessionResponse.statusText}`);
+        }
+        
         const sessionData = await sessionResponse.json();
         console.log('🔍 Session response:', sessionData);
         
@@ -254,6 +258,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
           console.log('✅ Session created successfully:', sessionData.session_id);
         } else {
           console.error('❌ Session creation failed:', sessionData);
+          throw new Error('Session creation returned success=false');
         }
 
         await fetch(`${API_BASE_URL}/api/offerwall/track/impression`, {
@@ -304,7 +309,9 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
       console.log('📥 Response status:', response.status);
       
       if (!response.ok) {
-        throw new Error(`Failed to load offers: ${response.status}`);
+        const errorText = await response.text();
+        console.error('📥 Error response:', errorText);
+        throw new Error(`Failed to load offers: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json();
