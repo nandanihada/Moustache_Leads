@@ -1996,10 +1996,14 @@ def get_offers():
                         # Map frontend domains to backend domains
                         if 'theinterwebsite.space' in host:
                             base_url = "https://api.theinterwebsite.space"
-                        elif 'vercel.app' in host:
+                        elif 'vercel.app' in host or 'moustache-leads' in host:
                             base_url = "https://moustacheleads-backend.onrender.com"
+                        elif 'onrender.com' in host:
+                            # Request from Render itself - no port needed
+                            base_url = f"{protocol}://{host}"
                         else:
-                            base_url = f"{protocol}://{host}:5000"  # Assume backend on same host with port 5000
+                            # Development or unknown - add port 5000
+                            base_url = f"{protocol}://{host}:5000"
                     
                     # Create tracking URL in the format: /track/{offer_id}?user_id={user_id}&sub1={placement_id}
                     tracking_url = f"{base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}"
@@ -2129,9 +2133,21 @@ def track_offerwall_impression():
                 return jsonify({'error': f'{field} is required'}), 400
         
         # Get publisher from placement
-        placement_model = Placement()
-        placement = placement_model.get_placement_by_id(data['placement_id'])
-        publisher_id = placement.get('publisher_id', 'unknown') if placement else 'unknown'
+        try:
+            placement_model = Placement()
+            placement = placement_model.get_placement_by_id_only(data['placement_id'])
+            
+            if placement:
+                publisher_id = placement.get('publisherId', 'unknown')
+                if isinstance(publisher_id, ObjectId):
+                    publisher_id = str(publisher_id)
+                logger.info(f"✅ Found placement, publisher_id: {publisher_id}")
+            else:
+                logger.warning(f"⚠️ Placement not found: {data['placement_id']}")
+                publisher_id = 'unknown'
+        except Exception as e:
+            logger.error(f"❌ Error fetching placement: {e}")
+            publisher_id = 'unknown'
         
         # Record impression using enhanced tracker
         impression_id, error = enhanced_tracker.record_impression(
@@ -3085,12 +3101,14 @@ def get_offerwall_analytics(placement_id):
     try:
         # Get publisher from placement
         placement_model = Placement()
-        placement = placement_model.get_placement_by_id(placement_id)
+        placement = placement_model.get_placement_by_id_only(placement_id)
         
         if not placement:
             return jsonify({'error': 'Placement not found'}), 404
         
-        publisher_id = placement.get('publisher_id', 'unknown')
+        publisher_id = placement.get('publisherId', 'unknown')
+        if isinstance(publisher_id, ObjectId):
+            publisher_id = str(publisher_id)
         
         # Get stats
         stats = tracker.get_publisher_stats(publisher_id, placement_id=placement_id)

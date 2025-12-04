@@ -157,6 +157,60 @@ class Placement:
             logger.error(f"Error fetching placement: {e}")
             return None, f"Error fetching placement: {str(e)}"
     
+    def get_placement_by_id_only(self, placement_id):
+        """Get a specific placement by ID without publisher check - for internal use only"""
+        if not self._check_db_connection():
+            return None
+        
+        try:
+            placement = None
+            
+            # Strategy 1: Try as ObjectId
+            try:
+                placement = self.collection.find_one({'_id': ObjectId(placement_id)})
+                if placement:
+                    logger.info(f"✅ Found placement by ObjectId _id: {placement_id}")
+                    return placement
+            except Exception as e:
+                logger.debug(f"Not a valid ObjectId: {placement_id}")
+            
+            # Strategy 2: Try by placement_id field as string
+            if not placement:
+                placement = self.collection.find_one({'placement_id': placement_id})
+                if placement:
+                    logger.info(f"✅ Found placement by placement_id field: {placement_id}")
+                    return placement
+            
+            # Strategy 3: Try by _id as string (for string-based IDs)
+            if not placement:
+                placement = self.collection.find_one({'_id': placement_id})
+                if placement:
+                    logger.info(f"✅ Found placement by _id as string: {placement_id}")
+                    return placement
+            
+            # Strategy 4: Try by placementId field (camelCase)
+            if not placement:
+                placement = self.collection.find_one({'placementId': placement_id})
+                if placement:
+                    logger.info(f"✅ Found placement by placementId field: {placement_id}")
+                    return placement
+            
+            # Strategy 5: Try by placementIdentifier field
+            if not placement:
+                placement = self.collection.find_one({'placementIdentifier': placement_id})
+                if placement:
+                    logger.info(f"✅ Found placement by placementIdentifier field: {placement_id}")
+                    return placement
+            
+            if not placement:
+                logger.warning(f"⚠️ Placement not found with ID: {placement_id}")
+            
+            return placement
+            
+        except Exception as e:
+            logger.error(f"Error fetching placement by ID only: {e}")
+            return None
+    
     def update_placement(self, placement_id, publisher_id, update_data):
         """Update a placement"""
         if not self._check_db_connection():

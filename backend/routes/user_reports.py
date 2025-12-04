@@ -17,15 +17,15 @@ user_reports_bp = Blueprint('user_reports', __name__)
 user_reports_model = UserReports()
 
 @user_reports_bp.route('/reports/performance', methods=['GET'])
-# @token_required  # Temporarily disabled for testing
+@token_required
 def get_performance_report():
     """
     Get performance report for current user
     Supports grouping by date, offer, country, sub_ids
     """
     try:
-        # user = request.current_user  # Temporarily disabled for testing
-        user_id = 'test-user'  # Use test user for now
+        user = request.current_user
+        user_id = str(user['_id'])
         
         # Parse date range
         start_date_str = request.args.get('start_date')
@@ -111,15 +111,15 @@ def get_performance_report():
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 @user_reports_bp.route('/reports/conversions', methods=['GET'])
-# @token_required  # Temporarily disabled for testing
+@token_required
 def get_conversion_report():
     """
     Get conversion report for current user
     Shows individual conversion records
     """
     try:
-        # user = request.current_user  # Temporarily disabled for testing
-        user_id = 'test-user'  # Use test user for now
+        user = request.current_user
+        user_id = str(user['_id'])
         
         # Parse date range
         start_date_str = request.args.get('start_date')
