@@ -2272,14 +2272,20 @@ def track_offerwall_click():
                 if placement:
                     logger.info(f"✅ Found placement by placementId field")
             
+            # Strategy 5: Try by placementIdentifier field
+            if not placement:
+                placement = placements_col.find_one({'placementIdentifier': data['placement_id']})
+                if placement:
+                    logger.info(f"✅ Found placement by placementIdentifier field")
+            
             if not placement:
                 logger.warning(f"⚠️ Placement not found with ID: {data['placement_id']}")
-                logger.warning(f"⚠️ Tried: _id (ObjectId), placement_id, _id (string), placementId")
+                logger.warning(f"⚠️ Tried: _id (ObjectId), placement_id, _id (string), placementId, placementIdentifier")
                 # List available placements for debugging
                 sample_placements = list(placements_col.find().limit(3))
                 logger.warning(f"⚠️ Sample placements in DB:")
                 for sp in sample_placements:
-                    logger.warning(f"   - _id: {sp.get('_id')}, placement_id: {sp.get('placement_id')}, placementId: {sp.get('placementId')}")
+                    logger.warning(f"   - _id: {sp.get('_id')}, placement_id: {sp.get('placement_id')}, placementId: {sp.get('placementId')}, placementIdentifier: {sp.get('placementIdentifier')}")
             
             logger.info(f"🔍 Placement found: {placement is not None}")
             

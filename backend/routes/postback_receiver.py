@@ -106,9 +106,129 @@ def receive_postback(unique_key):
         except Exception as conv_error:
             logger.error(f"❌ Conversion creation error: {conv_error}")
         
-        # 🚀 AUTOMATIC DISTRIBUTION TO PARTNERS
+        # 🎯 PLACEMENT-SPECIFIC POSTBACK FORWARDING
+        # This is the NEW logic to forward postbacks to the specific placement
+        logger.info("🔍 Looking for placement to forward postback...")
+        
+        try:
+            # Helper function to safely get parameter value
+            def get_param_value(key):
+                val = params.get(key, '')
+                if isinstance(val, list):
+                    return val[0] if val else ''
+                return str(val) if val else ''
+            
+            click_id = get_param_value('click_id')
+            placement_id = None
+            
+            # Strategy 1: Try to get placement_id from click
+            if click_id:
+                logger.info(f"📋 Found click_id: {click_id}, looking up click...")
+                clicks_collection = get_collection('clicks')
+                if clicks_collection is not None:
+                    click = clicks_collection.find_one({'click_id': click_id})
+                    if click:
+                        # Try different fields where placement_id might be stored
+                        placement_id = (click.get('sub1') or 
+                                      click.get('sub_id1') or 
+                                      click.get('placement_id') or
+                                      click.get('sub_id'))
+                        if placement_id:
+                            logger.info(f"✅ Found placement_id from click: {placement_id}")
+                        else:
+                            logger.warning(f"⚠️ Click found but no placement_id in it")
+                    else:
+                        logger.warning(f"⚠️ Click not found: {click_id}")
+            
+            # Strategy 2: Try to get placement_id from postback params directly
+            if not placement_id:
+                placement_id = (get_param_value('placement_id') or 
+                              get_param_value('sub_id1') or 
+                              get_param_value('sub1'))
+                if placement_id:
+                    logger.info(f"✅ Found placement_id from postback params: {placement_id}")
+            
+            # If we have placement_id, forward to that placement's postbackUrl
+            if placement_id:
+                logger.info(f"🔍 Looking up placement: {placement_id}")
+                from models.placement import Placement
+                placement_model = Placement()
+                placement = placement_model.get_placement_by_id_only(placement_id)
+                
+                if placement:
+                    postback_url = placement.get('postbackUrl')
+                    if postback_url:
+                        logger.info(f"✅ Found placement postbackUrl: {postback_url}")
+                        
+                        # Build the postback URL with parameters
+                        import urllib.parse
+                        import requests
+                        
+                        # Replace macros in the URL
+                        final_url = postback_url
+                        macros = {
+                            '{click_id}': get_param_value('click_id'),
+                            '{status}': get_param_value('status'),
+                            '{payout}': get_param_value('payout'),
+                            '{offer_id}': get_param_value('offer_id'),
+                            '{conversion_id}': get_param_value('conversion_id'),
+                            '{transaction_id}': get_param_value('transaction_id'),
+                            '{user_id}': get_param_value('user_id'),
+                            '{affiliate_id}': get_param_value('affiliate_id'),
+                            '{username}': get_param_value('username') or get_param_value('user_id'),
+                        }
+                        
+                        for macro, value in macros.items():
+                            if value:
+                                final_url = final_url.replace(macro, str(value))
+                        
+                        logger.info(f"📤 Sending postback to placement: {final_url}")
+                        
+                        # Send the postback
+                        try:
+                            response = requests.get(final_url, timeout=10)
+                            logger.info(f"✅ Placement postback sent! Status: {response.status_code}")
+                            logger.info(f"📋 Response: {response.text[:200]}")
+                            
+                            # Log the successful send
+                            placement_postback_logs = get_collection('placement_postback_logs')
+                            if placement_postback_logs is not None:
+                                placement_postback_logs.insert_one({
+                                    'placement_id': placement_id,
+                                    'postback_url': final_url,
+                                    'status': 'success' if response.status_code == 200 else 'failed',
+                                    'response_code': response.status_code,
+                                    'response_body': response.text[:500],
+                                    'timestamp': datetime.utcnow(),
+                                    'source_postback_id': str(result.inserted_id)
+                                })
+                        except Exception as send_error:
+                            logger.error(f"❌ Error sending placement postback: {send_error}")
+                            # Log the failed send
+                            placement_postback_logs = get_collection('placement_postback_logs')
+                            if placement_postback_logs is not None:
+                                placement_postback_logs.insert_one({
+                                    'placement_id': placement_id,
+                                    'postback_url': final_url,
+                                    'status': 'failed',
+                                    'error': str(send_error),
+                                    'timestamp': datetime.utcnow(),
+                                    'source_postback_id': str(result.inserted_id)
+                                })
+                    else:
+                        logger.warning(f"⚠️ Placement found but no postbackUrl configured")
+                else:
+                    logger.warning(f"⚠️ Placement not found: {placement_id}")
+            else:
+                logger.info(f"ℹ️ No placement_id found, skipping placement-specific forwarding")
+        
+        except Exception as placement_error:
+            logger.error(f"❌ Error in placement postback forwarding: {placement_error}", exc_info=True)
+            # Don't fail the main postback - continue even if placement forwarding fails
+        
+        # 🚀 AUTOMATIC DISTRIBUTION TO PARTNERS (Keep existing logic for backward compatibility)
         # Prepare postback data for distribution
-        logger.info("📝 Building distribution data...")
+        logger.info("📝 Building distribution data for partner distribution...")
         
         # Helper function to safely get parameter value
         def get_param_value(key):
@@ -146,7 +266,7 @@ def receive_postback(unique_key):
             distribution_data.update(post_data)
         
         # Distribute to all active partners
-        logger.info(f"🚀 Starting distribution process...")
+        logger.info(f"🚀 Starting general partner distribution process...")
         logger.info(f"📦 Distribution data: {distribution_data}")
         
         try:
