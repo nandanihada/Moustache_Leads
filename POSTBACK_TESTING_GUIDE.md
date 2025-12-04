@@ -1,264 +1,153 @@
-# 🧪 Postback Testing Guide
+# ✅ POSTBACK FORWARDING - READY TO TEST
 
-## Quick Testing Steps
+## Current Status
 
-### Method 1: Using Test Script (Recommended)
+✅ **Backend is running** (I can see it serving requests)
+✅ **Postback forwarding code is deployed**
+✅ **Ready to test**
 
-1. **Set up a webhook receiver:**
-   - Go to https://webhook.site
-   - Copy your unique URL (e.g., `https://webhook.site/abc-123`)
+---
 
-2. **Configure partner:**
-   - Go to Admin → Partners
-   - Add/Edit partner
-   - Postback URL: `https://webhook.site/YOUR-ID?click_id={click_id}&payout={payout}&status={status}&offer_id={offer_id}&conversion_id={conversion_id}&transaction_id={transaction_id}`
-   - Method: GET
-   - Status: Active
-   - Save
+## How to Test Locally
 
-3. **Map offer to partner:**
-   - Go to Admin → Offers
-   - Edit an offer
-   - In "Tracking Setup" section, select your partner
-   - Save
+### Option 1: Wait for Real Conversion
 
-4. **Run test script:**
-   ```bash
-   cd backend
-   python test_postback.py
+1. Have a user complete an offer on your live site
+2. When the offer network sends you a postback, check your backend logs
+3. You should see:
+   ```
+   🚀 Forwarding postback to ALL placements with postbackUrl configured...
+   📋 Found X placements with postbackUrl configured
+   📤 Sending to placement: My Rewards
+      URL: https://surveytitans.com/postback/...
+      ✅ Sent! Status: 200
    ```
 
-5. **Check results:**
-   - Go to Admin → Postback Logs (in your app)
-   - Go to webhook.site (in browser)
-   - You should see the postback request with all macros replaced
+### Option 2: Manual Test with curl
+
+Send a test postback manually:
+
+```bash
+curl "http://localhost:5000/postback/KWhO4xAMLjJns51ri6a_OVQUzMKD7xvL?click_id=TEST123&status=approved&payout=1.50&offer_id=ML-00065&conversion_id=TESTCONV&username=testuser"
+```
+
+Then check backend logs.
+
+### Option 3: Check Database
+
+Run this to see current status:
+
+```bash
+cd backend
+python check_postback_status.py
+```
+
+This will show:
+- How many placements have postbackUrl configured
+- Recent postback forwarding logs
+- Recent received postbacks
 
 ---
 
-### Method 2: Manual Database Insert
+## What to Look For
 
-If you want to manually test without the script:
+### In Backend Logs:
 
-1. **Open MongoDB/Database:**
-   ```python
-   from database import db_instance
-   from datetime import datetime
-   import uuid
-   
-   # Get your offer
-   offers = db_instance.get_collection('offers')
-   offer = offers.find_one({'partner_id': {'$exists': True, '$ne': ''}})
-   
-   # Create test click
-   clicks = db_instance.get_collection('clicks')
-   click_id = str(uuid.uuid4())
-   clicks.insert_one({
-       'click_id': click_id,
-       'offer_id': offer['offer_id'],
-       'affiliate_id': 'test_user',
-       'ip_address': '127.0.0.1',
-       'user_agent': 'Test',
-       'country': 'US',
-       'sub_ids': {'sub1': '', 'sub2': '', 'sub3': '', 'sub4': '', 'sub5': ''},
-       'status': 'pending',
-       'clicked_at': datetime.utcnow(),
-       'conversion_window_expires': datetime.utcnow(),
-       'created_at': datetime.utcnow()
-   })
-   
-   # Create test conversion
-   conversions = db_instance.get_collection('conversions')
-   conversion_id = str(uuid.uuid4())
-   transaction_id = str(uuid.uuid4())
-   
-   conversion = {
-       'conversion_id': conversion_id,
-       'transaction_id': transaction_id,
-       'click_id': click_id,
-       'offer_id': offer['offer_id'],
-       'partner_id': offer['partner_id'],
-       'affiliate_id': 'test_user',
-       'payout': 10.00,
-       'currency': 'USD',
-       'status': 'approved',
-       'conversion_time': datetime.utcnow(),
-       'ip_address': '127.0.0.1',
-       'user_agent': 'Test',
-       'country': 'US',
-       'sub_ids': {'sub1': '', 'sub2': '', 'sub3': '', 'sub4': '', 'sub5': ''},
-       'response_data': {},
-       'created_at': datetime.utcnow()
-   }
-   
-   conversions.insert_one(conversion)
-   
-   # Queue postback
-   from services.tracking_service import TrackingService
-   ts = TrackingService()
-   ts._queue_postback(offer, conversion)
-   
-   print(f"✅ Test conversion created: {conversion_id}")
-   print(f"✅ Postback queued!")
-   ```
+**When postback is received:**
+```
+📥 Postback received: key=XXX, method=GET, params={...}
+✅ Postback logged: [log_id]
+✅ Auto-created conversion: CONV-XXX
+🚀 Forwarding postback to ALL placements with postbackUrl configured...
+📋 Found 3 placements with postbackUrl configured
+📤 Sending to placement: My Rewards (6931051d8aa3abcf92678f36)
+   URL: https://surveytitans.com/postback/d8e1bff1f46a956173cc91e51de5db63?username=testuser&status=approved
+   ✅ Sent! Status: 200
+   Response: OK
+✅ Finished forwarding to 3 placements
+```
 
-2. **Wait 30 seconds** for the postback processor to run
+### In Database:
 
-3. **Check Postback Logs** in Admin panel
-
----
-
-### Method 3: Real User Flow (Production Testing)
-
-1. **Get tracking link:**
-   - Go to your offer in the dashboard
-   - Copy the tracking link
-
-2. **Simulate user journey:**
-   - Open tracking link in browser
-   - Complete the offer action
-   - Submit conversion
-
-3. **Monitor:**
-   - Admin → Postback Logs
-   - webhook.site
-
----
-
-## 🔍 How to Verify Postback Was Sent
-
-### Check 1: Postback Logs UI
-- Go to **Admin → Postback Logs**
-- Look for your conversion
-- Status should be "Success" (green)
-- Response code should be 200
-
-### Check 2: Webhook Receiver
-- Go to your webhook.site URL
-- You should see a GET request with parameters:
-  ```
-  click_id=abc-123-def
-  payout=10.00
-  status=approved
-  offer_id=OFF-001
-  conversion_id=xyz-789
-  transaction_id=txn-456
-  ```
-
-### Check 3: Database
-```python
-from database import db_instance
-
-# Check postback logs
-logs = db_instance.get_collection('postback_logs')
-recent_logs = list(logs.find().sort('created_at', -1).limit(5))
-
-for log in recent_logs:
-    print(f"Partner: {log['partner_name']}")
-    print(f"Status: {log['status']}")
-    print(f"Response: {log['response_code']}")
-    print(f"URL: {log['url']}")
-    print("---")
+**Collection: `placement_postback_logs`**
+```
+{
+  placement_id: "6931051d8aa3abcf92678f36",
+  placement_title: "My Rewards",
+  postback_url: "https://surveytitans.com/postback/...?username=testuser&status=approved",
+  status: "success",
+  response_code: 200,
+  response_body: "OK",
+  timestamp: ISODate("2025-12-04T..."),
+  conversion_id: "CONV-XXX"
+}
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### Postback Not Sending?
+### If no placements have postbackUrl:
 
-1. **Check partner is active:**
-   - Admin → Partners
-   - Status should be "Active"
-
-2. **Check offer has partner_id:**
-   ```python
-   from database import db_instance
-   offers = db_instance.get_collection('offers')
-   offer = offers.find_one({'offer_id': 'YOUR_OFFER_ID'})
-   print(f"Partner ID: {offer.get('partner_id')}")
+1. Login to your admin panel
+2. Go to Placements
+3. Edit each placement
+4. Set the Postback URL field
+5. For surveytitans.com, use:
+   ```
+   https://surveytitans.com/postback/d8e1bff1f46a956173cc91e51de5db63?username={username}&status={status}
    ```
 
-3. **Check postback queue:**
-   ```python
-   from database import db_instance
-   queue = db_instance.get_collection('postback_queue')
-   pending = list(queue.find({'status': 'pending'}))
-   print(f"Pending postbacks: {len(pending)}")
-   ```
+### If postbacks aren't being forwarded:
 
-4. **Manually trigger postback processor:**
-   ```python
-   from services.tracking_service import TrackingService
-   ts = TrackingService()
-   ts.process_postback_queue()
-   ```
-
-### Postback Failing?
-
-1. **Check URL is valid:**
-   - Test in browser or Postman
-   - Should return 200 OK
-
-2. **Check macros are replaced:**
-   - Look in Postback Logs
-   - URL should have actual values, not `{click_id}`
-
-3. **Retry failed postback:**
-   - Admin → Postback Logs
-   - Find failed postback
-   - Click "Retry" button
-
----
-
-## 📊 Expected Results
-
-### Successful Postback:
-```
-✅ Status: Success
-✅ Response Code: 200
-✅ URL: https://webhook.site/abc?click_id=123&payout=10.00&...
-✅ Response Body: "ok" or similar
-```
-
-### Failed Postback:
-```
-❌ Status: Failed
-❌ Response Code: 404 or 500
-❌ Error Message: "Connection timeout" or similar
-❌ Attempts: 1/3 (will retry)
-```
-
----
-
-## 🎯 Testing Checklist
-
-- [ ] Partner created with valid postback URL
-- [ ] Partner status is "Active"
-- [ ] Offer mapped to partner (partner_id set)
-- [ ] Test conversion created
-- [ ] Postback appears in queue
-- [ ] Postback sent within 30 seconds
-- [ ] Postback logged in Postback Logs
-- [ ] Webhook receiver shows incoming request
-- [ ] All macros replaced with actual values
-- [ ] Response code is 200
-
----
-
-## 🚀 Next Steps
-
-Once testing is successful:
-1. Replace webhook.site with your real partner postback URL
-2. Configure all your offers with appropriate partners
-3. Monitor Postback Logs regularly
-4. Set up alerts for failed postbacks (future feature)
-
----
-
-## 📞 Support
-
-If postbacks are still not working:
 1. Check backend logs for errors
-2. Verify MongoDB connection
-3. Ensure postback processor is running
-4. Check network/firewall settings
+2. Run `python check_postback_status.py`
+3. Verify placements have postbackUrl configured
+4. Check `placement_postback_logs` for error messages
+
+### If partner doesn't receive postback:
+
+1. Check if the URL is correct
+2. Check if their server is accessible
+3. Check `placement_postback_logs` for response_code
+4. If response_code is not 200, there's an issue on their end
+
+---
+
+## Quick Commands
+
+**Check status:**
+```bash
+cd backend
+python check_postback_status.py
+```
+
+**View backend logs:**
+```bash
+# Backend is already running, just watch the terminal
+```
+
+**Check database logs:**
+```bash
+cd backend
+python -c "
+from database import db_instance
+logs = db_instance.get_collection('placement_postback_logs')
+for log in logs.find().sort('timestamp', -1).limit(3):
+    print(f'{log.get(\"placement_title\")}: {log.get(\"status\")} - {log.get(\"response_code\")}')
+"
+```
+
+---
+
+## Next Steps
+
+1. **Test with real conversion** - Have a user complete an offer
+2. **Check backend logs** - Look for the forwarding messages
+3. **Verify with partner** - Ask surveytitans.com if they received it
+4. **Check database** - Query `placement_postback_logs` collection
+
+---
+
+**The system is ready! Just need a real conversion to test it.** 🚀
+
