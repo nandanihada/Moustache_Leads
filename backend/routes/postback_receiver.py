@@ -32,6 +32,126 @@ def get_collection(collection_name):
         return None
     return db_instance.get_collection(collection_name)
 
+def calculate_offer_points_with_bonus(offer_id):
+    """
+    Calculate points from offer with bonus
+    
+    Args:
+        offer_id: Offer ID (e.g., "ML-00065")
+    
+    Returns:
+        dict: {
+            'base_points': int,
+            'bonus_points': int,
+            'total_points': int,
+            'bonus_percentage': float,
+            'has_bonus': bool,
+            'promo_code': str
+        }
+    """
+    try:
+        # Get offer from database
+        offers = get_collection('offers')
+        if offers is None:
+            logger.error("Cannot access offers collection")
+            return {
+                'base_points': 0,
+                'bonus_points': 0,
+                'total_points': 0,
+                'bonus_percentage': 0,
+                'has_bonus': False,
+                'promo_code': ''
+            }
+        
+        offer = offers.find_one({'offer_id': offer_id})
+        
+        if not offer:
+            logger.warning(f"⚠️ Offer not found: {offer_id}")
+            return {
+                'base_points': 0,
+                'bonus_points': 0,
+                'total_points': 0,
+                'bonus_percentage': 0,
+                'has_bonus': False,
+                'promo_code': ''
+            }
+        
+        # Get base points from offer
+        base_points = int(offer.get('payout', 0))
+        
+        # Check for promo code bonus
+        bonus_points = 0
+        bonus_percentage = 0
+        has_bonus = False
+        promo_code = ''
+        
+        if offer.get('promo_code_id') and offer.get('bonus_amount'):
+            has_bonus = True
+            bonus_type = offer.get('bonus_type', 'percentage')
+            bonus_amount = offer.get('bonus_amount', 0)
+            promo_code = offer.get('promo_code', '')
+            
+            if bonus_type == 'percentage':
+                bonus_points = int(base_points * (bonus_amount / 100))
+                bonus_percentage = bonus_amount
+            else:  # fixed
+                bonus_points = int(bonus_amount)
+                bonus_percentage = (bonus_amount / base_points * 100) if base_points > 0 else 0
+        
+        total_points = base_points + bonus_points
+        
+        logger.info(f"💰 Offer {offer_id}: base={base_points}, bonus={bonus_points}, total={total_points}")
+        
+        return {
+            'base_points': base_points,
+            'bonus_points': bonus_points,
+            'total_points': total_points,
+            'bonus_percentage': bonus_percentage,
+            'has_bonus': has_bonus,
+            'promo_code': promo_code
+        }
+    except Exception as e:
+        logger.error(f"❌ Error calculating offer points: {e}")
+        return {
+            'base_points': 0,
+            'bonus_points': 0,
+            'total_points': 0,
+            'bonus_percentage': 0,
+            'has_bonus': False,
+            'promo_code': ''
+        }
+
+def get_username_from_user_id(user_id):
+    """Get username from user_id"""
+    try:
+        if not user_id:
+            return 'Unknown'
+        
+        users = get_collection('users')
+        if users is None:
+            logger.warning("Cannot access users collection")
+            return user_id
+        
+        # Try direct lookup
+        user = users.find_one({'_id': user_id})
+        if not user:
+            # Try as ObjectId
+            try:
+                user = users.find_one({'_id': ObjectId(user_id)})
+            except:
+                pass
+        # Try as username field
+        if not user:
+            user = users.find_one({'username': user_id})
+        
+        if user:
+            return user.get('username', user_id)
+        
+        return user_id
+    except Exception as e:
+        logger.error(f"❌ Error getting username: {e}")
+        return user_id
+
 @postback_receiver_bp.route('/postback/<unique_key>', methods=['GET', 'POST'])
 def receive_postback(unique_key):
     """
@@ -140,20 +260,38 @@ def receive_postback(unique_key):
                             placement_id = str(placement.get('_id'))
                             placement_title = placement.get('offerwallTitle', 'Unknown')
                             
-                            logger.info(f"📤 Sending to placement: {placement_title} ({placement_id})")
+                            logger.info(f"📤 Sending to placement: {placement_title}")
                             
-                            # Replace macros in the URL
+                            # Get offer_id and user_id from postback
+                            offer_id = get_param_value('offer_id')
+                            user_id = get_param_value('user_id') or get_param_value('username')
+                            
+                            # Calculate points from offer (with bonus if applicable)
+                            points_calc = calculate_offer_points_with_bonus(offer_id)
+                            
+                            # Get actual username
+                            actual_username = get_username_from_user_id(user_id)
+                            
+                            # Log calculation details
+                            logger.info(f"   💰 Offer: {offer_id}")
+                            logger.info(f"   Base points: {points_calc['base_points']}")
+                            if points_calc['has_bonus']:
+                                logger.info(f"   Bonus: {points_calc['bonus_percentage']:.1f}% ({points_calc['promo_code']}) = {points_calc['bonus_points']} points")
+                            logger.info(f"   Total points: {points_calc['total_points']}")
+                            logger.info(f"   Username: {actual_username}")
+                            
+                            # Replace macros with OUR calculated values
                             final_url = postback_url
                             macros = {
                                 '{click_id}': get_param_value('click_id'),
-                                '{status}': get_param_value('status'),
-                                '{payout}': get_param_value('payout'),
-                                '{offer_id}': get_param_value('offer_id'),
+                                '{status}': 'approved',  # We approve it
+                                '{payout}': str(points_calc['total_points']),  # ✅ OUR calculated points!
+                                '{offer_id}': offer_id,
                                 '{conversion_id}': get_param_value('conversion_id'),
                                 '{transaction_id}': get_param_value('transaction_id'),
-                                '{user_id}': get_param_value('user_id'),
-                                '{affiliate_id}': get_param_value('affiliate_id'),
-                                '{username}': get_param_value('username') or get_param_value('user_id'),
+                                '{user_id}': user_id,
+                                '{affiliate_id}': user_id,
+                                '{username}': actual_username,  # ✅ OUR username!
                             }
                             
                             for macro, value in macros.items():
