@@ -262,7 +262,7 @@ def receive_postback(unique_key):
                             
                             logger.info(f"📤 Sending to placement: {placement_title}")
                             
-                            # Get offer_id from postback
+                            # Get offer_id and click_id from postback
                             offer_id = get_param_value('offer_id')
                             click_id = get_param_value('click_id')
                             
@@ -270,6 +270,7 @@ def receive_postback(unique_key):
                             user_id = get_param_value('user_id') or get_param_value('username')
                             
                             # If user_id not in postback, look it up from click record
+                            click = None
                             if not user_id and click_id:
                                 logger.info(f"   🔍 user_id not in postback, looking up from click: {click_id}")
                                 clicks_collection = get_collection('clicks')
@@ -283,6 +284,28 @@ def receive_postback(unique_key):
                                             logger.warning(f"   ⚠️ Click found but no user_id in it")
                                     else:
                                         logger.warning(f"   ⚠️ Click not found: {click_id}")
+                            
+                            # Check if offer_id from postback exists in our database
+                            # If not, use offer_id from click record
+                            if offer_id:
+                                offers_collection = get_collection('offers')
+                                if offers_collection is not None:
+                                    offer_check = offers_collection.find_one({'offer_id': offer_id})
+                                    if not offer_check:
+                                        logger.warning(f"   ⚠️ Upstream offer_id '{offer_id}' not found in database")
+                                        # Try to get offer_id from click
+                                        if not click and click_id:
+                                            clicks_collection = get_collection('clicks')
+                                            if clicks_collection is not None:
+                                                click = clicks_collection.find_one({'click_id': click_id})
+                                        
+                                        if click:
+                                            click_offer_id = click.get('offer_id')
+                                            if click_offer_id:
+                                                logger.info(f"   🔄 Using offer_id from click: {click_offer_id}")
+                                                offer_id = click_offer_id
+                                            else:
+                                                logger.warning(f"   ⚠️ No offer_id in click record either")
                             
                             # Calculate points from offer (with bonus if applicable)
                             points_calc = calculate_offer_points_with_bonus(offer_id)
@@ -314,11 +337,16 @@ def receive_postback(unique_key):
                                 '{username}': actual_username,  # ✅ OUR username!
                             }
                             
+                            # Log macro values for debugging
+                            logger.info(f"   📋 Macro values:")
                             for macro, value in macros.items():
-                                if value:
-                                    final_url = final_url.replace(macro, str(value))
+                                logger.info(f"      {macro} = '{value}'")
                             
-                            logger.info(f"   URL: {final_url}")
+                            # Replace all macros (even if empty)
+                            for macro, value in macros.items():
+                                final_url = final_url.replace(macro, str(value) if value else '')
+                            
+                            logger.info(f"   📤 Final URL: {final_url}")
                             
                             # Send the postback
                             try:
@@ -406,6 +434,11 @@ def receive_postback(unique_key):
         if post_data:
             distribution_data.update(post_data)
         
+        
+        # ❌ DISABLED OLD PARTNER DISTRIBUTION - Using new placement-based forwarding instead
+        # The new code (lines 230-350) handles forwarding to placements with correct points and username
+        # This old code was sending "System:" and "0 points" to partners
+        """
         # Distribute to all active partners
         logger.info(f"🚀 Starting general partner distribution process...")
         logger.info(f"📦 Distribution data: {distribution_data}")
@@ -430,6 +463,7 @@ def receive_postback(unique_key):
             import traceback
             logger.error(f"❌ Full traceback: {traceback.format_exc()}")
             # Don't fail the main postback - continue even if distribution fails
+        """
         
         # Return success response
         return jsonify({
