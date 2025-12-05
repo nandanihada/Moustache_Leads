@@ -262,18 +262,38 @@ def receive_postback(unique_key):
                             
                             logger.info(f"📤 Sending to placement: {placement_title}")
                             
-                            # Get offer_id and user_id from postback
+                            # Get offer_id from postback
                             offer_id = get_param_value('offer_id')
+                            click_id = get_param_value('click_id')
+                            
+                            # Try to get user_id from postback params first
                             user_id = get_param_value('user_id') or get_param_value('username')
+                            
+                            # If user_id not in postback, look it up from click record
+                            if not user_id and click_id:
+                                logger.info(f"   🔍 user_id not in postback, looking up from click: {click_id}")
+                                clicks_collection = get_collection('clicks')
+                                if clicks_collection is not None:
+                                    click = clicks_collection.find_one({'click_id': click_id})
+                                    if click:
+                                        user_id = click.get('user_id') or click.get('username') or click.get('sub2')
+                                        if user_id:
+                                            logger.info(f"   ✅ Found user_id from click: {user_id}")
+                                        else:
+                                            logger.warning(f"   ⚠️ Click found but no user_id in it")
+                                    else:
+                                        logger.warning(f"   ⚠️ Click not found: {click_id}")
                             
                             # Calculate points from offer (with bonus if applicable)
                             points_calc = calculate_offer_points_with_bonus(offer_id)
                             
                             # Get actual username
-                            actual_username = get_username_from_user_id(user_id)
+                            actual_username = get_username_from_user_id(user_id) if user_id else 'Unknown'
                             
                             # Log calculation details
                             logger.info(f"   💰 Offer: {offer_id}")
+                            logger.info(f"   User ID: {user_id}")
+                            logger.info(f"   Username: {actual_username}")
                             logger.info(f"   Base points: {points_calc['base_points']}")
                             if points_calc['has_bonus']:
                                 logger.info(f"   Bonus: {points_calc['bonus_percentage']:.1f}% ({points_calc['promo_code']}) = {points_calc['bonus_points']} points")
