@@ -226,8 +226,23 @@ def receive_postback(unique_key):
         except Exception as conv_error:
             logger.error(f"❌ Conversion creation error: {conv_error}")
         
+        # ❌ DISABLED OLD PARTNER DISTRIBUTION - Using new placement-based forwarding instead
+        # The new code below handles forwarding to placements with correct points and username
+        # This old code was sending "System:" and "0 points" to partners
+        """
+        # OLD PARTNER DISTRIBUTION CODE (COMMENTED OUT)
+        distribution_data = {...}
+        partner_postback_service.distribute_to_all_partners(...)
+        """
+        
         # 🎯 FORWARD POSTBACK TO ALL PLACEMENTS WITH POSTBACK URL
         # Simple logic: When we receive a postback, forward it to ALL placements that have a postbackUrl
+        print("="*100)
+        print("🚨🚨🚨 PLACEMENT FORWARDING CODE IS RUNNING! 🚨🚨🚨")
+        print("="*100)
+        logger.info("="*100)
+        logger.info("🚨🚨🚨 PLACEMENT FORWARDING CODE IS RUNNING! 🚨🚨🚨")
+        logger.info("="*100)
         logger.info("🚀 Forwarding postback to ALL placements with postbackUrl configured...")
         
         try:
@@ -434,36 +449,7 @@ def receive_postback(unique_key):
         if post_data:
             distribution_data.update(post_data)
         
-        
-        # ❌ DISABLED OLD PARTNER DISTRIBUTION - Using new placement-based forwarding instead
-        # The new code (lines 230-350) handles forwarding to placements with correct points and username
-        # This old code was sending "System:" and "0 points" to partners
-        """
-        # Distribute to all active partners
-        logger.info(f"🚀 Starting general partner distribution process...")
-        logger.info(f"📦 Distribution data: {distribution_data}")
-        
-        try:
-            from services.partner_postback_service import partner_postback_service
-            from database import db_instance
-            
-            logger.info(f"✅ Imported partner_postback_service successfully")
-            
-            distribution_result = partner_postback_service.distribute_to_all_partners(
-                postback_data=distribution_data,
-                db_instance=db_instance,
-                source_log_id=str(result.inserted_id)
-            )
-            
-            logger.info(f"📊 Distribution summary: {distribution_result['successful']}/{distribution_result['total_partners']} partners notified")
-            logger.info(f"📋 Full distribution result: {distribution_result}")
-            
-        except Exception as dist_error:
-            logger.error(f"❌ Error distributing to partners: {str(dist_error)}", exc_info=True)
-            import traceback
-            logger.error(f"❌ Full traceback: {traceback.format_exc()}")
-            # Don't fail the main postback - continue even if distribution fails
-        """
+
         
         # Return success response
         return jsonify({
