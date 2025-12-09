@@ -61,6 +61,7 @@ bonus_management_bp = safe_import_blueprint('routes.bonus_management', 'bonus_ma
 admin_offerwall_analytics_bp = safe_import_blueprint('routes.admin_offerwall_analytics', 'admin_offerwall_analytics_bp')
 user_offerwall_rewards_bp = safe_import_blueprint('routes.user_offerwall_rewards', 'user_offerwall_rewards_bp')
 comprehensive_analytics_bp = safe_import_blueprint('routes.comprehensive_analytics', 'comprehensive_analytics_bp')
+login_logs_bp = safe_import_blueprint('routes.login_logs', 'login_logs_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -100,7 +101,8 @@ blueprints = [
     (bonus_management_bp, ''),  # Bonus management routes - routes include /api/admin and /api/publisher prefix
     (admin_offerwall_analytics_bp, ''),  # Admin offerwall analytics - routes include /api/admin prefix
     (user_offerwall_rewards_bp, ''),  # User offerwall rewards - routes include /api/user prefix
-    (comprehensive_analytics_bp, '')  # Comprehensive analytics - routes include /api/admin prefix
+    (comprehensive_analytics_bp, ''),  # Comprehensive analytics - routes include /api/admin prefix
+    (login_logs_bp, '/api/admin')  # Login logs and activity tracking - admin only
 ]
 
 def create_app():

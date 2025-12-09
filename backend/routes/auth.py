@@ -132,6 +132,8 @@ def register():
 def login():
     """User login endpoint"""
     try:
+        from services.activity_tracking_service import activity_tracking_service
+        
         data = request.get_json()
         
         # Debug logging
@@ -157,11 +159,40 @@ def login():
         user_data = user_model.verify_password(username, password)
         
         if not user_data:
+            # Track failed login attempt
+            failed_user_data = {
+                '_id': username,  # Use username as placeholder
+                'email': username,
+                'username': username
+            }
+            activity_tracking_service.track_login_attempt(
+                failed_user_data,
+                request,
+                status='failed',
+                failure_reason='wrong_password',
+                login_method='password'
+            )
             return jsonify({'error': 'Invalid username or password'}), 401
         
         # Check if user is active
         if not user_data.get('is_active', True):
+            # Track failed login attempt
+            activity_tracking_service.track_login_attempt(
+                user_data,
+                request,
+                status='failed',
+                failure_reason='account_deactivated',
+                login_method='password'
+            )
             return jsonify({'error': 'Account is deactivated'}), 401
+        
+        # Track successful login and create session
+        session_id = activity_tracking_service.track_login_attempt(
+            user_data,
+            request,
+            status='success',
+            login_method='password'
+        )
         
         # Generate token
         token = generate_token(user_data)
@@ -169,6 +200,7 @@ def login():
         return jsonify({
             'message': 'Login successful',
             'token': token,
+            'session_id': session_id,
             'user': {
                 'id': str(user_data['_id']),
                 'username': user_data['username'],
@@ -423,3 +455,24 @@ def resend_verification():
     except Exception as e:
         logging.error(f"Error resending verification email: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to resend verification email: {str(e)}'}), 500
+
+@auth_bp.route('/logout', methods=['POST'])
+@token_required
+def logout():
+    """User logout endpoint"""
+    try:
+        from services.activity_tracking_service import activity_tracking_service
+        
+        data = request.get_json() or {}
+        session_id = data.get('session_id')
+        
+        if session_id:
+            # Track logout
+            activity_tracking_service.track_logout(session_id)
+            logging.info(f"User logged out, session: {session_id}")
+        
+        return jsonify({'message': 'Logout successful'}), 200
+        
+    except Exception as e:
+        logging.error(f"Logout error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Logout failed: {str(e)}'}), 500

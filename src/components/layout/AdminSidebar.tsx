@@ -1,8 +1,8 @@
-import { 
-  Shield, 
-  Gift, 
-  Users, 
-  BarChart3, 
+import {
+  Shield,
+  Gift,
+  Users,
+  BarChart3,
   Settings,
   LogOut,
   ArrowLeft,
@@ -18,7 +18,9 @@ import {
   Wallet,
   TrendingUp,
   AlertTriangle,
-  MousePointerClick
+  MousePointerClick,
+  LogIn,
+  UserCog
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -44,6 +46,8 @@ const adminMenuItems = [
   { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp },
   { title: "Comprehensive Analytics", url: "/admin/comprehensive-analytics", icon: BarChart3 },
   { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick },
+  { title: "Login Logs", url: "/admin/login-logs", icon: LogIn },
+  { title: "Active Users", url: "/admin/active-users", icon: UserCog },
   { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle },
   { title: "Reports", url: "/admin/reports", icon: FileText },
   { title: "Tracking", url: "/admin/tracking", icon: Monitor },
@@ -90,14 +94,13 @@ export function AdminSidebar() {
               {adminMenuItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url} 
+                    <NavLink
+                      to={item.url}
                       end={item.url === "/admin"}
-                      className={({ isActive }) => 
-                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                          isActive 
-                            ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500" 
-                            : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
+                      className={({ isActive }) =>
+                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
+                          ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500"
+                          : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
                         }`
                       }
                     >
@@ -113,15 +116,15 @@ export function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-2">
-        <SidebarMenuButton 
+        <SidebarMenuButton
           onClick={handleBackToDashboard}
           className="text-muted-foreground hover:text-foreground cursor-pointer"
         >
           <ArrowLeft className="h-5 w-5" />
           <span>Back to Dashboard</span>
         </SidebarMenuButton>
-        
-        <SidebarMenuButton 
+
+        <SidebarMenuButton
           onClick={handleLogout}
           className="text-muted-foreground hover:text-foreground cursor-pointer"
         >

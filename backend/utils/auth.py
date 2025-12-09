@@ -75,9 +75,65 @@ def token_required(f):
         
         request.current_user = current_user
         
+        # DON'T pass current_user - keep original behavior for existing routes
         return f(*args, **kwargs)
     
     return decorated
+
+
+def token_required_with_user(f):
+    """Decorator to require valid JWT token AND pass current_user to function"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        
+        # Get token from header
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            try:
+                token = auth_header.split(" ")[1]  # Bearer <token>
+            except IndexError:
+                return jsonify({'error': 'Invalid token format'}), 401
+        
+        if not token:
+            return jsonify({'error': 'Token is missing'}), 401
+        
+        # Decode token
+        payload = decode_token(token)
+        if payload is None:
+            return jsonify({'error': 'Token is invalid or expired'}), 401
+        
+        # Get user data
+        user_model = User()
+        current_user = user_model.find_by_id(payload['user_id'])
+        
+        # If user not found in database but token is valid, create a temporary user object
+        if not current_user:
+            # Check if this might be a demo user or database connection issue
+            if payload.get('username') == 'demo':
+                current_user = {
+                    '_id': payload['user_id'],
+                    'id': payload['user_id'],
+                    'username': payload['username'],
+                    'email': 'demo@example.com',
+                    'created_at': datetime.utcnow(),
+                    'is_active': True
+                }
+            else:
+                return jsonify({'error': 'User not found'}), 401
+        
+        # Remove password from user data and ensure id field exists
+        current_user.pop('password', None)
+        if '_id' in current_user and 'id' not in current_user:
+            current_user['id'] = str(current_user['_id'])
+        
+        request.current_user = current_user
+        
+        # Pass current_user as first argument to the function
+        return f(current_user, *args, **kwargs)
+    
+    return decorated
+
 
 def admin_required(f):
     """Decorator to require admin role"""
@@ -86,5 +142,6 @@ def admin_required(f):
         user = getattr(request, 'current_user', None)
         if not user or user.get('role') != 'admin':
             return jsonify({'error': 'Admin access required'}), 403
+        # Don't pass current_user - it's already in args if using token_required_with_user
         return f(*args, **kwargs)
     return decorated_function

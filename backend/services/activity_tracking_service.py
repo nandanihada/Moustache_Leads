@@ -1,0 +1,345 @@
+"""
+Activity Tracking Service
+Comprehensive service for tracking user login attempts, page visits, and session activity
+"""
+
+from models.login_logs import LoginLog
+from models.page_visits import PageVisit
+from models.active_sessions import ActiveSession
+from datetime import datetime
+import logging
+import uuid
+import re
+from user_agents import parse
+
+logger = logging.getLogger(__name__)
+
+class ActivityTrackingService:
+    def __init__(self):
+        self.login_log_model = LoginLog()
+        self.page_visit_model = PageVisit()
+        self.active_session_model = ActiveSession()
+    
+    def track_login_attempt(self, user_data, request, status='success', failure_reason=None, login_method='password'):
+        """
+        Track a login attempt (successful or failed)
+        
+        Args:
+            user_data: User information dict
+            request: Flask request object
+            status: 'success' or 'failed'
+            failure_reason: Reason for failure if status is 'failed'
+            login_method: 'password', 'otp', or 'sso'
+        
+        Returns:
+            session_id if successful, None otherwise
+        """
+        try:
+            # Generate session ID for successful logins
+            session_id = str(uuid.uuid4()) if status == 'success' else None
+            
+            # Extract device and browser info
+            device_info = self._parse_user_agent(request.headers.get('User-Agent', ''))
+            
+            # Get IP address
+            ip_address = self._get_client_ip(request)
+            
+            # Get location (you can integrate with geolocation service)
+            location = self._get_location(ip_address)
+            
+            # Create login log
+            log_data = {
+                'user_id': user_data.get('_id') or user_data.get('id') or user_data.get('username'),
+                'email': user_data.get('email', ''),
+                'username': user_data.get('username', ''),
+                'login_time': datetime.utcnow(),
+                'logout_time': None,
+                'ip_address': ip_address,
+                'device': device_info,
+                'location': location,
+                'login_method': login_method,
+                'status': status,
+                'failure_reason': failure_reason,
+                'session_id': session_id,
+                'user_agent': request.headers.get('User-Agent', '')
+            }
+            
+            # Save login log
+            log_id = self.login_log_model.create_log(log_data)
+            
+            # If successful login, create active session
+            if status == 'success' and session_id:
+                session_data = {
+                    'session_id': session_id,
+                    'user_id': log_data['user_id'],
+                    'email': log_data['email'],
+                    'username': log_data['username'],
+                    'current_page': '/',
+                    'ip_address': ip_address,
+                    'location': location,
+                    'device': device_info
+                }
+                
+                self.active_session_model.create_session(session_data)
+                
+                logger.info(f"Tracked successful login for user {log_data['email']}, session: {session_id}")
+            else:
+                logger.info(f"Tracked failed login attempt for {log_data.get('email', 'unknown')}: {failure_reason}")
+            
+            return session_id
+            
+        except Exception as e:
+            logger.error(f"Error tracking login attempt: {str(e)}", exc_info=True)
+            return None
+    
+    def track_logout(self, session_id):
+        """Track user logout"""
+        try:
+            # Update login log with logout time
+            self.login_log_model.update_logout(session_id)
+            
+            # End active session
+            self.active_session_model.end_session(session_id)
+            
+            logger.info(f"Tracked logout for session {session_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error tracking logout: {str(e)}", exc_info=True)
+            return False
+    
+    def track_page_visit(self, session_id, user_id, page_data, request):
+        """
+        Track a page visit
+        
+        Args:
+            session_id: Current session ID
+            user_id: User ID
+            page_data: Dict with page_url, page_title, referrer, utm params
+            request: Flask request object
+        """
+        try:
+            # Extract UTM parameters from URL
+            utm_params = self._extract_utm_params(page_data.get('page_url', ''))
+            
+            # Get device info
+            device_info = self._parse_user_agent(request.headers.get('User-Agent', ''))
+            
+            # Get IP address
+            ip_address = self._get_client_ip(request)
+            
+            visit_data = {
+                'session_id': session_id,
+                'user_id': user_id,
+                'page_url': page_data.get('page_url', ''),
+                'page_title': page_data.get('page_title', ''),
+                'referrer': page_data.get('referrer', ''),
+                'utm_source': utm_params.get('utm_source'),
+                'utm_medium': utm_params.get('utm_medium'),
+                'utm_campaign': utm_params.get('utm_campaign'),
+                'utm_term': utm_params.get('utm_term'),
+                'utm_content': utm_params.get('utm_content'),
+                'device': device_info,
+                'ip_address': ip_address,
+                'time_spent': 0
+            }
+            
+            # Save page visit
+            visit_id = self.page_visit_model.track_visit(visit_data)
+            
+            # Update active session with current page
+            self.active_session_model.update_heartbeat(
+                session_id,
+                current_page=page_data.get('page_url', ''),
+                ip_address=ip_address
+            )
+            
+            # Check for suspicious activity
+            self._check_suspicious_activity(session_id, user_id)
+            
+            return visit_id
+            
+        except Exception as e:
+            logger.error(f"Error tracking page visit: {str(e)}", exc_info=True)
+            return None
+    
+    def update_heartbeat(self, session_id, current_page=None):
+        """Update session heartbeat"""
+        try:
+            return self.active_session_model.update_heartbeat(session_id, current_page)
+        except Exception as e:
+            logger.error(f"Error updating heartbeat: {str(e)}", exc_info=True)
+            return False
+    
+    def get_session_activity(self, session_id):
+        """Get complete activity for a session"""
+        try:
+            # Get session info
+            session = self.active_session_model.get_session(session_id)
+            
+            # Get page visits
+            page_visits = self.page_visit_model.get_session_visits(session_id, limit=10)
+            
+            # Get login log
+            login_logs = self.login_log_model.get_logs(
+                filters={'session_id': session_id},
+                limit=1
+            )
+            
+            return {
+                'session': session,
+                'page_visits': page_visits,
+                'login_log': login_logs['logs'][0] if login_logs['logs'] else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting session activity: {str(e)}", exc_info=True)
+            return None
+    
+    def _parse_user_agent(self, user_agent_string):
+        """Parse user agent string to extract device info"""
+        try:
+            ua = parse(user_agent_string)
+            
+            # Determine device type
+            if ua.is_mobile:
+                device_type = 'mobile'
+            elif ua.is_tablet:
+                device_type = 'tablet'
+            elif ua.is_pc:
+                device_type = 'desktop'
+            else:
+                device_type = 'unknown'
+            
+            return {
+                'type': device_type,
+                'os': f"{ua.os.family} {ua.os.version_string}",
+                'browser': f"{ua.browser.family} {ua.browser.version_string}",
+                'version': ua.browser.version_string,
+                'is_mobile': ua.is_mobile,
+                'is_tablet': ua.is_tablet,
+                'is_pc': ua.is_pc,
+                'is_bot': ua.is_bot
+            }
+            
+        except Exception as e:
+            logger.error(f"Error parsing user agent: {str(e)}", exc_info=True)
+            return {
+                'type': 'unknown',
+                'os': 'Unknown',
+                'browser': 'Unknown',
+                'version': ''
+            }
+    
+    def _get_client_ip(self, request):
+        """Get client IP address from request"""
+        try:
+            # Check for proxy headers
+            if request.headers.get('X-Forwarded-For'):
+                ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+            elif request.headers.get('X-Real-IP'):
+                ip = request.headers.get('X-Real-IP')
+            else:
+                ip = request.remote_addr
+            
+            return ip
+            
+        except Exception as e:
+            logger.error(f"Error getting client IP: {str(e)}", exc_info=True)
+            return 'unknown'
+    
+    def _get_location(self, ip_address):
+        """Get location from IP address"""
+        try:
+            # You can integrate with a geolocation service here
+            # For now, return a placeholder
+            # TODO: Integrate with ipapi.co, ipstack, or similar service
+            
+            return {
+                'ip': ip_address,
+                'city': 'Unknown',
+                'region': 'Unknown',
+                'country': 'Unknown',
+                'country_code': 'XX',
+                'latitude': 0,
+                'longitude': 0,
+                'timezone': 'UTC'
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting location: {str(e)}", exc_info=True)
+            return {
+                'ip': ip_address,
+                'city': 'Unknown',
+                'region': 'Unknown',
+                'country': 'Unknown',
+                'country_code': 'XX'
+            }
+    
+    def _extract_utm_params(self, url):
+        """Extract UTM parameters from URL"""
+        try:
+            utm_params = {}
+            
+            # Extract query string
+            if '?' in url:
+                query_string = url.split('?')[1]
+                params = query_string.split('&')
+                
+                for param in params:
+                    if '=' in param:
+                        key, value = param.split('=', 1)
+                        if key.startswith('utm_'):
+                            utm_params[key] = value
+            
+            return utm_params
+            
+        except Exception as e:
+            logger.error(f"Error extracting UTM params: {str(e)}", exc_info=True)
+            return {}
+    
+    def _check_suspicious_activity(self, session_id, user_id):
+        """Check for suspicious activity patterns"""
+        try:
+            # Get recent page visits
+            visits = self.page_visit_model.get_session_visits(session_id, limit=20)
+            
+            # Check for rapid page visits (more than 10 in 1 minute)
+            if len(visits) >= 10:
+                recent_visits = [v for v in visits if 
+                               (datetime.utcnow() - v['timestamp']).total_seconds() < 60]
+                
+                if len(recent_visits) >= 10:
+                    self.active_session_model.mark_suspicious(
+                        session_id,
+                        reason='Rapid page navigation detected'
+                    )
+                    logger.warning(f"Suspicious activity detected for session {session_id}: Rapid navigation")
+                    return True
+            
+            # Check for device changes
+            if self.page_visit_model.detect_device_change(session_id):
+                self.active_session_model.mark_suspicious(
+                    session_id,
+                    reason='Device change detected during session'
+                )
+                logger.warning(f"Suspicious activity detected for session {session_id}: Device change")
+                return True
+            
+            # Check for multiple failed logins
+            if self.login_log_model.check_suspicious_activity(user_id):
+                self.active_session_model.mark_suspicious(
+                    session_id,
+                    reason='Multiple failed login attempts detected'
+                )
+                logger.warning(f"Suspicious activity detected for user {user_id}: Multiple failed logins")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking suspicious activity: {str(e)}", exc_info=True)
+            return False
+
+# Global instance
+activity_tracking_service = ActivityTrackingService()

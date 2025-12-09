@@ -15,7 +15,7 @@ import Placements from "./pages/Placements";
 import Assets from "./pages/Assets";
 import Payments from "./pages/Payments";
 import Settings from "./pages/Settings";
-import CampaignBuilder from "./pages/CampaignBuilder";  
+import CampaignBuilder from "./pages/CampaignBuilder";
 import AscendIframe from "@/pages/AscendIframe";   // ✅ Updated import
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminOffers from "./pages/AdminOffers";
@@ -41,6 +41,8 @@ import AdminFraudManagement from "./pages/AdminFraudManagement";
 import UserRewardsDashboard from "./pages/UserRewardsDashboard";
 import ComprehensiveOfferwallAnalytics from "./pages/ComprehensiveOfferwallAnalytics";
 import AdminClickTracking from "./pages/AdminClickTracking";
+import AdminLoginLogs from "./pages/AdminLoginLogs";
+import AdminActiveUsers from "./pages/AdminActiveUsers";
 import OfferwallPage from "./pages/OfferwallPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -62,73 +64,75 @@ const App = () => (
         <Sonner />
         <AuthProvider>
           <BrowserRouter>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<Landing />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/verify-email" element={<VerifyEmail />} />
-            <Route path="/test-modal" element={<TestOfferModal />} />
-            <Route path="/offerwall" element={<OfferwallPage />} />
-            
-            {/* Protected dashboard routes */}
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <DashboardLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Dashboard />} />
-              <Route path="offers" element={<PublisherOffers />} />
-              <Route path="promo-codes" element={<PublisherPromoCodeManagement />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="performance-report" element={<PerformanceReport />} />
-              <Route path="conversion-report" element={<ConversionReport />} />
-              <Route path="users" element={<Users />} />
-              <Route path="placements" element={<Placements />} />
-              <Route path="assets" element={<Assets />} />
-              <Route path="payments" element={<Payments />} />
-              <Route path="settings" element={<Settings />} />
-              <Route path="profile" element={<PartnerProfile />} />
-              <Route path="test" element={<TestPage />} />
-              <Route path="rewards" element={<UserRewardsDashboard />} />
-              <Route path="campaign-builder" element={<CampaignBuilder />} /> 
-              <Route path="ascend" element={<AscendIframe />} />
-            </Route>
-            
-            {/* Admin Dashboard routes */}
-            <Route 
-              path="/admin" 
-              element={
-                <ProtectedRoute>
-                  <AdminLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<AdminDashboard />} />
-              <Route path="offers" element={<AdminOffers />} />
-              <Route path="promo-codes" element={<AdminPromoCodeManagement />} />
-              <Route path="bonus-management" element={<AdminBonusManagement />} />
-              <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
-              <Route path="placement-approval" element={<AdminPlacementApproval />} />
-              <Route path="offerwall-analytics" element={<AdminOfferwallAnalytics />} />
-              <Route path="comprehensive-analytics" element={<ComprehensiveOfferwallAnalytics />} />
-              <Route path="click-tracking" element={<AdminClickTracking />} />
-              <Route path="fraud-management" element={<AdminFraudManagement />} />
-              <Route path="analytics" element={<AdminAnalytics />} />
-              <Route path="reports" element={<AdminReports />} />
-              <Route path="tracking" element={<AdminTracking />} />
-              <Route path="test-tracking" element={<TrackingTest />} />
-              <Route path="partners" element={<Partners />} />
-              <Route path="postback-logs" element={<PostbackLogs />} />
-              <Route path="postback-receiver" element={<PostbackReceiver />} />
-            </Route>
-            
-            {/* Smart redirect based on authentication status */}
-            <Route path="*" element={<SmartRedirect />} />
-          </Routes>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/verify-email" element={<VerifyEmail />} />
+              <Route path="/test-modal" element={<TestOfferModal />} />
+              <Route path="/offerwall" element={<OfferwallPage />} />
+
+              {/* Protected dashboard routes */}
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <DashboardLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Dashboard />} />
+                <Route path="offers" element={<PublisherOffers />} />
+                <Route path="promo-codes" element={<PublisherPromoCodeManagement />} />
+                <Route path="reports" element={<Reports />} />
+                <Route path="performance-report" element={<PerformanceReport />} />
+                <Route path="conversion-report" element={<ConversionReport />} />
+                <Route path="users" element={<Users />} />
+                <Route path="placements" element={<Placements />} />
+                <Route path="assets" element={<Assets />} />
+                <Route path="payments" element={<Payments />} />
+                <Route path="settings" element={<Settings />} />
+                <Route path="profile" element={<PartnerProfile />} />
+                <Route path="test" element={<TestPage />} />
+                <Route path="rewards" element={<UserRewardsDashboard />} />
+                <Route path="campaign-builder" element={<CampaignBuilder />} />
+                <Route path="ascend" element={<AscendIframe />} />
+              </Route>
+
+              {/* Admin Dashboard routes */}
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute>
+                    <AdminLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<AdminDashboard />} />
+                <Route path="offers" element={<AdminOffers />} />
+                <Route path="promo-codes" element={<AdminPromoCodeManagement />} />
+                <Route path="bonus-management" element={<AdminBonusManagement />} />
+                <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
+                <Route path="placement-approval" element={<AdminPlacementApproval />} />
+                <Route path="offerwall-analytics" element={<AdminOfferwallAnalytics />} />
+                <Route path="comprehensive-analytics" element={<ComprehensiveOfferwallAnalytics />} />
+                <Route path="click-tracking" element={<AdminClickTracking />} />
+                <Route path="login-logs" element={<AdminLoginLogs />} />
+                <Route path="active-users" element={<AdminActiveUsers />} />
+                <Route path="fraud-management" element={<AdminFraudManagement />} />
+                <Route path="analytics" element={<AdminAnalytics />} />
+                <Route path="reports" element={<AdminReports />} />
+                <Route path="tracking" element={<AdminTracking />} />
+                <Route path="test-tracking" element={<TrackingTest />} />
+                <Route path="partners" element={<Partners />} />
+                <Route path="postback-logs" element={<PostbackLogs />} />
+                <Route path="postback-receiver" element={<PostbackReceiver />} />
+              </Route>
+
+              {/* Smart redirect based on authentication status */}
+              <Route path="*" element={<SmartRedirect />} />
+            </Routes>
           </BrowserRouter>
         </AuthProvider>
       </TooltipProvider>

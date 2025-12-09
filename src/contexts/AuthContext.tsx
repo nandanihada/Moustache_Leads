@@ -62,11 +62,31 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.setItem('user', JSON.stringify(newUser));
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Call backend logout endpoint if we have a session_id
+    const sessionId = localStorage.getItem('session_id');
+    if (sessionId) {
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        await fetch(`${API_URL}/api/auth/logout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ session_id: sessionId })
+        });
+      } catch (error) {
+        console.error('Logout tracking error:', error);
+      }
+    }
+
+    // Clear local storage
     setToken(null);
     setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    localStorage.removeItem('session_id');
   };
 
   const value = {
