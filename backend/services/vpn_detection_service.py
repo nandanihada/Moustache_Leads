@@ -89,16 +89,34 @@ class VPNDetectionService:
                 # 2 = Non-residential & residential IP (warning, may flag innocent people)
                 block = data.get('block', 0)
                 
-                # Determine VPN/Proxy likelihood
-                is_suspicious = block >= 1
-                is_datacenter = block == 1
-                
                 # Get ISP info
                 isp = data.get('isp', 'Unknown')
                 country_code = data.get('countryCode', 'Unknown')
                 
-                # Determine confidence based on block value
-                if block == 0:
+                # ENHANCED: Check ISP name for known VPN providers
+                isp_lower = isp.lower()
+                known_vpn_keywords = [
+                    'vpn', 'proxy', 'browsec', 'zenmate', 'nordvpn', 'expressvpn',
+                    'surfshark', 'cyberghost', 'purevpn', 'hidemyass', 'hma',
+                    'privatevpn', 'ipvanish', 'tunnelbear', 'windscribe',
+                    'protonvpn', 'mullvad', 'private internet access', 'pia',
+                    'hotspot shield', 'betternet', 'hola', 'touch vpn',
+                    'opera vpn', 'avast secureline', 'avg secure',
+                    'anonymous', 'hide.me', 'astrill', 'vypr'
+                ]
+                
+                # Check if ISP name contains VPN keywords
+                is_vpn_by_name = any(keyword in isp_lower for keyword in known_vpn_keywords)
+                
+                # Determine VPN/Proxy likelihood
+                is_suspicious = block >= 1 or is_vpn_by_name
+                is_datacenter = block == 1
+                
+                # Determine confidence based on detection method
+                if is_vpn_by_name:
+                    confidence = 'high'  # VPN detected by name - very reliable
+                    is_suspicious = True
+                elif block == 0:
                     confidence = 'low'  # Residential IP, low risk
                 elif block == 1:
                     confidence = 'high'  # Datacenter/hosting, high risk
@@ -114,10 +132,15 @@ class VPNDetectionService:
                     'provider': isp,
                     'country_code': country_code,
                     'block_level': block,
+                    'detected_by': 'isp_name' if is_vpn_by_name else ('iphub' if block >= 1 else 'none'),
                     'checked_at': datetime.utcnow()
                 }
                 
-                logger.info(f"✅ IPHub result for {ip_address}: block={block}, ISP={isp}, confidence={confidence}")
+                if is_vpn_by_name:
+                    logger.info(f"🔴 VPN DETECTED by ISP name for {ip_address}: {isp}")
+                else:
+                    logger.info(f"✅ IPHub result for {ip_address}: block={block}, ISP={isp}, confidence={confidence}")
+                
                 return result
             
             elif response.status_code == 429:
