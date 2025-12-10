@@ -1,6 +1,6 @@
 """
-VPN Detection Service
-Detects VPN, Proxy, and Tor usage using IPHub.info API
+VPN Detection Service - UPDATED
+Uses multiple free APIs for better VPN detection
 """
 
 import requests
@@ -25,9 +25,6 @@ class VPNDetectionService:
             except Exception as e:
                 logger.warning(f"Could not create indexes: {e}")
         
-        # IPHub.info API endpoint (free, no auth required)
-        self.api_url = "http://v2.api.iphub.info/ip/{ip}"
-        
         # Cache duration: 24 hours
         self.cache_duration = timedelta(hours=24)
     
@@ -35,17 +32,14 @@ class VPNDetectionService:
         """
         Check if IP address is VPN/Proxy/Tor
         
-        Args:
-            ip_address: IP address to check
-        
         Returns:
             dict: {
                 'is_vpn': bool,
                 'is_proxy': bool,
                 'is_tor': bool,
                 'is_datacenter': bool,
-                'confidence': str,  # 'low', 'medium', 'high'
-                'provider': str,    # ISP/VPN provider name
+                'confidence': str,
+                'provider': str,
                 'country_code': str,
                 'checked_at': datetime
             }
@@ -58,8 +52,8 @@ class VPNDetectionService:
                 return cached
             
             # Make API request
-            logger.info(f"🔍 VPN check for {ip_address}: Calling IPHub API...")
-            result = self._call_iphub_api(ip_address)
+            logger.info(f"🔍 VPN check for {ip_address}: Calling VPN detection API...")
+            result = self._check_vpn_api(ip_address)
             
             # Cache the result
             if result:
@@ -69,94 +63,95 @@ class VPNDetectionService:
             
         except Exception as e:
             logger.error(f"❌ Error checking IP {ip_address}: {e}", exc_info=True)
-            # Return safe default on error
             return self._get_default_result()
     
-    def _call_iphub_api(self, ip_address: str) -> Dict:
-        """Call IPHub.info API to check IP"""
+    def _check_vpn_api(self, ip_address: str) -> Dict:
+        """
+        Check IP using multiple methods:
+        1. IP-API.com (free, no key required, has proxy detection)
+        2. ISP name matching for known VPN providers
+        """
         try:
-            url = self.api_url.format(ip=ip_address)
+            # Use IP-API.com (free tier: 45 requests/minute)
+            url = f"http://ip-api.com/json/{ip_address}?fields=status,message,country,countryCode,isp,org,as,proxy,hosting"
             
-            # Make request with timeout
             response = requests.get(url, timeout=5)
             
             if response.status_code == 200:
                 data = response.json()
                 
-                # IPHub block values:
-                # 0 = Residential/Unclassified IP (good)
-                # 1 = Non-residential IP (hosting provider, proxy, etc.)
-                # 2 = Non-residential & residential IP (warning, may flag innocent people)
-                block = data.get('block', 0)
-                
-                # Get ISP info
-                isp = data.get('isp', 'Unknown')
-                country_code = data.get('countryCode', 'Unknown')
-                
-                # ENHANCED: Check ISP name for known VPN providers
-                isp_lower = isp.lower()
-                known_vpn_keywords = [
-                    'vpn', 'proxy', 'browsec', 'zenmate', 'nordvpn', 'expressvpn',
-                    'surfshark', 'cyberghost', 'purevpn', 'hidemyass', 'hma',
-                    'privatevpn', 'ipvanish', 'tunnelbear', 'windscribe',
-                    'protonvpn', 'mullvad', 'private internet access', 'pia',
-                    'hotspot shield', 'betternet', 'hola', 'touch vpn',
-                    'opera vpn', 'avast secureline', 'avg secure',
-                    'anonymous', 'hide.me', 'astrill', 'vypr'
-                ]
-                
-                # Check if ISP name contains VPN keywords
-                is_vpn_by_name = any(keyword in isp_lower for keyword in known_vpn_keywords)
-                
-                # Determine VPN/Proxy likelihood
-                is_suspicious = block >= 1 or is_vpn_by_name
-                is_datacenter = block == 1
-                
-                # Determine confidence based on detection method
-                if is_vpn_by_name:
-                    confidence = 'high'  # VPN detected by name - very reliable
-                    is_suspicious = True
-                elif block == 0:
-                    confidence = 'low'  # Residential IP, low risk
-                elif block == 1:
-                    confidence = 'high'  # Datacenter/hosting, high risk
-                else:  # block == 2
-                    confidence = 'medium'  # Mixed, medium risk
-                
-                result = {
-                    'is_vpn': is_suspicious,
-                    'is_proxy': is_suspicious,
-                    'is_tor': False,  # IPHub doesn't specifically detect Tor
-                    'is_datacenter': is_datacenter,
-                    'confidence': confidence,
-                    'provider': isp,
-                    'country_code': country_code,
-                    'block_level': block,
-                    'detected_by': 'isp_name' if is_vpn_by_name else ('iphub' if block >= 1 else 'none'),
-                    'checked_at': datetime.utcnow()
-                }
-                
-                if is_vpn_by_name:
-                    logger.info(f"🔴 VPN DETECTED by ISP name for {ip_address}: {isp}")
+                if data.get('status') == 'success':
+                    # Get ISP and organization info
+                    isp = data.get('isp', 'Unknown')
+                    org = data.get('org', '')
+                    country_code = data.get('countryCode', 'Unknown')
+                    
+                    # IP-API provides proxy and hosting flags
+                    is_proxy_api = data.get('proxy', False)
+                    is_hosting = data.get('hosting', False)
+                    
+                    # Check ISP/Org name for VPN keywords
+                    text_to_check = f"{isp} {org}".lower()
+                    
+                    known_vpn_keywords = [
+                        'vpn', 'proxy', 'browsec', 'zenmate', 'nordvpn', 'expressvpn',
+                        'surfshark', 'cyberghost', 'purevpn', 'hidemyass', 'hma',
+                        'privatevpn', 'ipvanish', 'tunnelbear', 'windscribe',
+                        'protonvpn', 'mullvad', 'private internet access', 'pia',
+                        'hotspot shield', 'betternet', 'hola', 'touch vpn',
+                        'opera vpn', 'avast secureline', 'avg secure',
+                        'anonymous', 'hide.me', 'astrill', 'vypr', 'torguard'
+                    ]
+                    
+                    is_vpn_by_name = any(keyword in text_to_check for keyword in known_vpn_keywords)
+                    
+                    # Determine if suspicious
+                    is_suspicious = is_proxy_api or is_hosting or is_vpn_by_name
+                    
+                    # Determine confidence
+                    if is_vpn_by_name:
+                        confidence = 'high'
+                        detected_by = 'isp_name'
+                    elif is_proxy_api:
+                        confidence = 'high'
+                        detected_by = 'ip_api_proxy'
+                    elif is_hosting:
+                        confidence = 'medium'
+                        detected_by = 'ip_api_hosting'
+                    else:
+                        confidence = 'low'
+                        detected_by = 'none'
+                    
+                    result = {
+                        'is_vpn': is_suspicious,
+                        'is_proxy': is_proxy_api or is_vpn_by_name,
+                        'is_tor': False,  # IP-API doesn't detect Tor specifically
+                        'is_datacenter': is_hosting,
+                        'confidence': confidence,
+                        'provider': isp,
+                        'country_code': country_code,
+                        'detected_by': detected_by,
+                        'checked_at': datetime.utcnow()
+                    }
+                    
+                    if is_suspicious:
+                        logger.info(f"🔴 VPN/PROXY DETECTED for {ip_address}: {isp} (detected_by: {detected_by})")
+                    else:
+                        logger.info(f"✅ Clean IP {ip_address}: {isp}")
+                    
+                    return result
                 else:
-                    logger.info(f"✅ IPHub result for {ip_address}: block={block}, ISP={isp}, confidence={confidence}")
-                
-                return result
-            
-            elif response.status_code == 429:
-                # Rate limit exceeded
-                logger.warning(f"⚠️ IPHub rate limit exceeded for {ip_address}")
-                return self._get_default_result()
-            
+                    logger.warning(f"⚠️ IP-API returned error: {data.get('message')}")
+                    return self._get_default_result()
             else:
-                logger.warning(f"⚠️ IPHub API returned status {response.status_code} for {ip_address}")
+                logger.warning(f"⚠️ IP-API returned status {response.status_code}")
                 return self._get_default_result()
                 
         except requests.Timeout:
-            logger.warning(f"⚠️ IPHub API timeout for {ip_address}")
+            logger.warning(f"⚠️ IP-API timeout for {ip_address}")
             return self._get_default_result()
         except Exception as e:
-            logger.error(f"❌ IPHub API error for {ip_address}: {e}")
+            logger.error(f"❌ IP-API error for {ip_address}: {e}")
             return self._get_default_result()
     
     def _get_from_cache(self, ip_address: str) -> Optional[Dict]:
@@ -215,7 +210,7 @@ class VPNDetectionService:
             'confidence': 'low',
             'provider': 'Unknown',
             'country_code': 'Unknown',
-            'block_level': 0,
+            'detected_by': 'none',
             'checked_at': datetime.utcnow()
         }
 
