@@ -47,6 +47,48 @@ class ActivityTrackingService:
             # Get location (you can integrate with geolocation service)
             location = self._get_location(ip_address)
             
+            # 🔍 FRAUD DETECTION - Only for successful logins
+            vpn_detection = {}
+            device_fingerprint = None
+            device_change_detected = False
+            session_frequency = {}
+            fraud_analysis = {}
+            
+            if status == 'success':
+                try:
+                    from services.vpn_detection_service import get_vpn_detection_service
+                    from services.fraud_detection_service import get_fraud_detection_service
+                    from database import db_instance
+                    
+                    # 1. VPN Detection
+                    vpn_service = get_vpn_detection_service(db_instance)
+                    vpn_detection = vpn_service.check_ip(ip_address)
+                    logger.info(f"🔍 VPN check for {ip_address}: {vpn_detection}")
+                    
+                    # 2. Device Fingerprinting
+                    device_fingerprint = self.login_log_model.calculate_device_fingerprint(device_info)
+                    
+                    # 3. Device Change Detection
+                    user_id = user_data.get('_id') or user_data.get('id') or user_data.get('username')
+                    device_change_detected = self.login_log_model.check_device_change(user_id, device_fingerprint)
+                    
+                    # 4. Session Frequency
+                    session_frequency = self.login_log_model.calculate_session_frequency(user_id)
+                    
+                    # 5. Fraud Analysis
+                    fraud_service = get_fraud_detection_service()
+                    fraud_analysis = fraud_service.analyze_login({
+                        'vpn_detection': vpn_detection,
+                        'device_change_detected': device_change_detected,
+                        'session_frequency': session_frequency
+                    })
+                    
+                    logger.info(f"🚨 Fraud score for {user_data.get('email')}: {fraud_analysis.get('fraud_score')}/100 ({fraud_analysis.get('risk_level')})")
+                    
+                except Exception as fraud_error:
+                    logger.error(f"Error in fraud detection: {fraud_error}", exc_info=True)
+                    # Continue even if fraud detection fails
+            
             # Create login log
             log_data = {
                 'user_id': user_data.get('_id') or user_data.get('id') or user_data.get('username'),
@@ -61,7 +103,16 @@ class ActivityTrackingService:
                 'status': status,
                 'failure_reason': failure_reason,
                 'session_id': session_id,
-                'user_agent': request.headers.get('User-Agent', '')
+                'user_agent': request.headers.get('User-Agent', ''),
+                # Fraud detection fields
+                'vpn_detection': vpn_detection,
+                'device_fingerprint': device_fingerprint,
+                'device_change_detected': device_change_detected,
+                'session_frequency': session_frequency,
+                'fraud_score': fraud_analysis.get('fraud_score', 0),
+                'risk_level': fraud_analysis.get('risk_level', 'low'),
+                'fraud_flags': fraud_analysis.get('flags', []),
+                'fraud_recommendations': fraud_analysis.get('recommendations', [])
             }
             
             # Save login log

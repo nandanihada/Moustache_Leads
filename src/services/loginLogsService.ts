@@ -58,6 +58,28 @@ export interface LoginLog {
   session_id?: string;
   user_agent: string;
   created_at: string;
+  // Fraud detection fields
+  vpn_detection?: {
+    is_vpn?: boolean;
+    is_proxy?: boolean;
+    is_tor?: boolean;
+    is_datacenter?: boolean;
+    provider?: string;
+    confidence?: string;
+    country_code?: string;
+    checked_at?: string;
+  };
+  device_fingerprint?: string;
+  device_change_detected?: boolean;
+  session_frequency?: {
+    logins_last_hour?: number;
+    logins_last_day?: number;
+    risk_level?: string;
+  };
+  fraud_score?: number;
+  risk_level?: string;
+  fraud_flags?: string[];
+  fraud_recommendations?: string[];
 }
 
 export interface ActiveSession {

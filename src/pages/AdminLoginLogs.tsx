@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, CheckCircle, XCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, ChevronDown, ChevronUp, ExternalLink, Shield, AlertTriangle } from 'lucide-react';
 import loginLogsService, { LoginLog, PageVisit } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
+import { FraudIndicators } from '@/components/FraudIndicators';
+
 
 const AdminLoginLogs: React.FC = () => {
     const [logs, setLogs] = useState<LoginLog[]>([]);
@@ -186,6 +188,16 @@ const AdminLoginLogs: React.FC = () => {
                                                     <span className="font-semibold">{log.username}</span>
                                                     <span className="text-sm text-muted-foreground">{log.email}</span>
                                                 </div>
+
+                                                {/* Fraud Indicators */}
+                                                <FraudIndicators
+                                                    vpnDetection={log.vpn_detection}
+                                                    deviceChange={log.device_change_detected}
+                                                    sessionFrequency={log.session_frequency}
+                                                    fraudScore={log.fraud_score}
+                                                    riskLevel={log.risk_level}
+                                                />
+
                                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                                     <div>
                                                         <div className="text-muted-foreground">Login Time</div>
@@ -277,6 +289,147 @@ const AdminLoginLogs: React.FC = () => {
                                                     No page visits recorded for this session
                                                 </div>
                                             )}
+
+                                            {/* Fraud Analysis Section */}
+                                            {(log.fraud_score && log.fraud_score > 0) || log.fraud_flags?.length > 0 ? (
+                                                <div className="mt-4">
+                                                    <h4 className="font-semibold mb-3 flex items-center gap-2">
+                                                        <Shield className="h-4 w-4" />
+                                                        Fraud Analysis
+                                                    </h4>
+
+                                                    <div className="space-y-3">
+                                                        {/* Fraud Score */}
+                                                        {log.fraud_score > 0 && (
+                                                            <div className="p-3 bg-background rounded border">
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-sm font-medium">Fraud Risk Score</span>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className={`w-3 h-3 rounded-full ${log.fraud_score >= 76 ? 'bg-red-500' :
+                                                                                log.fraud_score >= 51 ? 'bg-orange-500' :
+                                                                                    log.fraud_score >= 26 ? 'bg-yellow-500' :
+                                                                                        'bg-green-500'
+                                                                            }`} />
+                                                                        <span className="font-bold">{log.fraud_score}/100</span>
+                                                                        <Badge variant={
+                                                                            log.risk_level === 'critical' || log.risk_level === 'high' ? 'destructive' :
+                                                                                log.risk_level === 'medium' ? 'default' :
+                                                                                    'secondary'
+                                                                        }>
+                                                                            {log.risk_level?.toUpperCase()}
+                                                                        </Badge>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Fraud Flags */}
+                                                        {log.fraud_flags && log.fraud_flags.length > 0 && (
+                                                            <div className="p-3 bg-background rounded border">
+                                                                <div className="text-sm font-medium mb-2">Detected Issues</div>
+                                                                <div className="space-y-1">
+                                                                    {log.fraud_flags.map((flag, idx) => (
+                                                                        <div key={idx} className="flex items-center gap-2 text-sm">
+                                                                            <AlertTriangle className="h-3 w-3 text-orange-500" />
+                                                                            <span>{flag}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* VPN Details */}
+                                                        {log.vpn_detection && (log.vpn_detection.is_vpn || log.vpn_detection.is_proxy || log.vpn_detection.is_datacenter) && (
+                                                            <div className="p-3 bg-background rounded border">
+                                                                <div className="text-sm font-medium mb-2">Network Analysis</div>
+                                                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                                                    {log.vpn_detection.is_vpn && (
+                                                                        <div>
+                                                                            <span className="text-muted-foreground">VPN:</span>
+                                                                            <span className="ml-2 text-red-600 font-medium">Detected</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {log.vpn_detection.is_proxy && (
+                                                                        <div>
+                                                                            <span className="text-muted-foreground">Proxy:</span>
+                                                                            <span className="ml-2 text-red-600 font-medium">Detected</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {log.vpn_detection.is_datacenter && (
+                                                                        <div>
+                                                                            <span className="text-muted-foreground">Datacenter IP:</span>
+                                                                            <span className="ml-2 text-orange-600 font-medium">Yes</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {log.vpn_detection.provider && (
+                                                                        <div>
+                                                                            <span className="text-muted-foreground">Provider:</span>
+                                                                            <span className="ml-2 font-medium">{log.vpn_detection.provider}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {log.vpn_detection.confidence && (
+                                                                        <div>
+                                                                            <span className="text-muted-foreground">Confidence:</span>
+                                                                            <span className="ml-2 font-medium capitalize">{log.vpn_detection.confidence}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Device Fingerprint */}
+                                                        {log.device_fingerprint && (
+                                                            <div className="p-3 bg-background rounded border">
+                                                                <div className="text-sm font-medium mb-2">Device Information</div>
+                                                                <div className="space-y-1 text-sm">
+                                                                    <div>
+                                                                        <span className="text-muted-foreground">Fingerprint:</span>
+                                                                        <span className="ml-2 font-mono text-xs">{log.device_fingerprint}</span>
+                                                                    </div>
+                                                                    {log.device_change_detected && (
+                                                                        <div className="flex items-center gap-2 text-yellow-600">
+                                                                            <AlertTriangle className="h-3 w-3" />
+                                                                            <span>New device detected for this user</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Session Frequency */}
+                                                        {log.session_frequency && log.session_frequency.logins_last_hour > 0 && (
+                                                            <div className="p-3 bg-background rounded border">
+                                                                <div className="text-sm font-medium mb-2">Login Frequency</div>
+                                                                <div className="grid grid-cols-2 gap-2 text-sm">
+                                                                    <div>
+                                                                        <span className="text-muted-foreground">Last Hour:</span>
+                                                                        <span className="ml-2 font-medium">{log.session_frequency.logins_last_hour} logins</span>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-muted-foreground">Last 24h:</span>
+                                                                        <span className="ml-2 font-medium">{log.session_frequency.logins_last_day} logins</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Recommendations */}
+                                                        {log.fraud_recommendations && log.fraud_recommendations.length > 0 && (
+                                                            <div className="p-3 bg-background rounded border">
+                                                                <div className="text-sm font-medium mb-2">Recommended Actions</div>
+                                                                <div className="space-y-1">
+                                                                    {log.fraud_recommendations.map((rec, idx) => (
+                                                                        <div key={idx} className="flex items-start gap-2 text-sm">
+                                                                            <span className="text-blue-600">•</span>
+                                                                            <span>{rec}</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            ) : null}
                                         </div>
                                     )}
                                 </div>
