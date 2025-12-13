@@ -341,15 +341,15 @@ def receive_postback(unique_key):
                             # Replace macros with OUR calculated values
                             final_url = postback_url
                             macros = {
-                                '{click_id}': get_param_value('click_id'),
+                                '{click_id}': click_id or '',
                                 '{status}': 'approved',  # We approve it
                                 '{payout}': str(points_calc['total_points']),  # ✅ OUR calculated points!
-                                '{offer_id}': offer_id,
-                                '{conversion_id}': get_param_value('conversion_id'),
-                                '{transaction_id}': get_param_value('transaction_id'),
-                                '{user_id}': user_id,
-                                '{affiliate_id}': user_id,
-                                '{username}': actual_username,  # ✅ OUR username!
+                                '{offer_id}': offer_id or '',
+                                '{conversion_id}': get_param_value('conversion_id') or '',
+                                '{transaction_id}': get_param_value('transaction_id') or '',
+                                '{user_id}': user_id or '',
+                                '{affiliate_id}': user_id or '',
+                                '{username}': actual_username or '',  # ✅ OUR username!
                             }
                             
                             # Log macro values for debugging
@@ -357,16 +357,31 @@ def receive_postback(unique_key):
                             for macro, value in macros.items():
                                 logger.info(f"      {macro} = '{value}'")
                             
-                            # Replace all macros (even if empty)
+                            # Replace all macros in URL
                             for macro, value in macros.items():
-                                final_url = final_url.replace(macro, str(value) if value else '')
+                                final_url = final_url.replace(macro, str(value))
                             
                             logger.info(f"   📤 Final URL: {final_url}")
                             
-                            # Send the postback
+                            # Prepare POST data with username and points
+                            post_data = {
+                                'username': actual_username or '',
+                                'points': str(points_calc['total_points']),
+                                'payout': str(points_calc['total_points']),
+                                'status': 'approved',
+                                'user_id': user_id or '',
+                                'offer_id': offer_id or '',
+                                'click_id': click_id or '',
+                                'transaction_id': get_param_value('transaction_id') or '',
+                                'conversion_id': get_param_value('conversion_id') or ''
+                            }
+                            
+                            logger.info(f"   📦 POST Data: {post_data}")
+                            
+                            # Send the postback as POST request
                             try:
-                                response = requests.get(final_url, timeout=10)
-                                logger.info(f"   ✅ Sent! Status: {response.status_code}")
+                                response = requests.post(final_url, data=post_data, timeout=10)
+                                logger.info(f"   ✅ Sent POST! Status: {response.status_code}")
                                 logger.info(f"   Response: {response.text[:200]}")
                                 
                                 # Log the successful send
@@ -376,6 +391,7 @@ def receive_postback(unique_key):
                                         'placement_id': placement_id,
                                         'placement_title': placement_title,
                                         'postback_url': final_url,
+                                        'post_data': post_data,
                                         'status': 'success' if response.status_code == 200 else 'failed',
                                         'response_code': response.status_code,
                                         'response_body': response.text[:500],
@@ -392,6 +408,7 @@ def receive_postback(unique_key):
                                         'placement_id': placement_id,
                                         'placement_title': placement_title,
                                         'postback_url': final_url,
+                                        'post_data': post_data,
                                         'status': 'failed',
                                         'error': str(send_error),
                                         'timestamp': datetime.utcnow(),

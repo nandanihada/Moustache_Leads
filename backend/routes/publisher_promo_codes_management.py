@@ -76,10 +76,8 @@ def apply_promo_code_to_offer(offer_id):
         # Get collections
         offers_collection = db_instance.get_collection('offers')
         promo_codes_collection = db_instance.get_collection('promo_codes')
-        user_promo_codes_collection = db_instance.get_collection('user_promo_codes')
         
-        # Verify offer exists and belongs to publisher
-        # Try to find by offer_id first (e.g., "ML-00093"), then by _id
+        # Verify offer exists
         offer = offers_collection.find_one({'offer_id': offer_id})
         if not offer:
             try:
@@ -90,7 +88,7 @@ def apply_promo_code_to_offer(offer_id):
         if not offer:
             return jsonify({'error': 'Offer not found'}), 404
         
-        # Verify promo code exists and is active
+        # Get promo code
         try:
             promo_code_id = ObjectId(data.get('promo_code_id'))
         except:
@@ -100,19 +98,20 @@ def apply_promo_code_to_offer(offer_id):
         if not promo_code:
             return jsonify({'error': 'Promo code not found'}), 404
         
-        if promo_code.get('status') != 'active':
-            return jsonify({'error': 'Promo code is not active'}), 400
+        # Use PromoCode model to apply the code properly
+        from models.promo_code import PromoCode
+        promo_model = PromoCode()
         
-        # Record application
-        user_promo_codes_collection.insert_one({
-            'user_id': ObjectId(current_user['_id']),
-            'offer_id': offer['_id'],
-            'promo_code_id': promo_code_id,
-            'applied_at': datetime.utcnow(),
-            'status': 'active'
-        })
+        # Apply code to user (this will increment usage_count and check auto-deactivation)
+        user_promo_doc, error = promo_model.apply_code_to_user(
+            promo_code['code'],
+            str(current_user['_id'])
+        )
         
-        logger.info(f"✅ Publisher {current_user['username']} applied code {promo_code['code']} to offer {offer['name']}")
+        if error:
+            return jsonify({'error': error}), 400
+        
+        logger.info(f"✅ Publisher {current_user['username']} applied code {promo_code['code']} to offer {offer.get('name')}")
         
         return jsonify({
             'message': 'Promo code applied successfully',
@@ -124,6 +123,8 @@ def apply_promo_code_to_offer(offer_id):
         
     except Exception as e:
         logger.error(f"❌ Error applying promo code: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'error': f'Error applying promo code: {str(e)}'}), 500
 
 

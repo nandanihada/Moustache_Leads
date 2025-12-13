@@ -8,6 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Plus, Edit2, Pause, Play, BarChart3, Users, Trash2, Copy, CheckCircle, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -40,6 +42,13 @@ interface CreatePromoCodeForm {
   end_date: string;
   max_uses: string;
   max_uses_per_user: string;
+  // NEW: Active hours
+  active_hours_enabled: boolean;
+  active_hours_start: string;
+  active_hours_end: string;
+  active_hours_timezone: string;
+  // NEW: Auto-deactivation
+  auto_deactivate_on_max_uses: boolean;
 }
 
 export default function AdminPromoCodeManagement() {
@@ -54,6 +63,10 @@ export default function AdminPromoCodeManagement() {
   const [users, setUsers] = useState<any[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchTerm, setSearchTerm] = useState("");
+  // NEW: Analytics state
+  const [offerAnalytics, setOfferAnalytics] = useState<any>(null);
+  const [userApplications, setUserApplications] = useState<any[]>([]);
+  const [analyticsTab, setAnalyticsTab] = useState("overview");
 
   const [formData, setFormData] = useState<CreatePromoCodeForm>({
     code: "",
@@ -65,6 +78,13 @@ export default function AdminPromoCodeManagement() {
     end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
     max_uses: "1000",
     max_uses_per_user: "1",
+    // NEW: Active hours defaults
+    active_hours_enabled: false,
+    active_hours_start: "00:00",
+    active_hours_end: "23:59",
+    active_hours_timezone: "Asia/Kolkata",
+    // NEW: Auto-deactivation default
+    auto_deactivate_on_max_uses: true,
   });
 
   // Fetch promo codes
@@ -111,6 +131,15 @@ export default function AdminPromoCodeManagement() {
         end_date: new Date(formData.end_date).toISOString(),
         max_uses: parseInt(formData.max_uses),
         max_uses_per_user: parseInt(formData.max_uses_per_user),
+        // NEW: Active hours
+        active_hours: {
+          enabled: formData.active_hours_enabled,
+          start_time: formData.active_hours_start,
+          end_time: formData.active_hours_end,
+          timezone: formData.active_hours_timezone,
+        },
+        // NEW: Auto-deactivation
+        auto_deactivate_on_max_uses: formData.auto_deactivate_on_max_uses,
       };
 
       const { API_BASE_URL } = await import('../services/apiConfig');
@@ -136,6 +165,11 @@ export default function AdminPromoCodeManagement() {
           end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
           max_uses: "1000",
           max_uses_per_user: "1",
+          active_hours_enabled: false,
+          active_hours_start: "00:00",
+          active_hours_end: "23:59",
+          active_hours_timezone: "Asia/Kolkata",
+          auto_deactivate_on_max_uses: true,
         });
         fetchPromoCodes();
       } else {
@@ -206,7 +240,36 @@ export default function AdminPromoCodeManagement() {
 
       if (response.ok) {
         const data = await response.json();
-        setAnalytics(data);
+        setAnalytics(data.analytics || data);
+
+        // NEW: Fetch offer analytics
+        try {
+          const offerResponse = await fetch(
+            `${API_BASE_URL}/api/admin/promo-codes/${codeId}/offer-analytics`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (offerResponse.ok) {
+            const offerData = await offerResponse.json();
+            setOfferAnalytics(offerData.analytics);
+          }
+        } catch (err) {
+          console.error("Error fetching offer analytics:", err);
+        }
+
+        // NEW: Fetch user applications
+        try {
+          const appsResponse = await fetch(
+            `${API_BASE_URL}/api/admin/promo-codes/${codeId}/user-applications`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (appsResponse.ok) {
+            const appsData = await appsResponse.json();
+            setUserApplications(appsData.applications);
+          }
+        } catch (err) {
+          console.error("Error fetching user applications:", err);
+        }
+
         setShowAnalyticsDialog(true);
       } else {
         toast.error("Failed to fetch analytics");
@@ -392,6 +455,88 @@ export default function AdminPromoCodeManagement() {
                 </div>
               </div>
 
+              {/* NEW: Active Hours Section */}
+              <div className="border rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-semibold">Time-Based Validity</Label>
+                  <Switch
+                    checked={formData.active_hours_enabled}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, active_hours_enabled: checked })
+                    }
+                  />
+                </div>
+
+                {formData.active_hours_enabled && (
+                  <div className="space-y-3 pt-2">
+                    <p className="text-sm text-gray-600">
+                      Restrict this promo code to specific hours of the day
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>Start Time</Label>
+                        <Input
+                          type="time"
+                          value={formData.active_hours_start}
+                          onChange={(e) =>
+                            setFormData({ ...formData, active_hours_start: e.target.value })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <Label>End Time</Label>
+                        <Input
+                          type="time"
+                          value={formData.active_hours_end}
+                          onChange={(e) =>
+                            setFormData({ ...formData, active_hours_end: e.target.value })
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <Label>Timezone</Label>
+                      <Select
+                        value={formData.active_hours_timezone}
+                        onValueChange={(value) =>
+                          setFormData({ ...formData, active_hours_timezone: value })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="UTC">UTC</SelectItem>
+                          <SelectItem value="Asia/Kolkata">Asia/Kolkata (IST)</SelectItem>
+                          <SelectItem value="America/New_York">America/New_York (EST)</SelectItem>
+                          <SelectItem value="Europe/London">Europe/London (GMT)</SelectItem>
+                          <SelectItem value="Asia/Tokyo">Asia/Tokyo (JST)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* NEW: Auto-Deactivation Section */}
+              <div className="border rounded-lg p-4 space-y-2">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="auto-deactivate"
+                    checked={formData.auto_deactivate_on_max_uses}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, auto_deactivate_on_max_uses: checked as boolean })
+                    }
+                  />
+                  <Label htmlFor="auto-deactivate" className="font-semibold cursor-pointer">
+                    Auto-deactivate when max uses reached
+                  </Label>
+                </div>
+                <p className="text-sm text-gray-600 ml-6">
+                  Automatically expire this code when it reaches the maximum number of uses
+                </p>
+              </div>
+
               <Button onClick={handleCreatePromoCode} className="w-full">
                 Create Promo Code
               </Button>
@@ -519,41 +664,118 @@ export default function AdminPromoCodeManagement() {
 
       {/* Analytics Dialog */}
       <Dialog open={showAnalyticsDialog} onOpenChange={setShowAnalyticsDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Promo Code Analytics</DialogTitle>
           </DialogHeader>
           {analytics && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <p className="text-gray-600 text-sm">Total Uses</p>
-                      <p className="text-2xl font-bold">{analytics.total_uses}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <p className="text-gray-600 text-sm">Users Applied</p>
-                      <p className="text-2xl font-bold">{analytics.users_applied}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-center">
-                      <p className="text-gray-600 text-sm">Total Bonus</p>
-                      <p className="text-2xl font-bold">
-                        ${analytics.total_bonus_distributed.toFixed(2)}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+            <Tabs value={analyticsTab} onValueChange={setAnalyticsTab} className="w-full">
+              <TabsList className="grid w-full grid-cols-3">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="offers">Offer Breakdown</TabsTrigger>
+                <TabsTrigger value="applications">User Applications</TabsTrigger>
+              </TabsList>
+
+              {/* Overview Tab */}
+              <TabsContent value="overview" className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-gray-600 text-sm">Total Uses</p>
+                        <p className="text-2xl font-bold">{analytics.total_uses || 0}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-gray-600 text-sm">Users Applied</p>
+                        <p className="text-2xl font-bold">{analytics.users_applied || 0}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-center">
+                        <p className="text-gray-600 text-sm">Total Bonus</p>
+                        <p className="text-2xl font-bold">
+                          ${(analytics.total_bonus_distributed || 0).toFixed(2)}
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              {/* Offer Breakdown Tab */}
+              <TabsContent value="offers" className="space-y-4">
+                {offerAnalytics && offerAnalytics.offer_breakdown && offerAnalytics.offer_breakdown.length > 0 ? (
+                  <div className="space-y-2">
+                    <h3 className="font-semibold">Offers where "{offerAnalytics.code}" was used:</h3>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Offer Name</TableHead>
+                          <TableHead>Uses</TableHead>
+                          <TableHead>Total Bonus</TableHead>
+                          <TableHead>Unique Users</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {offerAnalytics.offer_breakdown.map((offer: any, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">{offer.offer_name}</TableCell>
+                            <TableCell>{offer.uses}</TableCell>
+                            <TableCell>${(offer.total_bonus || 0).toFixed(2)}</TableCell>
+                            <TableCell>{offer.unique_users}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    No offer usage data available yet
+                  </div>
+                )}
+              </TabsContent>
+
+              {/* User Applications Tab */}
+              <TabsContent value="applications" className="space-y-4">
+                {userApplications && userApplications.length > 0 ? (
+                  <div className="space-y-2">
+                    <h3 className="font-semibold">User Applications:</h3>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Username</TableHead>
+                          <TableHead>Offer</TableHead>
+                          <TableHead>Bonus Earned</TableHead>
+                          <TableHead>Date</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {userApplications.map((app: any, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium">{app.username}</TableCell>
+                            <TableCell>{app.offer_name || 'Not used yet'}</TableCell>
+                            <TableCell>${(app.bonus_earned || 0).toFixed(2)}</TableCell>
+                            <TableCell>
+                              {app.applied_at ? new Date(app.applied_at).toLocaleDateString() : 'N/A'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    No user applications yet
+                  </div>
+                )}
+              </TabsContent>
+            </Tabs>
           )}
         </DialogContent>
       </Dialog>

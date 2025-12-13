@@ -225,10 +225,10 @@ export default function PublisherPromoCodeManagement() {
         toast.success(
           `Code ${selectedCodeForOffers.code} applied successfully!`
         );
-        
+
         // Mark code as used (one-time use)
         setUsedCodes([...usedCodes, selectedCodeForOffers._id]);
-        
+
         setShowSelectOffersDialog(false);
         setSelectedCodeForOffers(null);
         setSelectedOffers([]);
@@ -314,7 +314,7 @@ export default function PublisherPromoCodeManagement() {
               <DialogDescription>
                 {selectedCodeForOffers && (
                   <>
-                    Code: <span className="font-mono font-bold">{selectedCodeForOffers.code}</span> - 
+                    Code: <span className="font-mono font-bold">{selectedCodeForOffers.code}</span> -
                     Bonus: +{selectedCodeForOffers.bonus_amount}{selectedCodeForOffers.bonus_type === "percentage" ? "%" : ""}
                   </>
                 )}
@@ -481,12 +481,14 @@ export default function PublisherPromoCodeManagement() {
                             Expires {new Date(code.end_date).toLocaleDateString()}
                           </p>
                         </div>
-                        {usedCodes.includes(code._id) ? (
+                        {(code as any).already_applied ? (
+                          <Badge className="bg-blue-500">Already Applied</Badge>
+                        ) : usedCodes.includes(code._id) ? (
                           <Badge className="bg-gray-500">Used</Badge>
                         ) : (
                           getStatusBadge(code.status)
                         )}
-                        {!usedCodes.includes(code._id) && (code.status === "available" || code.status === "active") && (
+                        {!(code as any).already_applied && !usedCodes.includes(code._id) && (code.status === "available" || code.status === "active") && (
                           <Button
                             size="sm"
                             onClick={() => handleApplyCodeToOffers(code)}

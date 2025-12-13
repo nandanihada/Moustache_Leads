@@ -107,6 +107,22 @@ def get_promo_codes():
         if collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
         
+        # Auto-expire codes that have passed their end_date
+        from datetime import datetime
+        now = datetime.utcnow()
+        collection.update_many(
+            {
+                'status': 'active',
+                'end_date': {'$lt': now}
+            },
+            {
+                '$set': {
+                    'status': 'expired',
+                    'updated_at': now
+                }
+            }
+        )
+        
         # Get total count
         total = collection.count_documents(query)
         
@@ -356,3 +372,51 @@ def bulk_apply_to_offers():
     except Exception as e:
         logger.error(f"❌ Error bulk applying promo code: {str(e)}")
         return jsonify({'error': f'Error applying code: {str(e)}'}), 500
+
+
+@admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/offer-analytics', methods=['GET'])
+@token_required
+@admin_required
+def get_offer_analytics(code_id):
+    """Get breakdown of which offers a promo code was used on"""
+    try:
+        promo_code_model = PromoCode()
+        analytics = promo_code_model.get_offer_analytics(code_id)
+        
+        if not analytics:
+            return jsonify({'error': 'Promo code not found or no data available'}), 404
+        
+        return jsonify({
+            'analytics': analytics
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching offer analytics: {str(e)}")
+        return jsonify({'error': f'Error fetching analytics: {str(e)}'}), 500
+
+
+@admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/user-applications', methods=['GET'])
+@token_required
+@admin_required
+def get_user_applications(code_id):
+    """Get detailed list of user applications with offer information"""
+    try:
+        # Get pagination params
+        page = request.args.get('page', 1, type=int)
+        limit = request.args.get('limit', 20, type=int)
+        skip = (page - 1) * limit
+        
+        promo_code_model = PromoCode()
+        applications, total = promo_code_model.get_user_applications(code_id, skip, limit)
+        
+        return jsonify({
+            'applications': applications,
+            'total': total,
+            'page': page,
+            'limit': limit,
+            'pages': (total + limit - 1) // limit if total > 0 else 0
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching user applications: {str(e)}")
+        return jsonify({'error': f'Error fetching applications: {str(e)}'}), 500

@@ -139,7 +139,16 @@ class PromoCode:
                 'created_at': datetime.utcnow(),
                 'updated_at': datetime.utcnow(),
                 'usage_count': 0,
-                'total_bonus_distributed': 0.0
+                'total_bonus_distributed': 0.0,
+                # NEW: Time-based validity
+                'active_hours': {
+                    'enabled': code_data.get('active_hours', {}).get('enabled', False),
+                    'start_time': code_data.get('active_hours', {}).get('start_time', '00:00'),
+                    'end_time': code_data.get('active_hours', {}).get('end_time', '23:59'),
+                    'timezone': code_data.get('active_hours', {}).get('timezone', 'UTC')
+                },
+                # NEW: Auto-deactivation
+                'auto_deactivate_on_max_uses': code_data.get('auto_deactivate_on_max_uses', True)
             }
             
             # Insert promo code
@@ -181,6 +190,46 @@ class PromoCode:
             logger.error(f"Error fetching promo code: {str(e)}")
             return None
     
+    def validate_active_hours(self, code_obj):
+        """
+        Validate if code is within active hours
+        
+        Returns:
+            Tuple (is_valid, error_message)
+        """
+        try:
+            active_hours = code_obj.get('active_hours', {})
+            
+            # If active hours not enabled, always valid
+            if not active_hours.get('enabled', False):
+                return True, None
+            
+            # Get current time in the specified timezone
+            from datetime import datetime
+            import pytz
+            
+            timezone = active_hours.get('timezone', 'UTC')
+            try:
+                tz = pytz.timezone(timezone)
+            except:
+                tz = pytz.UTC
+            
+            now = datetime.now(tz)
+            current_time = now.strftime('%H:%M')
+            
+            start_time = active_hours.get('start_time', '00:00')
+            end_time = active_hours.get('end_time', '23:59')
+            
+            # Compare times
+            if start_time <= current_time <= end_time:
+                return True, None
+            else:
+                return False, f"Promo code is only valid between {start_time} and {end_time} {timezone}"
+                
+        except Exception as e:
+            logger.error(f"Error validating active hours: {str(e)}")
+            return True, None  # If error, don't block the code
+    
     def validate_code_for_user(self, code, user_id, offer_id=None):
         """
         Validate if a code can be applied by a user for an offer
@@ -213,6 +262,11 @@ class PromoCode:
             # Check max uses
             if code_obj['max_uses'] > 0 and code_obj['usage_count'] >= code_obj['max_uses']:
                 return False, "Promo code has reached maximum uses", None
+            
+            # NEW: Check active hours
+            is_valid_time, time_error = self.validate_active_hours(code_obj)
+            if not is_valid_time:
+                return False, time_error, None
             
             # Check if user already applied this code
             user_code = self.user_promo_collection.find_one({
@@ -262,7 +316,9 @@ class PromoCode:
                 'is_active': True,
                 'total_bonus_earned': 0.0,
                 'conversions_count': 0,
-                'last_used_at': None
+                'last_used_at': None,
+                # NEW: Track offer applications
+                'offer_applications': []
             }
             
             result = self.user_promo_collection.insert_one(user_promo_doc)
@@ -276,6 +332,18 @@ class PromoCode:
                     '$set': {'updated_at': datetime.utcnow()}
                 }
             )
+            
+            # Increment usage_count in promo_codes collection
+            self.collection.update_one(
+                {'_id': ObjectId(code_obj['_id']) if isinstance(code_obj['_id'], str) else code_obj['_id']},
+                {
+                    '$inc': {'usage_count': 1},
+                    '$set': {'updated_at': datetime.utcnow()}
+                }
+            )
+            
+            # Check if code should be auto-deactivated
+            self.check_and_deactivate(code_obj['_id'])
             
             logger.info(f"✅ Promo code '{code}' applied to user {user_id}")
             return user_promo_doc, None
@@ -366,12 +434,127 @@ class PromoCode:
                 }
             )
             
+            # NEW: Check and auto-deactivate if max uses reached
+            self.check_and_deactivate(promo_code_id)
+            
+            # NEW: Track offer application
+            try:
+                # Get offer name
+                offer = self.offers_collection.find_one({'_id': ObjectId(offer_id) if isinstance(offer_id, str) else offer_id})
+                offer_name = offer.get('name', 'Unknown Offer') if offer else 'Unknown Offer'
+                
+                self.add_offer_application(
+                    user_id=user_id,
+                    promo_code_id=promo_code_id,
+                    offer_id=offer_id,
+                    offer_name=offer_name,
+                    bonus_amount=bonus_amount,
+                    conversion_id=conversion_id
+                )
+            except Exception as e:
+                logger.error(f"Error tracking offer application: {str(e)}")
+            
             logger.info(f"✅ Bonus earning recorded: ${bonus_amount} for user {user_id}")
             return bonus_earning_doc, None
             
         except Exception as e:
             logger.error(f"❌ Error recording bonus earning: {str(e)}")
             return None, f"Error recording bonus: {str(e)}"
+    
+    def check_and_deactivate(self, code_id):
+        """
+        Check if promo code should be auto-deactivated based on max uses
+        
+        Returns:
+            Boolean indicating if code was deactivated
+        """
+        if not self._check_db_connection():
+            return False
+        
+        try:
+            code_obj = self.get_promo_code_by_id(code_id)
+            if not code_obj:
+                return False
+            
+            # Check if auto-deactivation is enabled
+            if not code_obj.get('auto_deactivate_on_max_uses', True):
+                return False
+            
+            # Check if max uses is set and reached
+            max_uses = code_obj.get('max_uses', 0)
+            usage_count = code_obj.get('usage_count', 0)
+            
+            if max_uses > 0 and usage_count >= max_uses:
+                # Deactivate the code
+                self.collection.update_one(
+                    {'_id': ObjectId(code_id) if isinstance(code_id, str) else code_id},
+                    {
+                        '$set': {
+                            'status': 'expired',
+                            'updated_at': datetime.utcnow(),
+                            'auto_deactivated_at': datetime.utcnow()
+                        }
+                    }
+                )
+                logger.info(f"🔒 Promo code {code_obj['code']} auto-deactivated after reaching {max_uses} uses")
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking auto-deactivation: {str(e)}")
+            return False
+    
+    def add_offer_application(self, user_id, promo_code_id, offer_id, offer_name, bonus_amount, conversion_id=None):
+        """
+        Track when a user uses a promo code on a specific offer
+        
+        Args:
+            user_id: User ID
+            promo_code_id: Promo code ID
+            offer_id: Offer ID
+            offer_name: Offer name
+            bonus_amount: Bonus earned
+            conversion_id: Conversion ID (optional)
+            
+        Returns:
+            Boolean indicating success
+        """
+        if not self._check_db_connection():
+            return False
+        
+        try:
+            application_entry = {
+                'offer_id': str(offer_id),
+                'offer_name': offer_name,
+                'applied_at': datetime.utcnow(),
+                'bonus_earned': float(bonus_amount),
+                'conversion_id': str(conversion_id) if conversion_id else None
+            }
+            
+            # Add to user_promo_codes.offer_applications array
+            result = self.user_promo_collection.update_one(
+                {
+                    'user_id': ObjectId(user_id) if isinstance(user_id, str) else user_id,
+                    'promo_code_id': ObjectId(promo_code_id) if isinstance(promo_code_id, str) else promo_code_id,
+                    'is_active': True
+                },
+                {
+                    '$push': {'offer_applications': application_entry},
+                    '$set': {'last_used_at': datetime.utcnow()}
+                }
+            )
+            
+            if result.modified_count > 0:
+                logger.info(f"✅ Tracked offer application: User {user_id} used promo on offer {offer_name}")
+                return True
+            else:
+                logger.warning(f"⚠️ Could not track offer application for user {user_id}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error tracking offer application: {str(e)}")
+            return False
     
     def get_user_active_codes(self, user_id):
         """Get all active promo codes for a user"""
@@ -401,6 +584,21 @@ class PromoCode:
         
         try:
             now = datetime.utcnow()
+            
+            # Auto-expire codes that have passed their end_date
+            self.collection.update_many(
+                {
+                    'status': 'active',
+                    'end_date': {'$lt': now}
+                },
+                {
+                    '$set': {
+                        'status': 'expired',
+                        'updated_at': now
+                    }
+                }
+            )
+            
             query = {
                 'status': 'active',
                 'start_date': {'$lte': now},
@@ -536,3 +734,112 @@ class PromoCode:
         except Exception as e:
             logger.error(f"Error getting promo code analytics: {str(e)}")
             return None
+    
+    def get_offer_analytics(self, code_id):
+        """
+        Get breakdown of which offers a promo code was used on
+        
+        Returns:
+            Dictionary with offer breakdown
+        """
+        if not self._check_db_connection():
+            return None
+        
+        try:
+            code_obj = self.get_promo_code_by_id(code_id)
+            if not code_obj:
+                return None
+            
+            # Aggregate bonus earnings by offer
+            offer_breakdown = list(self.bonus_earnings_collection.aggregate([
+                {'$match': {'promo_code_id': ObjectId(code_id) if isinstance(code_id, str) else code_id}},
+                {'$group': {
+                    '_id': '$offer_id',
+                    'uses': {'$sum': 1},
+                    'total_bonus': {'$sum': '$bonus_amount'},
+                    'users': {'$addToSet': '$user_id'}
+                }},
+                {'$sort': {'uses': -1}}
+            ]))
+            
+            # Enrich with offer names
+            for item in offer_breakdown:
+                offer = self.offers_collection.find_one({'_id': item['_id']})
+                item['offer_id'] = str(item['_id'])
+                item['offer_name'] = offer.get('name', 'Unknown Offer') if offer else 'Unknown Offer'
+                item['unique_users'] = len(item['users'])
+                del item['_id']
+                del item['users']
+            
+            return {
+                'code': code_obj['code'],
+                'total_uses': code_obj['usage_count'],
+                'offer_breakdown': offer_breakdown
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting offer analytics: {str(e)}")
+            return None
+    
+    def get_user_applications(self, code_id, skip=0, limit=20):
+        """
+        Get detailed list of user applications with offer information
+        
+        Returns:
+            Tuple (applications_list, total_count)
+        """
+        if not self._check_db_connection():
+            return [], 0
+        
+        try:
+            # Get all ACTIVE user_promo_codes for this promo code
+            user_promos = list(self.user_promo_collection.find({
+                'promo_code_id': ObjectId(code_id) if isinstance(code_id, str) else code_id,
+                'is_active': True  # Only show active applications
+            }).skip(skip).limit(limit))
+            
+            total = self.user_promo_collection.count_documents({
+                'promo_code_id': ObjectId(code_id) if isinstance(code_id, str) else code_id,
+                'is_active': True  # Only count active applications
+            })
+            
+            applications = []
+            
+            for user_promo in user_promos:
+                # Get user details
+                user = self.users_collection.find_one({'_id': user_promo['user_id']})
+                
+                # Get offer applications for this user
+                offer_apps = user_promo.get('offer_applications', [])
+                
+                if offer_apps:
+                    # User has used code on specific offers
+                    for app in offer_apps:
+                        applications.append({
+                            'user_id': str(user_promo['user_id']),
+                            'username': user.get('username', 'Unknown') if user else 'Unknown',
+                            'email': user.get('email', '') if user else '',
+                            'offer_id': app.get('offer_id'),
+                            'offer_name': app.get('offer_name'),
+                            'applied_at': app.get('applied_at'),
+                            'bonus_earned': app.get('bonus_earned', 0),
+                            'conversion_id': app.get('conversion_id')
+                        })
+                else:
+                    # User applied code but hasn't used it on any offer yet
+                    applications.append({
+                        'user_id': str(user_promo['user_id']),
+                        'username': user.get('username', 'Unknown') if user else 'Unknown',
+                        'email': user.get('email', '') if user else '',
+                        'offer_id': None,
+                        'offer_name': 'Not used yet',
+                        'applied_at': user_promo.get('applied_at'),
+                        'bonus_earned': 0,
+                        'conversion_id': None
+                    })
+            
+            return applications, total
+            
+        except Exception as e:
+            logger.error(f"Error getting user applications: {str(e)}")
+            return [], 0
