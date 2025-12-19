@@ -7,7 +7,7 @@ from functools import wraps
 import logging
 from datetime import datetime, timedelta
 from bson import ObjectId
-from utils.auth import token_required
+from utils.auth import token_required, subadmin_or_admin_required
 
 logger = logging.getLogger(__name__)
 
@@ -576,7 +576,7 @@ def track_comprehensive_conversion():
 
 @comprehensive_analytics_bp.route('/api/admin/offerwall/click-history', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('comprehensive-analytics')
 def get_click_history():
     """Get detailed click history with all information"""
     try:
@@ -676,7 +676,7 @@ def get_click_history():
 
 @comprehensive_analytics_bp.route('/api/admin/offerwall/click-details/<click_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('comprehensive-analytics')
 def get_click_details(click_id):
     """Get detailed information about a specific click or conversion"""
     try:
@@ -879,7 +879,7 @@ def get_publisher_click_timeline(publisher_id):
 
 @comprehensive_analytics_bp.route('/api/admin/offerwall/fraud-signals/<signal_id>', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('comprehensive-analytics')
 def update_fraud_signal(signal_id):
     """Update fraud signal status (mark as false positive or confirm fraud)"""
     try:

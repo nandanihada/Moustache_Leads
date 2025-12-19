@@ -35,34 +35,67 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { useEffect, useState } from "react";
+import subadminService from "@/services/subadminService";
 
 const adminMenuItems = [
-  { title: "Overview", url: "/admin", icon: Shield },
-  { title: "Offers", url: "/admin/offers", icon: Gift },
-  { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap },
-  { title: "Bonus Management", url: "/admin/bonus-management", icon: Wallet },
-  { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck },
-  { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare },
-  { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp },
-  { title: "Comprehensive Analytics", url: "/admin/comprehensive-analytics", icon: BarChart3 },
-  { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick },
-  { title: "Login Logs", url: "/admin/login-logs", icon: LogIn },
-  { title: "Active Users", url: "/admin/active-users", icon: UserCog },
-  { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle },
-  { title: "Reports", url: "/admin/reports", icon: FileText },
-  { title: "Tracking", url: "/admin/tracking", icon: Monitor },
-  { title: "Test Tracking", url: "/admin/test-tracking", icon: TestTube },
-  { title: "Partners", url: "/admin/partners", icon: Handshake },
-  { title: "Postback Receiver", url: "/admin/postback-receiver", icon: Inbox },
-  { title: "Postback Logs", url: "/admin/postback-logs", icon: Activity },
-  { title: "Users", url: "/admin/users", icon: Users },
-  { title: "Analytics", url: "/admin/analytics", icon: BarChart3 },
-  { title: "Settings", url: "/admin/settings", icon: Settings },
+  { title: "Overview", url: "/admin", icon: Shield, tab: "overview" },
+  { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
+  { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
+  { title: "Bonus Management", url: "/admin/bonus-management", icon: Wallet, tab: "bonus-management" },
+  { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
+  { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare, tab: "placement-approval" },
+  { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
+  { title: "Comprehensive Analytics", url: "/admin/comprehensive-analytics", icon: BarChart3, tab: "comprehensive-analytics" },
+  { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick, tab: "click-tracking" },
+  { title: "Login Logs", url: "/admin/login-logs", icon: LogIn, tab: "login-logs" },
+  { title: "Active Users", url: "/admin/active-users", icon: UserCog, tab: "active-users" },
+  { title: "Subadmin Management", url: "/admin/subadmin-management", icon: Shield, tab: "subadmin-management" },
+  { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle, tab: "fraud-management" },
+  { title: "Reports", url: "/admin/reports", icon: FileText, tab: "reports" },
+  { title: "Tracking", url: "/admin/tracking", icon: Monitor, tab: "tracking" },
+  { title: "Test Tracking", url: "/admin/test-tracking", icon: TestTube, tab: "test-tracking" },
+  { title: "Partners", url: "/admin/partners", icon: Handshake, tab: "partners" },
+  { title: "Postback Receiver", url: "/admin/postback-receiver", icon: Inbox, tab: "postback-receiver" },
+  { title: "Postback Logs", url: "/admin/postback-logs", icon: Activity, tab: "postback-logs" },
+  { title: "Users", url: "/admin/users", icon: Users, tab: "publishers" },
+  { title: "Analytics", url: "/admin/analytics", icon: BarChart3, tab: "analytics" },
+  { title: "Settings", url: "/admin/settings", icon: Settings, tab: "settings" },
 ];
 
 export function AdminSidebar() {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
+  const [allowedTabs, setAllowedTabs] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchPermissions = async () => {
+      try {
+        if (user?.role === 'admin') {
+          // Admin sees all tabs
+          setAllowedTabs(adminMenuItems.map(item => item.tab));
+        } else if (user?.role === 'subadmin') {
+          // Fetch subadmin permissions
+          const perms = await subadminService.getMyPermissions();
+          setAllowedTabs(perms.allowed_tabs);
+        } else {
+          // Other roles see no tabs
+          setAllowedTabs([]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch permissions:', error);
+        // On error, show no tabs for safety
+        setAllowedTabs([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchPermissions();
+    }
+  }, [user]);
 
   const handleLogout = () => {
     logout();
@@ -72,6 +105,11 @@ export function AdminSidebar() {
   const handleBackToDashboard = () => {
     navigate("/dashboard");
   };
+
+  // Filter menu items based on permissions
+  const visibleMenuItems = adminMenuItems.filter(item =>
+    user?.role === 'admin' || allowedTabs.includes(item.tab)
+  );
 
   return (
     <Sidebar className="w-64 border-r border-border/60">
@@ -91,25 +129,31 @@ export function AdminSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {adminMenuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink
-                      to={item.url}
-                      end={item.url === "/admin"}
-                      className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
-                          ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500"
-                          : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
-                        }`
-                      }
-                    >
-                      <item.icon className="h-5 w-5" />
-                      <span className="font-medium">{item.title}</span>
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {loading ? (
+                <div className="px-3 py-2 text-sm text-muted-foreground">Loading...</div>
+              ) : visibleMenuItems.length === 0 ? (
+                <div className="px-3 py-2 text-sm text-muted-foreground">No permissions</div>
+              ) : (
+                visibleMenuItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.url}
+                        end={item.url === "/admin"}
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
+                            ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500"
+                            : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
+                          }`
+                        }
+                      >
+                        <item.icon className="h-5 w-5" />
+                        <span className="font-medium">{item.title}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

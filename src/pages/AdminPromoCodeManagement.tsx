@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { Plus, Edit2, Pause, Play, BarChart3, Users, Trash2, Copy, CheckCircle, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 interface PromoCode {
   _id: string;
@@ -51,7 +52,7 @@ interface CreatePromoCodeForm {
   auto_deactivate_on_max_uses: boolean;
 }
 
-export default function AdminPromoCodeManagement() {
+function AdminPromoCodeManagement() {
   const { token } = useAuth();
   const [promoCodes, setPromoCodes] = useState<PromoCode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -815,3 +816,12 @@ export default function AdminPromoCodeManagement() {
     </div>
   );
 }
+
+const AdminPromoCodeManagementWithGuard = () => (
+  <AdminPageGuard requiredTab="promo-codes">
+    <AdminPromoCodeManagement />
+  </AdminPageGuard>
+);
+
+export default AdminPromoCodeManagementWithGuard;
+

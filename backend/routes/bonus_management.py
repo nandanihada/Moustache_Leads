@@ -6,7 +6,7 @@ Admin and publisher endpoints for managing bonus earnings
 from flask import Blueprint, request, jsonify
 from database import db_instance
 from services.bonus_calculation_service import BonusCalculationService
-from utils.auth import token_required, admin_required
+from utils.auth import token_required, admin_required, subadmin_or_admin_required
 from bson import ObjectId
 import logging
 
@@ -18,7 +18,7 @@ bonus_service = BonusCalculationService()
 
 @bonus_management_bp.route('/api/admin/bonus/process-pending', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('bonus-management')
 def process_pending_bonuses():
     """Process pending bonus calculations for all conversions"""
     try:
@@ -40,7 +40,7 @@ def process_pending_bonuses():
 
 @bonus_management_bp.route('/api/admin/bonus/conversion/<conversion_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('bonus-management')
 def get_conversion_bonus(conversion_id):
     """Get bonus details for a specific conversion"""
     try:
@@ -57,7 +57,7 @@ def get_conversion_bonus(conversion_id):
 
 
 @bonus_management_bp.route('/api/admin/bonus/user/<user_id>/summary', methods=['GET'])
-@admin_required
+@subadmin_or_admin_required('bonus-management')
 def get_user_bonus_summary(user_id):
     """Get bonus summary for a user"""
     try:
@@ -75,7 +75,7 @@ def get_user_bonus_summary(user_id):
 
 @bonus_management_bp.route('/api/admin/bonus/earnings', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('bonus-management')
 def list_bonus_earnings():
     """List all bonus earnings with filtering"""
     try:
@@ -125,7 +125,7 @@ def list_bonus_earnings():
 
 
 @bonus_management_bp.route('/api/admin/bonus/credit/<conversion_id>', methods=['POST'])
-@admin_required
+@subadmin_or_admin_required('bonus-management')
 def credit_bonus_manually(conversion_id):
     """Manually credit bonus to user's balance"""
     try:
@@ -145,7 +145,7 @@ def credit_bonus_manually(conversion_id):
 
 @bonus_management_bp.route('/api/admin/bonus/statistics', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('bonus-management')
 def get_bonus_statistics():
     """Get overall bonus statistics"""
     try:

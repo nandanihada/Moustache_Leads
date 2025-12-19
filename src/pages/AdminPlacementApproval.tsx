@@ -55,6 +55,7 @@ import {
 } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { Label } from '@/components/ui/label';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 
@@ -1189,4 +1190,10 @@ const AdminPlacementApproval = () => {
   );
 };
 
-export default AdminPlacementApproval;
+const AdminPlacementApprovalWithGuard = () => (
+  <AdminPageGuard requiredTab="placement-approval">
+    <AdminPlacementApproval />
+  </AdminPageGuard>
+);
+
+export default AdminPlacementApprovalWithGuard;

@@ -21,6 +21,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { API_BASE_URL } from '../services/apiConfig';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 interface DashboardStats {
   total_sessions: number;
@@ -358,4 +359,10 @@ const AdminOfferwallAnalytics: React.FC = () => {
   );
 };
 
-export default AdminOfferwallAnalytics;
+const AdminOfferwallAnalyticsWithGuard = () => (
+  <AdminPageGuard requiredTab="offerwall-analytics">
+    <AdminOfferwallAnalytics />
+  </AdminPageGuard>
+);
+
+export default AdminOfferwallAnalyticsWithGuard;

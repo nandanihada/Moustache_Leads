@@ -56,14 +56,23 @@ class ActivityTrackingService:
             
             if status == 'success':
                 try:
-                    from services.vpn_detection_service import get_vpn_detection_service
+                    from services.ipinfo_service import get_ip2location_service
                     from services.fraud_detection_service import get_fraud_detection_service
                     from database import db_instance
                     
-                    # 1. VPN Detection
-                    vpn_service = get_vpn_detection_service(db_instance)
-                    vpn_detection = vpn_service.check_ip(ip_address)
-                    logger.info(f"🔍 VPN check for {ip_address}: {vpn_detection}")
+                    # 1. IPinfo - Superior IP Intelligence
+                    ipinfo_service = get_ip2location_service()
+                    ip_data = ipinfo_service.lookup_ip(ip_address)
+                    
+                    if ip_data:
+                        vpn_detection = ip_data.get('vpn_detection', {})
+                        logger.info(f"🔍 IPinfo check for {ip_address}: VPN={vpn_detection.get('is_vpn')}, Proxy={vpn_detection.get('is_proxy')}, ISP={vpn_detection.get('isp')}")
+                    else:
+                        # Fallback to old VPN detection service if IPinfo fails
+                        from services.vpn_detection_service import get_vpn_detection_service
+                        vpn_service = get_vpn_detection_service(db_instance)
+                        vpn_detection = vpn_service.check_ip(ip_address)
+                        logger.info(f"🔍 VPN check (fallback) for {ip_address}: {vpn_detection}")
                     
                     # 2. Device Fingerprinting
                     device_fingerprint = self.login_log_model.calculate_device_fingerprint(device_info)
@@ -80,8 +89,14 @@ class ActivityTrackingService:
                     fraud_analysis = fraud_service.analyze_login({
                         'vpn_detection': vpn_detection,
                         'device_change_detected': device_change_detected,
-                        'session_frequency': session_frequency
+                        'session_frequency': session_frequency,
+                        'ip_data': ip_data  # Pass full IP2Location data
                     })
+                    
+                    # Use IP2Location fraud score if available, otherwise use calculated
+                    if ip_data and 'fraud_score' in ip_data:
+                        fraud_analysis['fraud_score'] = max(fraud_analysis.get('fraud_score', 0), ip_data['fraud_score'])
+                        fraud_analysis['risk_level'] = ip_data.get('risk_level', fraud_analysis.get('risk_level', 'low'))
                     
                     logger.info(f"🚨 Fraud score for {user_data.get('email')}: {fraud_analysis.get('fraud_score')}/100 ({fraud_analysis.get('risk_level')})")
                     
@@ -300,32 +315,55 @@ class ActivityTrackingService:
             return 'unknown'
     
     def _get_location(self, ip_address):
-        """Get location from IP address"""
+        """Get location and IP intelligence from IP2Location"""
         try:
-            # You can integrate with a geolocation service here
-            # For now, return a placeholder
-            # TODO: Integrate with ipapi.co, ipstack, or similar service
+            # Use IP2Location service for comprehensive IP intelligence
+            from services.ip2location_service import get_ip2location_service
             
-            return {
-                'ip': ip_address,
-                'city': 'Unknown',
-                'region': 'Unknown',
-                'country': 'Unknown',
-                'country_code': 'XX',
-                'latitude': 0,
-                'longitude': 0,
-                'timezone': 'UTC'
-            }
+            ip2location_service = get_ip2location_service()
+            ip_data = ip2location_service.lookup_ip(ip_address)
+            
+            if ip_data:
+                # Return location data in expected format
+                return {
+                    'ip': ip_address,
+                    'city': ip_data.get('city', 'Unknown'),
+                    'region': ip_data.get('region', 'Unknown'),
+                    'country': ip_data.get('country', 'Unknown'),
+                    'country_code': ip_data.get('country_code', 'XX'),
+                    'latitude': ip_data.get('latitude', 0),
+                    'longitude': ip_data.get('longitude', 0),
+                    'timezone': ip_data.get('time_zone', 'UTC'),
+                    # Additional IP2Location fields
+                    'isp': ip_data.get('isp', 'Unknown'),
+                    'domain': ip_data.get('domain', ''),
+                    'asn': ip_data.get('asn', ''),
+                    'usage_type': ip_data.get('usage_type', 'Unknown')
+                }
+            else:
+                # Fallback to default
+                return self._get_default_location(ip_address)
             
         except Exception as e:
-            logger.error(f"Error getting location: {str(e)}", exc_info=True)
-            return {
-                'ip': ip_address,
-                'city': 'Unknown',
-                'region': 'Unknown',
-                'country': 'Unknown',
-                'country_code': 'XX'
-            }
+            logger.error(f"Error getting location from IP2Location: {str(e)}", exc_info=True)
+            return self._get_default_location(ip_address)
+    
+    def _get_default_location(self, ip_address):
+        """Get default location data when IP2Location is unavailable"""
+        return {
+            'ip': ip_address,
+            'city': 'Unknown',
+            'region': 'Unknown',
+            'country': 'Unknown',
+            'country_code': 'XX',
+            'latitude': 0,
+            'longitude': 0,
+            'timezone': 'UTC',
+            'isp': 'Unknown',
+            'domain': '',
+            'asn': '',
+            'usage_type': 'Unknown'
+        }
     
     def _extract_utm_params(self, url):
         """Extract UTM parameters from URL"""

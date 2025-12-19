@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Filter, RefreshCw, BarChart3, TrendingUp, Users, AlertTriangle, DollarSign } from 'lucide-react';
 import { API_BASE_URL } from '../services/apiConfig';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 interface AnalyticsData {
   impressions: number;
@@ -62,7 +63,7 @@ interface OfferTracking {
   };
 }
 
-export default function ComprehensiveOfferwallAnalytics() {
+function ComprehensiveOfferwallAnalytics() {
   const [activeTab, setActiveTab] = useState('overview');
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [userTracking, setUserTracking] = useState<UserTracking | null>(null);
@@ -546,3 +547,12 @@ export default function ComprehensiveOfferwallAnalytics() {
     </div>
   );
 }
+
+const ComprehensiveOfferwallAnalyticsWithGuard = () => (
+  <AdminPageGuard requiredTab="comprehensive-analytics">
+    <ComprehensiveOfferwallAnalytics />
+  </AdminPageGuard>
+);
+
+export default ComprehensiveOfferwallAnalyticsWithGuard;
+

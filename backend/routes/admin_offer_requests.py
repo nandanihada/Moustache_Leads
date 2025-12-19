@@ -3,7 +3,7 @@ from services.access_control_service import AccessControlService
 from services.email_service import get_email_service
 from models.offer import Offer
 from models.user import User
-from utils.auth import token_required, admin_required
+from utils.auth import token_required, admin_required, subadmin_or_admin_required
 from utils.json_serializer import safe_json_response
 from database import db_instance
 import logging
@@ -15,7 +15,7 @@ offer_model = Offer()
 
 @admin_offer_requests_bp.route('/offer-access-requests', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offer-access-requests')
 def get_all_access_requests():
     """Get all offer access requests with advanced filtering"""
     try:
@@ -146,7 +146,7 @@ def get_all_access_requests():
 
 @admin_offer_requests_bp.route('/offer-access-requests/<request_id>/approve', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offer-access-requests')
 def approve_access_request(request_id):
     """Approve an access request"""
     try:
@@ -238,7 +238,7 @@ def approve_access_request(request_id):
 
 @admin_offer_requests_bp.route('/offer-access-requests/<request_id>/reject', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offer-access-requests')
 def reject_access_request(request_id):
     """Reject an access request"""
     try:
@@ -331,7 +331,7 @@ def reject_access_request(request_id):
 
 @admin_offer_requests_bp.route('/offer-access-requests/stats', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offer-access-requests')
 def get_access_requests_stats():
     """Get statistics for access requests"""
     try:
@@ -385,7 +385,7 @@ def get_access_requests_stats():
 
 @admin_offer_requests_bp.route('/offers/<offer_id>/approval-settings', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offer-access-requests')
 def update_offer_approval_settings(offer_id):
     """Update approval settings for an offer"""
     try:
@@ -427,7 +427,7 @@ def update_offer_approval_settings(offer_id):
 
 @admin_offer_requests_bp.route('/offers/check-inactive', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offer-access-requests')
 def check_inactive_offers():
     """Manually trigger check for inactive offers that should be locked"""
     try:

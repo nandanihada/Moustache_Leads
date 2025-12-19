@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from database import db_instance
-from utils.auth import token_required
+from utils.auth import token_required, subadmin_or_admin_required
 import logging
 import uuid
 from datetime import datetime
@@ -22,7 +22,7 @@ def admin_required(f):
 
 @partners_bp.route('/partners', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('partners')
 def create_partner():
     """Create a new partner with postback configuration"""
     try:
@@ -72,7 +72,7 @@ def create_partner():
 
 @partners_bp.route('/partners', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('partners')
 def get_partners():
     """Get all partners"""
     try:
@@ -104,7 +104,7 @@ def get_partners():
 
 @partners_bp.route('/partners/<partner_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('partners')
 def get_partner(partner_id):
     """Get a single partner by ID"""
     try:
@@ -124,7 +124,7 @@ def get_partner(partner_id):
 
 @partners_bp.route('/partners/<partner_id>', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('partners')
 def update_partner(partner_id):
     """Update a partner"""
     try:
@@ -178,7 +178,7 @@ def update_partner(partner_id):
 
 @partners_bp.route('/partners/<partner_id>', methods=['DELETE'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('partners')
 def delete_partner(partner_id):
     """Delete a partner"""
     try:
@@ -211,7 +211,7 @@ def delete_partner(partner_id):
 
 @partners_bp.route('/partners/<partner_id>/test', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('partners')
 def test_partner_postback(partner_id):
     """Test partner postback URL with sample data"""
     try:

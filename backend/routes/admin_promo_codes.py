@@ -4,7 +4,7 @@ Handles creation, editing, and management of promotional codes
 """
 
 from flask import Blueprint, request, jsonify
-from utils.auth import token_required, admin_required
+from utils.auth import token_required, admin_required, subadmin_or_admin_required
 from models.promo_code import PromoCode
 from database import db_instance
 from services.email_service import get_email_service
@@ -18,7 +18,7 @@ admin_promo_codes_bp = Blueprint('admin_promo_codes', __name__)
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def create_promo_code():
     """Create a new promo code and notify all publishers"""
     try:
@@ -74,7 +74,7 @@ def create_promo_code():
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def get_promo_codes():
     """Get all promo codes with filtering and pagination"""
     try:
@@ -152,7 +152,7 @@ def get_promo_codes():
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def get_promo_code(code_id):
     """Get a specific promo code"""
     try:
@@ -173,7 +173,7 @@ def get_promo_code(code_id):
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def update_promo_code(code_id):
     """Update a promo code"""
     try:
@@ -206,7 +206,7 @@ def update_promo_code(code_id):
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/pause', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def pause_promo_code(code_id):
     """Pause a promo code"""
     try:
@@ -234,7 +234,7 @@ def pause_promo_code(code_id):
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/resume', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def resume_promo_code(code_id):
     """Resume a paused promo code"""
     try:
@@ -262,7 +262,7 @@ def resume_promo_code(code_id):
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/analytics', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def get_promo_code_analytics(code_id):
     """Get analytics for a promo code"""
     try:
@@ -283,7 +283,7 @@ def get_promo_code_analytics(code_id):
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/users', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def get_promo_code_users(code_id):
     """Get users who applied a promo code"""
     try:
@@ -328,7 +328,7 @@ def get_promo_code_users(code_id):
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/bulk-apply', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def bulk_apply_to_offers():
     """Apply a promo code to multiple offers"""
     try:
@@ -376,7 +376,7 @@ def bulk_apply_to_offers():
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/offer-analytics', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def get_offer_analytics(code_id):
     """Get breakdown of which offers a promo code was used on"""
     try:
@@ -397,7 +397,7 @@ def get_offer_analytics(code_id):
 
 @admin_promo_codes_bp.route('/api/admin/promo-codes/<code_id>/user-applications', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('promo-codes')
 def get_user_applications(code_id):
     """Get detailed list of user applications with offer information"""
     try:

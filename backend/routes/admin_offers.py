@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from models.offer import Offer
 from models.offer_extended import OfferExtended
 from models.link_masking import LinkMasking
-from utils.auth import token_required
+from utils.auth import token_required, subadmin_or_admin_required
 from utils.json_serializer import safe_json_response, serialize_for_json
 from utils.frontend_mapping import FrontendDatabaseMapper
 from services.email_service import get_email_service
@@ -29,7 +29,7 @@ def admin_required(f):
 
 @admin_offers_bp.route('/offers', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def create_offer():
     """Create a new offer (Admin only)"""
     try:
@@ -244,7 +244,7 @@ def create_offer():
 
 @admin_offers_bp.route('/offers', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def get_offers():
     """Get all offers with filtering and pagination (Admin only)"""
     try:
@@ -286,7 +286,7 @@ def get_offers():
 
 @admin_offers_bp.route('/offers/<offer_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def get_offer(offer_id):
     """Get a specific offer by ID (Admin only)"""
     try:
@@ -303,7 +303,7 @@ def get_offer(offer_id):
 
 @admin_offers_bp.route('/offers/<offer_id>', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def update_offer(offer_id):
     """Update an offer (Admin only)"""
     try:
@@ -449,7 +449,7 @@ def update_offer(offer_id):
 
 @admin_offers_bp.route('/offers/<offer_id>/access-requests', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def get_access_requests():
     """Get access requests for an offer"""
     try:
@@ -470,7 +470,7 @@ def get_access_requests():
 
 @admin_offers_bp.route('/offers/<offer_id>/access-requests/<request_id>/approve', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def approve_access_request():
     """Approve an access request"""
     try:
@@ -496,7 +496,7 @@ def approve_access_request():
 
 @admin_offers_bp.route('/offers/<offer_id>/access-requests/<request_id>/reject', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def reject_access_request():
     """Reject an access request"""
     try:
@@ -524,7 +524,7 @@ def reject_access_request():
 
 @admin_offers_bp.route('/offers/<offer_id>', methods=['DELETE'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def delete_offer(offer_id):
     """Delete an offer (Admin only)"""
     try:
@@ -541,7 +541,7 @@ def delete_offer(offer_id):
 
 @admin_offers_bp.route('/offers/<offer_id>/clone', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def clone_offer(offer_id):
     """Clone an existing offer (Admin only)"""
     try:
@@ -581,7 +581,7 @@ def clone_offer(offer_id):
 
 @admin_offers_bp.route('/offers/<offer_id>/settings', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def get_offer_settings(offer_id):
     """Get advanced settings for an offer"""
     try:
@@ -628,7 +628,7 @@ def get_offer_settings(offer_id):
 
 @admin_offers_bp.route('/offers/<offer_id>/settings', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def update_offer_settings(offer_id):
     """Update advanced settings for an offer"""
     try:
@@ -657,7 +657,7 @@ def update_offer_settings(offer_id):
 
 @admin_offers_bp.route('/offers/stats', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def get_offers_stats():
     """Get offer statistics (Admin only)"""
     try:
@@ -704,7 +704,7 @@ def get_offers_stats():
 
 @admin_offers_bp.route('/offers/<offer_id>/assign-promo-code', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offers')
 def assign_promo_code_to_offer(offer_id):
     """Assign promo code to offer and notify all publishers"""
     try:

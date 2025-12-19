@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Plus, 
-  Copy, 
-  X, 
-  Eye, 
+import {
+  Plus,
+  Copy,
+  X,
+  Eye,
   Download,
   Search,
   Filter,
@@ -42,6 +42,7 @@ import { AdvancedSettingsModal } from '@/components/AdvancedSettingsModal';
 import { OfferDetailsModal } from '@/components/OfferDetailsModal';
 import { adminOfferApi, Offer } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const AdminOffers = () => {
   const { toast } = useToast();
@@ -157,7 +158,7 @@ const AdminOffers = () => {
   const handleCSVExport = async () => {
     try {
       setLoading(true);
-      
+
       // Get all offers for export (without pagination)
       const allOffers = await adminOfferApi.getOffers({
         page: 1,
@@ -232,7 +233,7 @@ const AdminOffers = () => {
       const headers = Object.keys(csvData[0]);
       const csvContent = [
         headers.join(','),
-        ...csvData.map(row => 
+        ...csvData.map(row =>
           headers.map(header => {
             const value = row[header as keyof typeof row];
             // Escape commas and quotes in CSV
@@ -250,12 +251,12 @@ const AdminOffers = () => {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      
+
       // Generate filename with timestamp
       const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
       const filename = `offers-export-${timestamp}.csv`;
       link.setAttribute('download', filename);
-      
+
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
@@ -311,7 +312,7 @@ const AdminOffers = () => {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Button 
+              <Button
                 className="bg-primary hover:bg-primary/90"
                 onClick={() => setAddOfferModalOpen(true)}
               >
@@ -403,8 +404,8 @@ const AdminOffers = () => {
           ) : offers.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground">No offers found</p>
-              <Button 
-                className="mt-4" 
+              <Button
+                className="mt-4"
                 onClick={() => setAddOfferModalOpen(true)}
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -433,7 +434,7 @@ const AdminOffers = () => {
                     <TableCell>
                       {(() => {
                         const creativeType = (offer as any).creative_type || 'image';
-                        
+
                         if (creativeType === 'image' || creativeType === 'upload') {
                           return (offer.thumbnail_url || offer.image_url) ? (
                             <img
@@ -452,7 +453,7 @@ const AdminOffers = () => {
                           );
                         } else if (creativeType === 'html' && (offer as any).html_code) {
                           return (
-                            <div 
+                            <div
                               className="w-12 h-12 rounded border overflow-hidden text-xs"
                               dangerouslySetInnerHTML={{ __html: (offer as any).html_code }}
                               style={{ transform: 'scale(0.2)', transformOrigin: 'top left', width: '240px', height: '240px' }}
@@ -460,7 +461,7 @@ const AdminOffers = () => {
                           );
                         } else if (creativeType === 'email' && (offer as any).email_template) {
                           return (
-                            <div 
+                            <div
                               className="w-12 h-12 rounded border overflow-hidden text-xs"
                               dangerouslySetInnerHTML={{ __html: (offer as any).email_template }}
                               style={{ transform: 'scale(0.2)', transformOrigin: 'top left', width: '240px', height: '240px' }}
@@ -487,8 +488,8 @@ const AdminOffers = () => {
                       <div>
                         <div className="font-medium">{offer.name}</div>
                         <div className="text-sm text-muted-foreground">
-                          {offer.affiliates === 'all' ? 'All Users' : 
-                           offer.affiliates === 'premium' ? 'Premium Only' : 'Selected Users'}
+                          {offer.affiliates === 'all' ? 'All Users' :
+                            offer.affiliates === 'premium' ? 'Premium Only' : 'Selected Users'}
                         </div>
                       </div>
                     </TableCell>
@@ -557,7 +558,7 @@ const AdminOffers = () => {
                             <ExternalLink className="h-4 w-4 mr-2" />
                             Preview
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-red-600"
                             onClick={() => handleDeleteOffer(offer.offer_id)}
                           >
@@ -632,4 +633,10 @@ const AdminOffers = () => {
   );
 };
 
-export default AdminOffers;
+const AdminOffersWithGuard = () => (
+  <AdminPageGuard requiredTab="offers">
+    <AdminOffers />
+  </AdminPageGuard>
+);
+
+export default AdminOffersWithGuard;

@@ -31,6 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { partnerApi, Partner, CreatePartnerData } from '@/services/partnerApi';
 import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,7 +54,7 @@ const Partners: React.FC = () => {
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
   const [testResult, setTestResult] = useState<any>(null);
   const [testLoading, setTestLoading] = useState(false);
-  
+
   const [formData, setFormData] = useState<CreatePartnerData>({
     partner_name: '',
     postback_url: '',
@@ -320,7 +321,7 @@ const Partners: React.FC = () => {
               Configure a new partner with postback URL and settings
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div>
               <Label htmlFor="partner_name">Partner Name *</Label>
@@ -419,7 +420,7 @@ const Partners: React.FC = () => {
               Update partner configuration
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div>
               <Label htmlFor="edit_partner_name">Partner Name *</Label>
@@ -595,10 +596,10 @@ const Partners: React.FC = () => {
 
               <div>
                 <Label>Test Data Sent</Label>
-                <Textarea 
-                  value={JSON.stringify(testResult.test_data, null, 2)} 
-                  readOnly 
-                  rows={6} 
+                <Textarea
+                  value={JSON.stringify(testResult.test_data, null, 2)}
+                  readOnly
+                  rows={6}
                   className="font-mono text-sm"
                 />
               </div>
@@ -616,4 +617,10 @@ const Partners: React.FC = () => {
   );
 };
 
-export default Partners;
+const PartnersWithGuard = () => (
+  <AdminPageGuard requiredTab="partners">
+    <Partners />
+  </AdminPageGuard>
+);
+
+export default PartnersWithGuard;

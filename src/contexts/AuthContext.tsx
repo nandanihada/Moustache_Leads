@@ -15,6 +15,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loading: boolean;
   isAdmin: boolean;
+  isAdminOrSubadmin: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -97,6 +98,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAuthenticated: !!token && !!user,
     loading,
     isAdmin: user?.role === 'admin',
+    isAdminOrSubadmin: user?.role === 'admin' || user?.role === 'subadmin',
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -145,3 +145,56 @@ def admin_required(f):
         # Don't pass current_user - it's already in args if using token_required_with_user
         return f(*args, **kwargs)
     return decorated_function
+
+
+def subadmin_or_admin_required(tab_name):
+    """
+    Decorator to require admin or subadmin with permission for specific tab
+    Admin users bypass all permission checks
+    Subadmin users must have permission for the specified tab
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user = getattr(request, 'current_user', None)
+            if not user:
+                return jsonify({'error': 'Authentication required'}), 401
+            
+            user_role = user.get('role')
+            
+            # Admin has full access
+            if user_role == 'admin':
+                return f(*args, **kwargs)
+            
+            # Subadmin needs permission check
+            if user_role == 'subadmin':
+                from models.subadmin_permissions import SubadminPermissions
+                permissions_model = SubadminPermissions()
+                
+                user_id = str(user['_id'])
+                has_permission = permissions_model.check_permission(user_id, tab_name)
+                
+                if has_permission:
+                    return f(*args, **kwargs)
+                else:
+                    return jsonify({'error': f'Access denied. You do not have permission to access {tab_name}'}), 403
+            
+            # Other roles don't have access
+            return jsonify({'error': 'Admin or subadmin access required'}), 403
+        
+        return decorated_function
+    return decorator
+
+
+def admin_only_required(f):
+    """
+    Decorator to require strict admin role (no subadmin access)
+    Use for sensitive operations like user management, subadmin creation, etc.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = getattr(request, 'current_user', None)
+        if not user or user.get('role') != 'admin':
+            return jsonify({'error': 'Admin-only access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function

@@ -21,6 +21,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, Clock, MapPin, Smartphone, Globe, Shield, Zap } from 'lucide-react';
 import { API_BASE_URL } from '../services/apiConfig';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 interface Click {
   click_id: string;
@@ -117,7 +118,7 @@ interface ClickDetails extends Click {
   };
 }
 
-export default function AdminClickTracking() {
+function AdminClickTracking() {
   const [activeTab, setActiveTab] = useState('all-clicks');
   const [clicks, setClicks] = useState<Click[]>([]);
   const [loading, setLoading] = useState(false);
@@ -938,3 +939,12 @@ export default function AdminClickTracking() {
     </div>
   );
 }
+
+const AdminClickTrackingWithGuard = () => (
+  <AdminPageGuard requiredTab="click-tracking">
+    <AdminClickTracking />
+  </AdminPageGuard>
+);
+
+export default AdminClickTrackingWithGuard;
+

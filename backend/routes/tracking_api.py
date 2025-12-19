@@ -6,7 +6,7 @@ Handles offer completion tracking, click tracking, and tracking statistics
 from flask import Blueprint, request, jsonify
 from services.tracking_service import TrackingService
 from models.tracking_events import TrackingEvents
-from utils.auth import token_required
+from utils.auth import token_required, subadmin_or_admin_required
 from datetime import datetime, timedelta
 import logging
 
@@ -163,7 +163,7 @@ def get_tracking_stats():
 
 @tracking_api_bp.route('/track/events', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('tracking')
 def get_tracking_events():
     """
     Get recent tracking events (Admin only)
@@ -195,7 +195,7 @@ def get_tracking_events():
 
 @tracking_api_bp.route('/track/events/stats', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('tracking')
 def get_event_stats():
     """
     Get event statistics (Admin only)
@@ -216,7 +216,7 @@ def get_event_stats():
 
 @tracking_api_bp.route('/track/offer/<offer_id>/events', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('tracking')
 def get_offer_events(offer_id):
     """
     Get tracking events for a specific offer (Admin only)
@@ -239,7 +239,7 @@ def get_offer_events(offer_id):
 
 @tracking_api_bp.route('/track/user/<user_id>/events', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('tracking')
 def get_user_events(user_id):
     """
     Get tracking events for a specific user (Admin only)

@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const PostbackLogs: React.FC = () => {
   const { toast } = useToast();
@@ -684,4 +685,10 @@ const PostbackLogs: React.FC = () => {
   );
 };
 
-export default PostbackLogs;
+const PostbackLogsWithGuard = () => (
+  <AdminPageGuard requiredTab="postback-logs">
+    <PostbackLogs />
+  </AdminPageGuard>
+);
+
+export default PostbackLogsWithGuard;

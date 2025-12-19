@@ -39,7 +39,7 @@ class User:
             'username': username,
             'email': email,
             'password': hashed_password,
-            'role': kwargs.get('role', 'user'),  # Default role is 'user', can be 'admin' or 'partner'
+            'role': kwargs.get('role', 'user'),  # Default role is 'user', can be 'admin', 'subadmin', or 'partner'
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
             'is_active': True,
@@ -247,3 +247,69 @@ class User:
             return True  # Default to sending
         except Exception:
             return True
+    
+    def update_role(self, user_id, new_role):
+        """Update user role"""
+        if not self._check_db_connection():
+            return False
+        
+        # Validate role
+        allowed_roles = ['user', 'admin', 'subadmin', 'partner']
+        if new_role not in allowed_roles:
+            return False
+        
+        try:
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'role': new_role,
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            return False
+    
+    def get_users_by_role(self, role=None):
+        """Get all users, optionally filtered by role"""
+        if not self._check_db_connection():
+            return []
+        
+        try:
+            query = {}
+            if role:
+                query['role'] = role
+            
+            users = list(self.collection.find(query, {'password': 0}))
+            for user in users:
+                user['_id'] = str(user['_id'])
+            
+            return users
+        except Exception as e:
+            return []
+    
+    def get_all_users_for_selection(self):
+        """Get all users with basic info for selection dropdown"""
+        if not self._check_db_connection():
+            return []
+        
+        try:
+            users = list(self.collection.find(
+                {},
+                {
+                    '_id': 1,
+                    'username': 1,
+                    'email': 1,
+                    'role': 1,
+                    'created_at': 1
+                }
+            ))
+            
+            for user in users:
+                user['_id'] = str(user['_id'])
+            
+            return users
+        except Exception as e:
+            return []

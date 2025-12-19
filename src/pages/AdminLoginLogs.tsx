@@ -6,6 +6,7 @@ import { RefreshCw, CheckCircle, XCircle, ChevronDown, ChevronUp, ExternalLink, 
 import loginLogsService, { LoginLog, PageVisit } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
 import { FraudIndicators } from '@/components/FraudIndicators';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 
 const AdminLoginLogs: React.FC = () => {
@@ -217,6 +218,12 @@ const AdminLoginLogs: React.FC = () => {
                                                         <div className="text-muted-foreground">Location</div>
                                                         <div>{log.location.city}, {log.location.country}</div>
                                                     </div>
+                                                    {log.location.isp && (
+                                                        <div>
+                                                            <div className="text-muted-foreground">ISP</div>
+                                                            <div className="text-sm">{log.location.isp}</div>
+                                                        </div>
+                                                    )}
                                                     <div>
                                                         <div className="text-muted-foreground">Device</div>
                                                         <div>{log.device.type} - {log.device.os}</div>
@@ -306,9 +313,9 @@ const AdminLoginLogs: React.FC = () => {
                                                                     <span className="text-sm font-medium">Fraud Risk Score</span>
                                                                     <div className="flex items-center gap-2">
                                                                         <div className={`w-3 h-3 rounded-full ${log.fraud_score >= 76 ? 'bg-red-500' :
-                                                                                log.fraud_score >= 51 ? 'bg-orange-500' :
-                                                                                    log.fraud_score >= 26 ? 'bg-yellow-500' :
-                                                                                        'bg-green-500'
+                                                                            log.fraud_score >= 51 ? 'bg-orange-500' :
+                                                                                log.fraud_score >= 26 ? 'bg-yellow-500' :
+                                                                                    'bg-green-500'
                                                                             }`} />
                                                                         <span className="font-bold">{log.fraud_score}/100</span>
                                                                         <Badge variant={
@@ -442,4 +449,10 @@ const AdminLoginLogs: React.FC = () => {
     );
 };
 
-export default AdminLoginLogs;
+const AdminLoginLogsWithGuard = () => (
+    <AdminPageGuard requiredTab="login-logs">
+        <AdminLoginLogs />
+    </AdminPageGuard>
+);
+
+export default AdminLoginLogsWithGuard;

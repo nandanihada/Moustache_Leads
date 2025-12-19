@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from database import db_instance
-from utils.auth import token_required
+from utils.auth import token_required, subadmin_or_admin_required
 import logging
 from datetime import datetime, timedelta
 
@@ -20,7 +20,7 @@ def admin_required(f):
 
 @postback_logs_bp.route('/partner-distribution-logs', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('postback-logs')
 def get_partner_distribution_logs():
     """Get partner postback distribution logs"""
     try:
@@ -77,7 +77,7 @@ def get_partner_distribution_logs():
 
 @postback_logs_bp.route('/postback-logs', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('postback-logs')
 def get_postback_logs():
     """Get postback logs with filtering and pagination"""
     try:
@@ -140,7 +140,7 @@ def get_postback_logs():
 
 @postback_logs_bp.route('/postback-logs/stats', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('postback-logs')
 def get_postback_stats():
     """Get postback statistics"""
     try:
@@ -199,7 +199,7 @@ def get_postback_stats():
 
 @postback_logs_bp.route('/postback-logs/<log_id>/retry', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('postback-logs')
 def retry_postback(log_id):
     """Retry a failed postback"""
     try:
@@ -258,7 +258,7 @@ def retry_postback(log_id):
 
 @postback_logs_bp.route('/postback-logs/<log_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('postback-logs')
 def get_postback_log_details(log_id):
     """Get detailed information about a specific postback log"""
     try:

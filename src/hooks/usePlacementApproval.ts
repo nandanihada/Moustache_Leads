@@ -23,13 +23,13 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
     rejectedPlacements: [],
     loading: true,
     error: null,
-    refetch: () => {}
+    refetch: () => { }
   });
 
   const checkPlacementStatus = async () => {
     try {
       setStatus(prev => ({ ...prev, loading: true, error: null }));
-      
+
       const token = localStorage.getItem('token');
       if (!token) {
         setStatus(prev => ({
@@ -40,12 +40,12 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
         return;
       }
 
-      // Check if user is admin - admins should have full access
+      // Check if user is admin or subadmin - they should have full access
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      if (user.role === 'admin') {
+      if (user.role === 'admin' || user.role === 'subadmin') {
         setStatus(prev => ({
           ...prev,
-          hasApprovedPlacement: true, // Give admin full access
+          hasApprovedPlacement: true, // Give admin/subadmin full access
           hasPendingPlacement: false,
           hasRejectedPlacement: false,
           approvedPlacement: { id: 'admin', offerwallTitle: 'Admin Access' },
@@ -60,7 +60,7 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
       // Get all placements for the current publisher
       const placementResponse = await placementApi.getPlacements();
       const placements = placementResponse.placements || [];
-      
+
       // Categorize placements by approval status
       const approved = placements.filter(p => p.approvalStatus === 'APPROVED');
       const pending = placements.filter(p => p.approvalStatus === 'PENDING_APPROVAL');
@@ -90,10 +90,10 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
 
   useEffect(() => {
     checkPlacementStatus();
-    
+
     // Set up periodic refresh every 30 seconds to catch approval updates
     const interval = setInterval(checkPlacementStatus, 30000);
-    
+
     return () => clearInterval(interval);
   }, []);
 
@@ -111,7 +111,7 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
 // Helper hook for simple access control
 export const useRequireApprovedPlacement = () => {
   const placementStatus = usePlacementApproval();
-  
+
   return {
     ...placementStatus,
     canAccessPlatform: placementStatus.hasApprovedPlacement && !placementStatus.loading,

@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from utils.auth import token_required, admin_required
+from utils.auth import token_required, admin_required, subadmin_or_admin_required
 from models.user import User
 from models.placement import Placement
 from bson import ObjectId
@@ -12,7 +12,7 @@ admin_publishers_simple_bp = Blueprint('admin_publishers_simple', __name__)
 
 @admin_publishers_simple_bp.route('/publishers', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('publishers')
 def get_all_publishers():
     """Get all publishers with their details and statistics"""
     try:
@@ -122,7 +122,7 @@ def get_all_publishers():
 
 @admin_publishers_simple_bp.route('/publishers/<publisher_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('publishers')
 def get_publisher_details(publisher_id):
     """Get detailed information about a specific publisher"""
     try:
@@ -194,7 +194,7 @@ def get_publisher_details(publisher_id):
 
 @admin_publishers_simple_bp.route('/publishers/<publisher_id>', methods=['PUT'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('publishers')
 def update_publisher(publisher_id):
     """Update publisher details"""
     try:
@@ -229,7 +229,7 @@ def update_publisher(publisher_id):
 
 @admin_publishers_simple_bp.route('/publishers/<publisher_id>/block', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('publishers')
 def block_publisher(publisher_id):
     """Block a publisher from using offers"""
     try:
@@ -265,7 +265,7 @@ def block_publisher(publisher_id):
 
 @admin_publishers_simple_bp.route('/publishers/<publisher_id>/unblock', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('publishers')
 def unblock_publisher(publisher_id):
     """Unblock a publisher"""
     try:
@@ -299,7 +299,7 @@ def unblock_publisher(publisher_id):
 
 @admin_publishers_simple_bp.route('/publishers/<publisher_id>', methods=['DELETE'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('publishers')
 def delete_publisher(publisher_id):
     """Delete a publisher and all their placements"""
     try:

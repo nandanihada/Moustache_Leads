@@ -19,6 +19,7 @@ import {
   Download
 } from 'lucide-react';
 import { API_BASE_URL } from '../services/apiConfig';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 interface FraudSignal {
   _id: string;
@@ -438,4 +439,10 @@ const AdminFraudManagement: React.FC = () => {
   );
 };
 
-export default AdminFraudManagement;
+const AdminFraudManagementWithGuard = () => (
+  <AdminPageGuard requiredTab="fraud-management">
+    <AdminFraudManagement />
+  </AdminPageGuard>
+);
+
+export default AdminFraudManagementWithGuard;

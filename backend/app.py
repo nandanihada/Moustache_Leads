@@ -62,6 +62,7 @@ admin_offerwall_analytics_bp = safe_import_blueprint('routes.admin_offerwall_ana
 user_offerwall_rewards_bp = safe_import_blueprint('routes.user_offerwall_rewards', 'user_offerwall_rewards_bp')
 comprehensive_analytics_bp = safe_import_blueprint('routes.comprehensive_analytics', 'comprehensive_analytics_bp')
 login_logs_bp = safe_import_blueprint('routes.login_logs', 'login_logs_bp')
+admin_subadmin_management_bp = safe_import_blueprint('routes.admin_subadmin_management', 'admin_subadmin_management_bp')
 
 # Define blueprints with their URL prefixes
 blueprints = [
@@ -102,7 +103,8 @@ blueprints = [
     (admin_offerwall_analytics_bp, ''),  # Admin offerwall analytics - routes include /api/admin prefix
     (user_offerwall_rewards_bp, ''),  # User offerwall rewards - routes include /api/user prefix
     (comprehensive_analytics_bp, ''),  # Comprehensive analytics - routes include /api/admin prefix
-    (login_logs_bp, '/api/admin')  # Login logs and activity tracking - admin only
+    (login_logs_bp, '/api/admin'),  # Login logs and activity tracking - admin only
+    (admin_subadmin_management_bp, '/api/admin')  # Subadmin management - admin only
 ]
 
 def create_app():
@@ -123,10 +125,16 @@ def create_app():
                  "http://localhost:5173",
                  "http://localhost:8080",
                  "http://localhost:8081",
+                 "http://localhost:8082",
                  "http://127.0.0.1:3000",
                  "http://127.0.0.1:5173",
                  "http://127.0.0.1:8080",
                  "http://127.0.0.1:8081",
+                 "http://127.0.0.1:8082",
+                 "http://192.168.1.15:8080",
+                 "http://192.168.1.15:8081",
+                 "http://192.168.1.15:8082",
+                 "http://192.168.1.15:5173",
                  "https://moustache-leads.vercel.app",
                  "https://theinterwebsite.space",
                  "https://www.theinterwebsite.space",
@@ -151,10 +159,16 @@ def create_app():
             "http://localhost:5173",
             "http://localhost:8080",
             "http://localhost:8081",
+            "http://localhost:8082",
             "http://127.0.0.1:3000",
             "http://127.0.0.1:5173",
             "http://127.0.0.1:8080",
             "http://127.0.0.1:8081",
+            "http://127.0.0.1:8082",
+            "http://192.168.1.15:8080",
+            "http://192.168.1.15:8081",
+            "http://192.168.1.15:8082",
+            "http://192.168.1.15:5173",
             "https://moustache-leads.vercel.app",
             "https://theinterwebsite.space",
             "https://www.theinterwebsite.space",

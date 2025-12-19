@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { API_BASE_URL } from '../services/apiConfig';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 interface AccessRequest {
   _id: string;
@@ -659,4 +660,10 @@ const AdminOfferAccessRequests: React.FC = () => {
   );
 };
 
-export default AdminOfferAccessRequests;
+const AdminOfferAccessRequestsWithGuard = () => (
+  <AdminPageGuard requiredTab="offer-access-requests">
+    <AdminOfferAccessRequests />
+  </AdminPageGuard>
+);
+
+export default AdminOfferAccessRequestsWithGuard;

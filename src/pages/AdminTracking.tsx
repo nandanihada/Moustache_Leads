@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/select';
 import { trackingApi, TrackingEvent } from '@/services/trackingApi';
 import { useToast } from '@/hooks/use-toast';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const AdminTracking = () => {
   const { toast } = useToast();
@@ -414,4 +415,10 @@ const AdminTracking = () => {
   );
 };
 
-export default AdminTracking;
+const AdminTrackingWithGuard = () => (
+  <AdminPageGuard requiredTab="tracking">
+    <AdminTracking />
+  </AdminPageGuard>
+);
+
+export default AdminTrackingWithGuard;

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import loginLogsService, { ActiveSession } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const AdminActiveUsers: React.FC = () => {
     const [sessions, setSessions] = useState<ActiveSession[]>([]);
@@ -352,4 +353,10 @@ const AdminActiveUsers: React.FC = () => {
     );
 };
 
-export default AdminActiveUsers;
+const AdminActiveUsersWithGuard = () => (
+  <AdminPageGuard requiredTab="active-users">
+    <AdminActiveUsers />
+  </AdminPageGuard>
+);
+
+export default AdminActiveUsersWithGuard;

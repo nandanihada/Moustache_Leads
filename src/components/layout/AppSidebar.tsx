@@ -1,11 +1,11 @@
-import { 
-  LayoutDashboard, 
-  Target, 
-  FileImage, 
-  Gift, 
-  BarChart3, 
-  Users, 
-  CreditCard, 
+import {
+  LayoutDashboard,
+  Target,
+  FileImage,
+  Gift,
+  BarChart3,
+  Users,
+  CreditCard,
   Settings,
   LogOut,
   Zap,
@@ -18,7 +18,7 @@ import {
   XCircle,
   Trophy
 } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { useRequireApprovedPlacement } from "../../hooks/usePlacementApproval";
 import { Badge } from "@/components/ui/badge";
@@ -53,12 +53,12 @@ const menuItems = [
 
 export function AppSidebar() {
   const navigate = useNavigate();
-  const { logout, isAdmin } = useAuth();
-  const { 
-    hasApprovedPlacement, 
-    hasPendingPlacement, 
+  const { logout, isAdminOrSubadmin } = useAuth();
+  const {
+    hasApprovedPlacement,
+    hasPendingPlacement,
     hasRejectedPlacement,
-    canAccessPlatform 
+    canAccessPlatform
   } = useRequireApprovedPlacement();
 
   const handleLogout = () => {
@@ -117,8 +117,8 @@ export function AppSidebar() {
             </div>
             {!canAccessPlatform && (
               <p className="text-xs text-muted-foreground">
-                {hasPendingPlacement 
-                  ? "Your placement is under review" 
+                {hasPendingPlacement
+                  ? "Your placement is under review"
                   : "Create a placement to access offers"
                 }
               </p>
@@ -133,11 +133,11 @@ export function AppSidebar() {
                 // Items that require placement approval
                 const requiresPlacement = ['Offers', 'Reports', 'Performance Report', 'Conversion Report'].includes(item.title);
                 const isDisabled = requiresPlacement && !canAccessPlatform;
-                
+
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild>
-                      <NavLink 
+                      <NavLink
                         to={isDisabled ? '#' : item.url}
                         onClick={(e) => {
                           if (isDisabled) {
@@ -145,13 +145,12 @@ export function AppSidebar() {
                             navigate('/dashboard/placements');
                           }
                         }}
-                        className={({ isActive }) => 
-                          `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                            isDisabled 
-                              ? "text-muted-foreground/50 cursor-not-allowed opacity-50"
-                              : isActive 
-                                ? "bg-primary/10 text-primary border-r-2 border-primary" 
-                                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                        className={({ isActive }) =>
+                          `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isDisabled
+                            ? "text-muted-foreground/50 cursor-not-allowed opacity-50"
+                            : isActive
+                              ? "bg-primary/10 text-primary border-r-2 border-primary"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                           }`
                         }
                       >
@@ -167,24 +166,19 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
-              
-              {/* Admin Dashboard - Only show for admin users */}
-              {isAdmin && (
+
+              {/* Admin Dashboard - Show for admin and subadmin users */}
+              {isAdminOrSubadmin && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
-                    <NavLink 
-                      to="/admin" 
-                      className={({ isActive }) => 
-                        `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                          isActive 
-                            ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500" 
-                            : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
-                        }`
-                      }
+                    <Link
+                      to="/admin"
+                      reloadDocument
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-muted-foreground hover:text-foreground hover:bg-orange-50 cursor-pointer"
                     >
                       <Shield className="h-5 w-5" />
                       <span className="font-medium">Admin Dashboard</span>
-                    </NavLink>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
@@ -194,7 +188,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4">
-        <SidebarMenuButton 
+        <SidebarMenuButton
           onClick={handleLogout}
           className="text-muted-foreground hover:text-foreground cursor-pointer"
         >

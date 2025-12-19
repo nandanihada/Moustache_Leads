@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from utils.auth import token_required, admin_required
+from utils.auth import token_required, admin_required, subadmin_or_admin_required
 from models.publisher import Publisher
 from models.placement import Placement
 import logging
@@ -411,7 +411,7 @@ def migrate_add_api_keys():
 # Admin-only endpoints for placement approval
 @placements_bp.route('/admin/all', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('placement-approval')
 def get_all_placements_admin():
     """Get all placements for admin review"""
     try:
@@ -473,7 +473,7 @@ def get_all_placements_admin():
 
 @placements_bp.route('/admin/<placement_id>/approve', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('placement-approval')
 def approve_placement_admin(placement_id):
     """Approve a placement"""
     try:
@@ -550,7 +550,7 @@ def approve_placement_admin(placement_id):
 
 @placements_bp.route('/admin/<placement_id>/reject', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('placement-approval')
 def reject_placement_admin(placement_id):
     """Reject a placement"""
     try:
@@ -634,7 +634,7 @@ def reject_placement_admin(placement_id):
 
 @placements_bp.route('/admin/stats', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('placement-approval')
 def get_placement_stats_admin():
     """Get placement statistics for admin dashboard"""
     try:

@@ -43,6 +43,7 @@ import ComprehensiveOfferwallAnalytics from "./pages/ComprehensiveOfferwallAnaly
 import AdminClickTracking from "./pages/AdminClickTracking";
 import AdminLoginLogs from "./pages/AdminLoginLogs";
 import AdminActiveUsers from "./pages/AdminActiveUsers";
+import AdminSubadminManagement from "./pages/AdminSubadminManagement";
 import OfferwallPage from "./pages/OfferwallPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -128,6 +129,7 @@ const App = () => (
                 <Route path="partners" element={<Partners />} />
                 <Route path="postback-logs" element={<PostbackLogs />} />
                 <Route path="postback-receiver" element={<PostbackReceiver />} />
+                <Route path="subadmin-management" element={<AdminSubadminManagement />} />
               </Route>
 
               {/* Smart redirect based on authentication status */}

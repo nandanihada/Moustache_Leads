@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify
 from models.login_logs import LoginLog
 from models.page_visits import PageVisit
 from models.active_sessions import ActiveSession
-from utils.auth import token_required_with_user, admin_required
+from utils.auth import token_required_with_user, admin_required, subadmin_or_admin_required
 from utils.mongodb_json import mongodb_to_json
 from datetime import datetime, timedelta
 import logging
@@ -18,7 +18,7 @@ login_logs_bp = Blueprint('login_logs', __name__)
 
 @login_logs_bp.route('/login-logs', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('login-logs')
 def get_login_logs(current_user):
     """Get login logs with filters and pagination"""
     try:
@@ -82,7 +82,7 @@ def get_login_logs(current_user):
 
 @login_logs_bp.route('/login-logs/<log_id>', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('login-logs')
 def get_login_log(current_user, log_id):
     """Get a specific login log by ID"""
     try:
@@ -122,7 +122,7 @@ def get_user_login_history(current_user, user_id):
 
 @login_logs_bp.route('/login-logs/stats', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('login-logs')
 def get_login_stats(current_user):
     """Get login statistics"""
     try:
@@ -157,7 +157,7 @@ def get_login_stats(current_user):
 
 @login_logs_bp.route('/login-logs/failed-attempts', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('login-logs')
 def get_failed_attempts(current_user):
     """Get recent failed login attempts"""
     try:
@@ -176,7 +176,7 @@ def get_failed_attempts(current_user):
 
 @login_logs_bp.route('/active-sessions', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('active-users')
 def get_active_sessions(current_user):
     """Get all currently active sessions"""
     try:
@@ -241,7 +241,7 @@ def update_heartbeat(current_user):
 
 @login_logs_bp.route('/active-sessions/stats', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('active-users')
 def get_session_stats(current_user):
     """Get session statistics"""
     try:
@@ -324,7 +324,7 @@ def track_page_visit(current_user):
 
 @login_logs_bp.route('/page-visits/popular', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('login-logs')
 def get_popular_pages(current_user):
     """Get most visited pages"""
     try:
@@ -358,7 +358,7 @@ def get_popular_pages(current_user):
 
 @login_logs_bp.route('/activity-stats/overview', methods=['GET'])
 @token_required_with_user
-@admin_required
+@subadmin_or_admin_required('login-logs')
 def get_activity_overview(current_user):
     """Get comprehensive activity overview"""
     try:

@@ -6,7 +6,7 @@ Handles generation and retrieval of tracking reports for admin dashboard
 from flask import Blueprint, request, jsonify
 from models.reports import Reports
 from models.tracking_events import TrackingEvents
-from utils.auth import token_required
+from utils.auth import token_required, subadmin_or_admin_required
 from datetime import datetime, timedelta
 import logging
 
@@ -29,7 +29,7 @@ def admin_required(f):
 
 @reports_api_bp.route('/reports/generate', methods=['POST'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def generate_report():
     """
     Generate a new tracking report
@@ -73,7 +73,7 @@ def generate_report():
 
 @reports_api_bp.route('/reports', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def get_reports():
     """
     Get list of saved reports
@@ -95,7 +95,7 @@ def get_reports():
 
 @reports_api_bp.route('/reports/<report_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def get_report(report_id):
     """
     Get specific report by ID
@@ -117,7 +117,7 @@ def get_report(report_id):
 
 @reports_api_bp.route('/reports/<report_id>', methods=['DELETE'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def delete_report(report_id):
     """
     Delete a report
@@ -139,7 +139,7 @@ def delete_report(report_id):
 
 @reports_api_bp.route('/reports/stats/realtime', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def get_realtime_stats():
     """
     Get real-time tracking statistics for dashboard
@@ -161,7 +161,7 @@ def get_realtime_stats():
 
 @reports_api_bp.route('/reports/quick/<report_type>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def generate_quick_report(report_type):
     """
     Generate quick reports for common time periods
@@ -211,7 +211,7 @@ def generate_quick_report(report_type):
 
 @reports_api_bp.route('/reports/dashboard/summary', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def get_dashboard_summary():
     """
     Get summary data for admin dashboard
@@ -241,7 +241,7 @@ def get_dashboard_summary():
 
 @reports_api_bp.route('/reports/export/<report_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('reports')
 def export_report(report_id):
     """
     Export report data (CSV format)

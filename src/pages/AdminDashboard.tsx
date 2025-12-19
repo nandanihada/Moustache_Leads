@@ -10,10 +10,10 @@ import AdminAnalytics from './AdminAnalytics';
 const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview');
 
-  const { isAdmin, user } = useAuth();
+  const { isAdminOrSubadmin, user } = useAuth();
 
-  // Redirect non-admin users
-  if (!isAdmin) {
+  // Redirect non-admin/non-subadmin users
+  if (!isAdminOrSubadmin) {
     return <Navigate to="/dashboard" replace />;
   }
   return (

@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from models.analytics import Analytics
-from utils.auth import token_required
+from utils.auth import token_required, subadmin_or_admin_required
 import logging
 
 analytics_bp = Blueprint('analytics', __name__)
@@ -77,7 +77,7 @@ def track_conversion():
 
 @analytics_bp.route('/dashboard', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('analytics')
 def get_analytics_dashboard():
     """Get analytics dashboard data (Admin only)"""
     try:
@@ -99,7 +99,7 @@ def get_analytics_dashboard():
 
 @analytics_bp.route('/fraud-report', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('analytics')
 def get_fraud_report():
     """Get fraud analysis report (Admin only)"""
     try:
@@ -118,7 +118,7 @@ def get_fraud_report():
 
 @analytics_bp.route('/clicks', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('analytics')
 def get_clicks():
     """Get detailed click data (Admin only)"""
     try:
@@ -167,7 +167,7 @@ def get_clicks():
 
 @analytics_bp.route('/conversions', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('analytics')
 def get_conversions():
     """Get detailed conversion data (Admin only)"""
     try:

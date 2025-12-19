@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from models.offerwall_tracking import OfferwallTracking
 from database import db_instance
-from utils.auth import token_required, admin_required
+from utils.auth import token_required, admin_required, subadmin_or_admin_required
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ enhanced_tracker = OfferwallTracking(db_instance)
 
 @admin_offerwall_analytics_bp.route('/api/admin/offerwall/dashboard', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offerwall-analytics')
 def get_dashboard_stats():
     """Get offerwall dashboard statistics"""
     try:
@@ -30,7 +30,7 @@ def get_dashboard_stats():
 
 @admin_offerwall_analytics_bp.route('/api/admin/offerwall/fraud-signals', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('fraud-management')
 def get_fraud_signals():
     """Get fraud signals for review"""
     try:
@@ -48,7 +48,7 @@ def get_fraud_signals():
 
 @admin_offerwall_analytics_bp.route('/api/admin/offerwall/analytics/<placement_id>', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offerwall-analytics')
 def get_placement_analytics(placement_id):
     """Get analytics for a specific placement"""
     try:
@@ -68,7 +68,7 @@ def get_placement_analytics(placement_id):
 
 @admin_offerwall_analytics_bp.route('/api/admin/offerwall/top-offers', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offerwall-analytics')
 def get_top_offers():
     """Get top performing offers"""
     try:
@@ -86,7 +86,7 @@ def get_top_offers():
 
 @admin_offerwall_analytics_bp.route('/api/admin/offerwall/top-publishers', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offerwall-analytics')
 def get_top_publishers():
     """Get top performing publishers"""
     try:
@@ -104,7 +104,7 @@ def get_top_publishers():
 
 @admin_offerwall_analytics_bp.route('/api/admin/offerwall/country-breakdown', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offerwall-analytics')
 def get_country_breakdown():
     """Get analytics breakdown by country"""
     try:
@@ -122,7 +122,7 @@ def get_country_breakdown():
 
 @admin_offerwall_analytics_bp.route('/api/admin/offerwall/device-breakdown', methods=['GET'])
 @token_required
-@admin_required
+@subadmin_or_admin_required('offerwall-analytics')
 def get_device_breakdown():
     """Get analytics breakdown by device"""
     try:

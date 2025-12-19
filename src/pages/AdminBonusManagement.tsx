@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { toast } from "sonner";
 import { RefreshCw, DollarSign, Users, TrendingUp, AlertCircle, CheckCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 interface BonusEarning {
   _id: string;
@@ -32,7 +33,7 @@ interface BonusStats {
   unique_codes_count: number;
 }
 
-export default function AdminBonusManagement() {
+function AdminBonusManagement() {
   const { token } = useAuth();
   const [stats, setStats] = useState<BonusStats | null>(null);
   const [earnings, setEarnings] = useState<BonusEarning[]>([]);
@@ -443,3 +444,12 @@ export default function AdminBonusManagement() {
     </div>
   );
 }
+
+const AdminBonusManagementWithGuard = () => (
+  <AdminPageGuard requiredTab="bonus-management">
+    <AdminBonusManagement />
+  </AdminPageGuard>
+);
+
+export default AdminBonusManagementWithGuard;
+

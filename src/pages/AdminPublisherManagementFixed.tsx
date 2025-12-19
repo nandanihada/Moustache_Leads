@@ -50,6 +50,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api`;
 
@@ -743,4 +744,10 @@ const AdminPublisherManagementFixed = () => {
   );
 };
 
-export default AdminPublisherManagementFixed;
+const AdminPublisherManagementFixedWithGuard = () => (
+  <AdminPageGuard requiredTab="publishers">
+    <AdminPublisherManagementFixed />
+  </AdminPageGuard>
+);
+
+export default AdminPublisherManagementFixedWithGuard;

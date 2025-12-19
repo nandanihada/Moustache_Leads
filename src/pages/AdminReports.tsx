@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/select';
 import { reportsApi, TrackingReport, RealtimeStats, DashboardSummary } from '@/services/reportsApi';
 import { useToast } from '@/hooks/use-toast';
+import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const AdminReports = () => {
   const { toast } = useToast();
@@ -618,4 +619,10 @@ const AdminReports = () => {
   );
 };
 
-export default AdminReports;
+const AdminReportsWithGuard = () => (
+  <AdminPageGuard requiredTab="reports">
+    <AdminReports />
+  </AdminPageGuard>
+);
+
+export default AdminReportsWithGuard;

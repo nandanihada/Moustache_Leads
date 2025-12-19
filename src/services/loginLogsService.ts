@@ -51,6 +51,7 @@ export interface LoginLog {
     latitude?: number;
     longitude?: number;
     timezone?: string;
+    isp?: string;
   };
   login_method: 'password' | 'otp' | 'sso';
   status: 'success' | 'failed';
@@ -64,7 +65,9 @@ export interface LoginLog {
     is_proxy?: boolean;
     is_tor?: boolean;
     is_datacenter?: boolean;
+    is_relay?: boolean;  // IPinfo: Relay detection (e.g., Apple Private Relay)
     provider?: string;
+    service?: string;  // IPinfo: VPN/Proxy service name
     confidence?: string;
     country_code?: string;
     checked_at?: string;
@@ -203,13 +206,13 @@ class LoginLogsService {
    */
   async getLoginLogs(filters: LoginLogsFilters = {}): Promise<LoginLogsResponse> {
     const params = new URLSearchParams();
-    
+
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         params.append(key, value.toString());
       }
     });
-    
+
     const response = await api.get(`/api/admin/login-logs?${params.toString()}`);
     return response.data;
   }
@@ -237,7 +240,7 @@ class LoginLogsService {
     const params = new URLSearchParams();
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
-    
+
     const response = await api.get(`/api/admin/login-logs/stats?${params.toString()}`);
     return response.data;
   }
@@ -249,7 +252,7 @@ class LoginLogsService {
     const params = new URLSearchParams();
     if (userId) params.append('user_id', userId);
     params.append('hours', hours.toString());
-    
+
     const response = await api.get(`/api/admin/login-logs/failed-attempts?${params.toString()}`);
     return response.data;
   }
@@ -323,7 +326,7 @@ class LoginLogsService {
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
     params.append('limit', limit.toString());
-    
+
     const response = await api.get(`/api/admin/page-visits/popular?${params.toString()}`);
     return response.data;
   }
