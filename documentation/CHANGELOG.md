@@ -1,513 +1,278 @@
-# 6.0.10
+# flat-cache - Changelog
 
-- Fixed: `isPseudoElement()` supports `:first-letter` and `:first-line`
+## v3.0.4
 
-# 6.0.9
+- **Refactoring**
+  - add files by name to the list of exported files - [89a2698](https://github.com/royriojas/flat-cache/commit/89a2698), [Roy Riojas](https://github.com/Roy Riojas), 08/11/2020 02:35:39
 
-- Fixed: `Combinator.raws` property type
+## v3.0.3
 
-# 6.0.8
+- **Bug Fixes**
+  - Fix wrong eslint command - [f268e42](https://github.com/royriojas/flat-cache/commit/f268e42), [Roy Riojas](https://github.com/Roy Riojas), 08/11/2020 02:15:04
 
-- Fixed: reduced size
+## v3.0.2
 
-# 6.0.7
+- **Refactoring**
 
-- Fixed: parse animation percents
+  - Update the files paths - [6983a80](https://github.com/royriojas/flat-cache/commit/6983a80), [Roy Riojas](https://github.com/Roy Riojas), 08/11/2020 01:58:39
+  - Move code to src/ - [18ed6e8](https://github.com/royriojas/flat-cache/commit/18ed6e8), [Roy Riojas](https://github.com/Roy Riojas), 08/11/2020 01:57:17
+  - Change eslint-cache location - [beed74c](https://github.com/royriojas/flat-cache/commit/beed74c), [Roy Riojas](https://github.com/Roy Riojas), 08/11/2020 01:48:32
 
-# 6.0.6
+## v3.0.1
 
-- Fixed: parse quoted attributes containing a newline correctly
+- **Refactoring**
+  - Remove unused deps - [8c6d9dc](https://github.com/royriojas/flat-cache/commit/8c6d9dc), [Roy Riojas](https://github.com/Roy Riojas), 08/11/2020 01:43:29
 
-# 6.0.5
+## v3.0.0
 
-- Perf: rework unesc for a 63+% performance boost
+- **Refactoring**
+  - Fix engines - [52b824c](https://github.com/royriojas/flat-cache/commit/52b824c), [Roy Riojas](https://github.com/Roy Riojas), 08/11/2020 01:01:52
+- **Other changes**
 
-# 6.0.4
+  - Replace write with combination of mkdir and writeFile ([#49](https://github.com/royriojas/flat-cache/issues/49)) - [ef48276](https://github.com/royriojas/flat-cache/commit/ef48276), [Bogdan Chadkin](https://github.com/Bogdan Chadkin), 08/11/2020 00:17:15
 
-- Fixed: ts errors
+    Node v10 introduced a great "recursive" option for mkdir which allows to
+    get rid from mkdirp package and easily rewrite "write" package usage
+    with two function calls.
 
-# 6.0.3
+    https://nodejs.org/api/fs.html#fs_fs_mkdir_path_options_callback
 
-- Fixed: replace node built-in "util" module with "util-deprecate"
-- Fixed: handle uppercase pseudo elements
-- Fixed: do not create invalid combinator before comment
+  - Added a testcase for clearAll ([#48](https://github.com/royriojas/flat-cache/issues/48)) - [45b51ca](https://github.com/royriojas/flat-cache/commit/45b51ca), [Aaron Chen](https://github.com/Aaron Chen), 21/05/2020 08:40:03
+  - requet node>=10 - [a5c482c](https://github.com/royriojas/flat-cache/commit/a5c482c), [yumetodo](https://github.com/yumetodo), 10/04/2020 23:14:53
 
-# 6.0.2
+    thanks @SuperITMan
 
-- Fixed an issue with parsing and stringifying an empty attribute value
+  - Update README.md - [29fe40b](https://github.com/royriojas/flat-cache/commit/29fe40b), [Roy Riojas](https://github.com/Roy Riojas), 10/04/2020 20:08:05
+  - reduce vulnerability to 1 - [e9db1b2](https://github.com/royriojas/flat-cache/commit/e9db1b2), [yumetodo](https://github.com/yumetodo), 30/03/2020 11:10:43
+  - reduce vulnerabilities dependencies to 8 - [b58d196](https://github.com/royriojas/flat-cache/commit/b58d196), [yumetodo](https://github.com/yumetodo), 30/03/2020 10:54:56
+  - use prettier instead of esbeautifier - [03b1db7](https://github.com/royriojas/flat-cache/commit/03b1db7), [yumetodo](https://github.com/yumetodo), 30/03/2020 10:27:14
+  - update proxyquire - [c2f048d](https://github.com/royriojas/flat-cache/commit/c2f048d), [yumetodo](https://github.com/yumetodo), 30/03/2020 10:16:16
+  - update flatted and mocha - [a0e56da](https://github.com/royriojas/flat-cache/commit/a0e56da), [yumetodo](https://github.com/yumetodo), 30/03/2020 09:46:45
 
-# 6.0.1
+    mocha > mkdirp is updated
+    istanble >>> optimist > minimist is not updated
 
-- Fixed an issue with unicode surrogate pair parsing
+  - drop support node.js < 10 in develop - [beba691](https://github.com/royriojas/flat-cache/commit/beba691), [yumetodo](https://github.com/yumetodo), 18/03/2020 01:31:09
 
-# 6.0.0
+    see mkdirp
 
-- Updated: `cssesc` to 3.0.0 (major)
-- Fixed: Issues with escaped `id` and `class` selectors
+  - npm aufit fix(still remains) - [ce166cb](https://github.com/royriojas/flat-cache/commit/ce166cb), [yumetodo](https://github.com/yumetodo), 18/03/2020 01:18:08
 
-# 5.0.0
+    37 vulnerabilities required manual review and could not be updated
 
-- Allow escaped dot within class name.
-- Update PostCSS to 7.0.7 (patch)
+  - updtate sinon - [9f2d1b6](https://github.com/royriojas/flat-cache/commit/9f2d1b6), [yumetodo](https://github.com/yumetodo), 18/03/2020 01:17:51
+  - apply eslint-plugin-mocha - [07343b5](https://github.com/royriojas/flat-cache/commit/07343b5), [yumetodo](https://github.com/yumetodo), 13/03/2020 22:17:21
+  - Less strint version check ([#44](https://github.com/royriojas/flat-cache/issues/44)) - [92aca1c](https://github.com/royriojas/flat-cache/commit/92aca1c), [Wojciech Maj](https://github.com/Wojciech Maj), 13/11/2019 16:18:25
 
-# 5.0.0-rc.4
+    - Use ^ version matching for production dependencies
+    - Run npm audit fix
 
-- Fixed an issue where comments immediately after an insensitive (in attribute)
-  were not parsed correctly.
-- Updated `cssesc` to 2.0.0 (major).
-- Removed outdated integration tests.
-- Added tests for custom selectors, tags with attributes, the universal
-  selector with pseudos, and tokens after combinators.
+- **Bug Fixes**
+  - update dependencies and use eslint directly - [73fbed2](https://github.com/royriojas/flat-cache/commit/73fbed2), [yumetodo](https://github.com/yumetodo), 18/03/2020 01:17:27
 
-# 5.0.0-rc.1
+## v2.0.1
 
-To ease adoption of the v5.0 release, we have relaxed the node version
-check performed by npm at installation time to allow for node 4, which
-remains officially unsupported, but likely to continue working for the
-time being.
+- **Refactoring**
+  - upgrade node modules to latest versions - [6402ed3](https://github.com/royriojas/flat-cache/commit/6402ed3), [Roy Riojas](https://github.com/Roy Riojas), 08/01/2019 18:47:05
 
-# 5.0.0-rc.0
+## v2.0.0
 
-This release has **BREAKING CHANGES** that were required to fix regressions
-in 4.0.0 and to make the Combinator Node API consistent for all combinator
-types. Please read carefully.
+- **Bug Fixes**
 
-## Summary of Changes
+  - upgrade package.json lock file - [8d21c7b](https://github.com/royriojas/flat-cache/commit/8d21c7b), [Roy Riojas](https://github.com/Roy Riojas), 08/01/2019 17:03:13
+  - Use the same versions of node_js that eslint use - [8d23379](https://github.com/royriojas/flat-cache/commit/8d23379), [Roy Riojas](https://github.com/Roy Riojas), 08/01/2019 16:25:11
 
-* The way a descendent combinator that isn't a single space character (E.g. `.a  .b`) is stored in the AST has changed.
-* Named Combinators (E.g. `.a /for/ .b`) are now properly parsed as a combinator.
-* It is now possible to look up a node based on the source location of a character in that node and to query nodes if they contain some character.
-* Several bug fixes that caused the parser to hang and run out of memory when a `/` was encountered have been fixed.
-* The minimum supported version of Node is now `v6.0.0`.
+- **Other changes**
 
-### Changes to the Descendent Combinator
+  - Replace circular-json with flatted ([#36](https://github.com/royriojas/flat-cache/issues/36)) - [b93aced](https://github.com/royriojas/flat-cache/commit/b93aced), [C. K. Tang](https://github.com/C. K. Tang), 08/01/2019 17:03:01
+  - Change JSON parser from circular-json to flatted & 1 more changes ([#37](https://github.com/royriojas/flat-cache/issues/37)) - [745e65a](https://github.com/royriojas/flat-cache/commit/745e65a), [Andy Chen](https://github.com/Andy Chen), 08/01/2019 16:17:20
 
-In prior releases, the value of a descendant combinator with multiple spaces included all the spaces.
+    - Change JSON parser from circular-json to flatted & 1 more changes
+    - Change JSON parser from circular-json
+    - Audited 2 vulnerabilities
+    - Update package.json
+    - Update Engine require
+    - There's a bunch of dependencies in this pkg requires node >=4, so I changed it to 4
+    - Remove and add node versions
+    - I have seen this pkg is not available with node 0.12 so I removed it
+    - I have added a popular used LTS version of node - 10
 
-* `.a   .b`: Extra spaces are now stored as space before.
-  - Old & Busted:
-    - `combinator.value === "   "`
-  - New hotness:
-    - `combinator.value === " " && combinator.spaces.before === "  "`
-* `.a   /*comment*/.b`: A comment at the end of the combinator causes extra space to become after space.
-  - Old & Busted:
-    - `combinator.value === "   "`
-    - `combinator.raws.value === "   /*comment/"`
-  - New hotness:
-    - `combinator.value === " "`
-    - `combinator.spaces.after === "  "`
-    - `combinator.raws.spaces.after === "  /*comment*/"`
-* `.a<newline>.b`: whitespace that doesn't start or end with a single space character is stored as a raw value.
-  - Old & Busted:
-    - `combinator.value === "\n"`
-    - `combinator.raws.value === undefined`
-  - New hotness:
-    - `combinator.value === " "`
-    - `combinator.raws.value === "\n"`
-
-### Support for "Named Combinators"
-
-Although, nonstandard and unlikely to ever become a standard, combinators like `/deep/` and `/for/` are now properly supported.
-
-Because they've been taken off the standardization track, there is no spec-official name for combinators of the form `/<ident>/`. However, I talked to [Tab Atkins](https://twitter.com/tabatkins) and we agreed to call them "named combinators" so now they are called that.
-
-Before this release such named combinators were parsed without intention and generated three nodes of type `"tag"` where the first and last nodes had a value of `"/"`.
-
-* `.a /for/ .b` is parsed as a combinator.
-  - Old & Busted:
-    - `root.nodes[0].nodes[1].type === "tag"`
-    - `root.nodes[0].nodes[1].value === "/"`
-  - New hotness:
-    - `root.nodes[0].nodes[1].type === "combinator"`
-    - `root.nodes[0].nodes[1].value === "/for/"`
-* `.a /F\6fR/ .b` escapes are handled and uppercase is normalized.
-  - Old & Busted:
-    - `root.nodes[0].nodes[2].type === "tag"`
-    - `root.nodes[0].nodes[2].value === "F\\6fR"`
-  - New hotness:
-    - `root.nodes[0].nodes[1].type === "combinator"`
-    - `root.nodes[0].nodes[1].value === "/for/"`
-    - `root.nodes[0].nodes[1].raws.value === "/F\\6fR/"`
-
-### Source position checks and lookups
-
-A new API was added to look up a node based on the source location.
-
-```js
-const selectorParser = require("postcss-selector-parser");
-// You can find the most specific node for any given character
-let combinator = selectorParser.astSync(".a > .b").atPosition(1,4);
-combinator.toString() === " > ";
-// You can check if a node includes a specific character
-// Whitespace surrounding the node that is owned by that node
-// is included in the check.
-[2,3,4,5,6].map(column => combinator.isAtPosition(1, column));
-// => [false, true, true, true, false]
-```
-
-# 4.0.0
-
-This release has **BREAKING CHANGES** that were required to fix bugs regarding values with escape sequences. Please read carefully.
-
-* **Identifiers with escapes** - CSS escape sequences are now hidden from the public API by default.
-  The normal value of a node like a class name or ID, or an aspect of a node such as attribute
-  selector's value, is unescaped. Escapes representing Non-ascii characters are unescaped into
-  unicode characters. For example: `bu\tton, .\31 00, #i\2764\FE0Fu, [attr="value is \"quoted\""]`
-  will parse respectively to the values `button`, `100`, `i❤️u`, `value is "quoted"`.
-  The original escape sequences for these values can be found in the corresponding property name
-  in `node.raws`. Where possible, deprecation warnings were added, but the nature
-  of escape handling makes it impossible to detect what is escaped or not. Our expectation is
-  that most users are neither expecting nor handling escape sequences in their use of this library,
-  and so for them, this is a bug fix. Users who are taking care to handle escapes correctly can
-  now update their code to remove the escape handling and let us do it for them.
-
-* **Mutating values with escapes** - When you make an update to a node property that has escape handling
-  The value is assumed to be unescaped, and any special characters are escaped automatically and
-  the corresponding `raws` value is immediately updated. This can result in changes to the original
-  escape format. Where the exact value of the escape sequence is important there are methods that
-  allow both values to be set in conjunction. There are a number of new convenience methods for
-  manipulating values that involve escapes, especially for attributes values where the quote mark
-  is involved. See https://github.com/postcss/postcss-selector-parser/pull/133 for an extensive
-  write-up on these changes.
-
-
-**Upgrade/API Example**
-
-In `3.x` there was no unescape handling and internal consistency of several properties was the caller's job to maintain. It was very easy for the developer
-to create a CSS file that did not parse correctly when some types of values
-were in use.
-
-```js
-const selectorParser = require("postcss-selector-parser");
-let attr = selectorParser.attribute({attribute: "id", operator: "=", value: "a-value"});
-attr.value; // => "a-value"
-attr.toString(); // => [id=a-value]
-// Add quotes to an attribute's value.
-// All these values have to be set by the caller to be consistent:
-// no internal consistency is maintained.
-attr.raws.unquoted = attr.value
-attr.value = "'" + attr.value + "'";
-attr.value; // => "'a-value'"
-attr.quoted = true;
-attr.toString();  // => "[id='a-value']"
-```
-
-In `4.0` there is a convenient API for setting and mutating values
-that may need escaping. Especially for attributes.
-
-```js
-const selectorParser = require("postcss-selector-parser");
-
-// The constructor requires you specify the exact escape sequence
-let className = selectorParser.className({value: "illegal class name", raws: {value: "illegal\\ class\\ name"}});
-className.toString(); // => '.illegal\\ class\\ name'
-
-// So it's better to set the value as a property
-className = selectorParser.className();
-// Most properties that deal with identifiers work like this
-className.value = "escape for me";
-className.value; // => 'escape for me'
-className.toString(); // => '.escape\\ for\\ me'
-
-// emoji and all non-ascii are escaped to ensure it works in every css file.
-className.value = "😱🦄😍";
-className.value; // => '😱🦄😍'
-className.toString(); // => '.\\1F631\\1F984\\1F60D'
-
-// you can control the escape sequence if you want, or do bad bad things
-className.setPropertyAndEscape('value', 'xxxx', 'yyyy');
-className.value; // => "xxxx"
-className.toString(); // => ".yyyy"
-
-// Pass a value directly through to the css output without escaping it. 
-className.setPropertyWithoutEscape('value', '$REPLACE_ME$');
-className.value; // => "$REPLACE_ME$"
-className.toString(); // => ".$REPLACE_ME$"
-
-// The biggest changes are to the Attribute class
-// passing quoteMark explicitly is required to avoid a deprecation warning.
-let attr = selectorParser.attribute({attribute: "id", operator: "=", value: "a-value", quoteMark: null});
-attr.toString(); // => "[id=a-value]"
-// Get the value with quotes on it and any necessary escapes.
-// This is the same as reading attr.value in 3.x.
-attr.getQuotedValue(); // => "a-value";
-attr.quoteMark; // => null
-
-// Add quotes to an attribute's value.
-attr.quoteMark = "'"; // This is all that's required.
-attr.toString(); // => "[id='a-value']"
-attr.quoted; // => true
-// The value is still the same, only the quotes have changed.
-attr.value; // => a-value
-attr.getQuotedValue(); // => "'a-value'";
-
-// deprecated assignment, no warning because there's no escapes
-attr.value = "new-value";
-// no quote mark is needed so it is removed
-attr.getQuotedValue(); // => "new-value";
-
-// deprecated assignment, 
-attr.value = "\"a 'single quoted' value\"";
-// > (node:27859) DeprecationWarning: Assigning an attribute a value containing characters that might need to be escaped is deprecated. Call attribute.setValue() instead.
-attr.getQuotedValue(); // => '"a \'single quoted\' value"';
-// quote mark inferred from first and last characters.
-attr.quoteMark; // => '"'
-
-// setValue takes options to make manipulating the value simple.
-attr.setValue('foo', {smart: true});
-// foo doesn't require any escapes or quotes.
-attr.toString(); // => '[id=foo]'
-attr.quoteMark; // => null 
-
-// An explicit quote mark can be specified
-attr.setValue('foo', {quoteMark: '"'});
-attr.toString(); // => '[id="foo"]'
-
-// preserves quote mark by default
-attr.setValue('bar');
-attr.toString(); // => '[id="bar"]'
-attr.quoteMark = null;
-attr.toString(); // => '[id=bar]'
-
-// with no arguments, it preserves quote mark even when it's not a great idea
-attr.setValue('a value \n that should be quoted');
-attr.toString(); // => '[id=a\\ value\\ \\A\\ that\\ should\\ be\\ quoted]'
-
-// smart preservation with a specified default
-attr.setValue('a value \n that should be quoted', {smart: true, preferCurrentQuoteMark: true, quoteMark: "'"});
-// => "[id='a value \\A  that should be quoted']"
-attr.quoteMark = '"';
-// => '[id="a value \\A  that should be quoted"]'
-
-// this keeps double quotes because it wants to quote the value and the existing value has double quotes.
-attr.setValue('this should be quoted', {smart: true, preferCurrentQuoteMark: true, quoteMark: "'"});
-// => '[id="this should be quoted"]'
-
-// picks single quotes because the value has double quotes
-attr.setValue('a "double quoted" value', {smart: true, preferCurrentQuoteMark: true, quoteMark: "'"});
-// => "[id='a "double quoted" value']"
-
-// setPropertyAndEscape lets you do anything you want. Even things that are a bad idea and illegal.
-attr.setPropertyAndEscape('value', 'xxxx', 'the password is 42');
-attr.value; // => "xxxx"
-attr.toString(); // => "[id=the password is 42]"
-
-// Pass a value directly through to the css output without escaping it. 
-attr.setPropertyWithoutEscape('value', '$REPLACEMENT$');
-attr.value; // => "$REPLACEMENT$"
-attr.toString(); // => "[id=$REPLACEMENT$]"
-```
-
-# 3.1.2
-
-* Fix: Removed dot-prop dependency since it's no longer written in es5.
-
-# 3.1.1
-
-* Fix: typescript definitions weren't in the published package.
-
-# 3.1.0
-
-* Fixed numerous bugs in attribute nodes relating to the handling of comments
-  and whitespace. There's significant changes to `attrNode.spaces` and `attrNode.raws` since the `3.0.0` release.
-* Added `Attribute#offsetOf(part)` to get the offset location of
-  attribute parts like `"operator"` and `"value"`. This is most
-  often added to `Attribute#sourceIndex` for error reporting.
-
-# 3.0.0
-
-## Breaking changes
-
-* Some tweaks to the tokenizer/attribute selector parsing mean that whitespace
-  locations might be slightly different to the 2.x code.
-* Better attribute selector parsing with more validation; postcss-selector-parser
-  no longer uses regular expressions to parse attribute selectors.
-* Added an async API (thanks to @jacobp100); the default `process` API is now
-  async, and the sync API is now accessed through `processSync` instead.
-* `process()` and `processSync()` now return a string instead of the Processor
-  instance.
-* Tweaks handling of Less interpolation (thanks to @jwilsson).
-* Removes support for Node 0.12.
-
-## Other changes
-
-* `ast()` and `astSync()` methods have been added to the `Processor`. These
-  return the `Root` node of the selectors after processing them.
-* `transform()` and `transformSync()` methods have been added to the
-  `Processor`. These return the value returned by the processor callback
-  after processing the selectors.
-* Set the parent when inserting a node (thanks to @chriseppstein).
-* Correctly adjust indices when using insertBefore/insertAfter (thanks to @tivac).
-* Fixes handling of namespaces with qualified tag selectors.
-* `process`, `ast` and `transform` (and their sync variants) now accept a
-  `postcss` rule node. When provided, better errors are generated and selector
-  processing is automatically set back to the rule selector (unless the `updateSelector` option is set to `false`.)
-* Now more memory efficient when tokenizing selectors.
-
-### Upgrade hints
+## v1.3.4
 
-The pattern of:
+- **Refactoring**
+  - Add del.js and utils.js to the list of files to be beautified - [9d0ca9b](https://github.com/royriojas/flat-cache/commit/9d0ca9b), [Roy Riojas](https://github.com/Roy Riojas), 14/11/2018 12:19:02
 
-`rule.selector = processor.process(rule.selector).result.toString();`
+## v1.3.3
 
-is now:
+- **Refactoring**
+  - Make sure package-lock.json is up to date - [a7d2598](https://github.com/royriojas/flat-cache/commit/a7d2598), [Roy Riojas](https://github.com/Roy Riojas), 14/11/2018 11:36:08
+- **Other changes**
 
-`processor.processSync(rule)`
+  - Removed the need for del ([#33](https://github.com/royriojas/flat-cache/issues/33)) - [c429012](https://github.com/royriojas/flat-cache/commit/c429012), [S. Gilroy](https://github.com/S. Gilroy), 13/11/2018 13:56:37
 
-# 2.2.3
+    - Removed the need for del
 
-* Resolves an issue where the parser would not reduce multiple spaces between an
-  ampersand and another simple selector in lossy mode (thanks to @adam-26).
+    Removed the need for del as newer versions have broken backwards
+    compatibility. del mainly uses rimraf for deleting folders
+    and files, replaceing it with rimraf only is a minimal change.
 
-# 2.2.2
+    - Disable glob on rimraf calls
+    - Added glob disable to wrong call
+    - Wrapped rimraf to simplify solution
 
-* No longer hangs on an unescaped semicolon; instead the parser will throw
-  an exception for these cases.
+## v1.3.2
 
-# 2.2.1
+- **Refactoring**
+  - remove yarn.lock file - [704c6c4](https://github.com/royriojas/flat-cache/commit/704c6c4), [Roy Riojas](https://github.com/Roy Riojas), 07/11/2018 15:41:08
+- **Other changes**
 
-* Allows a consumer to specify whitespace tokens when creating a new Node
-  (thanks to @Semigradsky).
+  - replace circular-json with flatted ([#23](https://github.com/royriojas/flat-cache/issues/23))" - [db12d74](https://github.com/royriojas/flat-cache/commit/db12d74), [Roy Riojas](https://github.com/Roy Riojas), 07/11/2018 15:40:39
 
-# 2.2.0
+    This reverts commit 00f689277a75e85fef28e6a048fad227afc525e6.
 
-* Added a new option to normalize whitespace when parsing the selector string
-  (thanks to @adam-26).
+## v1.3.1
 
-# 2.1.1
+- **Refactoring**
+  - upgrade deps to remove some security warnings - [f405719](https://github.com/royriojas/flat-cache/commit/f405719), [Roy Riojas](https://github.com/Roy Riojas), 06/11/2018 12:07:31
+- **Bug Fixes**
+  - replace circular-json with flatted ([#23](https://github.com/royriojas/flat-cache/issues/23)) - [00f6892](https://github.com/royriojas/flat-cache/commit/00f6892), [Terry](https://github.com/Terry), 05/11/2018 18:44:16
+- **Other changes**
 
-* Better unquoted value handling within attribute selectors
-  (thanks to @evilebottnawi).
+  - update del to v3.0.0 ([#26](https://github.com/royriojas/flat-cache/issues/26)) - [d42883f](https://github.com/royriojas/flat-cache/commit/d42883f), [Patrick Silva](https://github.com/Patrick Silva), 03/11/2018 01:00:44
 
-# 2.1.0
+    Closes <a target="_blank" class="info-link" href="https://github.com/royriojas/flat-cache/issues/25"><span>#25</span></a>
 
-* Added: Use string constants for all node types & expose them on the main
-  parser instance (thanks to @Aweary).
+## v1.3.0
 
-# 2.0.0
+- **Other changes**
 
-This release contains the following breaking changes:
+  - Added #all method ([#16](https://github.com/royriojas/flat-cache/issues/16)) - [12293be](https://github.com/royriojas/flat-cache/commit/12293be), [Ozair Patel](https://github.com/Ozair Patel), 25/09/2017 14:46:38
 
-* Renamed all `eachInside` iterators to `walk`. For example, `eachTag` is now
-  `walkTags`, and `eachInside` is now `walk`.
-* Renamed `Node#removeSelf()` to `Node#remove()`.
-* Renamed `Container#remove()` to `Container#removeChild()`.
-* Renamed `Node#raw` to `Node#raws` (thanks to @davidtheclark).
-* Now parses `&` as the *nesting* selector, rather than a *tag* selector.
-* Fixes misinterpretation of Sass interpolation (e.g. `#{foo}`) as an
-  id selector (thanks to @davidtheclark).
+    - Added #all method
+    - Added #all method test
+    - Updated readme
+    - Added yarn.lock
+    - Added more keys for #all test
+    - Beautified file
 
-and;
+  - fix changelog title style ([#14](https://github.com/royriojas/flat-cache/issues/14)) - [af8338a](https://github.com/royriojas/flat-cache/commit/af8338a), [前端小武](https://github.com/前端小武), 19/12/2016 20:34:48
 
-* Fixes parsing of attribute selectors with equals signs in them
-  (e.g. `[data-attr="foo=bar"]`) (thanks to @montmanu).
-* Adds `quoted` and `raw.unquoted` properties to attribute nodes
-  (thanks to @davidtheclark).
+## v1.2.2
 
-# 1.3.3
+- **Bug Fixes**
 
-* Fixes an infinite loop on `)` and `]` tokens when they had no opening pairs.
-  Now postcss-selector-parser will throw when it encounters these lone tokens.
+  - Do not crash if cache file is invalid JSON. ([#13](https://github.com/royriojas/flat-cache/issues/13)) - [87beaa6](https://github.com/royriojas/flat-cache/commit/87beaa6), [Roy Riojas](https://github.com/Roy Riojas), 19/12/2016 18:03:35
 
-# 1.3.2
+    Fixes <a target="_blank" class="info-link" href="https://github.com/royriojas/flat-cache/issues/12"><span>#12</span></a>
 
-* Now uses plain integers rather than `str.charCodeAt(0)` for compiled builds.
+    Not sure under which situations a cache file might exist that does
+    not contain a valid JSON structure, but just in case to cover
+    the possibility of this happening a try catch block has been added
 
-# 1.3.1
+    If the cache is somehow not valid the cache will be discarded an a
+    a new cache will be stored instead
 
-* Update flatten to v1.x (thanks to @shinnn).
+- **Other changes**
 
-# 1.3.0
+  - Added travis ci support for modern node versions ([#11](https://github.com/royriojas/flat-cache/issues/11)) - [1c2b1f7](https://github.com/royriojas/flat-cache/commit/1c2b1f7), [Amila Welihinda](https://github.com/Amila Welihinda), 10/11/2016 23:47:52
+  - Bumping `circular-son` version ([#10](https://github.com/royriojas/flat-cache/issues/10)) - [4d5e861](https://github.com/royriojas/flat-cache/commit/4d5e861), [Andrea Giammarchi](https://github.com/Andrea Giammarchi), 02/08/2016 07:13:52
 
-* Adds a new node type, `String`, to fix a crash on selectors such as
-  `foo:bar("test")`.
+    As mentioned in https://github.com/WebReflection/circular-json/issues/25 `circular-json` wan't rightly implementing the license field.
 
-# 1.2.1
+    Latest version bump changed only that bit so that ESLint should now be happy.
 
-* Fixes a crash when the parser encountered a trailing combinator.
+## v1.2.1
 
-# 1.2.0
+- **Bug Fixes**
+  - Add missing utils.js file to the package. closes [#8](https://github.com/royriojas/flat-cache/issues/8) - [ec10cf2](https://github.com/royriojas/flat-cache/commit/ec10cf2), [Roy Riojas](https://github.com/Roy Riojas), 01/08/2016 02:18:57
 
-* A more descriptive error is thrown when the parser expects to find a
-  pseudo-class/pseudo-element (thanks to @ashelley).
-* Adds support for line/column locations for selector nodes, as well as a
-  `Node#sourceIndex` method (thanks to @davidtheclark).
+## v1.2.0
 
-# 1.1.4
+- **Documentation**
+  - Add documentation about noPrune option - [23e11f9](https://github.com/royriojas/flat-cache/commit/23e11f9), [Roy Riojas](https://github.com/Roy Riojas), 01/08/2016 02:06:49
 
-* Fixes a crash when a selector started with a `>` combinator. The module will
-  now no longer throw if a selector has a leading/trailing combinator node.
+## v1.0.11
 
-# 1.1.3
+- **Features**
 
-* Fixes a crash on `@` tokens.
+  - Add noPrune option to cache.save() method. closes [#7](https://github.com/royriojas/flat-cache/issues/7) - [2c8016a](https://github.com/royriojas/flat-cache/commit/2c8016a), [Roy Riojas](https://github.com/Roy Riojas), 01/08/2016 02:00:29
+  - Add json read and write utility based on circular-json - [c31081e](https://github.com/royriojas/flat-cache/commit/c31081e), [Jean Ponchon](https://github.com/Jean Ponchon), 28/07/2016 08:58:17
 
-# 1.1.2
+- **Bug Fixes**
 
-* Fixes an infinite loop caused by using parentheses in a non-pseudo element
-  context.
+  - Remove UTF16 BOM stripping - [4a41e22](https://github.com/royriojas/flat-cache/commit/4a41e22), [Jean Ponchon](https://github.com/Jean Ponchon), 29/07/2016 02:18:06
 
-# 1.1.1
+    Since we control both writing and reading of JSON stream, there no needs
+    to handle unicode BOM.
 
-* Fixes a crash when a backslash ended a selector string.
+  - Use circular-json to handle circular references (fix [#5](https://github.com/royriojas/flat-cache/issues/5)) - [cd7aeed](https://github.com/royriojas/flat-cache/commit/cd7aeed), [Jean Ponchon](https://github.com/Jean Ponchon), 25/07/2016 11:11:59
 
-# 1.1.0
+- **Tests Related fixes**
 
-* Adds support for replacing multiple nodes at once with `replaceWith`
-  (thanks to @jonathantneal).
-* Parser no longer throws on sequential IDs and trailing commas, to support
-  parsing of selector hacks.
+  - Add missing file from eslint test - [d6fa3c3](https://github.com/royriojas/flat-cache/commit/d6fa3c3), [Jean Ponchon](https://github.com/Jean Ponchon), 29/07/2016 02:15:51
+  - Add test for circular json serialization / deserialization - [07d2ddd](https://github.com/royriojas/flat-cache/commit/07d2ddd), [Jean Ponchon](https://github.com/Jean Ponchon), 28/07/2016 08:59:36
 
-# 1.0.1
+- **Refactoring**
+  - Remove unused read-json-sync - [2be1c24](https://github.com/royriojas/flat-cache/commit/2be1c24), [Jean Ponchon](https://github.com/Jean Ponchon), 28/07/2016 08:59:18
+- **Build Scripts Changes**
+  - travis tests on 0.12 and 4x - [3a613fd](https://github.com/royriojas/flat-cache/commit/3a613fd), [royriojas](https://github.com/royriojas), 15/11/2015 14:34:40
 
-* Fixes using `insertAfter` and `insertBefore` during iteration.
+## v1.0.10
 
-# 1.0.0
+- **Build Scripts Changes**
 
-* Adds `clone` and `replaceWith` methods to nodes.
-* Adds `insertBefore` and `insertAfter` to containers.
-* Stabilises API.
+  - add eslint-fix task - [fd29e52](https://github.com/royriojas/flat-cache/commit/fd29e52), [royriojas](https://github.com/royriojas), 01/11/2015 15:04:08
+  - make sure the test script also verify beautification and linting of files before running tests - [e94e176](https://github.com/royriojas/flat-cache/commit/e94e176), [royriojas](https://github.com/royriojas), 01/11/2015 11:54:48
 
-# 0.0.5
+- **Other changes**
+  - add clearAll for cacheDir - [97383d9](https://github.com/royriojas/flat-cache/commit/97383d9), [xieyaowu](https://github.com/xieyaowu), 31/10/2015 21:02:18
 
-* Fixes crash on extra whitespace inside a pseudo selector's parentheses.
-* Adds sort function to the container class.
-* Enables the parser to pass its input through without transforming.
-* Iteration-safe `each` and `eachInside`.
+## v1.0.9
 
-# 0.0.4
+- **Bug Fixes**
+  - wrong default values for changelogx user repo name - [7bb52d1](https://github.com/royriojas/flat-cache/commit/7bb52d1), [royriojas](https://github.com/royriojas), 11/09/2015 15:59:30
 
-* Tidy up redundant duplication.
-* Fixes a bug where the parser would loop infinitely on universal selectors
-  inside pseudo selectors.
-* Adds `length` getter and `eachInside`, `map`, `reduce` to the container class.
-* When a selector has been removed from the tree, the root node will no longer
-  cast it to a string.
-* Adds node type iterators to the container class (e.g. `eachComment`).
-* Adds filter function to the container class.
-* Adds split function to the container class.
-* Create new node types by doing `parser.id(opts)` etc.
-* Adds support for pseudo classes anywhere in the selector.
+## v1.0.8
 
-# 0.0.3
+- **Build Scripts Changes**
+  - test against node 4 - [c395b66](https://github.com/royriojas/flat-cache/commit/c395b66), [royriojas](https://github.com/royriojas), 11/09/2015 15:51:39
 
-* Adds `next` and `prev` to the node class.
-* Adds `first` and `last` getters to the container class.
-* Adds `every` and `some` iterators to the container class.
-* Add `empty` alias for `removeAll`.
-* Combinators are now types of node.
-* Fixes the at method so that it is not an alias for `index`.
-* Tidy up creation of new nodes in the parser.
-* Refactors how namespaces are handled for consistency & less redundant code.
-* Refactors AST to use `nodes` exclusively, and eliminates excessive nesting.
-* Fixes nested pseudo parsing.
-* Fixes whitespace parsing.
+## v1.0.7
 
-# 0.0.2
+- **Other changes**
+  - Move dependencies into devDep - [7e47099](https://github.com/royriojas/flat-cache/commit/7e47099), [Bogdan Chadkin](https://github.com/Bogdan Chadkin), 11/09/2015 15:10:57
+- **Documentation**
+  - Add missing changelog link - [f51197a](https://github.com/royriojas/flat-cache/commit/f51197a), [royriojas](https://github.com/royriojas), 11/09/2015 14:48:05
 
-* Adds support for namespace selectors.
-* Adds support for selectors joined by escaped spaces - such as `.\31\ 0`.
+## v1.0.6
 
-# 0.0.1
+- **Build Scripts Changes**
+  - Add helpers/code check scripts - [bdb82f3](https://github.com/royriojas/flat-cache/commit/bdb82f3), [royriojas](https://github.com/royriojas), 11/09/2015 14:44:31
 
-* Initial release.
+## v1.0.5
+
+- **Documentation**
+  - better description for the module - [436817f](https://github.com/royriojas/flat-cache/commit/436817f), [royriojas](https://github.com/royriojas), 11/09/2015 14:35:33
+- **Other changes**
+  - Update dependencies - [be88aa3](https://github.com/royriojas/flat-cache/commit/be88aa3), [Bogdan Chadkin](https://github.com/Bogdan Chadkin), 11/09/2015 13:47:41
+
+## v1.0.4
+
+- **Refactoring**
+  - load a cache file using the full filepath - [b8f68c2](https://github.com/royriojas/flat-cache/commit/b8f68c2), [Roy Riojas](https://github.com/Roy Riojas), 30/08/2015 04:19:14
+- **Documentation**
+  - Add documentation about `clearAll` and `clearCacheById` - [13947c1](https://github.com/royriojas/flat-cache/commit/13947c1), [Roy Riojas](https://github.com/Roy Riojas), 01/03/2015 23:44:05
+- **Features**
+  - Add methods to remove the cache documents created - [af40443](https://github.com/royriojas/flat-cache/commit/af40443), [Roy Riojas](https://github.com/Roy Riojas), 01/03/2015 23:39:27
+
+## v1.0.1
+
+- **Other changes**
+  - Update README.md - [c2b6805](https://github.com/royriojas/flat-cache/commit/c2b6805), [Roy Riojas](https://github.com/Roy Riojas), 26/02/2015 04:28:07
+
+## v1.0.0
+
+- **Refactoring**
+  - flat-cache v.1.0.0 - [c984274](https://github.com/royriojas/flat-cache/commit/c984274), [Roy Riojas](https://github.com/Roy Riojas), 26/02/2015 04:11:50
+- **Other changes**
+  - Initial commit - [d43cccf](https://github.com/royriojas/flat-cache/commit/d43cccf), [Roy Riojas](https://github.com/Roy Riojas), 26/02/2015 01:12:16

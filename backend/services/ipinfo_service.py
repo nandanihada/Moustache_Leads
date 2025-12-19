@@ -315,3 +315,6 @@ def get_ipinfo_service():
     if _ipinfo_service is None:
         _ipinfo_service = IPinfoService()
     return _ipinfo_service
+
+# Alias for backward compatibility
+get_ip2location_service = get_ipinfo_service

@@ -73,18 +73,37 @@ const AdminLoginLogs: React.FC = () => {
         }
     };
 
-    const formatDate = (dateString: string) => {
+    const formatDate = (dateString: string, timezone?: string) => {
         const date = new Date(dateString);
-        return date.toLocaleString('en-IN', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: true,
-            timeZone: 'Asia/Kolkata'
-        }) + ' IST';
+        // Always display in IST for Indian users
+        const displayTimezone = 'Asia/Kolkata';
+
+        try {
+            const formatted = date.toLocaleString('en-IN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true,
+                timeZone: displayTimezone
+            });
+
+            return `${formatted} IST`;
+        } catch (error) {
+            // Fallback to UTC if there's an error
+            return date.toLocaleString('en-US', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true,
+                timeZone: 'UTC'
+            }) + ' (UTC)';
+        }
     };
 
     const formatTimeAgo = (dateString: string) => {
@@ -202,12 +221,12 @@ const AdminLoginLogs: React.FC = () => {
                                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                                     <div>
                                                         <div className="text-muted-foreground">Login Time</div>
-                                                        <div className="font-medium">{formatDate(log.login_time)}</div>
+                                                        <div className="font-medium">{formatDate(log.login_time, log.location?.timezone)}</div>
                                                     </div>
                                                     {log.logout_time && (
                                                         <div>
                                                             <div className="text-muted-foreground">Logout Time</div>
-                                                            <div className="font-medium">{formatDate(log.logout_time)}</div>
+                                                            <div className="font-medium">{formatDate(log.logout_time, log.location?.timezone)}</div>
                                                         </div>
                                                     )}
                                                     <div>
@@ -216,7 +235,11 @@ const AdminLoginLogs: React.FC = () => {
                                                     </div>
                                                     <div>
                                                         <div className="text-muted-foreground">Location</div>
-                                                        <div>{log.location.city}, {log.location.country}</div>
+                                                        <div>
+                                                            {log.location.city}
+                                                            {log.location.region && log.location.region !== 'Unknown' && `, ${log.location.region}`}
+                                                            {`, ${log.location.country}`}
+                                                        </div>
                                                     </div>
                                                     {log.location.isp && (
                                                         <div>
@@ -285,7 +308,7 @@ const AdminLoginLogs: React.FC = () => {
                                                                 </div>
                                                                 <div className="text-right">
                                                                     <div className="text-sm font-medium">{formatTimeAgo(visit.timestamp)}</div>
-                                                                    <div className="text-xs text-muted-foreground">{formatDate(visit.timestamp)}</div>
+                                                                    <div className="text-xs text-muted-foreground">{formatDate(visit.timestamp, log.location?.timezone)}</div>
                                                                 </div>
                                                             </div>
                                                         </div>

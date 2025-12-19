@@ -3,6 +3,8 @@ from flask_cors import CORS
 from config import Config
 from database import db_instance
 import logging
+from datetime import datetime
+from flask.json.provider import DefaultJSONProvider
 
 # Import partner postback service to ensure it's available
 try:
@@ -64,6 +66,15 @@ comprehensive_analytics_bp = safe_import_blueprint('routes.comprehensive_analyti
 login_logs_bp = safe_import_blueprint('routes.login_logs', 'login_logs_bp')
 admin_subadmin_management_bp = safe_import_blueprint('routes.admin_subadmin_management', 'admin_subadmin_management_bp')
 
+# Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
+class CustomJSONProvider(DefaultJSONProvider):
+    """Custom JSON provider that adds 'Z' suffix to UTC datetime strings"""
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            # Convert datetime to ISO format with 'Z' suffix for UTC
+            return obj.isoformat() + 'Z'
+        return super().default(obj)
+
 # Define blueprints with their URL prefixes
 blueprints = [
     (auth_bp, '/api/auth'),
@@ -110,6 +121,9 @@ blueprints = [
 def create_app():
     """Create and configure Flask application"""
     app = Flask(__name__)
+    
+    # Set custom JSON provider for proper datetime serialization
+    app.json = CustomJSONProvider(app)
     
     # Configure logging
     logging.basicConfig(

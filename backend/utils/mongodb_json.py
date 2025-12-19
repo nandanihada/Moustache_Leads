@@ -13,7 +13,8 @@ def mongodb_to_json(obj):
     if isinstance(obj, ObjectId):
         return str(obj)
     elif isinstance(obj, datetime):
-        return obj.isoformat()
+        # Add 'Z' suffix to indicate UTC timezone for proper JavaScript parsing
+        return obj.isoformat() + 'Z'
     elif isinstance(obj, dict):
         return {key: mongodb_to_json(value) for key, value in obj.items()}
     elif isinstance(obj, list):
