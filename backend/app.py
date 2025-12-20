@@ -67,6 +67,7 @@ login_logs_bp = safe_import_blueprint('routes.login_logs', 'login_logs_bp')
 admin_subadmin_management_bp = safe_import_blueprint('routes.admin_subadmin_management', 'admin_subadmin_management_bp')
 gift_cards_bp = safe_import_blueprint('routes.gift_cards', 'gift_cards_bp')
 forwarded_postbacks_bp = safe_import_blueprint('routes.forwarded_postbacks', 'forwarded_postbacks_bp')
+postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postback_receiver_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
