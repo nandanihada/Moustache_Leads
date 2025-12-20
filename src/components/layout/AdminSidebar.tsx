@@ -42,6 +42,7 @@ const adminMenuItems = [
   { title: "Overview", url: "/admin", icon: Shield, tab: "overview" },
   { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
   { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
+  { title: "Gift Cards", url: "/admin/gift-cards", icon: Gift, tab: "gift-cards" },
   { title: "Bonus Management", url: "/admin/bonus-management", icon: Wallet, tab: "bonus-management" },
   { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
   { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare, tab: "placement-approval" },

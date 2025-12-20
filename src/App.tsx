@@ -44,6 +44,9 @@ import AdminClickTracking from "./pages/AdminClickTracking";
 import AdminLoginLogs from "./pages/AdminLoginLogs";
 import AdminActiveUsers from "./pages/AdminActiveUsers";
 import AdminSubadminManagement from "./pages/AdminSubadminManagement";
+import GiftCardRedemption from "./pages/GiftCardRedemption";
+import RedeemGiftCard from "./pages/RedeemGiftCard";
+import AdminGiftCardManagement from "./pages/AdminGiftCardManagement";
 import OfferwallPage from "./pages/OfferwallPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -95,6 +98,8 @@ const App = () => (
                 <Route path="payments" element={<Payments />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="profile" element={<PartnerProfile />} />
+                <Route path="gift-cards" element={<GiftCardRedemption />} />
+                <Route path="redeem-gift-card" element={<RedeemGiftCard />} />
                 <Route path="test" element={<TestPage />} />
                 <Route path="rewards" element={<UserRewardsDashboard />} />
                 <Route path="campaign-builder" element={<CampaignBuilder />} />
@@ -130,6 +135,7 @@ const App = () => (
                 <Route path="postback-logs" element={<PostbackLogs />} />
                 <Route path="postback-receiver" element={<PostbackReceiver />} />
                 <Route path="subadmin-management" element={<AdminSubadminManagement />} />
+                <Route path="gift-cards" element={<AdminGiftCardManagement />} />
               </Route>
 
               {/* Smart redirect based on authentication status */}

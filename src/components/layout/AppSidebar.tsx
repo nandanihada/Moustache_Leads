@@ -40,6 +40,7 @@ const menuItems = [
   { title: "Assets", url: "/dashboard/assets", icon: FileImage },
   { title: "Offers", url: "/dashboard/offers", icon: Gift },
   { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
+  { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
   { title: "Rewards", url: "/dashboard/rewards", icon: Trophy },
   { title: "Reports", url: "/dashboard/reports", icon: BarChart3 },
   { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },

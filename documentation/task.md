@@ -43,52 +43,116 @@
 
 ---
 
-## 2. Promo Code - Gift Card Functionality
+
+## 2. Gift Card Functionality (Fresh Implementation - Independent from Promo Codes)
 
 ### 2.1 Requirements Analysis
-- [ ] Define gift card promo code specifications (e.g., $10 credit)
-- [ ] Determine if gift codes are single-use or multi-use
-- [ ] Define expiration rules for gift codes
-- [ ] Clarify if gift codes should be stackable with other promos
+- [x] Define gift card specifications (direct account credit, not offer-based)
+- [x] Determine gift card flow (admin creates → sends email → user redeems)
+- [x] Define gift card features (image, amount, name, expiry, user assignment)
+- [x] Clarify redemption rules (single-use per user, assigned users only)
 
 ### 2.2 Backend - Database Schema
-- [ ] Update `backend/models/promo_code.py` to add gift card type field
-- [ ] Add `credit_amount` field for gift card value
-- [ ] Add `is_gift_card` boolean flag
-- [ ] Create migration script for database changes
-- [ ] Update promo code validation logic
+- [x] Create independent `gift_cards` collection (separate from promo_codes)
+- [x] Create `gift_card_redemptions` collection for tracking
+- [x] Add `balance` field to users collection
+- [x] Design gift card document structure with all required fields
 
-### 2.3 Backend - Gift Card Logic
-- [ ] Update `backend/routes/admin_promo_codes.py` to support gift card creation
-- [ ] Implement gift card redemption endpoint
-- [ ] Add logic to credit user account balance directly
-- [ ] Update user balance in `backend/models/user.py`
-- [ ] Add transaction logging for gift card redemptions
-- [ ] Implement validation to prevent duplicate redemptions
+### 2.3 Backend - Gift Card Model
+- [x] Create `backend/models/gift_card.py` (independent model)
+- [x] Implement `create_gift_card()` method
+- [x] Implement `generate_unique_code()` method
+- [x] Implement `send_gift_card_email()` method
+- [x] Implement `redeem_gift_card()` method with balance crediting
+- [x] Implement `get_user_gift_cards()` method
+- [x] Implement `get_redemption_history()` method
+- [x] Implement `get_all_gift_cards()` method (admin)
+- [x] Implement `cancel_gift_card()` method
+- [x] Add validation to prevent duplicate redemptions
+- [x] Add validation for user assignment
+- [x] Add expiry date validation
 
-### 2.4 Frontend - Admin Panel
-- [ ] Update `src/pages/AdminPromoCodeManagement.tsx` to add gift card creation UI
-- [ ] Add toggle/checkbox for "Gift Card" type
-- [ ] Add input field for credit amount ($10, $20, etc.)
-- [ ] Update promo code generation form
-- [ ] Add gift card specific columns in promo code list table
+### 2.4 Backend - Email Service
+- [x] Add `send_gift_card_email()` to `backend/services/email_service.py`
+- [x] Create beautiful HTML email template
+- [x] Include gift card image in email
+- [x] Display gift card code prominently
+- [x] Add redemption instructions
+- [x] Add direct "Redeem Now" button
+- [x] Create standalone email function for easy import
 
-### 2.5 Frontend - User Interface
-- [ ] Create/update user promo code redemption page
-- [ ] Add input box for users to enter gift card code
-- [ ] Display success message with credited amount
-- [ ] Update user balance display after redemption
-- [ ] Add redemption history for users
+### 2.5 Backend - API Routes
+- [x] Create `backend/routes/gift_cards.py` (fresh implementation)
+- [x] Implement admin endpoints:
+  - [x] POST `/api/admin/gift-cards` - Create gift card & send emails
+  - [x] GET `/api/admin/gift-cards` - List all gift cards
+  - [x] POST `/api/admin/gift-cards/<id>/send-email` - Send emails
+  - [x] POST `/api/admin/gift-cards/<id>/cancel` - Cancel gift card
+- [x] Implement user endpoints:
+  - [x] POST `/api/publisher/gift-cards/redeem` - Redeem gift card
+  - [x] GET `/api/publisher/gift-cards` - Get assigned gift cards
+  - [x] GET `/api/publisher/gift-cards/history` - Redemption history
+  - [x] GET `/api/publisher/balance` - Current balance
+- [x] Register blueprint in `backend/app.py`
 
-### 2.6 Testing & Validation
+### 2.6 Backend - Cleanup
+- [x] Revert gift card code from `backend/models/promo_code.py`
+- [x] Remove `is_gift_card` and `credit_amount` fields from PromoCode
+- [x] Remove `redeem_gift_card()` method from PromoCode
+- [x] Delete old promo-code-based gift_cards.py routes
+
+### 2.7 Frontend - Admin Panel
+- [ ] Create gift card creation form in admin panel:
+  - [ ] Name input
+  - [ ] Amount input
+  - [ ] Image upload/URL input
+  - [ ] Description textarea
+  - [ ] Expiry date picker
+  - [ ] User selection (multi-select dropdown)
+  - [ ] "Send Email" checkbox
+  - [ ] Submit button
+- [ ] Create gift card management table:
+  - [ ] List all gift cards
+  - [ ] Show: Code, Name, Amount, Assigned Users, Redeemed Count, Status
+  - [ ] Actions: Send Email, Cancel
+  - [ ] Pagination
+
+### 2.8 Frontend - User Interface
+- [ ] Create "Avail Gift Card" page:
+  - [ ] Simple, clean interface
+  - [ ] Input field for gift card code
+  - [ ] "Redeem" button
+  - [ ] **Celebration animation** on successful redemption (confetti, etc.)
+  - [ ] Display new balance after redemption
+- [ ] Create "My Gift Cards" page:
+  - [ ] Show assigned gift cards
+  - [ ] Display: Image, Name, Amount, Code, Expiry, Status
+  - [ ] "Redeem" button for unredeemed cards
+- [ ] Create "Redemption History" page:
+  - [ ] Table showing all redeemed gift cards
+  - [ ] Display: Code, Amount, Redeemed Date
+- [ ] Add balance widget to dashboard:
+  - [ ] Prominently display current balance
+  - [ ] Show breakdown of gift card credits
+
+### 2.9 Testing & Validation
 - [ ] Test gift card creation from admin panel
+- [ ] Test email sending to multiple users
+- [ ] Test user receives email with correct details
 - [ ] Test gift card redemption flow
-- [ ] Verify user balance is updated correctly
+- [ ] Verify balance is updated correctly
 - [ ] Test duplicate redemption prevention
+- [ ] Test redemption by non-assigned users (should fail)
 - [ ] Test expiration logic
-- [ ] Verify transaction logs are created
+- [ ] Verify redemption history is accurate
+- [ ] Test celebration animation
+- [ ] Test gift card cancellation
+
+**Status**: ✅ **BACKEND COMPLETE** - Frontend implementation pending  
+**Implementation Summary**: See `GIFT_CARD_IMPLEMENTATION.md`
 
 ---
+
 
 ## 3. Postback Fix - Username & Score Parameters
 

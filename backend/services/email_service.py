@@ -871,6 +871,159 @@ class EmailService:
 </html>
 """
         return self._send_email(recipient_email, subject, html_content)
+    
+    def send_gift_card_email(self, recipient_email: str, user_name: str, gift_card_code: str, 
+                            gift_card_name: str, gift_card_amount: float, 
+                            gift_card_image: str = '', expiry_date: datetime = None) -> bool:
+        """
+        Send gift card email to user
+        
+        Args:
+            recipient_email: User's email address
+            user_name: User's name
+            gift_card_code: Gift card code
+            gift_card_name: Gift card name/title
+            gift_card_amount: Gift card amount
+            gift_card_image: Gift card image URL (optional)
+            expiry_date: Expiry date (optional)
+            
+        Returns:
+            Boolean indicating success
+        """
+        if not self.is_configured:
+            logger.warning("⚠️ Email service not configured. Skipping gift card email.")
+            return False
+        
+        # Format expiry date
+        expiry_text = ''
+        if expiry_date:
+            expiry_text = f"Valid until {expiry_date.strftime('%B %d, %Y')}"
+        
+        # Default image if none provided
+        if not gift_card_image:
+            gift_card_image = 'https://images.unsplash.com/photo-1549465220-1a8b9238cd48?w=800&h=400&fit=crop'
+        
+        subject = f"🎁 You've Received a Gift Card: ${gift_card_amount:.2f}!"
+        
+        html_content = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gift Card - {gift_card_name}</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #f4f6f9;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f6f9; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <!-- Main Container -->
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                    
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); padding: 40px 20px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 48px; font-weight: 700;">🎁</h1>
+                            <h2 style="margin: 15px 0 0 0; color: #ffffff; font-size: 28px; font-weight: 700;">You've Got a Gift!</h2>
+                        </td>
+                    </tr>
+                    
+                    <!-- Content -->
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <!-- Greeting -->
+                            <p style="text-align: center; font-size: 20px; color: #1f2937; font-weight: 600; margin: 0 0 30px 0;">
+                                Hi {user_name}! 👋
+                            </p>
+                            
+                            <p style="text-align: center; font-size: 16px; color: #6b7280; margin: 0 0 30px 0;">
+                                You've received a special gift card! Redeem it now to add credits to your account.
+                            </p>
+                            
+                            <!-- Gift Card Image -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 20px 0;">
+                                <tr>
+                                    <td style="padding: 0;">
+                                        <img src="{gift_card_image}" alt="{gift_card_name}" style="width: 100%; height: auto; max-height: 300px; object-fit: cover; display: block; border-radius: 8px;" />
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Gift Card Details -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); border-radius: 12px; margin: 20px 0; padding: 30px; text-align: center;">
+                                <tr>
+                                    <td>
+                                        <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.9); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Gift Card</p>
+                                        <h3 style="margin: 0 0 20px 0; color: #ffffff; font-size: 24px; font-weight: 700;">{gift_card_name}</h3>
+                                        
+                                        <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.9); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Amount</p>
+                                        <p style="margin: 0 0 30px 0; color: #ffffff; font-size: 48px; font-weight: 700;">${gift_card_amount:.2f}</p>
+                                        
+                                        <p style="margin: 0 0 10px 0; color: rgba(255,255,255,0.9); font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Your Code</p>
+                                        <p style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700; font-family: 'Courier New', monospace; letter-spacing: 3px; background-color: rgba(255,255,255,0.2); padding: 15px; border-radius: 8px;">{gift_card_code}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            {f'<p style="text-align: center; color: #f59e0b; font-size: 14px; font-weight: 600; margin: 20px 0;">⏰ {expiry_text}</p>' if expiry_text else ''}
+                            
+                            <!-- Instructions -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f0f9ff; padding: 20px; border-radius: 8px; border-left: 4px solid #3b82f6; margin: 30px 0;">
+                                <tr>
+                                    <td>
+                                        <p style="margin: 0 0 10px 0; color: #1e40af; font-weight: 600; font-size: 16px;">How to Redeem:</p>
+                                        <ol style="margin: 0; padding-left: 20px; color: #1e40af; font-size: 14px; line-height: 1.8;">
+                                            <li>Log in to your account</li>
+                                            <li>Go to "Avail Gift Card" section</li>
+                                            <li>Enter the code: <strong>{gift_card_code}</strong></li>
+                                            <li>Click "Redeem" and enjoy your credits! 🎉</li>
+                                        </ol>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- CTA Button -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="http://localhost:5173/dashboard/gift-cards" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(236,72,153,0.4);">REDEEM NOW →</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                            <!-- Closing -->
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 40px; padding-top: 30px; border-top: 2px solid #e5e7eb;">
+                                <tr>
+                                    <td align="center">
+                                        <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 16px;">Enjoy your gift!</p>
+                                        <p style="margin: 0; color: #111827; font-size: 18px; font-weight: 600;">Happy Earning! 💰</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #1f2937; padding: 30px; text-align: center;">
+                            <p style="margin: 0 0 15px 0; color: #ffffff; font-size: 20px; font-weight: 700;">Ascend Affiliate Network</p>
+                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This gift card was sent to you as a special reward.</p>
+                            <p style="margin: 0;">
+                                <a href="#" style="color: #60a5fa; text-decoration: none; margin: 0 8px; font-size: 13px;">Contact Support</a>
+                            </p>
+                            <p style="margin: 20px 0 0 0; color: #6b7280; font-size: 12px;">© {datetime.now().year} Ascend. All rights reserved.</p>
+                        </td>
+                    </tr>
+                    
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+"""
+        
+        return self._send_email(recipient_email, subject, html_content)
 
 
 # Singleton instance
@@ -882,3 +1035,29 @@ def get_email_service() -> EmailService:
     if _email_service_instance is None:
         _email_service_instance = EmailService()
     return _email_service_instance
+
+
+def send_gift_card_email(to_email: str, user_name: str, gift_card_code: str, 
+                        gift_card_name: str, gift_card_amount: float, 
+                        gift_card_image: str = '', expiry_date: datetime = None) -> bool:
+    """
+    Standalone function to send gift card email
+    
+    Args:
+        to_email: Recipient email address
+        user_name: User's name
+        gift_card_code: Gift card code
+        gift_card_name: Gift card name/title
+        gift_card_amount: Gift card amount
+        gift_card_image: Gift card image URL (optional)
+        expiry_date: Expiry date (optional)
+        
+    Returns:
+        Boolean indicating success
+    """
+    email_service = get_email_service()
+    return email_service.send_gift_card_email(
+        to_email, user_name, gift_card_code, 
+        gift_card_name, gift_card_amount, 
+        gift_card_image, expiry_date
+    )

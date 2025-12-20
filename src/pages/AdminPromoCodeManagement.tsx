@@ -31,6 +31,9 @@ interface PromoCode {
   created_at: string;
   applicable_offers: string[];
   applicable_categories: string[];
+  // Gift card fields
+  is_gift_card?: boolean;
+  credit_amount?: number;
 }
 
 interface CreatePromoCodeForm {
@@ -50,6 +53,9 @@ interface CreatePromoCodeForm {
   active_hours_timezone: string;
   // NEW: Auto-deactivation
   auto_deactivate_on_max_uses: boolean;
+  // NEW: Gift card fields
+  is_gift_card: boolean;
+  credit_amount: string;
 }
 
 function AdminPromoCodeManagement() {
@@ -86,6 +92,9 @@ function AdminPromoCodeManagement() {
     active_hours_timezone: "Asia/Kolkata",
     // NEW: Auto-deactivation default
     auto_deactivate_on_max_uses: true,
+    // NEW: Gift card defaults
+    is_gift_card: false,
+    credit_amount: "",
   });
 
   // Fetch promo codes
@@ -141,6 +150,9 @@ function AdminPromoCodeManagement() {
         },
         // NEW: Auto-deactivation
         auto_deactivate_on_max_uses: formData.auto_deactivate_on_max_uses,
+        // NEW: Gift card fields
+        is_gift_card: formData.is_gift_card,
+        credit_amount: formData.is_gift_card ? parseFloat(formData.credit_amount) : undefined,
       };
 
       const { API_BASE_URL } = await import('../services/apiConfig');
@@ -171,6 +183,8 @@ function AdminPromoCodeManagement() {
           active_hours_end: "23:59",
           active_hours_timezone: "Asia/Kolkata",
           auto_deactivate_on_max_uses: true,
+          is_gift_card: false,
+          credit_amount: "",
         });
         fetchPromoCodes();
       } else {
@@ -381,36 +395,73 @@ function AdminPromoCodeManagement() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Bonus Type *</Label>
-                  <Select
-                    value={formData.bonus_type}
-                    onValueChange={(value: any) =>
-                      setFormData({ ...formData, bonus_type: value })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="percentage">Percentage (%)</SelectItem>
-                      <SelectItem value="fixed">Fixed Amount ($)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Bonus Amount *</Label>
-                  <Input
-                    type="number"
-                    placeholder={formData.bonus_type === "percentage" ? "20" : "10"}
-                    value={formData.bonus_amount}
-                    onChange={(e) =>
-                      setFormData({ ...formData, bonus_amount: e.target.value })
+              {/* NEW: Gift Card Toggle */}
+              <div className="border rounded-lg p-4 space-y-3 bg-gradient-to-r from-purple-50 to-pink-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-base font-semibold">🎁 Gift Card Mode</Label>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Direct account credit instead of offer-based bonus
+                    </p>
+                  </div>
+                  <Switch
+                    checked={formData.is_gift_card}
+                    onCheckedChange={(checked) =>
+                      setFormData({ ...formData, is_gift_card: checked })
                     }
                   />
                 </div>
+
+                {formData.is_gift_card && (
+                  <div className="pt-2">
+                    <Label>Credit Amount ($) *</Label>
+                    <Input
+                      type="number"
+                      placeholder="10.00"
+                      value={formData.credit_amount}
+                      onChange={(e) =>
+                        setFormData({ ...formData, credit_amount: e.target.value })
+                      }
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      This amount will be directly credited to the user's account balance
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {!formData.is_gift_card && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>Bonus Type *</Label>
+                    <Select
+                      value={formData.bonus_type}
+                      onValueChange={(value: any) =>
+                        setFormData({ ...formData, bonus_type: value })
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="percentage">Percentage (%)</SelectItem>
+                        <SelectItem value="fixed">Fixed Amount ($)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Bonus Amount *</Label>
+                    <Input
+                      type="number"
+                      placeholder={formData.bonus_type === "percentage" ? "20" : "10"}
+                      value={formData.bonus_amount}
+                      onChange={(e) =>
+                        setFormData({ ...formData, bonus_amount: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -603,9 +654,17 @@ function AdminPromoCodeManagement() {
                       <TableCell className="font-mono font-bold">{code.code}</TableCell>
                       <TableCell>{code.name}</TableCell>
                       <TableCell>
-                        {code.bonus_type === "percentage"
-                          ? `${code.bonus_amount}%`
-                          : `$${code.bonus_amount}`}
+                        {code.is_gift_card ? (
+                          <Badge className="bg-gradient-to-r from-purple-500 to-pink-500">
+                            🎁 Gift Card ${code.credit_amount?.toFixed(2)}
+                          </Badge>
+                        ) : (
+                          <span>
+                            {code.bonus_type === "percentage"
+                              ? `${code.bonus_amount}%`
+                              : `$${code.bonus_amount}`}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>{getStatusBadge(code.status)}</TableCell>
                       <TableCell>
@@ -813,7 +872,7 @@ function AdminPromoCodeManagement() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }
 

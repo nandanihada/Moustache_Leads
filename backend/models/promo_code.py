@@ -140,14 +140,14 @@ class PromoCode:
                 'updated_at': datetime.utcnow(),
                 'usage_count': 0,
                 'total_bonus_distributed': 0.0,
-                # NEW: Time-based validity
+                # Time-based validity
                 'active_hours': {
                     'enabled': code_data.get('active_hours', {}).get('enabled', False),
                     'start_time': code_data.get('active_hours', {}).get('start_time', '00:00'),
                     'end_time': code_data.get('active_hours', {}).get('end_time', '23:59'),
                     'timezone': code_data.get('active_hours', {}).get('timezone', 'UTC')
                 },
-                # NEW: Auto-deactivation
+                # Auto-deactivation
                 'auto_deactivate_on_max_uses': code_data.get('auto_deactivate_on_max_uses', True)
             }
             
@@ -351,6 +351,8 @@ class PromoCode:
         except Exception as e:
             logger.error(f"❌ Error applying promo code: {str(e)}")
             return None, f"Error applying code: {str(e)}"
+    
+
     
     def calculate_bonus(self, base_earning, code_obj):
         """
