@@ -70,6 +70,7 @@ def track_offer_click(offer_id):
             'offer_id': offer_id,
             'user_id': user_id,  # Publisher who shared the link
             'affiliate_id': user_id,  # Same as user_id for consistency
+            'placement_id': sub1,  # Placement/offerwall ID (usually in sub1)
             'ip_address': ip_address,
             'user_agent': user_agent,
             'referer': referer,
@@ -79,6 +80,7 @@ def track_offer_click(offer_id):
             'sub_id4': sub4,
             'sub_id5': sub5,
             'click_time': datetime.utcnow(),
+            'timestamp': datetime.utcnow(),  # Add timestamp for sorting
             'converted': False,
             'country': 'Unknown',  # Will be enhanced later
             'device_type': 'unknown',  # Will be enhanced later
