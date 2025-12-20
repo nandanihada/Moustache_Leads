@@ -252,32 +252,80 @@ def receive_postback(unique_key):
                     return val[0] if val else ''
                 return str(val) if val else ''
             
-            # Get click_id from postback
+            # Get parameters from postback
+            # Note: Different partners use different parameter names
             click_id = get_param_value('click_id')
-            offer_id = get_param_value('offer_id')
+            offer_id = get_param_value('offer_id') or get_param_value('survey_id')
+            transaction_id = get_param_value('transaction_id')
             
-            if not click_id:
-                logger.warning("⚠️ No click_id in postback - cannot identify which user's offerwall was used")
-            else:
-                logger.info(f"🔍 Looking up click: {click_id}")
+            logger.info(f"📋 Postback parameters:")
+            logger.info(f"   click_id: {click_id or 'Not provided'}")
+            logger.info(f"   offer_id/survey_id: {offer_id or 'Not provided'}")
+            logger.info(f"   transaction_id: {transaction_id or 'Not provided'}")
+            
+            click = None
+            clicks_collection = get_collection('clicks')
+            
+            # Try to find click by click_id first
+            if click_id and clicks_collection is not None:
+                logger.info(f"🔍 Looking up click by click_id: {click_id}")
+                click = clicks_collection.find_one({'click_id': click_id})
                 
-                # Get click record to find placement_id
-                clicks_collection = get_collection('clicks')
-                if clicks_collection is not None:
-                    click = clicks_collection.find_one({'click_id': click_id})
+                if click:
+                    logger.info(f"✅ Found click by click_id")
+                else:
+                    logger.warning(f"⚠️ Click not found by click_id: {click_id}")
+            
+            # FALLBACK: If click not found by click_id, try to find by offer_id (most recent)
+            if not click and offer_id and clicks_collection is not None:
+                logger.info(f"🔄 Fallback: Looking up click for offer: {offer_id}")
+                
+                # First, check if this is an external offer_id and map it to our internal offer_id
+                offers_collection = get_collection('offers')
+                internal_offer_id = offer_id  # Default to the provided offer_id
+                
+                if offers_collection is not None:
+                    # Try to find offer by external_offer_id first
+                    offer_doc = offers_collection.find_one({'external_offer_id': offer_id})
                     
-                    if not click:
-                        logger.warning(f"⚠️ Click not found: {click_id}")
+                    if offer_doc:
+                        internal_offer_id = offer_doc.get('offer_id')
+                        logger.info(f"✅ Mapped external offer_id '{offer_id}' → internal offer_id '{internal_offer_id}'")
                     else:
-                        placement_id = click.get('placement_id')
-                        user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
-                        
-                        logger.info(f"✅ Found click - placement_id: {placement_id}, user: {user_id_from_click}")
-                        
-                        if not placement_id:
-                            logger.warning("⚠️ No placement_id in click record")
+                        # Maybe it's already our internal offer_id
+                        offer_doc = offers_collection.find_one({'offer_id': offer_id})
+                        if offer_doc:
+                            logger.info(f"✅ Using internal offer_id: {offer_id}")
                         else:
-                            # Get placement details to find the owner
+                            logger.warning(f"⚠️ Offer not found: {offer_id}")
+                
+                # Now find the most recent click for the internal offer_id
+                click = clicks_collection.find_one(
+                    {'offer_id': internal_offer_id},
+                    sort=[('timestamp', -1)]  # Most recent first
+                )
+                
+                if click:
+                    logger.info(f"✅ Found click by offer_id (fallback)")
+                    logger.info(f"   Click ID: {click.get('click_id')}")
+                    logger.info(f"   User: {click.get('user_id')}")
+                    logger.info(f"   Placement: {click.get('placement_id')}")
+                else:
+                    logger.warning(f"⚠️ No clicks found for offer: {internal_offer_id}")
+            
+            # Process the click if found
+            if not click:
+                logger.warning("⚠️ Cannot identify which user's offerwall was used - no click found")
+            else:
+                placement_id = click.get('placement_id')
+                user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
+                
+                logger.info(f"✅ Processing click - placement_id: {placement_id}, user: {user_id_from_click}")
+                
+                if not placement_id:
+                    logger.warning("⚠️ No placement_id in click record")
+                else:
+                    # Get placement details to find the owner
                             placements_collection = get_collection('placements')
                             if placements_collection is not None:
                                 placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
