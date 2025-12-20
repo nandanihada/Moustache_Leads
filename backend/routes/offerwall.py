@@ -2082,14 +2082,28 @@ def create_offerwall_session():
         # Get publisher ID from placement
         try:
             placements_col = db_instance.get_collection('placements')
-            placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+            
+            # Try multiple strategies to find placement (handles both ObjectId and string IDs)
+            placement = None
+            try:
+                placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+            except:
+                # Try as string
+                placement = placements_col.find_one({
+                    '$or': [
+                        {'_id': data['placement_id']},
+                        {'placementId': data['placement_id']},
+                        {'placement_id': data['placement_id']}
+                    ]
+                })
             
             if not placement:
-                return jsonify({'error': 'Placement not found'}), 404
-            
-            publisher_id = placement.get('publisherId', 'unknown') if placement else 'unknown'
-            if isinstance(publisher_id, ObjectId):
-                publisher_id = str(publisher_id)
+                logger.warning(f"Placement not found: {data['placement_id']}")
+                publisher_id = 'unknown'
+            else:
+                publisher_id = placement.get('publisherId', 'unknown')
+                if isinstance(publisher_id, ObjectId):
+                    publisher_id = str(publisher_id)
         except Exception as e:
             logger.error(f"Error fetching placement: {e}")
             publisher_id = 'unknown'
@@ -2605,7 +2619,20 @@ def track_offerwall_conversion():
         # Get publisher from placement
         try:
             placements_col = db_instance.get_collection('placements')
-            placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+            
+            # Try multiple strategies
+            placement = None
+            try:
+                placement = placements_col.find_one({'_id': ObjectId(data['placement_id'])})
+            except:
+                placement = placements_col.find_one({
+                    '$or': [
+                        {'_id': data['placement_id']},
+                        {'placementId': data['placement_id']},
+                        {'placement_id': data['placement_id']}
+                    ]
+                })
+            
             publisher_id = placement.get('publisherId', 'unknown') if placement else 'unknown'
             if isinstance(publisher_id, ObjectId):
                 publisher_id = str(publisher_id)
