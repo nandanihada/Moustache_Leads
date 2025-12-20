@@ -245,12 +245,32 @@ def receive_postback(unique_key):
         logger.info("="*100)
         
         try:
+            # Get POST body data (JSON) - upward partner sends actual values here
+            post_data = {}
+            try:
+                if request.is_json:
+                    post_data = request.get_json() or {}
+                    logger.info(f"📦 Received POST body: {post_data}")
+                elif request.form:
+                    post_data = request.form.to_dict()
+                    logger.info(f"📦 Received FORM data: {post_data}")
+            except Exception as json_error:
+                logger.warning(f"⚠️ Could not parse POST body: {json_error}")
+            
             # Helper function to safely get parameter value
+            # Check POST body first (where actual values are), then query params
             def get_param_value(key):
+                # First check POST body
+                if key in post_data:
+                    val = post_data.get(key, '')
+                    if val and val != f"{{{key}}}":  # Ignore literal macros like {click_id}
+                        return str(val) if val else ''
+                
+                # Fall back to query params
                 val = params.get(key, '')
                 if isinstance(val, list):
                     return val[0] if val else ''
-                return str(val) if val else ''
+                return str(val) if val and val != f"{{{key}}}" else ''
             
             # Get parameters from postback
             # Note: Different partners use different parameter names
