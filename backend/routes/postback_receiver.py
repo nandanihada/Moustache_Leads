@@ -384,7 +384,63 @@ def receive_postback(unique_key):
                                 logger.info(f"   ✅ Sent POST! Status: {response.status_code}")
                                 logger.info(f"   Response: {response.text[:200]}")
                                 
-                                # Log the successful send
+                                # Log to forwarded_postbacks collection
+                                forwarded_postbacks = get_collection('forwarded_postbacks')
+                                if forwarded_postbacks is not None:
+                                    forwarded_log = {
+                                        'timestamp': datetime.utcnow(),
+                                        'original_postback_id': result.inserted_id,
+                                        'publisher_id': user_id or 'unknown',
+                                        'publisher_name': actual_username or 'Unknown',
+                                        'username': actual_username or 'Unknown',
+                                        'points': points_calc['total_points'],
+                                        'forward_url': final_url,
+                                        'forward_status': 'success' if response.status_code == 200 else 'failed',
+                                        'response_code': response.status_code,
+                                        'original_params': params,
+                                        'enriched_params': post_data,
+                                        'placement_id': placement_id,
+                                        'placement_title': placement_title,
+                                        'offer_id': offer_id or 'unknown',
+                                        'click_id': click_id or 'unknown'
+                                    }
+                                    forwarded_postbacks.insert_one(forwarded_log)
+                                    logger.info(f"   📝 Logged to forwarded_postbacks collection")
+                                
+                                # Update user points if postback was successful
+                                if response.status_code == 200 and user_id and points_calc['total_points'] > 0:
+                                    try:
+                                        users_collection = get_collection('users')
+                                        if users_collection is not None:
+                                            # Update user's total points
+                                            users_collection.update_one(
+                                                {'username': actual_username},
+                                                {
+                                                    '$inc': {'total_points': points_calc['total_points']},
+                                                    '$set': {'updated_at': datetime.utcnow()}
+                                                },
+                                                upsert=False
+                                            )
+                                            logger.info(f"   💰 Updated user points: {actual_username} +{points_calc['total_points']}")
+                                            
+                                            # Create points transaction record
+                                            points_transactions = get_collection('points_transactions')
+                                            if points_transactions is not None:
+                                                points_transactions.insert_one({
+                                                    'username': actual_username,
+                                                    'user_id': user_id,
+                                                    'points': points_calc['total_points'],
+                                                    'type': 'offer_completion',
+                                                    'offer_id': offer_id,
+                                                    'click_id': click_id,
+                                                    'conversion_id': get_param_value('conversion_id'),
+                                                    'timestamp': datetime.utcnow(),
+                                                    'status': 'completed'
+                                                })
+                                    except Exception as points_error:
+                                        logger.error(f"   ❌ Error updating user points: {points_error}")
+                                
+                                # Log the successful send (keep existing placement_postback_logs)
                                 placement_postback_logs = get_collection('placement_postback_logs')
                                 if placement_postback_logs is not None:
                                     placement_postback_logs.insert_one({
@@ -401,7 +457,30 @@ def receive_postback(unique_key):
                                     })
                             except Exception as send_error:
                                 logger.error(f"   ❌ Error sending: {send_error}")
-                                # Log the failed send
+                                
+                                # Log to forwarded_postbacks collection as failed
+                                forwarded_postbacks = get_collection('forwarded_postbacks')
+                                if forwarded_postbacks is not None:
+                                    forwarded_log = {
+                                        'timestamp': datetime.utcnow(),
+                                        'original_postback_id': result.inserted_id,
+                                        'publisher_id': user_id or 'unknown',
+                                        'publisher_name': actual_username or 'Unknown',
+                                        'username': actual_username or 'Unknown',
+                                        'points': points_calc['total_points'],
+                                        'forward_url': final_url,
+                                        'forward_status': 'failed',
+                                        'error_message': str(send_error),
+                                        'original_params': params,
+                                        'enriched_params': post_data,
+                                        'placement_id': placement_id,
+                                        'placement_title': placement_title,
+                                        'offer_id': offer_id or 'unknown',
+                                        'click_id': click_id or 'unknown'
+                                    }
+                                    forwarded_postbacks.insert_one(forwarded_log)
+                                
+                                # Log the failed send (keep existing placement_postback_logs)
                                 placement_postback_logs = get_collection('placement_postback_logs')
                                 if placement_postback_logs is not None:
                                     placement_postback_logs.insert_one({

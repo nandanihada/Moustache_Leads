@@ -28,11 +28,12 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { postbackReceiverApi, ReceivedPostback } from '@/services/postbackReceiverApi';
 import { partnerApi, Partner } from '@/services/partnerApi';
-import { 
-  Copy, 
-  RefreshCw, 
-  Eye, 
-  Link as LinkIcon, 
+import { forwardedPostbackApi, ForwardedPostback } from '@/services/forwardedPostbackApi';
+import {
+  Copy,
+  RefreshCw,
+  Eye,
+  Link as LinkIcon,
   Loader2,
   CheckCircle,
   XCircle,
@@ -47,14 +48,17 @@ const PostbackReceiver: React.FC = () => {
   const { toast } = useToast();
   const [partners, setPartners] = useState<Partner[]>([]);
   const [receivedPostbacks, setReceivedPostbacks] = useState<ReceivedPostback[]>([]);
+  const [forwardedPostbacks, setForwardedPostbacks] = useState<ForwardedPostback[]>([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<Partner | null>(null);
   const [selectedPostback, setSelectedPostback] = useState<ReceivedPostback | null>(null);
+  const [selectedForwardedPostback, setSelectedForwardedPostback] = useState<ForwardedPostback | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [isForwardedDetailModalOpen, setIsForwardedDetailModalOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [generatedUrl, setGeneratedUrl] = useState('');
-  
+
   // Quick postback generator state
   const [isQuickGenerateModalOpen, setIsQuickGenerateModalOpen] = useState(false);
   const [selectedParameters, setSelectedParameters] = useState<string[]>([]);
@@ -92,12 +96,14 @@ const PostbackReceiver: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [partnersData, postbacksData] = await Promise.all([
+      const [partnersData, postbacksData, forwardedData] = await Promise.all([
         partnerApi.getPartners(),
-        postbackReceiverApi.getReceivedPostbacks({ limit: 50 })
+        postbackReceiverApi.getReceivedPostbacks({ limit: 50 }),
+        forwardedPostbackApi.getForwardedPostbacks({ limit: 50 })
       ]);
       setPartners(partnersData.partners);
       setReceivedPostbacks(postbacksData.logs);
+      setForwardedPostbacks(forwardedData.logs);
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -113,17 +119,17 @@ const PostbackReceiver: React.FC = () => {
     try {
       setGenerating(true);
       setSelectedPartner(partner);
-      
+
       const result = await postbackReceiverApi.generateUniqueKey(partner.partner_id);
-      
+
       setGeneratedUrl(result.postback_url);
       setIsGenerateModalOpen(true);
-      
+
       toast({
         title: 'Success',
         description: 'Postback URL generated successfully'
       });
-      
+
       setGeneratedUrls(prev => [...prev, {
         id: result.unique_key, // Assuming result.unique_key is available or generate one
         url: result.postback_url,
@@ -163,8 +169,8 @@ const PostbackReceiver: React.FC = () => {
 
   // Quick postback generator handlers
   const handleParameterToggle = (parameter: string) => {
-    setSelectedParameters(prev => 
-      prev.includes(parameter) 
+    setSelectedParameters(prev =>
+      prev.includes(parameter)
         ? prev.filter(p => p !== parameter)
         : [...prev, parameter]
     );
@@ -207,7 +213,7 @@ const PostbackReceiver: React.FC = () => {
       setIsGeneratingQuick(true);
       const validCustomParams = customParams.filter(p => p.trim());
       const result = await postbackReceiverApi.generateQuickPostback(selectedParameters, validCustomParams, partnerName.trim());
-      
+
       setQuickGeneratedUrl(result);
       setIsQuickGenerateModalOpen(false);
       setIsQuickUrlResultModalOpen(true);
@@ -219,7 +225,7 @@ const PostbackReceiver: React.FC = () => {
         timestamp: new Date().toISOString(),
         type: 'quick'
       }]);
-      
+
       toast({
         title: 'Success',
         description: `Quick postback URL generated successfully for ${partnerName.trim()}`
@@ -240,10 +246,10 @@ const PostbackReceiver: React.FC = () => {
 
     try {
       const result = await postbackReceiverApi.testQuickPostback(quickGeneratedUrl.unique_key, testParams);
-      
+
       // Open the test URL in a new tab
       window.open(result.test_url, '_blank');
-      
+
       toast({
         title: 'Success',
         description: 'Test URL opened in new tab'
@@ -275,10 +281,11 @@ const PostbackReceiver: React.FC = () => {
         </p>
       </div>
 
-      <Tabs defaultValue="generate" className="space-y-4">
+      <Tabs defaultValue="received" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="generate">Generate URLs</TabsTrigger>
           <TabsTrigger value="received">Received Postbacks</TabsTrigger>
+          <TabsTrigger value="forwarded">Forwarded Postbacks</TabsTrigger>
+          <TabsTrigger value="generate">Generate URLs</TabsTrigger>
         </TabsList>
 
         {/* Generate URLs Tab */}
@@ -289,7 +296,7 @@ const PostbackReceiver: React.FC = () => {
               <h3 className="text-lg font-semibold">Quick Postback Generator</h3>
               <p className="text-sm text-gray-600">Generate postback URLs instantly without partner setup</p>
             </div>
-            <Button 
+            <Button
               onClick={() => setIsQuickGenerateModalOpen(true)}
               className="bg-blue-600 hover:bg-blue-700"
             >
@@ -325,7 +332,7 @@ const PostbackReceiver: React.FC = () => {
                     </Button>
                   </div>
                 </div>
-                
+
                 <div>
                   <Label className="text-sm font-medium text-green-800">Full URL with Parameters</Label>
                   <div className="flex gap-2 mt-1">
@@ -521,7 +528,7 @@ const PostbackReceiver: React.FC = () => {
                   Click "Generate URL" for a partner to create their unique postback receiver URL.
                 </p>
               </div>
-              
+
               <div className="space-y-2">
                 <h4 className="font-semibold">Step 2: Share with Partner</h4>
                 <p className="text-sm text-gray-600">
@@ -626,6 +633,104 @@ const PostbackReceiver: React.FC = () => {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Forwarded Postbacks Tab */}
+        <TabsContent value="forwarded" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Forwarded Postbacks</CardTitle>
+                  <CardDescription>
+                    Postbacks forwarded to downward partners with enriched data (username + points)
+                  </CardDescription>
+                </div>
+                <Button onClick={loadData} variant="outline" size="sm">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {loading ? (
+                <div className="flex justify-center items-center h-32">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Timestamp</TableHead>
+                      <TableHead>Publisher</TableHead>
+                      <TableHead>Username</TableHead>
+                      <TableHead>Points</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {forwardedPostbacks.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-gray-500">
+                          No forwarded postbacks yet
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      forwardedPostbacks.map((postback) => (
+                        <TableRow key={postback._id}>
+                          <TableCell className="text-sm">
+                            {formatTimestamp(postback.timestamp)}
+                          </TableCell>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{postback.publisher_name}</div>
+                              <div className="text-xs text-gray-500">{postback.publisher_id}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <code className="text-xs bg-gray-100 px-2 py-1 rounded">
+                              {postback.username}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="secondary">
+                              {postback.points} pts
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {postback.forward_status === 'success' ? (
+                              <Badge variant="default" className="bg-green-500">
+                                <CheckCircle className="h-3 w-3 mr-1" />
+                                Success
+                              </Badge>
+                            ) : (
+                              <Badge variant="destructive">
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Failed
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedForwardedPostback(postback);
+                                setIsForwardedDetailModalOpen(true);
+                              }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Generate URL Modal */}
@@ -637,7 +742,7 @@ const PostbackReceiver: React.FC = () => {
               Share this URL with {selectedPartner?.partner_name}
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4">
             <div>
               <Label>Base URL</Label>
@@ -692,7 +797,7 @@ const PostbackReceiver: React.FC = () => {
               Complete information about this postback request
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedPostback && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -746,6 +851,98 @@ const PostbackReceiver: React.FC = () => {
         </DialogContent>
       </Dialog>
 
+      {/* Forwarded Postback Detail Modal */}
+      <Dialog open={isForwardedDetailModalOpen} onOpenChange={setIsForwardedDetailModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Forwarded Postback Details</DialogTitle>
+            <DialogDescription>
+              Complete information about this forwarded postback
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedForwardedPostback && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-gray-600">Publisher</Label>
+                  <div className="font-medium">{selectedForwardedPostback.publisher_name}</div>
+                  <div className="text-xs text-gray-500">{selectedForwardedPostback.publisher_id}</div>
+                </div>
+                <div>
+                  <Label className="text-gray-600">Timestamp</Label>
+                  <div className="font-medium">{formatTimestamp(selectedForwardedPostback.timestamp)}</div>
+                </div>
+                <div>
+                  <Label className="text-gray-600">Username</Label>
+                  <code className="text-sm bg-gray-100 px-2 py-1 rounded">{selectedForwardedPostback.username}</code>
+                </div>
+                <div>
+                  <Label className="text-gray-600">Points</Label>
+                  <Badge variant="secondary">{selectedForwardedPostback.points} points</Badge>
+                </div>
+                <div>
+                  <Label className="text-gray-600">Forward Status</Label>
+                  {selectedForwardedPostback.forward_status === 'success' ? (
+                    <Badge variant="default" className="bg-green-500">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      Success
+                    </Badge>
+                  ) : (
+                    <Badge variant="destructive">
+                      <XCircle className="h-3 w-3 mr-1" />
+                      Failed
+                    </Badge>
+                  )}
+                </div>
+                {selectedForwardedPostback.response_code && (
+                  <div>
+                    <Label className="text-gray-600">Response Code</Label>
+                    <Badge variant={selectedForwardedPostback.response_code === 200 ? 'default' : 'destructive'}>
+                      {selectedForwardedPostback.response_code}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label className="text-gray-600">Forward URL</Label>
+                <div className="mt-2 bg-gray-50 rounded-lg p-3">
+                  <code className="text-xs break-all">{selectedForwardedPostback.forward_url}</code>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-gray-600">Original Parameters</Label>
+                <div className="mt-2 bg-gray-50 rounded-lg p-3">
+                  <pre className="text-xs overflow-auto">
+                    {JSON.stringify(selectedForwardedPostback.original_params, null, 2)}
+                  </pre>
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-gray-600">Enriched Parameters (with username & points)</Label>
+                <div className="mt-2 bg-green-50 border border-green-200 rounded-lg p-3">
+                  <pre className="text-xs overflow-auto">
+                    {JSON.stringify(selectedForwardedPostback.enriched_params, null, 2)}
+                  </pre>
+                </div>
+              </div>
+
+              {selectedForwardedPostback.error_message && (
+                <div>
+                  <Label className="text-gray-600">Error Message</Label>
+                  <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm">
+                    {selectedForwardedPostback.error_message}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Quick Generate Modal */}
       <Dialog open={isQuickGenerateModalOpen} onOpenChange={setIsQuickGenerateModalOpen}>
         <DialogContent className="max-w-4xl">
@@ -755,7 +952,7 @@ const PostbackReceiver: React.FC = () => {
               Select parameters and generate a postback URL instantly
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-6">
             {/* Partner Name Input */}
             <div>
@@ -855,7 +1052,7 @@ const PostbackReceiver: React.FC = () => {
                     </Button>
                   </div>
                 </div>
-                
+
                 <div>
                   <Label className="text-sm text-gray-600">Full URL with Parameters</Label>
                   <div className="flex gap-2 mt-1">
@@ -928,7 +1125,7 @@ const PostbackReceiver: React.FC = () => {
               Your custom postback URL for <strong>{quickGeneratedUrl?.partner_name}</strong> is ready to share
             </DialogDescription>
           </DialogHeader>
-          
+
           {quickGeneratedUrl && (
             <div className="space-y-4">
               <div>
@@ -1000,7 +1197,7 @@ const PostbackReceiver: React.FC = () => {
               Enter test values to test your postback URL
             </DialogDescription>
           </DialogHeader>
-          
+
           {quickGeneratedUrl && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">

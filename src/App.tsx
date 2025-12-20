@@ -118,22 +118,16 @@ const App = () => (
                 <Route index element={<AdminDashboard />} />
                 <Route path="offers" element={<AdminOffers />} />
                 <Route path="promo-codes" element={<AdminPromoCodeManagement />} />
-                <Route path="bonus-management" element={<AdminBonusManagement />} />
                 <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
                 <Route path="placement-approval" element={<AdminPlacementApproval />} />
                 <Route path="offerwall-analytics" element={<AdminOfferwallAnalytics />} />
-                <Route path="comprehensive-analytics" element={<ComprehensiveOfferwallAnalytics />} />
                 <Route path="click-tracking" element={<AdminClickTracking />} />
                 <Route path="login-logs" element={<AdminLoginLogs />} />
                 <Route path="active-users" element={<AdminActiveUsers />} />
                 <Route path="fraud-management" element={<AdminFraudManagement />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
-                <Route path="reports" element={<AdminReports />} />
-                <Route path="tracking" element={<AdminTracking />} />
-                <Route path="test-tracking" element={<TrackingTest />} />
                 <Route path="partners" element={<Partners />} />
-                <Route path="postback-logs" element={<PostbackLogs />} />
-                <Route path="postback-receiver" element={<PostbackReceiver />} />
+                <Route path="postback" element={<PostbackReceiver />} />
                 <Route path="subadmin-management" element={<AdminSubadminManagement />} />
                 <Route path="gift-cards" element={<AdminGiftCardManagement />} />
               </Route>

@@ -66,6 +66,7 @@ comprehensive_analytics_bp = safe_import_blueprint('routes.comprehensive_analyti
 login_logs_bp = safe_import_blueprint('routes.login_logs', 'login_logs_bp')
 admin_subadmin_management_bp = safe_import_blueprint('routes.admin_subadmin_management', 'admin_subadmin_management_bp')
 gift_cards_bp = safe_import_blueprint('routes.gift_cards', 'gift_cards_bp')
+forwarded_postbacks_bp = safe_import_blueprint('routes.forwarded_postbacks', 'forwarded_postbacks_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -117,7 +118,8 @@ blueprints = [
     (comprehensive_analytics_bp, ''),  # Comprehensive analytics - routes include /api/admin prefix
     (login_logs_bp, '/api/admin'),  # Login logs and activity tracking - admin only
     (admin_subadmin_management_bp, '/api/admin'),  # Subadmin management - admin only
-    (gift_cards_bp, '/api')  # Gift card redemption and management
+    (gift_cards_bp, '/api'),  # Gift card redemption and management
+    (forwarded_postbacks_bp, '/api')  # Forwarded postbacks - admin only
 ]
 
 def create_app():

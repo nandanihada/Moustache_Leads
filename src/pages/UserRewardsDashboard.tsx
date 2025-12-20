@@ -4,10 +4,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Trophy, 
-  Coins, 
-  TrendingUp, 
+import {
+  Trophy,
+  Coins,
+  TrendingUp,
   Gift,
   Star,
   Target,
@@ -15,6 +15,7 @@ import {
   History,
   Award
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface UserPoints {
   user_id: string;
@@ -42,6 +43,7 @@ interface UserStats {
 }
 
 const UserRewardsDashboard: React.FC = () => {
+  const { user } = useAuth();
   const [userPoints, setUserPoints] = useState<UserPoints | null>(null);
   const [completedOffers, setCompletedOffers] = useState<CompletedOffer[]>([]);
   const [userStats, setUserStats] = useState<UserStats | null>(null);
@@ -49,21 +51,23 @@ const UserRewardsDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Mock user ID - in real app this would come from auth context
-  const userId = 'test_user_123';
-
   // Fetch user points
   const fetchUserPoints = async () => {
     try {
+      if (!user?.username) {
+        console.warn('No user logged in');
+        return;
+      }
+
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/user/offerwall/points?user_id=${userId}`, {
+      const response = await fetch(`/api/user/offerwall/points?user_id=${user.username}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
       if (!response.ok) throw new Error('Failed to fetch points');
-      
+
       const data = await response.json();
       if (data.success) {
         setUserPoints(data.data);
@@ -79,15 +83,20 @@ const UserRewardsDashboard: React.FC = () => {
   // Fetch completed offers
   const fetchCompletedOffers = async () => {
     try {
+      if (!user?.username) {
+        console.warn('No user logged in');
+        return;
+      }
+
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/user/offerwall/completed-offers?user_id=${userId}&limit=10`, {
+      const response = await fetch(`/api/user/offerwall/completed-offers?user_id=${user.username}&limit=10`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
       if (!response.ok) throw new Error('Failed to fetch completed offers');
-      
+
       const data = await response.json();
       if (data.success) {
         setCompletedOffers(data.data.completed_offers);
@@ -103,15 +112,21 @@ const UserRewardsDashboard: React.FC = () => {
   // Fetch user stats
   const fetchUserStats = async () => {
     try {
+      if (!user?.username) {
+        console.warn('No user logged in');
+        return;
+      }
+
       const token = localStorage.getItem('token');
-      const response = await fetch(`/api/user/offerwall/stats?user_id=${userId}&placement_id=4hN81lEwE7Fw1hnI`, {
+      // Note: placement_id might need to be dynamic or removed
+      const response = await fetch(`/api/user/offerwall/stats?user_id=${user.username}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
       if (!response.ok) throw new Error('Failed to fetch stats');
-      
+
       const data = await response.json();
       if (data.success) {
         setUserStats(data.data.stats);
@@ -138,7 +153,7 @@ const UserRewardsDashboard: React.FC = () => {
       await refreshData();
       setLoading(false);
     };
-    
+
     loadData();
   }, []);
 

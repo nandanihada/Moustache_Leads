@@ -119,6 +119,81 @@ class PartnerApi {
       throw error.response?.data || error;
     }
   }
+
+  // User management methods
+  async getRegisteredUsers(status?: string, role?: string): Promise<{ users: any[]; total: number }> {
+    try {
+      const params: any = {};
+      if (status) params.status = status;
+      if (role) params.role = role;
+      params.v = new Date().getTime();
+      
+      const response = await axios.get(`${API_BASE_URL}/partners/users`, {
+        headers: this.getAuthHeaders(),
+        params
+      });
+      return response.data;
+    } catch (error: any) {
+      console.error('Error fetching registered users:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async updateUserPostback(userId: string, postbackUrl: string): Promise<{ message: string }> {
+    try {
+      const response = await axios.put(
+        `${API_BASE_URL}/partners/users/${userId}/postback`,
+        { postback_url: postbackUrl },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error updating user postback:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async updateUserParameterMapping(userId: string, parameterMapping: Record<string, string>): Promise<{ message: string }> {
+    try {
+      const response = await axios.put(
+        `${API_BASE_URL}/partners/users/${userId}/parameter-mapping`,
+        { parameter_mapping: parameterMapping },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error updating parameter mapping:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async blockUser(userId: string, reason?: string): Promise<{ message: string }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/partners/users/${userId}/block`,
+        { reason },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error blocking user:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async unblockUser(userId: string): Promise<{ message: string }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/partners/users/${userId}/unblock`,
+        {},
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error unblocking user:', error);
+      throw error.response?.data || error;
+    }
+  }
 }
 
 export const partnerApi = new PartnerApi();

@@ -24,7 +24,7 @@ def admin_required(f):
 @token_required
 @subadmin_or_admin_required('partners')
 def create_partner():
-    """Create a new partner with postback configuration"""
+    """Create a new upward partner and generate a unique postback URL for them"""
     try:
         data = request.get_json()
         
@@ -32,23 +32,24 @@ def create_partner():
             return jsonify({'error': 'No data provided'}), 400
         
         # Validate required fields
-        required_fields = ['partner_name', 'postback_url', 'method']
-        for field in required_fields:
-            if field not in data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+        if 'partner_name' not in data:
+            return jsonify({'error': 'Missing required field: partner_name'}), 400
         
-        # Validate method
-        if data['method'] not in ['GET', 'POST']:
-            return jsonify({'error': 'Method must be GET or POST'}), 400
+        # Generate unique postback key for this partner
+        import secrets
+        unique_key = secrets.token_urlsafe(24)
+        postback_receiver_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
         
         # Create partner document
         partner_doc = {
             'partner_id': str(uuid.uuid4()),
             'partner_name': data['partner_name'].strip(),
-            'postback_url': data['postback_url'].strip(),
-            'method': data['method'],
+            'postback_url': data.get('postback_url', 'https://placeholder.com'),  # Not used for upward partners
+            'method': data.get('method', 'GET'),
             'status': data.get('status', 'active'),
             'description': data.get('description', '').strip(),
+            'unique_postback_key': unique_key,
+            'postback_receiver_url': postback_receiver_url,
             'created_by': str(request.current_user['_id']),
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
@@ -59,10 +60,10 @@ def create_partner():
         result = partners_collection.insert_one(partner_doc)
         partner_doc['_id'] = str(result.inserted_id)
         
-        logger.info(f"✅ Partner created: {partner_doc['partner_name']} ({partner_doc['partner_id']})")
+        logger.info(f"✅ Upward partner created: {partner_doc['partner_name']} - URL: {postback_receiver_url}")
         
         return jsonify({
-            'message': 'Partner created successfully',
+            'message': 'Partner created successfully with unique postback URL',
             'partner': partner_doc
         }), 201
         
@@ -273,4 +274,190 @@ def test_partner_postback(partner_id):
         
     except Exception as e:
         logger.error(f"Error testing partner postback: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@partners_bp.route('/partners/users', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('partners')
+def get_registered_users():
+    """Get all registered users/publishers for partner management"""
+    try:
+        users_collection = db_instance.get_collection('users')
+        
+        # Get query parameters for filtering
+        status = request.args.get('status')
+        role = request.args.get('role')
+        
+        # Build query - exclude admin users
+        query = {'role': {'$ne': 'admin'}}
+        
+        if status:
+            query['status'] = status
+        if role:
+            query['role'] = role
+        
+        # Fetch users
+        users = list(users_collection.find(query).sort('created_at', -1))
+        
+        # Convert ObjectId to string and format data
+        for user in users:
+            user['_id'] = str(user['_id'])
+            # Remove sensitive data
+            user.pop('password', None)
+            user.pop('password_hash', None)
+            
+            # Add postback configuration if exists
+            if 'postback_url' not in user:
+                user['postback_url'] = ''
+            if 'parameter_mapping' not in user:
+                user['parameter_mapping'] = {}
+            if 'is_blocked' not in user:
+                user['is_blocked'] = False
+        
+        return jsonify({
+            'users': users,
+            'total': len(users)
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error fetching registered users: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@partners_bp.route('/partners/users/<user_id>/postback', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('partners')
+def update_user_postback(user_id):
+    """Update postback URL for a user/publisher"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'postback_url' not in data:
+            return jsonify({'error': 'postback_url is required'}), 400
+        
+        users_collection = db_instance.get_collection('users')
+        
+        # Check if user exists
+        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Update postback URL
+        users_collection.update_one(
+            {'_id': db_instance.to_object_id(user_id)},
+            {'$set': {
+                'postback_url': data['postback_url'].strip(),
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        logger.info(f"✅ Postback URL updated for user: {user_id}")
+        
+        return jsonify({'message': 'Postback URL updated successfully'}), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating user postback: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@partners_bp.route('/partners/users/<user_id>/parameter-mapping', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('partners')
+def update_user_parameter_mapping(user_id):
+    """Update parameter mapping for a user/publisher"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'parameter_mapping' not in data:
+            return jsonify({'error': 'parameter_mapping is required'}), 400
+        
+        users_collection = db_instance.get_collection('users')
+        
+        # Check if user exists
+        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Update parameter mapping
+        users_collection.update_one(
+            {'_id': db_instance.to_object_id(user_id)},
+            {'$set': {
+                'parameter_mapping': data['parameter_mapping'],
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        logger.info(f"✅ Parameter mapping updated for user: {user_id}")
+        
+        return jsonify({'message': 'Parameter mapping updated successfully'}), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating parameter mapping: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@partners_bp.route('/partners/users/<user_id>/block', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('partners')
+def block_user(user_id):
+    """Block a user/publisher"""
+    try:
+        data = request.get_json() or {}
+        reason = data.get('reason', 'No reason provided')
+        
+        users_collection = db_instance.get_collection('users')
+        
+        # Check if user exists
+        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Block user
+        users_collection.update_one(
+            {'_id': db_instance.to_object_id(user_id)},
+            {'$set': {
+                'is_blocked': True,
+                'blocked_reason': reason,
+                'blocked_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        logger.info(f"✅ User blocked: {user_id} - Reason: {reason}")
+        
+        return jsonify({'message': 'User blocked successfully'}), 200
+        
+    except Exception as e:
+        logger.error(f"Error blocking user: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@partners_bp.route('/partners/users/<user_id>/unblock', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('partners')
+def unblock_user(user_id):
+    """Unblock a user/publisher"""
+    try:
+        users_collection = db_instance.get_collection('users')
+        
+        # Check if user exists
+        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Unblock user
+        users_collection.update_one(
+            {'_id': db_instance.to_object_id(user_id)},
+            {'$set': {
+                'is_blocked': False,
+                'updated_at': datetime.utcnow()
+            },
+            '$unset': {
+                'blocked_reason': '',
+                'blocked_at': ''
+            }}
+        )
+        
+        logger.info(f"✅ User unblocked: {user_id}")
+        
+        return jsonify({'message': 'User unblocked successfully'}), 200
+        
+    except Exception as e:
+        logger.error(f"Error unblocking user: {str(e)}")
         return jsonify({'error': str(e)}), 500
