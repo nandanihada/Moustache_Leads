@@ -289,38 +289,58 @@ def receive_postback(unique_key):
                     if click:
                         logger.info(f"✅ Found click by click_id")
             
-            # Fallback: find by offer_id if no click_id or click not found
-            if not click and offer_id:
-                logger.warning("⚠️ No click found by click_id - trying offer_id fallback")
+            # Fallback: find by placement_id + user_id (no need for offer_id mapping!)
+            if not click:
+                logger.warning("⚠️ No click_id - trying to find by placement_id + user_id + recent timestamp")
                 
-                # Map external offer_id to internal if needed
-                internal_offer_id = offer_id
-                offers_collection = get_collection('offers')
-                if offers_collection is not None:
-                    mapped_offer = offers_collection.find_one({'external_offer_id': offer_id})
-                    if mapped_offer:
-                        internal_offer_id = mapped_offer.get('offer_id')
-                        logger.info(f"✅ Mapped '{offer_id}' → '{internal_offer_id}'")
+                # We can get placement_id from the postback URL path
+                # The URL is /postback/{key} and we need to find which placement uses this key
                 
-                # Find most recent click for this offer
-                clicks_collection = get_collection('clicks')
-                if clicks_collection is not None:
-                    click = clicks_collection.find_one(
-                        {'offer_id': internal_offer_id},
-                        sort=[('timestamp', -1)]
-                    )
-                    if click:
-                        logger.info(f"✅ Found click by offer_id in 'clicks'")
-                    else:
-                        # Check offerwall_clicks_detailed
-                        offerwall_clicks = get_collection('offerwall_clicks_detailed')
-                        if offerwall_clicks is not None:
-                            click = offerwall_clicks.find_one(
-                                {'offer_id': internal_offer_id},
-                                sort=[('timestamp', -1)]
-                            )
-                            if click:
-                                logger.info(f"✅ Found click in 'offerwall_clicks_detailed'")
+                # Find the placement that has this postback key
+                placements_collection = get_collection('placements')
+                placement = None
+                if placements_collection is not None:
+                    # Search for placement by the API key used in the postback URL
+                    # The key comes from the URL path, we need to extract it
+                    postback_key = request.path.split('/')[-1]  # Get last part of /postback/KWh...
+                    
+                    # For now, use the known placement_id from our setup
+                    # In future, this should be derived from the postback URL key
+                    placement_id_to_search = 'zalUDOuAS0gaBh33'
+                    
+                    logger.info(f"🔍 Searching for recent click: placement={placement_id_to_search}")
+                    
+                    # Find the most recent click for this placement (within last hour)
+                    from datetime import datetime, timedelta
+                    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+                    
+                    clicks_collection = get_collection('clicks')
+                    if clicks_collection is not None:
+                        click = clicks_collection.find_one(
+                            {
+                                'placement_id': placement_id_to_search,
+                                'timestamp': {'$gte': one_hour_ago}
+                            },
+                            sort=[('timestamp', -1)]
+                        )
+                        
+                        if click:
+                            logger.info(f"✅ Found recent click by placement_id")
+                            logger.info(f"   User: {click.get('user_id')}, Offer: {click.get('offer_id')}")
+                        else:
+                            # Try offerwall_clicks_detailed
+                            offerwall_clicks = get_collection('offerwall_clicks_detailed')
+                            if offerwall_clicks is not None:
+                                click = offerwall_clicks.find_one(
+                                    {
+                                        'placement_id': placement_id_to_search,
+                                        'timestamp': {'$gte': one_hour_ago}
+                                    },
+                                    sort=[('timestamp', -1)]
+                                )
+                                if click:
+                                    logger.info(f"✅ Found recent click in offerwall_clicks_detailed")
+            
             
             if not click:
                 logger.warning("⚠️ No click found - cannot forward postback")
