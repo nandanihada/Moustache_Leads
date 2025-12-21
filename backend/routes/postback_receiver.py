@@ -1,7 +1,6 @@
 """
 Postback Receiver Routes
 Receives postback notifications from external partners/networks
-Version: 2.0 - Fixed POST body reading and survey_id mapping
 """
 
 from flask import Blueprint, request, jsonify
@@ -262,7 +261,7 @@ def receive_postback(unique_key):
                 # First check POST body for actual values
                 if key in post_data:
                     val = post_data.get(key, '')
-                    if val and val != f"{{{key}}}":  # Ignore literal macros like {click_id}
+                    if val and val != f"{{{key}}}":  # Ignore literal macros
                         return str(val) if val else ''
                 
                 # Fall back to query params
@@ -279,30 +278,64 @@ def receive_postback(unique_key):
             logger.info(f"   click_id: {click_id}")
             logger.info(f"   offer_id: {offer_id}")
             
-            if not click_id:
-                logger.warning("⚠️ No click_id in postback - will try to find by offer_id")
-            else:
-                logger.info(f"🔍 Looking up click: {click_id}")
-                
-                # Get click record to find placement_id
+            click = None
+            
+            # Try to find click by click_id first
+            if click_id:
+                logger.info(f"🔍 Looking up click by click_id: {click_id}")
                 clicks_collection = get_collection('clicks')
-                if clicks_collection is not None:
+                if clicks_collection:
                     click = clicks_collection.find_one({'click_id': click_id})
-                    
-                    if not click:
-                        logger.warning(f"⚠️ Click not found: {click_id}")
+                    if click:
+                        logger.info(f"✅ Found click by click_id")
+            
+            # Fallback: find by offer_id if no click_id or click not found
+            if not click and offer_id:
+                logger.warning("⚠️ No click found by click_id - trying offer_id fallback")
+                
+                # Map external offer_id to internal if needed
+                internal_offer_id = offer_id
+                offers_collection = get_collection('offers')
+                if offers_collection:
+                    mapped_offer = offers_collection.find_one({'external_offer_id': offer_id})
+                    if mapped_offer:
+                        internal_offer_id = mapped_offer.get('offer_id')
+                        logger.info(f"✅ Mapped '{offer_id}' → '{internal_offer_id}'")
+                
+                # Find most recent click for this offer
+                clicks_collection = get_collection('clicks')
+                if clicks_collection:
+                    click = clicks_collection.find_one(
+                        {'offer_id': internal_offer_id},
+                        sort=[('timestamp', -1)]
+                    )
+                    if click:
+                        logger.info(f"✅ Found click by offer_id in 'clicks'")
                     else:
-                        placement_id = click.get('placement_id')
-                        user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
-                        
-                        logger.info(f"✅ Found click - placement_id: {placement_id}, user: {user_id_from_click}")
-                        
-                        if not placement_id:
-                            logger.warning("⚠️ No placement_id in click record")
-                        else:
-                            # Get placement details to find the owner
-                            placements_collection = get_collection('placements')
-                            if placements_collection is not None:
+                        # Check offerwall_clicks_detailed
+                        offerwall_clicks = get_collection('offerwall_clicks_detailed')
+                        if offerwall_clicks:
+                            click = offerwall_clicks.find_one(
+                                {'offer_id': internal_offer_id},
+                                sort=[('timestamp', -1)]
+                            )
+                            if click:
+                                logger.info(f"✅ Found click in 'offerwall_clicks_detailed'")
+            
+            if not click:
+                logger.warning("⚠️ No click found - cannot forward postback")
+                # Process the found click
+                placement_id = click.get('placement_id') or click.get('sub_id1')
+                user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
+                
+                logger.info(f"✅ Processing click - placement_id: {placement_id}, user: {user_id_from_click}")
+                
+                if not placement_id:
+                    logger.warning("⚠️ No placement_id in click record")
+                else:
+                    # Get placement details to find the owner
+                    placements_collection = get_collection('placements')
+                    if placements_collection is not None:
                                 placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
                                 
                                 if not placement:
