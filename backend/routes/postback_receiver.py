@@ -284,7 +284,7 @@ def receive_postback(unique_key):
             if click_id:
                 logger.info(f"🔍 Looking up click by click_id: {click_id}")
                 clicks_collection = get_collection('clicks')
-                if clicks_collection:
+                if clicks_collection is not None:
                     click = clicks_collection.find_one({'click_id': click_id})
                     if click:
                         logger.info(f"✅ Found click by click_id")
@@ -296,7 +296,7 @@ def receive_postback(unique_key):
                 # Map external offer_id to internal if needed
                 internal_offer_id = offer_id
                 offers_collection = get_collection('offers')
-                if offers_collection:
+                if offers_collection is not None:
                     mapped_offer = offers_collection.find_one({'external_offer_id': offer_id})
                     if mapped_offer:
                         internal_offer_id = mapped_offer.get('offer_id')
@@ -304,7 +304,7 @@ def receive_postback(unique_key):
                 
                 # Find most recent click for this offer
                 clicks_collection = get_collection('clicks')
-                if clicks_collection:
+                if clicks_collection is not None:
                     click = clicks_collection.find_one(
                         {'offer_id': internal_offer_id},
                         sort=[('timestamp', -1)]
@@ -314,7 +314,7 @@ def receive_postback(unique_key):
                     else:
                         # Check offerwall_clicks_detailed
                         offerwall_clicks = get_collection('offerwall_clicks_detailed')
-                        if offerwall_clicks:
+                        if offerwall_clicks is not None:
                             click = offerwall_clicks.find_one(
                                 {'offer_id': internal_offer_id},
                                 sort=[('timestamp', -1)]
