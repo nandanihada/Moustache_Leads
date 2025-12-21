@@ -4,7 +4,7 @@ Receives postback notifications from external partners/networks
 """
 
 from flask import Blueprint, request, jsonify
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 import logging
 import secrets
@@ -311,7 +311,6 @@ def receive_postback(unique_key):
                     logger.info(f"🔍 Searching for recent click: placement={placement_id_to_search}")
                     
                     # Find the most recent click for this placement (within last hour)
-                    from datetime import datetime, timedelta
                     one_hour_ago = datetime.utcnow() - timedelta(hours=1)
                     
                     clicks_collection = get_collection('clicks')
