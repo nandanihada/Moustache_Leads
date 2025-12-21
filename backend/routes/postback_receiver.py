@@ -289,56 +289,59 @@ def receive_postback(unique_key):
                     if click:
                         logger.info(f"✅ Found click by click_id")
             
-            # Fallback: find by placement_id + user_id (no need for offer_id mapping!)
+            
+            # NEW APPROACH: Find offer by survey_id, then find click by offer_id
             if not click:
-                logger.warning("⚠️ No click_id - trying to find by placement_id + user_id + recent timestamp")
+                logger.warning("⚠️ No click_id - Using survey_id to find offer and match click")
                 
-                # We can get placement_id from the postback URL path
-                # The URL is /postback/{key} and we need to find which placement uses this key
+                # Step 1: Find offer using survey_id from postback
+                survey_id = offer_id  # offer_id actually contains survey_id from upward partner
+                logger.info(f"🔍 Looking for offer with survey_id: {survey_id}")
                 
-                # Find the placement that has this postback key
-                placements_collection = get_collection('placements')
-                placement = None
-                if placements_collection is not None:
-                    # Search for placement by the API key used in the postback URL
-                    # The key comes from the URL path, we need to extract it
-                    postback_key = request.path.split('/')[-1]  # Get last part of /postback/KWh...
+                offers_collection = get_collection('offers')
+                offer_record = None
+                if offers_collection is not None:
+                    offer_record = offers_collection.find_one({'survey_id': survey_id})
                     
-                    # For now, use the known placement_id from our setup
-                    # In future, this should be derived from the postback URL key
-                    placement_id_to_search = 'zalUDOuAS0gaBh33'
-                    
-                    logger.info(f"🔍 Searching for recent click: placement={placement_id_to_search}")
-                    
-                    # Find the most recent click for this placement (within last hour)
-                    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-                    
-                    clicks_collection = get_collection('clicks')
-                    if clicks_collection is not None:
-                        click = clicks_collection.find_one(
-                            {
-                                'placement_id': placement_id_to_search,
-                                'timestamp': {'$gte': one_hour_ago}
-                            },
-                            sort=[('timestamp', -1)]
-                        )
+                    if offer_record:
+                        internal_offer_id = offer_record.get('offer_id')
+                        payout = offer_record.get('payout', 0)
+                        logger.info(f"✅ Found offer: {internal_offer_id} (payout: {payout})")
                         
-                        if click:
-                            logger.info(f"✅ Found recent click by placement_id")
-                            logger.info(f"   User: {click.get('user_id')}, Offer: {click.get('offer_id')}")
-                        else:
-                            # Try offerwall_clicks_detailed
-                            offerwall_clicks = get_collection('offerwall_clicks_detailed')
-                            if offerwall_clicks is not None:
-                                click = offerwall_clicks.find_one(
-                                    {
-                                        'placement_id': placement_id_to_search,
-                                        'timestamp': {'$gte': one_hour_ago}
-                                    },
-                                    sort=[('timestamp', -1)]
-                                )
-                                if click:
-                                    logger.info(f"✅ Found recent click in offerwall_clicks_detailed")
+                        # Step 2: Find most recent click for this offer (within last hour)
+                        logger.info(f"🔍 Searching for recent click with offer_id: {internal_offer_id}")
+                        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+                        
+                        clicks_collection = get_collection('clicks')
+                        if clicks_collection is not None:
+                            click = clicks_collection.find_one(
+                                {
+                                    'offer_id': internal_offer_id,
+                                    'timestamp': {'$gte': one_hour_ago}
+                                },
+                                sort=[('timestamp', -1)]
+                            )
+                            
+                            if click:
+                                logger.info(f"✅ Found click in 'clicks' collection")
+                                logger.info(f"   User: {click.get('user_id')}, Placement: {click.get('placement_id')}")
+                            else:
+                                # Try offerwall_clicks_detailed as fallback
+                                offerwall_clicks = get_collection('offerwall_clicks_detailed')
+                                if offerwall_clicks is not None:
+                                    click = offerwall_clicks.find_one(
+                                        {
+                                            'offer_id': internal_offer_id,
+                                            'timestamp': {'$gte': one_hour_ago}
+                                        },
+                                        sort=[('timestamp', -1)]
+                                    )
+                                    if click:
+                                        logger.info(f"✅ Found click in 'offerwall_clicks_detailed'")
+                    else:
+                        logger.error(f"❌ No offer found with survey_id: {survey_id}")
+                        logger.error(f"   Make sure offer exists with survey_id field set")
+            
             
             
             if not click:
