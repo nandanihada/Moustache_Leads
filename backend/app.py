@@ -68,6 +68,8 @@ admin_subadmin_management_bp = safe_import_blueprint('routes.admin_subadmin_mana
 gift_cards_bp = safe_import_blueprint('routes.gift_cards', 'gift_cards_bp')
 forwarded_postbacks_bp = safe_import_blueprint('routes.forwarded_postbacks', 'forwarded_postbacks_bp')
 postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postback_receiver_bp')
+setup_bp = safe_import_blueprint('routes.setup', 'setup_bp')
+
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -105,6 +107,7 @@ blueprints = [
     (partner_postback_logs_bp, ''),  # Partner postback logs - admin routes
     (diagnostic_bp, ''),  # Diagnostic routes
     (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
+    (setup_bp, ''),  # One-time setup routes
     (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
     (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
     (test_admin_simple_bp, '/api/admin'),  # Test admin routes
