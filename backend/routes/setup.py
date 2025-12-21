@@ -92,3 +92,45 @@ def setup_surveytitans():
             'success': False,
             'error': str(e)
         }), 500
+
+@setup_bp.route('/api/setup/check-mapping', methods=['GET'])
+def check_mapping():
+    """Check if offer mapping exists"""
+    try:
+        if not db_instance.is_connected():
+            db_instance.connect()
+        
+        results = []
+        
+        # Check offer
+        offers = db_instance.get_collection('offers')
+        if offers is not None:
+            offer = offers.find_one({'offer_id': 'ML-00057'})
+            if offer:
+                results.append({
+                    'offer_id': offer.get('offer_id'),
+                    'name': offer.get('offer_name'),
+                    'external_offer_id': offer.get('external_offer_id'),
+                    'payout': offer.get('payout')
+                })
+                
+                # If no external_offer_id, add it
+                if not offer.get('external_offer_id'):
+                    offers.update_one(
+                        {'offer_id': 'ML-00057'},
+                        {'$set': {'external_offer_id': 'VBFS6'}}
+                    )
+                    results.append({'message': '✅ Added external_offer_id: VBFS6'})
+            else:
+                results.append({'error': '❌ Offer ML-00057 not found in database'})
+        
+        return jsonify({
+            'success': True,
+            'results': results
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
