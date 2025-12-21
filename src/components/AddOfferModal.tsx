@@ -504,7 +504,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
               <TabsTrigger value="creatives">Creative</TabsTrigger>
               <TabsTrigger value="schedule-rules">Schedule + Rules</TabsTrigger>
               <TabsTrigger value="compliance">Comply</TabsTrigger>
-              <TabsTrigger value="integrations">Integrate</TabsTrigger>
+
               <TabsTrigger value="reporting">Report</TabsTrigger>
             </TabsList>
 
@@ -518,14 +518,15 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="campaign_id">Campaign ID *</Label>
+                      <Label htmlFor="offer_id">Offer ID (from upward partner) *</Label>
                       <Input
-                        id="campaign_id"
+                        id="offer_id"
                         value={formData.campaign_id}
                         onChange={(e) => handleInputChange('campaign_id', e.target.value)}
-                        placeholder="CAMP-001"
+                        placeholder="VBFS6"
                         required
                       />
+                      <p className="text-sm text-gray-500 mt-1">Enter the survey_id/offer_id from upward partner</p>
                     </div>
                     <div>
                       <Label htmlFor="status">Status</Label>
@@ -870,39 +871,6 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       />
                     </div>
                   </div>
-
-                  {/* Cap Alert Emails */}
-                  <div>
-                    <Label>Cap Alert Emails</Label>
-                    <div className="flex gap-2 mb-2">
-                      <Input
-                        value={newEmail}
-                        onChange={(e) => setNewEmail(e.target.value)}
-                        placeholder="Enter email address"
-                        type="email"
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addArrayItem(capAlertEmails, setCapAlertEmails, newEmail, 'cap_alert_emails', setNewEmail))}
-                      />
-                      <Button
-                        type="button"
-                        onClick={() => addArrayItem(capAlertEmails, setCapAlertEmails, newEmail, 'cap_alert_emails', setNewEmail)}
-                        size="sm"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {capAlertEmails.map(email => (
-                        <Badge key={email} variant="secondary" className="flex items-center gap-1">
-                          {email}
-                          <X
-                            className="h-3 w-3 cursor-pointer"
-                            onClick={() => removeArrayItem(capAlertEmails, setCapAlertEmails, email, 'cap_alert_emails')}
-                          />
-                        </Badge>
-                      ))}
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">Receive alerts when caps are reached</p>
-                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -912,57 +880,41 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
               <Card>
                 <CardHeader>
                   <CardTitle>Tracking Setup</CardTitle>
-                  <CardDescription>Configure tracking and network settings</CardDescription>
+                  <CardDescription>Basic tracking configuration</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="network">Network *</Label>
-                      <Select value={formData.network} onValueChange={(value) => handleInputChange('network', value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select network" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {NETWORKS.map(network => (
-                            <SelectItem key={network} value={network}>{network}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor="partner_id">Partner (for Postback)</Label>
-                      <Select value={formData.partner_id || 'none'} onValueChange={(value) => handleInputChange('partner_id', value === 'none' ? '' : value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select partner (optional)" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {partners.map(partner => (
-                            <SelectItem key={partner.partner_id} value={partner.partner_id}>
-                              {partner.partner_name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-sm text-gray-500 mt-1">Auto-send postback on conversion</p>
-                    </div>
-                    <div>
-                      <Label htmlFor="tracking_protocol">Tracking Protocol</Label>
-                      <Select value={formData.tracking_protocol || 'pixel'} onValueChange={(value) => handleInputChange('tracking_protocol', value)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pixel">Pixel</SelectItem>
-                          <SelectItem value="s2s">Server-to-Server</SelectItem>
-                          <SelectItem value="api">API</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div>
+                    <Label htmlFor="partner_id">Partner (Upward Partner Source) *</Label>
+                    <Select value={formData.partner_id || 'none'} onValueChange={(value) => handleInputChange('partner_id', value === 'none' ? '' : value)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select upward partner" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {partners.map(partner => (
+                          <SelectItem key={partner.partner_id} value={partner.partner_id}>
+                            {partner.partner_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-sm text-gray-500 mt-1">Select the upstream partner providing this offer</p>
                   </div>
 
                   <div>
-                    <Label htmlFor="target_url">Target URL *</Label>
+                    <Label htmlFor="network">Network *</Label>
+                    <Input
+                      id="network"
+                      value={formData.network}
+                      onChange={(e) => handleInputChange('network', e.target.value)}
+                      placeholder="e.g., Direct, CPA Network"
+                      required
+                    />
+                    <p className="text-sm text-gray-500 mt-1">Network or source label (required by system)</p>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="target_url">Target URL (Offer Link) *</Label>
                     <Input
                       id="target_url"
                       type="url"
@@ -971,146 +923,18 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       placeholder="https://example.com/offer-landing"
                       required
                     />
+                    <p className="text-sm text-gray-500 mt-1">The actual offer landing page URL</p>
                   </div>
 
                   <div>
-                    <Label htmlFor="preview_url">Preview URL</Label>
+                    <Label htmlFor="expiry_date">Expiry Date (Optional)</Label>
                     <Input
-                      id="preview_url"
-                      type="url"
-                      value={formData.preview_url || ''}
-                      onChange={(e) => handleInputChange('preview_url', e.target.value)}
-                      placeholder="https://example.com/offer-preview"
+                      id="expiry_date"
+                      type="date"
+                      value={formData.expiry_date || ''}
+                      onChange={(e) => handleInputChange('expiry_date', e.target.value)}
                     />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="tracking_domain">Tracking Domain</Label>
-                      <Select value={formData.tracking_domain || 'main'} onValueChange={(value) => handleInputChange('tracking_domain', value)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="main">Main Domain</SelectItem>
-                          <SelectItem value="subdomain">Subdomain</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor="duplicate_conversion_rule">Duplicate Conversion Rule</Label>
-                      <Select value={formData.duplicate_conversion_rule || 'allow'} onValueChange={(value) => handleInputChange('duplicate_conversion_rule', value)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="allow">Allow</SelectItem>
-                          <SelectItem value="deny">Deny</SelectItem>
-                          <SelectItem value="unique">Unique Click Only</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="postback_url">Postback URL</Label>
-                    <Input
-                      id="postback_url"
-                      type="url"
-                      value={formData.postback_url || ''}
-                      onChange={(e) => handleInputChange('postback_url', e.target.value)}
-                      placeholder="https://example.com/postback?click_id={click_id}"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">Use {`{click_id}`} for dynamic click tracking</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="click_expiration">Click Expiration (Days)</Label>
-                      <Input
-                        id="click_expiration"
-                        type="number"
-                        min="1"
-                        max="365"
-                        value={formData.click_expiration || 7}
-                        onChange={(e) => handleInputChange('click_expiration', parseInt(e.target.value) || 7)}
-                        placeholder="7"
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="conversion_window">Conversion Attribution Window (Days)</Label>
-                      <Input
-                        id="conversion_window"
-                        type="number"
-                        min="1"
-                        max="365"
-                        value={formData.conversion_window || 30}
-                        onChange={(e) => handleInputChange('conversion_window', parseInt(e.target.value) || 30)}
-                        placeholder="30"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Allowed Traffic Sources */}
-                  <div>
-                    <Label>Allowed Traffic Sources</Label>
-                    <div className="flex gap-2 mb-2">
-                      <Input
-                        value={newTrafficSource}
-                        onChange={(e) => setNewTrafficSource(e.target.value)}
-                        placeholder="Enter traffic source"
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addArrayItem(allowedTrafficSources, setAllowedTrafficSources, newTrafficSource, 'allowed_traffic_sources', setNewTrafficSource))}
-                      />
-                      <Button
-                        type="button"
-                        onClick={() => addArrayItem(allowedTrafficSources, setAllowedTrafficSources, newTrafficSource, 'allowed_traffic_sources', setNewTrafficSource)}
-                        size="sm"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {allowedTrafficSources.map(source => (
-                        <Badge key={source} variant="secondary" className="flex items-center gap-1">
-                          {source}
-                          <X
-                            className="h-3 w-3 cursor-pointer"
-                            onClick={() => removeArrayItem(allowedTrafficSources, setAllowedTrafficSources, source, 'allowed_traffic_sources')}
-                          />
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Blocked Traffic Sources */}
-                  <div>
-                    <Label>Blocked Traffic Sources</Label>
-                    <div className="flex gap-2 mb-2">
-                      <Input
-                        value={newTrafficSource}
-                        onChange={(e) => setNewTrafficSource(e.target.value)}
-                        placeholder="Enter blocked source"
-                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addArrayItem(blockedTrafficSources, setBlockedTrafficSources, newTrafficSource, 'blocked_traffic_sources', setNewTrafficSource))}
-                      />
-                      <Button
-                        type="button"
-                        onClick={() => addArrayItem(blockedTrafficSources, setBlockedTrafficSources, newTrafficSource, 'blocked_traffic_sources', setNewTrafficSource)}
-                        size="sm"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {blockedTrafficSources.map(source => (
-                        <Badge key={source} variant="destructive" className="flex items-center gap-1">
-                          {source}
-                          <X
-                            className="h-3 w-3 cursor-pointer"
-                            onClick={() => removeArrayItem(blockedTrafficSources, setBlockedTrafficSources, source, 'blocked_traffic_sources')}
-                          />
-                        </Badge>
-                      ))}
-                    </div>
+                    <p className="text-sm text-gray-500 mt-1">When this offer should stop being available</p>
                   </div>
                 </CardContent>
               </Card>
@@ -1972,88 +1796,6 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
             </TabsContent>
 
             {/* SECTION 10: INTEGRATIONS */}
-            <TabsContent value="integrations" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Integrations</CardTitle>
-                  <CardDescription>External system integrations</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="network_partner">Network / API Partner</Label>
-                      <Select value={formData.network_partner || ''} onValueChange={(value) => handleInputChange('network_partner', value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select partner" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {NETWORK_PARTNERS.map(partner => (
-                            <SelectItem key={partner} value={partner}>{partner}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label htmlFor="sync_frequency">Sync Frequency</Label>
-                      <Select value={formData.sync_frequency || 'manual'} onValueChange={(value) => handleInputChange('sync_frequency', value)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="daily">Daily</SelectItem>
-                          <SelectItem value="weekly">Weekly</SelectItem>
-                          <SelectItem value="manual">Manual</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="network_short_description">Network Short Description</Label>
-                    <Input
-                      id="network_short_description"
-                      value={formData.network_short_description || ''}
-                      onChange={(e) => handleInputChange('network_short_description', e.target.value)}
-                      placeholder='e.g., "PepeLeads Validator Offer"'
-                    />
-                  </div>
-
-                  <div>
-                    <Label htmlFor="external_offer_id">External Offer ID / Campaign ID</Label>
-                    <Input
-                      id="external_offer_id"
-                      value={formData.external_offer_id || ''}
-                      onChange={(e) => handleInputChange('external_offer_id', e.target.value)}
-                      placeholder="EXT-12345"
-                    />
-                    <p className="text-sm text-gray-500 mt-1">If synced from external network</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="webhook_template">Webhook / Postback Template</Label>
-                    <Textarea
-                      id="webhook_template"
-                      value={formData.webhook_template || ''}
-                      onChange={(e) => handleInputChange('webhook_template', e.target.value)}
-                      placeholder="https://example.com/postback?click_id={click_id}&payout={payout}&status={status}"
-                      rows={3}
-                    />
-                    <p className="text-sm text-gray-500 mt-1">Use variables: {`{click_id}, {payout}, {status}, {offer_id}`}</p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="webhook_url">Webhook URL</Label>
-                    <Input
-                      id="webhook_url"
-                      type="url"
-                      value={formData.webhook_url || ''}
-                      onChange={(e) => handleInputChange('webhook_url', e.target.value)}
-                      placeholder="https://example.com/webhook"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
 
             {/* SECTION 11: REPORTING & MONITORING */}
             <TabsContent value="reporting" className="space-y-4">
@@ -2092,7 +1834,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                 </CardContent>
               </Card>
             </TabsContent>
-          </Tabs>
+          </Tabs >
 
           <div className="flex justify-end gap-2 pt-4 border-t">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -2102,8 +1844,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
               {loading ? 'Creating...' : 'Create Offer'}
             </Button>
           </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </form >
+      </DialogContent >
+    </Dialog >
   );
 };
