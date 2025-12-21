@@ -292,6 +292,11 @@ def receive_postback(unique_key):
             
             # UPDATED APPROACH: survey_id from postback matches campaign_id in offers
             # Then use that offer's offer_id to find the click
+            
+            # Initialize variables to store matched offer details
+            matched_offer_id = None
+            matched_payout = 0
+            
             if not click:
                 logger.warning("⚠️ No click_id - Using survey_id to find offer via campaign_id")
                 
@@ -317,6 +322,11 @@ def receive_postback(unique_key):
                         # Get the auto-generated offer_id (like "ML-00098")
                         internal_offer_id = offer_record.get('offer_id')
                         payout = offer_record.get('payout', 0)
+                        
+                        # Store for later use in forwarding
+                        matched_offer_id = internal_offer_id
+                        matched_payout = payout
+                        
                         logger.info(f"✅ Found offer: campaign_id={survey_id} → offer_id={internal_offer_id} (payout: {payout})")
                         
                         # Step 2: Find click using the internal offer_id
@@ -414,8 +424,22 @@ def receive_postback(unique_key):
                                     if not owner_postback_url:
                                         logger.warning(f"⚠️ Owner {owner_username} has no postback_url configured")
                                     else:
-                                        # Calculate points from offer (with bonus if applicable)
-                                        points_calc = calculate_offer_points_with_bonus(offer_id)
+                                        # Use the payout we already extracted from the matched offer
+                                        # instead of calling calculate_offer_points_with_bonus which would try
+                                        # to find the offer by survey_id (which doesn't exist as offer_id)
+                                        if matched_payout > 0:
+                                            points_calc = {
+                                                'base_points': matched_payout,
+                                                'has_bonus': False,
+                                                'bonus_percentage': 0,
+                                                'bonus_points': 0,
+                                                'promo_code': None,
+                                                'total_points': matched_payout
+                                            }
+                                            logger.info(f"💰 Using matched offer payout: {matched_payout}")
+                                        else:
+                                            # Fallback: try to calculate with offer_id (for backward compatibility)
+                                            points_calc = calculate_offer_points_with_bonus(offer_id)
                                         
                                         # Get actual username of the person who completed the offer
                                         actual_username = get_username_from_user_id(user_id_from_click) if user_id_from_click else 'Unknown'
