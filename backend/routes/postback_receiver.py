@@ -324,6 +324,7 @@ def receive_postback(unique_key):
             
             if not click:
                 logger.warning("⚠️ No click found - cannot forward postback")
+            else:
                 # Process the found click
                 placement_id = click.get('placement_id') or click.get('sub_id1')
                 user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
