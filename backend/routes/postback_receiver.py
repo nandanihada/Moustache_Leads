@@ -245,22 +245,20 @@ def receive_postback(unique_key):
         logger.info("="*100)
         
         try:
-            # Get POST body data (JSON) - upward partner sends actual values here
+            # Read POST body data (upward partners send actual values here)
             post_data = {}
             try:
                 if request.is_json:
                     post_data = request.get_json() or {}
-                    logger.info(f"📦 Received POST body: {post_data}")
                 elif request.form:
                     post_data = request.form.to_dict()
-                    logger.info(f"📦 Received FORM data: {post_data}")
+                logger.info(f"📦 Received POST body: {post_data}")
             except Exception as json_error:
                 logger.warning(f"⚠️ Could not parse POST body: {json_error}")
             
-            # Helper function to safely get parameter value
-            # Check POST body first (where actual values are), then query params
+            # Helper function to safely get parameter value (POST body first, then query params)
             def get_param_value(key):
-                # First check POST body
+                # First check POST body for actual values
                 if key in post_data:
                     val = post_data.get(key, '')
                     if val and val != f"{{{key}}}":  # Ignore literal macros like {click_id}
@@ -272,183 +270,110 @@ def receive_postback(unique_key):
                     return val[0] if val else ''
                 return str(val) if val and val != f"{{{key}}}" else ''
             
-            # Get parameters from postback
-            # Note: Different partners use different parameter names
+            # Get click_id and offer_id (check both offer_id and survey_id)
             click_id = get_param_value('click_id')
             offer_id = get_param_value('offer_id') or get_param_value('survey_id')
-            transaction_id = get_param_value('transaction_id')
             
             logger.info(f"📋 Postback parameters:")
-            logger.info(f"   click_id: {click_id or 'Not provided'}")
-            logger.info(f"   offer_id/survey_id: {offer_id or 'Not provided'}")
-            logger.info(f"   transaction_id: {transaction_id or 'Not provided'}")
+            logger.info(f"   click_id: {click_id}")
+            logger.info(f"   offer_id: {offer_id}")
             
-            click = None
-            clicks_collection = get_collection('clicks')
-            
-            # Try to find click by click_id first
-            if click_id and clicks_collection is not None:
-                logger.info(f"🔍 Looking up click by click_id: {click_id}")
-                click = clicks_collection.find_one({'click_id': click_id})
-                
-                if click:
-                    logger.info(f"✅ Found click by click_id")
-                else:
-                    logger.warning(f"⚠️ Click not found by click_id: {click_id}")
-            
-            # FALLBACK: If click not found by click_id, try to find by offer_id (most recent)
-            if not click and offer_id and clicks_collection is not None:
-                logger.info(f"🔄 Fallback: Looking up click for offer: {offer_id}")
-                
-                # First, check if this is an external offer_id and map it to our internal offer_id
-                offers_collection = get_collection('offers')
-                internal_offer_id = offer_id  # Default to the provided offer_id
-                
-                if offers_collection is not None:
-                    # Try to find offer by external_offer_id first
-                    offer_doc = offers_collection.find_one({'external_offer_id': offer_id})
-                    
-                    if offer_doc:
-                        internal_offer_id = offer_doc.get('offer_id')
-                        logger.info(f"✅ Mapped external offer_id '{offer_id}' → internal offer_id '{internal_offer_id}'")
-                    else:
-                        # Maybe it's already our internal offer_id
-                        offer_doc = offers_collection.find_one({'offer_id': offer_id})
-                        if offer_doc:
-                            logger.info(f"✅ Using internal offer_id: {offer_id}")
-                        else:
-                            logger.warning(f"⚠️ Offer not found: {offer_id}")
-                
-                # Now find the most recent click for the internal offer_id
-                click = clicks_collection.find_one(
-                    {'offer_id': internal_offer_id},
-                    sort=[('timestamp', -1)]  # Most recent first
-                )
-                
-                if click:
-                    logger.info(f"✅ Found click by offer_id (fallback)")
-                    logger.info(f"   Click ID: {click.get('click_id')}")
-                    logger.info(f"   User: {click.get('user_id')}")
-                    logger.info(f"   Placement: {click.get('placement_id')}")
-                else:
-                    logger.warning(f"⚠️ No clicks found in 'clicks' collection for offer: {internal_offer_id}")
-                    
-                    # FALLBACK: Also check offerwall_clicks_detailed collection
-                    logger.info(f"🔄 Checking offerwall_clicks_detailed collection...")
-                    offerwall_clicks = get_collection('offerwall_clicks_detailed')
-                    if offerwall_clicks:
-                        click = offerwall_clicks.find_one(
-                            {'offer_id': internal_offer_id},
-                            sort=[('timestamp', -1)]
-                        )
-                        if click:
-                            logger.info(f"✅ Found click in offerwall_clicks_detailed!")
-                            logger.info(f"   User: {click.get('user_id')}")
-                            logger.info(f"   Placement: {click.get('placement_id')}")
-                        else:
-                            logger.warning(f"⚠️ No clicks found in offerwall_clicks_detailed either")
-            
-            # Process the click if found
-            if not click:
-                logger.warning("⚠️ Cannot identify which user's offerwall was used - no click found")
+            if not click_id:
+                logger.warning("⚠️ No click_id in postback - will try to find by offer_id")
             else:
-                # Get placement_id (with fallback to sub_id1 for old clicks)
-                placement_id = click.get('placement_id') or click.get('sub_id1')
-                user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
+                logger.info(f"🔍 Looking up click: {click_id}")
                 
-                logger.info(f"✅ Processing click - placement_id: {placement_id}, user: {user_id_from_click}")
-                
-                if not placement_id:
-                    logger.warning("⚠️ No placement_id in click record")
-                else:
-                    # Get placement details to find the owner
-                    placements_collection = get_collection('placements')
-                    if placements_collection is not None:
-                        # Try to find placement - handle both ObjectId and string IDs
-                        placement = None
-                        try:
-                            # Try as ObjectId first
-                            placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
-                        except:
-                            # If not ObjectId, try as string (custom placement ID)
-                            placement = placements_collection.find_one({
-                                '$or': [
-                                    {'_id': placement_id},
-                                    {'placementId': placement_id},
-                                    {'placement_id': placement_id}
-                                ]
-                            })
+                # Get click record to find placement_id
+                clicks_collection = get_collection('clicks')
+                if clicks_collection is not None:
+                    click = clicks_collection.find_one({'click_id': click_id})
+                    
+                    if not click:
+                        logger.warning(f"⚠️ Click not found: {click_id}")
+                    else:
+                        placement_id = click.get('placement_id')
+                        user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
                         
-                        if not placement:
-                            logger.warning(f"⚠️ Placement not found: {placement_id}")
+                        logger.info(f"✅ Found click - placement_id: {placement_id}, user: {user_id_from_click}")
+                        
+                        if not placement_id:
+                            logger.warning("⚠️ No placement_id in click record")
                         else:
-                            placement_owner = placement.get('created_by') or placement.get('user_id')
-                            placement_title = placement.get('offerwallTitle', 'Unknown')
-                            
-                            logger.info(f"📋 Placement: {placement_title}")
-                            logger.info(f"👤 Placement owner: {placement_owner}")
-                            
-                            # Get the owner's user details from users table
-                            users_collection = get_collection('users')
-                            if users_collection is not None:
-                                # Try to find by ObjectId first, then by username
-                                owner_user = None
-                                try:
-                                    owner_user = users_collection.find_one({'_id': ObjectId(placement_owner)})
-                                except:
-                                    owner_user = users_collection.find_one({'username': placement_owner})
+                            # Get placement details to find the owner
+                            placements_collection = get_collection('placements')
+                            if placements_collection is not None:
+                                placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
                                 
-                                if not owner_user:
-                                    logger.warning(f"⚠️ Owner user not found: {placement_owner}")
+                                if not placement:
+                                    logger.warning(f"⚠️ Placement not found: {placement_id}")
                                 else:
-                                    owner_username = owner_user.get('username')
-                                    owner_postback_url = owner_user.get('postback_url')
+                                    placement_owner = placement.get('created_by') or placement.get('user_id')
+                                    placement_title = placement.get('offerwallTitle', 'Unknown')
                                     
-                                    logger.info(f"✅ Found owner: {owner_username}")
-                                    logger.info(f"📤 Postback URL: {owner_postback_url}")
+                                    logger.info(f"📋 Placement: {placement_title}")
+                                    logger.info(f"👤 Placement owner: {placement_owner}")
                                     
-                                    if not owner_postback_url:
-                                        logger.warning(f"⚠️ Owner {owner_username} has no postback_url configured")
-                                    else:
-                                        # Calculate points from offer (with bonus if applicable)
-                                        points_calc = calculate_offer_points_with_bonus(offer_id)
+                                    # Get the owner's user details from users table
+                                    users_collection = get_collection('users')
+                                    if users_collection is not None:
+                                        # Try to find by ObjectId first, then by username
+                                        owner_user = None
+                                        try:
+                                            owner_user = users_collection.find_one({'_id': ObjectId(placement_owner)})
+                                        except:
+                                            owner_user = users_collection.find_one({'username': placement_owner})
                                         
-                                        # Get actual username of the person who completed the offer
-                                        actual_username = get_username_from_user_id(user_id_from_click) if user_id_from_click else 'Unknown'
-                                        
-                                        # Log calculation details
-                                        logger.info(f"💰 Offer: {offer_id}")
-                                        logger.info(f"   User who completed: {actual_username}")
-                                        logger.info(f"   Base points: {points_calc['base_points']}")
-                                        if points_calc['has_bonus']:
-                                            logger.info(f"   Bonus: {points_calc['bonus_percentage']:.1f}% ({points_calc['promo_code']}) = {points_calc['bonus_points']} points")
-                                        logger.info(f"   Total points: {points_calc['total_points']}")
-                                        
-                                        # Replace macros with actual values
-                                        final_url = owner_postback_url
-                                        macros = {
-                                            '{click_id}': click_id or '',
-                                            '{status}': 'approved',
-                                            '{payout}': str(points_calc['total_points']),
-                                            '{points}': str(points_calc['total_points']),
-                                            '{offer_id}': offer_id or '',
-                                            '{conversion_id}': get_param_value('conversion_id') or '',
-                                            '{transaction_id}': get_param_value('transaction_id') or '',
-                                            '{user_id}': user_id_from_click or '',
-                                            '{affiliate_id}': user_id_from_click or '',
-                                            '{username}': actual_username or '',
-                                        }
-                                        
-                                        # Log macro values
-                                        logger.info(f"📋 Macro replacements:")
-                                        for macro, value in macros.items():
-                                            logger.info(f"   {macro} → '{value}'")
-                                        
-                                        # Replace all macros in URL
-                                        for macro, value in macros.items():
-                                            final_url = final_url.replace(macro, str(value))
-                                        
-                                        logger.info(f"📤 Final URL: {final_url}")
+                                        if not owner_user:
+                                            logger.warning(f"⚠️ Owner user not found: {placement_owner}")
+                                        else:
+                                            owner_username = owner_user.get('username')
+                                            owner_postback_url = owner_user.get('postback_url')
+                                            
+                                            logger.info(f"✅ Found owner: {owner_username}")
+                                            logger.info(f"📤 Postback URL: {owner_postback_url}")
+                                            
+                                            if not owner_postback_url:
+                                                logger.warning(f"⚠️ Owner {owner_username} has no postback_url configured")
+                                            else:
+                                                # Calculate points from offer (with bonus if applicable)
+                                                points_calc = calculate_offer_points_with_bonus(offer_id)
+                                                
+                                                # Get actual username of the person who completed the offer
+                                                actual_username = get_username_from_user_id(user_id_from_click) if user_id_from_click else 'Unknown'
+                                                
+                                                # Log calculation details
+                                                logger.info(f"💰 Offer: {offer_id}")
+                                                logger.info(f"   User who completed: {actual_username}")
+                                                logger.info(f"   Base points: {points_calc['base_points']}")
+                                                if points_calc['has_bonus']:
+                                                    logger.info(f"   Bonus: {points_calc['bonus_percentage']:.1f}% ({points_calc['promo_code']}) = {points_calc['bonus_points']} points")
+                                                logger.info(f"   Total points: {points_calc['total_points']}")
+                                                
+                                                # Replace macros with actual values
+                                                final_url = owner_postback_url
+                                                macros = {
+                                                    '{click_id}': click_id or '',
+                                                    '{status}': 'approved',
+                                                    '{payout}': str(points_calc['total_points']),
+                                                    '{points}': str(points_calc['total_points']),
+                                                    '{offer_id}': offer_id or '',
+                                                    '{conversion_id}': get_param_value('conversion_id') or '',
+                                                    '{transaction_id}': get_param_value('transaction_id') or '',
+                                                    '{user_id}': user_id_from_click or '',
+                                                    '{affiliate_id}': user_id_from_click or '',
+                                                    '{username}': actual_username or '',
+                                                }
+                                                
+                                                # Log macro values
+                                                logger.info(f"📋 Macro replacements:")
+                                                for macro, value in macros.items():
+                                                    logger.info(f"   {macro} → '{value}'")
+                                                
+                                                # Replace all macros in URL
+                                                for macro, value in macros.items():
+                                                    final_url = final_url.replace(macro, str(value))
+                                                
+                                                logger.info(f"📤 Final URL: {final_url}")
                                                 
                                                 # Send the postback
                                                 import requests
