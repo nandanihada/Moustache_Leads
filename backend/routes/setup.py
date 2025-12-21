@@ -134,3 +134,58 @@ def check_mapping():
             'success': False,
             'error': str(e)
         }), 500
+
+@setup_bp.route('/api/setup/fix-offer-mapping', methods=['GET'])
+def fix_offer_mapping():
+    """Find and fix the correct offer mapping for VBFS6"""
+    try:
+        if not db_instance.is_connected():
+            db_instance.connect()
+        
+        results = []
+        
+        # Find "My first offer"
+        offers = db_instance.get_collection('offers')
+        if offers is not None:
+            my_first_offer = offers.find_one({'$or': [
+                {'offer_name': {'$regex': 'first', '$options': 'i'}},
+                {'name': {'$regex': 'first', '$options': 'i'}}
+            ]})
+            
+            if my_first_offer:
+                offer_id = my_first_offer.get('offer_id')
+                results.append({
+                    'offer_id': offer_id,
+                    'name': my_first_offer.get('offer_name', my_first_offer.get('name'))
+                })
+                
+                # Update mapping
+                result = offers.update_one(
+                    {'offer_id': offer_id},
+                    {'$set': {'external_offer_id': 'VBFS6'}}
+                )
+                
+                if result.modified_count > 0:
+                    results.append({'message': f'✅ Updated: VBFS6 → {offer_id}'})
+                else:
+                    results.append({'message': f'✅ Already mapped: VBFS6 → {offer_id}'})
+                
+                # Remove old mapping
+                offers.update_one(
+                    {'offer_id': 'ML-00057'},
+                    {'$unset': {'external_offer_id': ''}}
+                )
+                results.append({'message': '✅ Removed old ML-00057 mapping'})
+            else:
+                results.append({'error': 'My first offer not found'})
+        
+        return jsonify({
+            'success': True,
+            'results': results
+        }), 200
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
