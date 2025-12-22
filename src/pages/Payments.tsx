@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Search, Download, CreditCard, Calendar, DollarSign } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Search, Download, CreditCard, Calendar, DollarSign, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,89 +19,90 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const payments = [
-  {
-    id: "PAY001",
-    date: "2024-01-05",
-    amount: "$2,450.67",
-    method: "PayPal",
-    status: "completed",
-    reference: "PP-12345678",
-    description: "Monthly affiliate earnings"
-  },
-  {
-    id: "PAY002",
-    date: "2023-12-05",
-    amount: "$1,890.32",
-    method: "Bank Transfer",
-    status: "completed",
-    reference: "BT-87654321",
-    description: "Monthly affiliate earnings"
-  },
-  {
-    id: "PAY003",
-    date: "2023-11-05",
-    amount: "$3,125.88",
-    method: "PayPal",
-    status: "completed",
-    reference: "PP-11223344",
-    description: "Monthly affiliate earnings"
-  },
-  {
-    id: "PAY004",
-    date: "2024-01-15",
-    amount: "$567.45",
-    method: "Check",
-    status: "pending",
-    reference: "CHK-556677",
-    description: "Bonus payment"
-  }
-];
-
-const upcomingPayments = [
-  {
-    date: "2024-02-05",
-    estimatedAmount: "$2,890.45",
-    method: "PayPal",
-    description: "February earnings payout"
-  }
-];
+import { payoutSettingsApi } from "@/services/payoutSettingsApi";
+import { useNavigate } from "react-router-dom";
 
 const Payments = () => {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [earningsData, setEarningsData] = useState<any>(null);
 
-  const filteredPayments = payments.filter(payment => {
-    const matchesSearch = 
-      payment.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      payment.reference.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      payment.method.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === "all" || payment.status === statusFilter;
-    
+  useEffect(() => {
+    const fetchEarnings = async () => {
+      setLoading(true);
+      try {
+        const data = await payoutSettingsApi.getEarnings();
+        setEarningsData(data);
+      } catch (error) {
+        console.error('Error fetching earnings:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEarnings();
+  }, []);
+
+  const filteredPayments = earningsData?.earnings_history?.filter((earning: any) => {
+    const matchesSearch =
+      earning.month.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      earning.transaction_id?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === "all" || earning.status === statusFilter;
+
     return matchesSearch && matchesStatus;
-  });
+  }) || [];
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "completed":
+      case "paid":
         return "default";
       case "pending":
         return "secondary";
-      case "failed":
+      case "processing":
+        return "outline";
+      case "carried_forward":
         return "destructive";
       default:
         return "secondary";
     }
   };
 
-  const totalEarnings = payments
-    .filter(p => p.status === "completed")
-    .reduce((sum, p) => sum + parseFloat(p.amount.replace('$', '').replace(',', '')), 0);
+  const formatCurrency = (amount: number) => {
+    return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
-  const pendingPayments = payments
-    .filter(p => p.status === "pending")
-    .reduce((sum, p) => sum + parseFloat(p.amount.replace('$', '').replace(',', '')), 0);
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return 'N/A';
+    try {
+      return new Date(dateStr).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Payments</h1>
+          <p className="text-muted-foreground">Track your payment history and upcoming payouts</p>
+        </div>
+        <div className="p-8 text-center">Loading earnings data...</div>
+      </div>
+    );
+  }
+
+  // Check if payout method is configured
+  const hasPayoutMethod = earningsData?.payout_method?.has_method;
+  const currentMonth = earningsData?.current_month;
+  const pendingEarnings = earningsData?.pending_earnings || 0;
+  const nextPaymentDate = earningsData?.next_payment_date;
 
   return (
     <div className="space-y-6">
@@ -110,27 +111,48 @@ const Payments = () => {
         <p className="text-muted-foreground">Track your payment history and upcoming payouts</p>
       </div>
 
+      {!hasPayoutMethod && (
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+            <div className="text-sm text-yellow-800">
+              <p className="font-medium mb-1">No Payout Method Configured</p>
+              <p>Please configure your payout method in <button
+                onClick={() => navigate('/dashboard/settings')}
+                className="underline font-medium hover:text-yellow-900"
+              >Settings → Billing Info</button> to receive payments.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Payment Summary */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Earnings</CardTitle>
+            <CardTitle className="text-sm font-medium">Current Month</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-primary">${totalEarnings.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">All time earnings</p>
+            <div className="text-2xl font-bold text-primary">
+              {currentMonth ? formatCurrency(currentMonth.amount) : '$0.00'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {currentMonth?.month || 'No earnings'} - {currentMonth?.status || 'Accumulating'}
+            </p>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Payments</CardTitle>
+            <CardTitle className="text-sm font-medium">Pending Earnings</CardTitle>
             <Calendar className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-secondary">${pendingPayments.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">Awaiting processing</p>
+            <div className="text-2xl font-bold text-secondary">
+              {formatCurrency(pendingEarnings)}
+            </div>
+            <p className="text-xs text-muted-foreground">Awaiting payment</p>
           </CardContent>
         </Card>
 
@@ -140,47 +162,42 @@ const Payments = () => {
             <CreditCard className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">Feb 5, 2024</div>
-            <p className="text-xs text-muted-foreground">Estimated: $2,890.45</p>
+            <div className="text-2xl font-bold">
+              {nextPaymentDate ? formatDate(nextPaymentDate) : 'TBD'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {pendingEarnings > 0 ? 'Net-30 schedule' : 'No pending payments'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Payout Method</CardTitle>
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold capitalize">
+              {earningsData?.payout_method?.active_method || 'Not Set'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {hasPayoutMethod ? 'Configured' : (
+                <button
+                  onClick={() => navigate('/dashboard/settings')}
+                  className="underline hover:text-foreground"
+                >
+                  Configure now
+                </button>
+              )}
+            </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Upcoming Payments */}
+      {/* Monthly Earnings History */}
       <Card>
         <CardHeader>
-          <CardTitle>Upcoming Payments</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Estimated Amount</TableHead>
-                <TableHead>Method</TableHead>
-                <TableHead>Description</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {upcomingPayments.map((payment, index) => (
-                <TableRow key={index}>
-                  <TableCell>{payment.date}</TableCell>
-                  <TableCell className="font-semibold text-primary">{payment.estimatedAmount}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{payment.method}</Badge>
-                  </TableCell>
-                  <TableCell>{payment.description}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* Payment History */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Payment History</CardTitle>
+          <CardTitle>Monthly Earnings</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -188,22 +205,23 @@ const Payments = () => {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search payments..."
+                  placeholder="Search by month or transaction ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
-              
+
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-40">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="failed">Failed</SelectItem>
+                  <SelectItem value="processing">Processing</SelectItem>
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="carried_forward">Carried Forward</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -213,38 +231,43 @@ const Payments = () => {
               </Button>
             </div>
 
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Payment ID</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Method</TableHead>
-                  <TableHead>Reference</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Description</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredPayments.map((payment) => (
-                  <TableRow key={payment.id}>
-                    <TableCell className="font-mono text-sm">{payment.id}</TableCell>
-                    <TableCell>{payment.date}</TableCell>
-                    <TableCell className="font-semibold text-primary">{payment.amount}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{payment.method}</Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">{payment.reference}</TableCell>
-                    <TableCell>
-                      <Badge variant={getStatusColor(payment.status)}>
-                        {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{payment.description}</TableCell>
+            {filteredPayments.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <p className="mb-2">No earnings history yet</p>
+                <p className="text-sm">Earnings will appear here once you start earning from conversions.</p>
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Month</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Payment Date</TableHead>
+                    <TableHead>Transaction ID</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredPayments.map((earning: any) => (
+                    <TableRow key={earning.id}>
+                      <TableCell className="font-medium">{earning.month}</TableCell>
+                      <TableCell className="font-semibold text-primary">
+                        {formatCurrency(earning.amount)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusColor(earning.status)}>
+                          {earning.status.charAt(0).toUpperCase() + earning.status.slice(1).replace('_', ' ')}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{formatDate(earning.payment_date)}</TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {earning.transaction_id || '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </div>
         </CardContent>
       </Card>

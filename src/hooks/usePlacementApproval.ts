@@ -40,9 +40,12 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
         return;
       }
 
-      // Check if user is admin or subadmin - they should have full access
+      //  Check if user is admin or subadmin - they should have full access
       const user = JSON.parse(localStorage.getItem('user') || '{}');
+      console.log('🔍 Checking placement status for user:', user.username, 'Role:', user.role);
+      
       if (user.role === 'admin' || user.role === 'subadmin') {
+        console.log('✅ Admin/subadmin detected, granting full access');
         setStatus(prev => ({
           ...prev,
           hasApprovedPlacement: true, // Give admin/subadmin full access
@@ -58,13 +61,22 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
       }
 
       // Get all placements for the current publisher
+      console.log('📡 Fetching placements from API...');
       const placementResponse = await placementApi.getPlacements();
+      console.log('✅ Placements fetched successfully:', placementResponse);
+      
       const placements = placementResponse.placements || [];
+      console.log('📊 Total placements:', placements.length);
 
       // Categorize placements by approval status
       const approved = placements.filter(p => p.approvalStatus === 'APPROVED');
       const pending = placements.filter(p => p.approvalStatus === 'PENDING_APPROVAL');
       const rejected = placements.filter(p => p.approvalStatus === 'REJECTED');
+
+      console.log('📊 Placement breakdown:');
+      console.log('  - Approved:', approved.length);
+      console.log('  - Pending:', pending.length);
+      console.log('  - Rejected:', rejected.length);
 
       setStatus(prev => ({
         ...prev,
@@ -79,11 +91,16 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
       }));
 
     } catch (error) {
-      console.error('Error checking placement status:', error);
+      console.error('❌ Error checking placement status:', error);
+      console.error('Error details:', {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      
       setStatus(prev => ({
         ...prev,
         loading: false,
-        error: error instanceof Error ? error.message : 'Failed to check placement status'
+        error: error instanceof Error ? error.message : 'Failed to fetch'
       }));
     }
   };

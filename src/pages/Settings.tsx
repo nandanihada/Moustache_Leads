@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import PublisherEmailSettings from "@/components/PublisherEmailSettings";
+import { BillingInfoTab } from "@/components/BillingInfoTab";
 
 const Settings = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -66,7 +67,7 @@ const Settings = () => {
 
   const saveBilling = () => {
     toast({
-      title: "Billing Updated", 
+      title: "Billing Updated",
       description: "Your billing information has been saved",
     });
   };
@@ -106,7 +107,7 @@ const Settings = () => {
                     <Input
                       id="firstName"
                       value={profile.firstName}
-                      onChange={(e) => setProfile({...profile, firstName: e.target.value})}
+                      onChange={(e) => setProfile({ ...profile, firstName: e.target.value })}
                     />
                   </div>
                   <div className="space-y-2">
@@ -114,7 +115,7 @@ const Settings = () => {
                     <Input
                       id="lastName"
                       value={profile.lastName}
-                      onChange={(e) => setProfile({...profile, lastName: e.target.value})}
+                      onChange={(e) => setProfile({ ...profile, lastName: e.target.value })}
                     />
                   </div>
                 </div>
@@ -125,7 +126,7 @@ const Settings = () => {
                     id="email"
                     type="email"
                     value={profile.email}
-                    onChange={(e) => setProfile({...profile, email: e.target.value})}
+                    onChange={(e) => setProfile({ ...profile, email: e.target.value })}
                   />
                 </div>
 
@@ -134,7 +135,7 @@ const Settings = () => {
                   <Input
                     id="phone"
                     value={profile.phone}
-                    onChange={(e) => setProfile({...profile, phone: e.target.value})}
+                    onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
                   />
                 </div>
 
@@ -143,7 +144,7 @@ const Settings = () => {
                   <Input
                     id="company"
                     value={profile.company}
-                    onChange={(e) => setProfile({...profile, company: e.target.value})}
+                    onChange={(e) => setProfile({ ...profile, company: e.target.value })}
                   />
                 </div>
 
@@ -152,7 +153,7 @@ const Settings = () => {
                   <Input
                     id="website"
                     value={profile.website}
-                    onChange={(e) => setProfile({...profile, website: e.target.value})}
+                    onChange={(e) => setProfile({ ...profile, website: e.target.value })}
                   />
                 </div>
 
@@ -164,86 +165,7 @@ const Settings = () => {
             </TabsContent>
 
             <TabsContent value="billing" className="space-y-4">
-              <div className="grid gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    value={billing.address}
-                    onChange={(e) => setBilling({...billing, address: e.target.value})}
-                  />
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="city">City</Label>
-                    <Input
-                      id="city"
-                      value={billing.city}
-                      onChange={(e) => setBilling({...billing, city: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="state">State</Label>
-                    <Input
-                      id="state"
-                      value={billing.state}
-                      onChange={(e) => setBilling({...billing, state: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="zipCode">Zip Code</Label>
-                    <Input
-                      id="zipCode"
-                      value={billing.zipCode}
-                      onChange={(e) => setBilling({...billing, zipCode: e.target.value})}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    value={billing.country}
-                    onChange={(e) => setBilling({...billing, country: e.target.value})}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="taxId">Tax ID</Label>
-                  <Input
-                    id="taxId"
-                    value={billing.taxId}
-                    onChange={(e) => setBilling({...billing, taxId: e.target.value})}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentMethod">Payment Method</Label>
-                    <Input
-                      id="paymentMethod"
-                      value={billing.paymentMethod}
-                      onChange={(e) => setBilling({...billing, paymentMethod: e.target.value})}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentEmail">Payment Email</Label>
-                    <Input
-                      id="paymentEmail"
-                      type="email"
-                      value={billing.paymentEmail}
-                      onChange={(e) => setBilling({...billing, paymentEmail: e.target.value})}
-                    />
-                  </div>
-                </div>
-
-                <Button onClick={saveBilling} className="w-fit">
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Billing Info
-                </Button>
-              </div>
+              <BillingInfoTab />
             </TabsContent>
 
             <TabsContent value="email" className="space-y-4">

@@ -9,16 +9,17 @@ import {
   Settings,
   LogOut,
   Zap,
-  Rocket, // 🚀 New icon for Ascend
-  Shield, // 🛡️ Admin icon
-  TrendingUp, // 📈 Performance Report
-  Receipt, // 📝 Conversion Report
+  Shield,
+  TrendingUp,
+  Receipt,
   Clock,
   CheckCircle,
   XCircle,
-  Trophy
+  Trophy,
+  ChevronRight,
+  ChevronDown
 } from "lucide-react";
-import { NavLink, useNavigate, Link } from "react-router-dom";
+import { NavLink, useNavigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { useRequireApprovedPlacement } from "../../hooks/usePlacementApproval";
 import { Badge } from "@/components/ui/badge";
@@ -33,27 +34,62 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useState } from "react";
 
-const menuItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Placements", url: "/dashboard/placements", icon: Target },
-  { title: "Assets", url: "/dashboard/assets", icon: FileImage },
-  { title: "Offers", url: "/dashboard/offers", icon: Gift },
-  { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
-  { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
-  { title: "Rewards", url: "/dashboard/rewards", icon: Trophy },
-  { title: "Reports", url: "/dashboard/reports", icon: BarChart3 },
-  { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
-  { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },
-  { title: "Users", url: "/dashboard/users", icon: Users },
-  { title: "Payments", url: "/dashboard/payments", icon: CreditCard },
-  { title: "Campaign Builder", url: "/dashboard/campaign-builder", icon: Zap },
-  { title: "Settings", url: "/dashboard/settings", icon: Settings },
-  { title: "Ascend", url: "/dashboard/ascend", icon: Rocket }, // ✅ New Ascend menu item
+// Hierarchical menu structure
+const menuStructure = [
+  {
+    title: "Dashboard",
+    url: "/dashboard",
+    icon: LayoutDashboard,
+    type: "single" as const
+  },
+  {
+    title: "Offers",
+    icon: Gift,
+    type: "group" as const,
+    subtabs: [
+      { title: "Placements", url: "/dashboard/placements", icon: Target },
+      { title: "Offers", url: "/dashboard/offers", icon: Gift },
+      { title: "Assets", url: "/dashboard/assets", icon: FileImage },
+    ]
+  },
+  {
+    title: "Reports",
+    icon: BarChart3,
+    type: "group" as const,
+    requiresPlacement: true,
+    subtabs: [
+      { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
+      { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },
+    ]
+  },
+  {
+    title: "Rewards",
+    icon: Trophy,
+    type: "group" as const,
+    subtabs: [
+      { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
+      { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
+      { title: "Rewards", url: "/dashboard/rewards", icon: Trophy },
+    ]
+  },
+  {
+    title: "Account",
+    icon: Users,
+    type: "group" as const,
+    subtabs: [
+      { title: "Payments", url: "/dashboard/payments", icon: CreditCard },
+      { title: "Users", url: "/dashboard/users", icon: Users },
+      { title: "Settings", url: "/dashboard/settings", icon: Settings },
+    ]
+  },
 ];
 
 export function AppSidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout, isAdminOrSubadmin } = useAuth();
   const {
     hasApprovedPlacement,
@@ -62,9 +98,27 @@ export function AppSidebar() {
     canAccessPlatform
   } = useRequireApprovedPlacement();
 
+  // Track which main tabs are expanded
+  const [expandedTabs, setExpandedTabs] = useState<string[]>(() => {
+    // Auto-expand the tab containing the current route
+    const currentPath = location.pathname;
+    const expandedTab = menuStructure.find(item =>
+      item.type === 'group' && item.subtabs?.some(sub => currentPath.startsWith(sub.url))
+    );
+    return expandedTab ? [expandedTab.title] : [];
+  });
+
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const toggleTab = (tabTitle: string) => {
+    setExpandedTabs(prev =>
+      prev.includes(tabTitle)
+        ? prev.filter(t => t !== tabTitle)
+        : [...prev, tabTitle]
+    );
   };
 
   const getPlacementStatusBadge = () => {
@@ -130,42 +184,101 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {menuItems.map((item) => {
-                // Items that require placement approval
-                const requiresPlacement = ['Offers', 'Reports', 'Performance Report', 'Conversion Report'].includes(item.title);
-                const isDisabled = requiresPlacement && !canAccessPlatform;
-
-                return (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to={isDisabled ? '#' : item.url}
-                        onClick={(e) => {
-                          if (isDisabled) {
-                            e.preventDefault();
-                            navigate('/dashboard/placements');
-                          }
-                        }}
-                        className={({ isActive }) =>
-                          `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isDisabled
-                            ? "text-muted-foreground/50 cursor-not-allowed opacity-50"
-                            : isActive
+              {menuStructure.map((item) => {
+                if (item.type === 'single') {
+                  // Single menu item (Dashboard)
+                  return (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild>
+                        <NavLink
+                          to={item.url!}
+                          end
+                          className={({ isActive }) =>
+                            `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
                               ? "bg-primary/10 text-primary border-r-2 border-primary"
                               : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                          }`
-                        }
-                      >
-                        <item.icon className="h-5 w-5" />
-                        <span className="font-medium">{item.title}</span>
-                        {isDisabled && (
-                          <Badge variant="outline" className="ml-auto text-xs bg-yellow-100 text-yellow-800 border-yellow-300">
-                            <Clock className="h-3 w-3 mr-1" />
-                          </Badge>
-                        )}
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                );
+                            }`
+                          }
+                        >
+                          <item.icon className="h-5 w-5" />
+                          <span className="font-medium">{item.title}</span>
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                } else {
+                  // Grouped menu item with subtabs
+                  const isExpanded = expandedTabs.includes(item.title);
+                  const isDisabled = item.requiresPlacement && !canAccessPlatform;
+                  const isActive = item.subtabs?.some(sub => location.pathname.startsWith(sub.url));
+
+                  return (
+                    <Collapsible
+                      key={item.title}
+                      open={isExpanded}
+                      onOpenChange={() => toggleTab(item.title)}
+                    >
+                      <SidebarMenuItem>
+                        <CollapsibleTrigger asChild>
+                          <SidebarMenuButton
+                            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full ${isActive
+                                ? "bg-primary/5 text-primary"
+                                : isDisabled
+                                  ? "text-muted-foreground/50 cursor-not-allowed opacity-50"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                              }`}
+                            onClick={(e) => {
+                              if (isDisabled) {
+                                e.preventDefault();
+                                navigate('/dashboard/placements');
+                              }
+                            }}
+                          >
+                            <item.icon className="h-5 w-5" />
+                            <span className="font-medium flex-1 text-left">{item.title}</span>
+                            {isDisabled ? (
+                              <Badge variant="outline" className="text-xs bg-yellow-100 text-yellow-800 border-yellow-300">
+                                <Clock className="h-3 w-3" />
+                              </Badge>
+                            ) : (
+                              isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
+                            )}
+                          </SidebarMenuButton>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="mt-1">
+                          <SidebarMenu className="ml-6 border-l-2 border-muted pl-2">
+                            {item.subtabs?.map((subtab) => (
+                              <SidebarMenuItem key={subtab.title}>
+                                <SidebarMenuButton asChild>
+                                  <NavLink
+                                    to={isDisabled ? '#' : subtab.url}
+                                    onClick={(e) => {
+                                      if (isDisabled) {
+                                        e.preventDefault();
+                                        navigate('/dashboard/placements');
+                                      }
+                                    }}
+                                    className={({ isActive }) =>
+                                      `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${isDisabled
+                                        ? "text-muted-foreground/50 cursor-not-allowed"
+                                        : isActive
+                                          ? "bg-primary/10 text-primary font-medium"
+                                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                      }`
+                                    }
+                                  >
+                                    <subtab.icon className="h-4 w-4" />
+                                    <span>{subtab.title}</span>
+                                  </NavLink>
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
+                            ))}
+                          </SidebarMenu>
+                        </CollapsibleContent>
+                      </SidebarMenuItem>
+                    </Collapsible>
+                  );
+                }
               })}
 
               {/* Admin Dashboard - Show for admin and subadmin users */}

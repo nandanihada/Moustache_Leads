@@ -69,6 +69,8 @@ gift_cards_bp = safe_import_blueprint('routes.gift_cards', 'gift_cards_bp')
 forwarded_postbacks_bp = safe_import_blueprint('routes.forwarded_postbacks', 'forwarded_postbacks_bp')
 postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postback_receiver_bp')
 setup_bp = safe_import_blueprint('routes.setup', 'setup_bp')
+user_dashboard_bp = safe_import_blueprint('routes.user_dashboard', 'user_dashboard_bp')
+payout_settings_bp = safe_import_blueprint('routes.payout_settings', 'payout_settings_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -123,7 +125,9 @@ blueprints = [
     (login_logs_bp, '/api/admin'),  # Login logs and activity tracking - admin only
     (admin_subadmin_management_bp, '/api/admin'),  # Subadmin management - admin only
     (gift_cards_bp, '/api'),  # Gift card redemption and management
-    (forwarded_postbacks_bp, '/api')  # Forwarded postbacks - admin only
+    (forwarded_postbacks_bp, '/api'),  # Forwarded postbacks - admin only
+    (user_dashboard_bp, '/api'),  # User dashboard statistics
+    (payout_settings_bp, '/api/payout')  # Payout settings and earnings
 ]
 
 def create_app():
@@ -157,6 +161,11 @@ def create_app():
                  "http://192.168.1.15:8081",
                  "http://192.168.1.15:8082",
                  "http://192.168.1.15:5173",
+                 "http://10.59.206.163:3000",
+                 "http://10.59.206.163:5173",
+                 "http://10.59.206.163:8080",
+                 "http://10.59.206.163:8081",
+                 "http://10.59.206.163:8082",
                  "https://moustache-leads.vercel.app",
                  "https://theinterwebsite.space",
                  "https://www.theinterwebsite.space",
@@ -191,6 +200,11 @@ def create_app():
             "http://192.168.1.15:8081",
             "http://192.168.1.15:8082",
             "http://192.168.1.15:5173",
+            "http://10.59.206.163:3000",
+            "http://10.59.206.163:5173",
+            "http://10.59.206.163:8080",
+            "http://10.59.206.163:8081",
+            "http://10.59.206.163:8082",
             "https://moustache-leads.vercel.app",
             "https://theinterwebsite.space",
             "https://www.theinterwebsite.space",

@@ -7,22 +7,19 @@ import {
   LogOut,
   ArrowLeft,
   Handshake,
-  Activity,
   Inbox,
-  FileText,
-  Monitor,
-  TestTube,
-  CheckSquare,
   UserCheck,
+  CheckSquare,
   Zap,
-  Wallet,
   TrendingUp,
   AlertTriangle,
   MousePointerClick,
   LogIn,
-  UserCog
+  UserCog,
+  ChevronRight,
+  ChevronDown
 } from "lucide-react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import {
   Sidebar,
@@ -35,41 +32,101 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useEffect, useState } from "react";
 import subadminService from "@/services/subadminService";
 
-const adminMenuItems = [
-  { title: "Overview", url: "/admin", icon: Shield, tab: "overview" },
-  { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
-  { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
-  { title: "Gift Cards", url: "/admin/gift-cards", icon: Gift, tab: "gift-cards" },
-  { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
-  { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare, tab: "placement-approval" },
-  { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
-  { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick, tab: "click-tracking" },
-  { title: "Login Logs", url: "/admin/login-logs", icon: LogIn, tab: "login-logs" },
-  { title: "Active Users", url: "/admin/active-users", icon: UserCog, tab: "active-users" },
-  { title: "Subadmin Management", url: "/admin/subadmin-management", icon: Shield, tab: "subadmin-management" },
-  { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle, tab: "fraud-management" },
-  { title: "Partners", url: "/admin/partners", icon: Handshake, tab: "partners" },
-  { title: "Postback", url: "/admin/postback", icon: Inbox, tab: "postback" },
-  { title: "Users", url: "/admin/users", icon: Users, tab: "publishers" },
-  { title: "Analytics", url: "/admin/analytics", icon: BarChart3, tab: "analytics" },
-  { title: "Settings", url: "/admin/settings", icon: Settings, tab: "settings" },
+// Hierarchical admin menu structure
+const adminMenuStructure = [
+  {
+    title: "Overview",
+    url: "/admin",
+    icon: Shield,
+    tab: "overview",
+    type: "single" as const
+  },
+  {
+    title: "Users & Access",
+    icon: Users,
+    type: "group" as const,
+    subtabs: [
+      { title: "Users", url: "/admin/users", icon: Users, tab: "publishers" },
+      { title: "Subadmin Management", url: "/admin/subadmin-management", icon: Shield, tab: "subadmin-management" },
+      { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
+      { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare, tab: "placement-approval" },
+    ]
+  },
+  {
+    title: "Offers & Rewards",
+    icon: Gift,
+    type: "group" as const,
+    subtabs: [
+      { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
+      { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
+      { title: "Gift Cards", url: "/admin/gift-cards", icon: Gift, tab: "gift-cards" },
+    ]
+  },
+  {
+    title: "Tracking & Analytics",
+    icon: TrendingUp,
+    type: "group" as const,
+    subtabs: [
+      { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
+      { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick, tab: "click-tracking" },
+    ]
+  },
+  {
+    title: "Fraud & Security",
+    icon: AlertTriangle,
+    type: "group" as const,
+    subtabs: [
+      { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle, tab: "fraud-management" },
+      { title: "Login Logs", url: "/admin/login-logs", icon: LogIn, tab: "login-logs" },
+      { title: "Active Users", url: "/admin/active-users", icon: UserCog, tab: "active-users" },
+    ]
+  },
+  {
+    title: "Integration",
+    icon: Handshake,
+    type: "group" as const,
+    subtabs: [
+      { title: "Partners", url: "/admin/partners", icon: Handshake, tab: "partners" },
+      { title: "Postback", url: "/admin/postback", icon: Inbox, tab: "postback" },
+    ]
+  },
 ];
 
 export function AdminSidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { logout, user } = useAuth();
   const [allowedTabs, setAllowedTabs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Track which main tabs are expanded
+  const [expandedTabs, setExpandedTabs] = useState<string[]>(() => {
+    // Auto-expand the tab containing the current route
+    const currentPath = location.pathname;
+    const expandedTab = adminMenuStructure.find(item =>
+      item.type === 'group' && item.subtabs?.some(sub => currentPath === sub.url)
+    );
+    return expandedTab ? [expandedTab.title] : [];
+  });
 
   useEffect(() => {
     const fetchPermissions = async () => {
       try {
         if (user?.role === 'admin') {
           // Admin sees all tabs
-          setAllowedTabs(adminMenuItems.map(item => item.tab));
+          const allTabs: string[] = [];
+          adminMenuStructure.forEach(item => {
+            if (item.type === 'single') {
+              allTabs.push(item.tab);
+            } else if (item.subtabs) {
+              item.subtabs.forEach(sub => allTabs.push(sub.tab));
+            }
+          });
+          setAllowedTabs(allTabs);
         } else if (user?.role === 'subadmin') {
           // Fetch subadmin permissions
           const perms = await subadminService.getMyPermissions();
@@ -101,10 +158,18 @@ export function AdminSidebar() {
     navigate("/dashboard");
   };
 
-  // Filter menu items based on permissions
-  const visibleMenuItems = adminMenuItems.filter(item =>
-    user?.role === 'admin' || allowedTabs.includes(item.tab)
-  );
+  const toggleTab = (tabTitle: string) => {
+    setExpandedTabs(prev =>
+      prev.includes(tabTitle)
+        ? prev.filter(t => t !== tabTitle)
+        : [...prev, tabTitle]
+    );
+  };
+
+  // Check if user has permission for a tab
+  const hasPermission = (tab: string) => {
+    return user?.role === 'admin' || allowedTabs.includes(tab);
+  };
 
   return (
     <Sidebar className="w-64 border-r border-border/60">
@@ -126,28 +191,87 @@ export function AdminSidebar() {
             <SidebarMenu>
               {loading ? (
                 <div className="px-3 py-2 text-sm text-muted-foreground">Loading...</div>
-              ) : visibleMenuItems.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-muted-foreground">No permissions</div>
               ) : (
-                visibleMenuItems.map((item) => (
-                  <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton asChild>
-                      <NavLink
-                        to={item.url}
-                        end={item.url === "/admin"}
-                        className={({ isActive }) =>
-                          `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
-                            ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500"
-                            : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
-                          }`
-                        }
+                adminMenuStructure.map((item) => {
+                  if (item.type === 'single') {
+                    // Single menu item (Overview)
+                    if (!hasPermission(item.tab)) return null;
+
+                    return (
+                      <SidebarMenuItem key={item.title}>
+                        <SidebarMenuButton asChild>
+                          <NavLink
+                            to={item.url!}
+                            end
+                            className={({ isActive }) =>
+                              `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
+                                ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500"
+                                : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
+                              }`
+                            }
+                          >
+                            <item.icon className="h-5 w-5" />
+                            <span className="font-medium">{item.title}</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  } else {
+                    // Grouped menu item with subtabs
+                    const visibleSubtabs = item.subtabs?.filter(sub => hasPermission(sub.tab)) || [];
+
+                    // Don't show the group if no subtabs are visible
+                    if (visibleSubtabs.length === 0) return null;
+
+                    const isExpanded = expandedTabs.includes(item.title);
+                    const isActive = visibleSubtabs.some(sub => location.pathname === sub.url);
+
+                    return (
+                      <Collapsible
+                        key={item.title}
+                        open={isExpanded}
+                        onOpenChange={() => toggleTab(item.title)}
                       >
-                        <item.icon className="h-5 w-5" />
-                        <span className="font-medium">{item.title}</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))
+                        <SidebarMenuItem>
+                          <CollapsibleTrigger asChild>
+                            <SidebarMenuButton
+                              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full ${isActive
+                                  ? "bg-orange-50 text-orange-700"
+                                  : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
+                                }`}
+                            >
+                              <item.icon className="h-5 w-5" />
+                              <span className="font-medium flex-1 text-left">{item.title}</span>
+                              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            </SidebarMenuButton>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-1">
+                            <SidebarMenu className="ml-6 border-l-2 border-orange-200 pl-2">
+                              {visibleSubtabs.map((subtab) => (
+                                <SidebarMenuItem key={subtab.title}>
+                                  <SidebarMenuButton asChild>
+                                    <NavLink
+                                      to={subtab.url}
+                                      className={({ isActive }) =>
+                                        `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${isActive
+                                          ? "bg-orange-100 text-orange-700 font-medium"
+                                          : "text-muted-foreground hover:text-foreground hover:bg-orange-50"
+                                        }`
+                                      }
+                                    >
+                                      <subtab.icon className="h-4 w-4" />
+                                      <span>{subtab.title}</span>
+                                    </NavLink>
+                                  </SidebarMenuButton>
+                                </SidebarMenuItem>
+                              ))}
+                            </SidebarMenu>
+                          </CollapsibleContent>
+                        </SidebarMenuItem>
+                      </Collapsible>
+                    );
+                  }
+                })
               )}
             </SidebarMenu>
           </SidebarGroupContent>

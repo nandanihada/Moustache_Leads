@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift } from "lucide-react";
 import { KPIWidget } from "@/components/dashboard/KPIWidget";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { dashboardApi, DashboardStats } from "@/services/dashboardApi";
+import { toast } from "sonner";
 
 /* -------------------------
    Chart + Data
@@ -26,12 +28,6 @@ const chartData = [
   { name: "Jun", clicks: 2390, conversions: 380, revenue: 2500 },
 ];
 
-const recentActivity = [
-  { id: 1, action: "New conversion", offer: "Mobile App Install", amount: "$25.00", time: "2 min ago" },
-  { id: 2, action: "Payout processed", offer: "Credit Card Signup", amount: "$150.00", time: "1 hour ago" },
-  { id: 3, action: "New lead", offer: "Insurance Quote", amount: "$8.50", time: "3 hours ago" },
-];
-
 const topOffers = [
   { id: 1, name: "Mobile Game Install", clicks: 1250, conversions: 89, revenue: "$2,225", conversionRate: "7.1%" },
   { id: 2, name: "Credit Card Signup", clicks: 890, conversions: 12, revenue: "$1,800", conversionRate: "1.3%" },
@@ -42,6 +38,30 @@ const topOffers = [
    Dashboard Component
 ------------------------- */
 const DashboardContent = () => {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+
+  useEffect(() => {
+    fetchDashboardStats();
+  }, []);
+
+  const fetchDashboardStats = async () => {
+    try {
+      setLoading(true);
+      const response = await dashboardApi.getStats();
+      if (response.success) {
+        setStats(response.stats);
+      } else {
+        toast.error('Failed to load dashboard statistics');
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      toast.error('Failed to load dashboard statistics');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -53,28 +73,28 @@ const DashboardContent = () => {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <KPIWidget
           title="Total Revenue"
-          value="$45,234"
-          change="+12.5% from last month"
-          changeType="positive"
+          value={loading ? "Loading..." : `$${stats?.total_revenue.toFixed(2) || '0.00'}`}
+          change={loading ? "" : stats?.revenue_change.text || "+0%"}
+          changeType={stats?.revenue_change.type || "neutral"}
           icon={DollarSign}
         />
         <KPIWidget
           title="Total Clicks"
-          value="125,430"
+          value={loading ? "Loading..." : stats?.total_clicks.toLocaleString() || '0'}
           change="+8.2% from last month"
           changeType="positive"
           icon={MousePointer}
         />
         <KPIWidget
           title="Conversions"
-          value="3,245"
-          change="-2.4% from last month"
-          changeType="negative"
+          value={loading ? "Loading..." : stats?.total_conversions.toLocaleString() || '0'}
+          change={loading ? "" : stats?.conversions_change.text || "+0%"}
+          changeType={stats?.conversions_change.type || "neutral"}
           icon={Target}
         />
         <KPIWidget
           title="Active Offers"
-          value="89"
+          value={loading ? "Loading..." : stats?.active_offers.toString() || '0'}
           change="+5 new offers"
           changeType="positive"
           icon={Gift}
@@ -107,18 +127,24 @@ const DashboardContent = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div key={activity.id} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <p className="font-medium">{activity.action}</p>
-                    <p className="text-sm text-muted-foreground">{activity.offer}</p>
+              {loading ? (
+                <div className="text-center text-muted-foreground py-8">Loading...</div>
+              ) : stats?.recent_activity && stats.recent_activity.length > 0 ? (
+                stats.recent_activity.map((activity) => (
+                  <div key={activity.id} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div>
+                      <p className="font-medium">{activity.action}</p>
+                      <p className="text-sm text-muted-foreground">{activity.offer}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="font-medium text-primary">{activity.amount}</p>
+                      <p className="text-sm text-muted-foreground">{activity.time}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-medium text-primary">{activity.amount}</p>
-                    <p className="text-sm text-muted-foreground">{activity.time}</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <div className="text-center text-muted-foreground py-8">No recent activity</div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -28,6 +28,11 @@ export const getApiBaseUrl = (): string => {
     return 'https://api.theinterwebsite.space';
   }
 
+  // Local network IP (192.168.x.x or 10.x.x.x) - use same IP with port 5000
+  if (hostname.match(/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/)) {
+    return `http://${hostname}:5000`;
+  }
+
   // Default fallback - use HTTPS for production
   return `${protocol}//${hostname}`;
 };
