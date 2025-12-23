@@ -12,10 +12,13 @@ from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
+
 class UserReports:
     def __init__(self):
-        self.clicks_collection = db_instance.get_collection('clicks')
-        self.conversions_collection = db_instance.get_collection('conversions')
+        # Use correct collections for user reports
+        self.clicks_collection = db_instance.get_collection('offerwall_clicks_detailed')  # User's placement clicks
+        self.conversions_collection = db_instance.get_collection('forwarded_postbacks')  # User's forwarded postbacks
+        self.placements_collection = db_instance.get_collection('placements')  # To get user's placements
         self.offers_collection = db_instance.get_collection('offers')
         self.users_collection = db_instance.get_collection('users')
     
@@ -63,13 +66,42 @@ class UserReports:
             pagination = pagination or {'page': 1, 'per_page': 20}
             sort_config = sort or {'field': 'date', 'order': 'desc'}
             
-            # Build match query - Show all data to all users (publishers see all platform activity)
+            # Get user info to check if admin
+            user = self.users_collection.find_one({'_id': ObjectId(user_id)})
+            is_admin = user and user.get('role') == 'admin'
+            
+            # Build match query - Filter by user's placements unless admin
             match_query = {
-                'click_time': {
+                'timestamp': {  # offerwall_clicks_detailed uses 'timestamp' not 'click_time'
                     '$gte': start_date,
                     '$lte': end_date
                 }
             }
+            
+            # If not admin, filter by user's placements
+            if not is_admin:
+                # Get user's placement IDs
+                username = user.get('username') if user else None
+                if username:
+                    user_placements = list(self.placements_collection.find(
+                        {'created_by': username},
+                        {'_id': 1}
+                    ))
+                    placement_ids = [str(p['_id']) for p in user_placements]
+                    
+                    if placement_ids:
+                        # Filter clicks by placement_id (support both string and ObjectId)
+                        match_query['$or'] = [
+                            {'placement_id': {'$in': placement_ids}},
+                            {'placement_id': {'$in': [ObjectId(pid) for pid in placement_ids if ObjectId.is_valid(pid)]}}
+                        ]
+                    else:
+                        # User has no placements, return empty report
+                        return {
+                            'data': [],
+                            'summary': self._calculate_summary([]),
+                            'pagination': {'page': 1, 'per_page': pagination['per_page'], 'total': 0, 'pages': 0}
+                        }
             
             # Apply filters
             if filters.get('offer_id'):
@@ -89,7 +121,7 @@ class UserReports:
             for field in group_by:
                 if field == 'date':
                     group_id['date'] = {
-                        '$dateToString': {'format': '%Y-%m-%d', 'date': '$click_time'}
+                        '$dateToString': {'format': '%Y-%m-%d', 'date': '$timestamp'}  # Use timestamp field
                     }
                 elif field == 'offer_id':
                     group_id['offer_id'] = '$offer_id'
@@ -141,30 +173,30 @@ class UserReports:
             if click_results:
                 logger.info(f"   First result: {click_results[0]}")
             
-            # Now get conversion data for the same groups (support both user_id and affiliate_id)
-            # Temporarily remove user_id filter to match clicks behavior (show all data)
+            # Now get conversion data from forwarded_postbacks for the same groups
             conversion_match = {
-                'conversion_time': {
+                'timestamp': {  # forwarded_postbacks uses 'timestamp' not 'conversion_time'
                     '$gte': start_date,
                     '$lte': end_date
-                }
+                },
+                'forward_status': 'success'  # Only successful forwards
             }
+            
+            # Filter by publisher_id if not admin
+            if not is_admin:
+                conversion_match['publisher_id'] = user_id
             
             if filters.get('offer_id'):
                 conversion_match['offer_id'] = match_query.get('offer_id')
             if filters.get('country'):
                 conversion_match['country'] = match_query.get('country')
             
-            # Filter by conversion status if specified
-            if filters.get('status'):
-                conversion_match['status'] = filters['status']
-            
             # Conversion aggregation
             conv_group_id = {}
             for field in group_by:
                 if field == 'date':
                     conv_group_id['date'] = {
-                        '$dateToString': {'format': '%Y-%m-%d', 'date': '$conversion_time'}
+                        '$dateToString': {'format': '%Y-%m-%d', 'date': '$timestamp'}  # Use timestamp
                     }
                 elif field == 'offer_id':
                     conv_group_id['offer_id'] = '$offer_id'
@@ -187,61 +219,15 @@ class UserReports:
             
             conv_pipeline = [
                 {'$match': conversion_match},
-                # Join with clicks to get click_time for time spent calculation
-                # Handle both ObjectId and string click_id formats
-                {
-                    '$lookup': {
-                        'from': 'clicks',
-                        'let': {'conv_click_id': '$click_id'},
-                        'pipeline': [
-                            {
-                                '$match': {
-                                    '$expr': {
-                                        '$or': [
-                                            {'$eq': ['$_id', '$$conv_click_id']},
-                                            {'$eq': ['$click_id', '$$conv_click_id']}
-                                        ]
-                                    }
-                                }
-                            }
-                        ],
-                        'as': 'click_data'
-                    }
-                },
-                # Add time_spent field
-                {
-                    '$addFields': {
-                        'time_spent_seconds': {
-                            '$cond': {
-                                'if': {'$gt': [{'$size': '$click_data'}, 0]},
-                                'then': {
-                                    '$divide': [
-                                        {'$subtract': ['$conversion_time', {'$arrayElemAt': ['$click_data.click_time', 0]}]},
-                                        1000  # Convert milliseconds to seconds
-                                    ]
-                                },
-                                'else': 0
-                            }
-                        }
-                    }
-                },
                 {
                     '$group': {
                         '_id': conv_group_id,
                         'conversions': {'$sum': 1},
-                        'approved_conversions': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'approved']}, 1, 0]}
-                        },
-                        'pending_conversions': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'pending']}, 1, 0]}
-                        },
-                        'rejected_conversions': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}
-                        },
-                        'total_payout': {'$sum': '$payout'},
-                        # Calculate average time spent (conversion_time - click_time)
-                        'avg_time_spent_seconds': {'$avg': '$time_spent_seconds'}
-                        # Note: revenue field doesn't exist in conversions, using payout as revenue
+                        'approved_conversions': {'$sum': 1},  # All forwarded postbacks are successful
+                        'pending_conversions': {'$sum': 0},
+                        'rejected_conversions': {'$sum': 0},
+                        'total_payout': {'$sum': '$points'},  # forwarded_postbacks uses 'points' not 'payout'
+                        'avg_time_spent_seconds': {'$avg': 0}  # Not available in forwarded_postbacks
                     }
                 }
             ]
@@ -398,23 +384,30 @@ class UserReports:
             filters = filters or {}
             pagination = pagination or {'page': 1, 'per_page': 20}
             
-            # Build query - Show all conversions to all users
+            # Get user info to check if admin
+            user = self.users_collection.find_one({'_id': ObjectId(user_id)})
+            is_admin = user and user.get('role') == 'admin'
+            
+            # Build query - Filter by publisher_id unless admin
             query = {
-                'conversion_time': {
+                'timestamp': {  # forwarded_postbacks uses 'timestamp'
                     '$gte': start_date,
                     '$lte': end_date
-                }
+                },
+                'forward_status': 'success'  # Only successful forwards
             }
+            
+            # Filter by publisher_id if not admin
+            if not is_admin:
+                query['publisher_id'] = user_id
             
             # Apply filters
             if filters.get('offer_id'):
                 query['offer_id'] = filters['offer_id']
-            if filters.get('status'):
-                query['status'] = filters['status']
             if filters.get('country'):
                 query['country'] = filters['country']
             if filters.get('transaction_id'):
-                query['transaction_id'] = filters['transaction_id']
+                query['username'] = filters['transaction_id']  # forwarded_postbacks uses 'username' field
             
             # Count total
             total = self.conversions_collection.count_documents(query)
@@ -424,77 +417,31 @@ class UserReports:
             per_page = pagination['per_page']
             skip = (page - 1) * per_page
             
-            # Fetch conversions
-            conversions_cursor = self.conversions_collection.find(query).sort('conversion_time', -1).skip(skip).limit(per_page)
+            # Fetch conversions (forwarded postbacks)
+            conversions_cursor = self.conversions_collection.find(query).sort('timestamp', -1).skip(skip).limit(per_page)
             conversions = list(conversions_cursor)
             
-            # Enrich with ALL fields from offers and clicks (same as Performance Report)
+            # Enrich with offer names from offers collection
             for conv in conversions:
-                # Get offer details - ALL FIELDS
-                offer = self.offers_collection.find_one({'offer_id': conv['offer_id']})
+                # Get offer details
+                offer = self.offers_collection.find_one({'offer_id': conv.get('offer_id')})
                 if offer:
                     conv['offer_name'] = offer.get('name', 'Unknown')
-                    conv['network'] = offer.get('network', 'Unknown')
-                    # Phase 2 fields
-                    conv['offer_url'] = offer.get('url', '')
-                    conv['category'] = offer.get('category', 'Uncategorized')
-                    conv['currency'] = offer.get('currency', 'USD')
-                    # Phase 3 fields
-                    conv['ad_group'] = offer.get('ad_group', '')
-                    conv['goal'] = offer.get('goal', '')
-                    conv['promo_code'] = offer.get('promo_code', '')
                 else:
                     conv['offer_name'] = 'Unknown Offer'
-                    conv['offer_url'] = ''
-                    conv['category'] = 'Unknown'
-                    conv['currency'] = 'USD'
-                    conv['ad_group'] = ''
-                    conv['goal'] = ''
-                    conv['promo_code'] = ''
                 
-                # Get click data - ALL FIELDS
-                click = self.clicks_collection.find_one({'click_id': conv['click_id']})
-                if click:
-                    # Basic fields
-                    conv['device_type'] = click.get('device_type', 'Unknown')
-                    conv['browser'] = click.get('browser', 'Unknown')
-                    conv['os'] = click.get('os', 'Unknown')
-                    conv['source'] = click.get('referer', '')
-                    # Phase 3 fields
-                    conv['creative'] = click.get('creative', '')
-                    conv['app_version'] = click.get('app_version', '')
-                    conv['advertiser_sub_id1'] = click.get('advertiser_sub_id1', '')
-                    conv['advertiser_sub_id2'] = click.get('advertiser_sub_id2', '')
-                    conv['advertiser_sub_id3'] = click.get('advertiser_sub_id3', '')
-                    conv['advertiser_sub_id4'] = click.get('advertiser_sub_id4', '')
-                    conv['advertiser_sub_id5'] = click.get('advertiser_sub_id5', '')
-                    # Sub IDs
-                    conv['sub_id1'] = click.get('sub_id1', '')
-                    conv['sub_id2'] = click.get('sub_id2', '')
-                    conv['sub_id3'] = click.get('sub_id3', '')
-                    conv['sub_id4'] = click.get('sub_id4', '')
-                    conv['sub_id5'] = click.get('sub_id5', '')
-                else:
-                    # Default values when no click found
-                    conv['device_type'] = 'Unknown'
-                    conv['browser'] = 'Unknown'
-                    conv['os'] = 'Unknown'
-                    conv['source'] = ''
-                    conv['creative'] = ''
-                    conv['app_version'] = ''
-                    conv['advertiser_sub_id1'] = ''
-                    conv['advertiser_sub_id2'] = ''
-                    conv['advertiser_sub_id3'] = ''
-                    conv['advertiser_sub_id4'] = ''
-                    conv['advertiser_sub_id5'] = ''
-                    conv['sub_id1'] = ''
-                    conv['sub_id2'] = ''
-                    conv['sub_id3'] = ''
-                    conv['sub_id4'] = ''
-                    conv['sub_id5'] = ''
+                # Format datetime (forwarded_postbacks uses 'timestamp')
+                conv['time'] = conv['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if conv.get('timestamp') else ''
                 
-                # Format datetime
-                conv['time'] = conv['conversion_time'].strftime('%Y-%m-%d %H:%M:%S')
+                # Set payout from points field
+                conv['payout'] = conv.get('points', 0)
+                
+                # Set status as 'approved' since all forwarded postbacks are successful
+                conv['status'] = 'approved'
+                
+                # Add transaction_id from username field
+                conv['transaction_id'] = conv.get('username', '')
+
                 
                 # Convert ObjectIds to strings
                 conv['_id'] = str(conv['_id'])
@@ -505,25 +452,13 @@ class UserReports:
                 {
                     '$group': {
                         '_id': None,
-                        'approved_payout': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'approved']}, '$payout', 0]}
-                        },
-                        'pending_payout': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'pending']}, '$payout', 0]}
-                        },
-                        'rejected_payout': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, '$payout', 0]}
-                        },
+                        'approved_payout': {'$sum': '$points'},  # All forwards are successful, use points
+                        'pending_payout': {'$sum': 0},
+                        'rejected_payout': {'$sum': 0},
                         'total_conversions': {'$sum': 1},
-                        'approved_conversions': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'approved']}, 1, 0]}
-                        },
-                        'pending_conversions': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'pending']}, 1, 0]}
-                        },
-                        'rejected_conversions': {
-                            '$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}
-                        }
+                        'approved_conversions': {'$sum': 1},
+                        'pending_conversions': {'$sum': 0},
+                        'rejected_conversions': {'$sum': 0}
                     }
                 }
             ]
@@ -583,27 +518,48 @@ class UserReports:
             end_date = date_range['end']
             filters = filters or {}
             
-            # Determine collection and field based on metric (support both user_id and affiliate_id)
+            # Get user info to check if admin
+            user = self.users_collection.find_one({'_id': ObjectId(user_id)})
+            is_admin = user and user.get('role') == 'admin'
+            
+            # Determine collection and field based on metric
             if metric in ['clicks', 'unique_clicks']:
-                collection = self.clicks_collection
-                date_field = 'click_time'
+                collection = self.clicks_collection  # offerwall_clicks_detailed
+                date_field = 'timestamp'
                 match_query = {
-                    '$or': [
-                        {'affiliate_id': user_id},
-                        {'user_id': user_id}
-                    ],
                     date_field: {'$gte': start_date, '$lte': end_date}
                 }
+                
+                # Filter by user's placements if not admin
+                if not is_admin:
+                    username = user.get('username') if user else None
+                    if username:
+                        user_placements = list(self.placements_collection.find(
+                            {'created_by': username},
+                            {'_id': 1}
+                        ))
+                        placement_ids = [str(p['_id']) for p in user_placements]
+                        
+                        if placement_ids:
+                            match_query['$or'] = [
+                                {'placement_id': {'$in': placement_ids}},
+                                {'placement_id': {'$in': [ObjectId(pid) for pid in placement_ids if ObjectId.is_valid(pid)]}}
+                            ]
+                        else:
+                            # No placements, return empty chart
+                            return {'chart_data': []}
+                            
             else:  # conversions or revenue
-                collection = self.conversions_collection
-                date_field = 'conversion_time'
+                collection = self.conversions_collection  # forwarded_postbacks
+                date_field = 'timestamp'
                 match_query = {
-                    '$or': [
-                        {'affiliate_id': user_id},
-                        {'user_id': user_id}
-                    ],
-                    date_field: {'$gte': start_date, '$lte': end_date}
+                    date_field: {'$gte': start_date, '$lte': end_date},
+                    'forward_status': 'success'
                 }
+                
+                # Filter by publisher_id if not admin
+                if not is_admin:
+                    match_query['publisher_id'] = user_id
             
             # Apply filters
             if filters.get('offer_id'):
@@ -618,7 +574,8 @@ class UserReports:
             }
             date_format = date_formats.get(granularity, '%Y-%m-%d')
             
-            # Aggregation pipeline
+            # Aggregation pipeline - use points for revenue from forwarded_postbacks
+            sum_value = 1 if metric != 'revenue' else '$points'
             pipeline = [
                 {'$match': match_query},
                 {
@@ -626,7 +583,7 @@ class UserReports:
                         '_id': {
                             '$dateToString': {'format': date_format, 'date': f'${date_field}'}
                         },
-                        'value': {'$sum': 1 if metric != 'revenue' else '$payout'}
+                        'value': {'$sum': sum_value}
                     }
                 },
                 {'$sort': {'_id': 1}}
