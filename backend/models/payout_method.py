@@ -5,7 +5,7 @@ Handles user payout preferences (Bank, PayPal, Crypto)
 
 from datetime import datetime
 from bson import ObjectId
-from database.connection import get_collection
+from database import db_instance
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class PayoutMethod:
     def __init__(self):
-        self.collection = get_collection('payout_methods')
+        self.collection = db_instance.get_collection('payout_methods')
 
     def get_user_payout_method(self, user_id: str):
         """Get payout method for a user"""

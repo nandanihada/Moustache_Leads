@@ -5,7 +5,7 @@ Handles monthly earnings tracking and locking
 
 from datetime import datetime, timedelta
 from bson import ObjectId
-from database.connection import get_collection
+from database import db_instance
 import logging
 
 logger = logging.getLogger(__name__)
@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 class MonthlyEarnings:
     def __init__(self):
-        self.collection = get_collection('monthly_earnings')
-        self.forwarded_postbacks = get_collection('forwarded_postbacks')
+        self.collection = db_instance.get_collection('monthly_earnings')
+        self.forwarded_postbacks = db_instance.get_collection('forwarded_postbacks')
 
     def get_current_month_earnings(self, user_id: str):
         """Get current month earnings (not locked yet)"""

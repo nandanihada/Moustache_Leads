@@ -50,7 +50,9 @@ def get_dashboard_stats():
         placements_collection = get_collection('placements')
         offers_collection = get_collection('offers')
         
-        if not all([forwarded_postbacks, clicks_collection, placements_collection, offers_collection]):
+        # Check if any collection is None (MongoDB Collections don't support boolean testing)
+        if (forwarded_postbacks is None or clicks_collection is None or 
+            placements_collection is None or offers_collection is None):
             return jsonify({'error': 'Database collections not available'}), 503
         
         # 1. Calculate Total Revenue from forwarded postbacks
