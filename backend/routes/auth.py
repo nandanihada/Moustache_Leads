@@ -82,27 +82,40 @@ def register():
         if error:
             return jsonify({'error': error}), 400
         
-        # Generate verification token and send email
-        verification_service = get_email_verification_service()
-        verification_token = verification_service.generate_verification_token(
-            email, 
-            str(user_data['_id'])
-        )
+        # Send verification email asynchronously (non-blocking)
+        # This prevents worker timeout if email service is slow or unavailable
+        import threading
         
-        if verification_token:
-            # Send verification email
-            email_sent = verification_service.send_verification_email(
-                email, 
-                verification_token, 
-                username
-            )
-            
-            if email_sent:
-                logging.info(f"✅ Verification email sent to {email}")
-            else:
-                logging.warning(f"⚠️ Failed to send verification email to {email}")
-        else:
-            logging.warning(f"⚠️ Failed to generate verification token for {email}")
+        def send_email_async():
+            """Send verification email in background thread"""
+            try:
+                verification_service = get_email_verification_service()
+                verification_token = verification_service.generate_verification_token(
+                    email, 
+                    str(user_data['_id'])
+                )
+                
+                if verification_token:
+                    # Send verification email
+                    email_sent = verification_service.send_verification_email(
+                        email, 
+                        verification_token, 
+                        username
+                    )
+                    
+                    if email_sent:
+                        logging.info(f"✅ Verification email sent to {email}")
+                    else:
+                        logging.warning(f"⚠️ Failed to send verification email to {email}")
+                else:
+                    logging.warning(f"⚠️ Failed to generate verification token for {email}")
+            except Exception as e:
+                logging.error(f"❌ Background email error for {email}: {str(e)}")
+        
+        # Start email sending in background thread (daemon=True means it won't block app shutdown)
+        email_thread = threading.Thread(target=send_email_async, daemon=True)
+        email_thread.start()
+        logging.info(f"📧 Verification email queued for {email}")
         
         # Generate token
         token = generate_token(user_data)
@@ -455,6 +468,123 @@ def resend_verification():
     except Exception as e:
         logging.error(f"Error resending verification email: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to resend verification email: {str(e)}'}), 500
+
+
+@auth_bp.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    """Request password reset email"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        email = data.get('email', '').strip()
+        
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+        
+        # Validate email format
+        if not validate_email(email):
+            return jsonify({'error': 'Invalid email format'}), 400
+        
+        # Find user by email
+        user_model = User()
+        user = user_model.find_by_email(email)
+        
+        if not user:
+            # Don't reveal if email exists - return success anyway for security
+            logging.warning(f"Password reset requested for non-existent email: {email}")
+            return jsonify({
+                'message': 'If an account exists with this email, you will receive password reset instructions.'
+            }), 200
+        
+        # Send password reset email asynchronously
+        import threading
+        
+        def send_reset_email_async():
+            """Send password reset email in background thread"""
+            try:
+                verification_service = get_email_verification_service()
+                reset_token = verification_service.generate_password_reset_token(
+                    email,
+                    str(user['_id'])
+                )
+                
+                if reset_token:
+                    email_sent = verification_service.send_password_reset_email(
+                        email,
+                        reset_token,
+                        user.get('username', 'User')
+                    )
+                    
+                    if email_sent:
+                        logging.info(f"✅ Password reset email sent to {email}")
+                    else:
+                        logging.warning(f"⚠️ Failed to send password reset email to {email}")
+                else:
+                    logging.warning(f"⚠️ Failed to generate reset token for {email}")
+            except Exception as e:
+                logging.error(f"❌ Background password reset email error for {email}: {str(e)}")
+        
+        # Start email sending in background thread
+        email_thread = threading.Thread(target=send_reset_email_async, daemon=True)
+        email_thread.start()
+        logging.info(f"📧 Password reset email queued for {email}")
+        
+        return jsonify({
+            'message': 'If an account exists with this email, you will receive password reset instructions.'
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Forgot password error: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Failed to process password reset request'}), 500
+
+@auth_bp.route('/reset-password', methods=['POST'])
+def reset_password():
+    """Reset password using reset token"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        token = data.get('token', '').strip()
+        new_password = data.get('password', '')
+        
+        if not token:
+            return jsonify({'error': 'Reset token is required'}), 400
+        
+        if not new_password:
+            return jsonify({'error': 'New password is required'}), 400
+        
+        # Validate password strength
+        is_valid, password_error = validate_password(new_password)
+        if not is_valid:
+            return jsonify({'error': password_error}), 400
+        
+        # Verify reset token
+        verification_service = get_email_verification_service()
+        is_valid, email, user_id = verification_service.verify_password_reset_token(token)
+        
+        if not is_valid:
+            return jsonify({'error': 'Invalid or expired reset token'}), 400
+        
+        # Reset password
+        user_model = User()
+        success = user_model.reset_password(user_id, new_password)
+        
+        if success:
+            logging.info(f"✅ Password reset successful for user {user_id} ({email})")
+            return jsonify({
+                'message': 'Password reset successfully. You can now login with your new password.'
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to reset password'}), 500
+        
+    except Exception as e:
+        logging.error(f"Reset password error: {str(e)}", exc_info=True)
+        return jsonify({'error': 'Failed to reset password'}), 500
 
 @auth_bp.route('/logout', methods=['POST'])
 @token_required

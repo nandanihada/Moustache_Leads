@@ -200,6 +200,41 @@ class User:
         except Exception:
             return False
     
+    def reset_password(self,user_id, new_password):
+        """
+        Reset user password
+        
+        Args:
+            user_id: User ID
+            new_password: New password (plain text)
+            
+        Returns:
+            True if password reset successful, False otherwise
+        """
+        if not self._check_db_connection():
+            return False
+        
+        try:
+            # Hash the new password
+            hashed_password = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+            
+            # Update password in database
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'password': hashed_password,
+                        'password_updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            print(f"Error resetting password: {e}")
+            return False
+    
     def get_email_preferences(self, user_id):
         """Get user's email notification preferences"""
         if not self._check_db_connection():
