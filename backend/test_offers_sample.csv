@@ -1,0 +1,6 @@
+campaign_id,title,url,country,payout,preview_url,image_url,description,platform,expiry,category,device,traffic_sources
+CAMP-001,Complete Survey and Earn $5,https://example.com/survey-offer,US,5.00,https://example.com/preview,,Complete a short 5-minute survey about your shopping habits and earn $5 instantly,SurveyNetwork,2025-02-28,surveys,all,"Social and content traffic allowed, no spam or incent"
+CAMP-002,Try Premium Dating App,https://example.com/dating-offer,US,3.50,https://example.com/dating-preview,,Sign up for premium dating app and get matched with compatible singles,DatingOffers,2025-03-15,dating,mobile,"Display and social traffic only, must be 18+"
+CAMP-003,Download Mobile Game,https://example.com/game-offer,"US,CA,GB",2.00,,,Download and install our new mobile puzzle game - free to play!,GameNetwork,2025-04-30,gaming,mobile,All traffic sources allowed
+CAMP-004,Insurance Quote Lead,https://example.com/insurance-offer,US,15.00,,,Get a free insurance quote in under 2 minutes - no obligation,InsureLeads,2025-03-31,insurance,desktop,"Quality traffic only, email and content allowed"
+CAMP-005,Crypto Trading Platform,https://example.com/crypto-offer,"US,CA,AU,GB",50.00,https://example.com/crypto-preview,,Sign up and verify your account on leading crypto trading platform,CryptoOffers,2025-06-30,finance,all,"Professional traffic, no social media"

@@ -8,6 +8,7 @@ import {
   X,
   Eye,
   Download,
+  Upload,
   Search,
   Filter,
   MoreHorizontal,
@@ -40,6 +41,7 @@ import { LinkMaskingModal } from '@/components/LinkMaskingModal';
 import { DomainManagementModal } from '@/components/DomainManagementModal';
 import { AdvancedSettingsModal } from '@/components/AdvancedSettingsModal';
 import { OfferDetailsModal } from '@/components/OfferDetailsModal';
+import { BulkOfferUpload } from '@/components/BulkOfferUpload';
 import { adminOfferApi, Offer } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -56,6 +58,7 @@ const AdminOffers = () => {
   const [domainManagementModalOpen, setDomainManagementModalOpen] = useState(false);
   const [advancedSettingsModalOpen, setAdvancedSettingsModalOpen] = useState(false);
   const [offerDetailsModalOpen, setOfferDetailsModalOpen] = useState(false);
+  const [bulkUploadModalOpen, setBulkUploadModalOpen] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [pagination, setPagination] = useState({
     page: 1,
@@ -318,6 +321,13 @@ const AdminOffers = () => {
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Create Offer
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setBulkUploadModalOpen(true)}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Bulk Upload
               </Button>
               <Button variant="outline">
                 <Copy className="h-4 w-4 mr-2" />
@@ -628,6 +638,13 @@ const AdminOffers = () => {
         open={offerDetailsModalOpen}
         onOpenChange={setOfferDetailsModalOpen}
         offer={selectedOffer}
+      />
+
+      {/* Bulk Upload Modal */}
+      <BulkOfferUpload
+        open={bulkUploadModalOpen}
+        onOpenChange={setBulkUploadModalOpen}
+        onUploadComplete={fetchOffers}
       />
     </div>
   );

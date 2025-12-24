@@ -783,3 +783,191 @@ def assign_promo_code_to_offer(offer_id):
     except Exception as e:
         logging.error(f"Assign promo code error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to assign promo code: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/bulk-upload', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_upload_offers():
+    """Bulk upload offers from Excel/CSV file or Google Sheets URL"""
+    import os
+    import tempfile
+    from werkzeug.utils import secure_filename
+    from utils.bulk_offer_upload import (
+        parse_excel_file, 
+        parse_csv_file, 
+        fetch_google_sheet,
+        validate_spreadsheet_data,
+        bulk_create_offers
+    )
+    
+    try:
+        user = request.current_user
+        
+        # Check if it's a Google Sheets URL or file upload
+        if request.content_type and 'application/json' in request.content_type:
+            # Google Sheets URL
+            data = request.get_json()
+            sheet_url = data.get('url')
+            
+            if not sheet_url:
+                return jsonify({'error': 'Google Sheets URL is required'}), 400
+            
+            logging.info(f"📊 Fetching Google Sheet: {sheet_url}")
+            rows, error = fetch_google_sheet(sheet_url)
+            
+            if error:
+                return jsonify({'error': error}), 400
+            
+        else:
+            # File upload
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file uploaded'}), 400
+            
+            file = request.files['file']
+            
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+            
+            # Get file extension
+            filename = secure_filename(file.filename)
+            file_ext = os.path.splitext(filename)[1].lower()
+            
+            if file_ext not in ['.xlsx', '.xls', '.csv']:
+                return jsonify({'error': 'Only Excel (.xlsx, .xls) and CSV files are supported'}), 400
+            
+            # Save file temporarily
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, filename)
+            file.save(temp_path)
+            
+            try:
+                logging.info(f"📊 Parsing uploaded file: {filename}")
+                
+                # Parse based on file type
+                if file_ext in ['.xlsx', '.xls']:
+                    rows, error = parse_excel_file(temp_path)
+                else:  # .csv
+                    rows, error = parse_csv_file(temp_path)
+                
+                if error:
+                    return jsonify({'error': error}), 400
+                    
+            finally:
+                # Clean up temp file
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+        
+        # Validate spreadsheet data
+        logging.info(f"✅ Parsed {len(rows)} rows from spreadsheet")
+        valid_rows, error_rows = validate_spreadsheet_data(rows)
+        
+        logging.info(f"✅ Validated: {len(valid_rows)} valid, {len(error_rows)} errors")
+        
+        # If there are validation errors, return them
+        if error_rows:
+            return jsonify({
+                'error': 'Validation errors found in spreadsheet',
+                'validation_errors': error_rows,
+                'valid_count': len(valid_rows),
+                'error_count': len(error_rows)
+            }), 400
+        
+        if not valid_rows:
+            return jsonify({'error': 'No valid data found in spreadsheet'}), 400
+        
+        # Create offers
+        logging.info(f"🔨 Creating {len(valid_rows)} offers...")
+        created_offer_ids, creation_errors = bulk_create_offers(valid_rows, str(user['_id']))
+        
+        logging.info(f"✅ Created {len(created_offer_ids)} offers")
+        
+        if creation_errors:
+            logging.warning(f"⚠️ {len(creation_errors)} offers failed to create")
+        
+        # Prepare response
+        response_data = {
+            'message': f'Successfully created {len(created_offer_ids)} offers',
+            'created_count': len(created_offer_ids),
+            'created_offer_ids': created_offer_ids,
+            'total_rows': len(rows),
+            'success': True
+        }
+        
+        if creation_errors:
+            response_data['creation_errors'] = creation_errors
+            response_data['error_count'] = len(creation_errors)
+            response_data['message'] = f'Created {len(created_offer_ids)} offers, {len(creation_errors)} failed'
+        
+        return jsonify(response_data), 201 if created_offer_ids else 400
+        
+    except Exception as e:
+        logging.error(f"Bulk upload error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to process bulk upload: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/bulk-upload/template', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def download_bulk_upload_template():
+    """Download template spreadsheet for bulk offer upload"""
+    from flask import send_file
+    import io
+    import csv
+    
+    try:
+        # Create CSV template in memory
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write headers
+        headers = [
+            'campaign_id',
+            'title',
+            'url',
+            'country',
+            'payout',
+            'preview_url',
+            'image_url',
+            'description',
+            'platform',
+            'expiry',
+            'category',
+            'device',
+            'traffic_sources'
+        ]
+        writer.writerow(headers)
+        
+        # Write example row
+        example_row = [
+            'CAMP-12345',
+            'Example Offer - Complete Survey',
+            'https://example.com/offer',
+            'US',
+            '2.50',
+            'https://example.com/preview',
+            '',  # Empty = random image will be assigned
+            'Complete a short survey about your shopping habits and earn $5 instantly',
+            'SurveyNetwork',
+            '2025-01-30',
+            'surveys',
+            'all',
+            'Social and content traffic allowed'
+        ]
+        writer.writerow(example_row)
+        
+        # Convert to bytes
+        output.seek(0)
+        bytes_output = io.BytesIO(output.getvalue().encode('utf-8-sig'))
+        bytes_output.seek(0)
+        
+        return send_file(
+            bytes_output,
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name='bulk_offer_template.csv'
+        )
+        
+    except Exception as e:
+        logging.error(f"Template download error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to generate template: {str(e)}'}), 500
