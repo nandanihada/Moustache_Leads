@@ -71,6 +71,9 @@ postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postba
 setup_bp = safe_import_blueprint('routes.setup', 'setup_bp')
 user_dashboard_bp = safe_import_blueprint('routes.user_dashboard', 'user_dashboard_bp')
 payout_settings_bp = safe_import_blueprint('routes.payout_settings', 'payout_settings_bp')
+admin_geo_restriction_bp = safe_import_blueprint('routes.admin_geo_restrictions', 'admin_geo_restriction_bp')
+preview_bp = safe_import_blueprint('routes.preview_handler', 'preview_bp')
+fix_incentives_bp = safe_import_blueprint('routes.fix_incentives', 'fix_incentives_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -127,7 +130,10 @@ blueprints = [
     (gift_cards_bp, '/api'),  # Gift card redemption and management
     (forwarded_postbacks_bp, '/api'),  # Forwarded postbacks - admin only
     (user_dashboard_bp, '/api'),  # User dashboard statistics
-    (payout_settings_bp, '/api/payout')  # Payout settings and earnings
+    (payout_settings_bp, '/api/payout'),  # Payout settings and earnings
+    (admin_geo_restriction_bp, '/api'),  # Geo-restriction logs and management - admin only
+    (preview_bp, ''),  # Preview handler with countdown - no prefix for /preview/{offer_id}
+    (fix_incentives_bp, '/api')  # Fix incentive types - admin only
 ]
 
 def create_app():

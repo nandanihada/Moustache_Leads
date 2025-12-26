@@ -43,6 +43,13 @@ def create_offer():
         logging.info("📥 CREATE OFFER - SmartRules received: %s", data.get("smartRules"))
         logging.info("📥 CREATE OFFER - Full payload keys: %s", list(data.keys()))
         
+        # 🔍 DEBUG: Check payout_type
+        print("="*80)
+        print("🔍 ROUTE HANDLER DEBUG:")
+        print(f"   payout_type from frontend: '{data.get('payout_type')}'")
+        print(f"   revenue_share_percent from frontend: {data.get('revenue_share_percent')}")
+        print("="*80)
+        
         # 🔥 CRITICAL FIX: Apply field mapping for schedule + smart rules
         if 'schedule' in data or 'smartRules' in data:
             mapped_data = FrontendDatabaseMapper.map_frontend_to_database(data)
@@ -315,6 +322,8 @@ def update_offer(offer_id):
         # QA VERIFICATION: Log received data
         logging.info("📥 UPDATE OFFER - Schedule received: %s", data.get("schedule"))
         logging.info("📥 UPDATE OFFER - SmartRules received: %s", data.get("smartRules"))
+        logging.info("📥 UPDATE OFFER - Allowed Countries received: %s", data.get("allowed_countries"))
+        logging.info("📥 UPDATE OFFER - Non-Access URL received: %s", data.get("non_access_url"))
         logging.info("📥 UPDATE OFFER - Full payload keys: %s", list(data.keys()))
         
         # 🔥 CRITICAL FIX: Apply field mapping for schedule + smart rules

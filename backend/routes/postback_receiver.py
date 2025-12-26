@@ -121,6 +121,65 @@ def calculate_offer_points_with_bonus(offer_id):
             'promo_code': ''
         }
 
+
+def calculate_downward_payout(upward_payout, offer):
+    """
+    Calculate the payout to forward to downward partner based on revenue share settings.
+    
+    Args:
+        upward_payout: The payout amount received from upward partner
+        offer: Offer document with revenue_share_percent field
+        
+    Returns:
+        dict: {
+            'downward_payout': float,
+            'is_percentage': bool,
+            'revenue_share_percent': float,
+            'calculation_method': str
+        }
+    """
+    try:
+        upward_payout = float(upward_payout) if upward_payout else 0
+        
+        # Check if offer has revenue share percentage configured
+        revenue_share_percent = offer.get('revenue_share_percent', 0)
+        
+        if revenue_share_percent and float(revenue_share_percent) > 0:
+            # Percentage-based: forward percentage of upward payout
+            percent = float(revenue_share_percent)
+            downward_payout = upward_payout * (percent / 100)
+            
+            logger.info(f"💰 Revenue share calculation: {upward_payout} × {percent}% = {downward_payout}")
+            
+            return {
+                'downward_payout': round(downward_payout, 2),
+                'is_percentage': True,
+                'revenue_share_percent': percent,
+                'calculation_method': f'{percent}% of {upward_payout}'
+            }
+        else:
+            # Fixed payout: use offer's fixed payout value
+            fixed_payout = float(offer.get('payout', 0))
+            
+            logger.info(f"💰 Fixed payout: {fixed_payout} (upward was {upward_payout})")
+            
+            return {
+                'downward_payout': fixed_payout,
+                'is_percentage': False,
+                'revenue_share_percent': 0,
+                'calculation_method': f'Fixed: {fixed_payout}'
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Error calculating downward payout: {e}")
+        # Fallback to offer's fixed payout
+        return {
+            'downward_payout': float(offer.get('payout', 0)),
+            'is_percentage': False,
+            'revenue_share_percent': 0,
+            'calculation_method': 'Fallback to fixed payout'
+        }
+
 def get_username_from_user_id(user_id):
     """Get username from user_id"""
     try:
@@ -424,10 +483,61 @@ def receive_postback(unique_key):
                                     if not owner_postback_url:
                                         logger.warning(f"⚠️ Owner {owner_username} has no postback_url configured")
                                     else:
-                                        # Use the payout we already extracted from the matched offer
-                                        # instead of calling calculate_offer_points_with_bonus which would try
-                                        # to find the offer by survey_id (which doesn't exist as offer_id)
-                                        if matched_payout > 0:
+                                        # Calculate payout using revenue share if configured
+                                        # Get upward payout from postback params
+                                        upward_payout = get_param_value('payout') or get_param_value('amount') or 0
+                                        
+                                        # Get the offer record for revenue share calculation
+                                        offer_for_calc = None
+                                        if matched_offer_id:
+                                            offers_col = get_collection('offers')
+                                            if offers_col:
+                                                offer_for_calc = offers_col.find_one({'offer_id': matched_offer_id})
+                                        
+                                        if offer_for_calc:
+                                            # Use revenue share calculation
+                                            revenue_calc = calculate_downward_payout(upward_payout, offer_for_calc)
+                                            final_payout = revenue_calc['downward_payout']
+                                            
+                                            logger.info(f"💰 Revenue share calculation:")
+                                            logger.info(f"   Upward payout: {upward_payout}")
+                                            logger.info(f"   Method: {revenue_calc['calculation_method']}")
+                                            logger.info(f"   Downward payout: {final_payout}")
+                                            
+                                            # Log the calculation for auditing
+                                            try:
+                                                from services.payout_calculation_logger import payout_logger
+                                                payout_logger.log_calculation({
+                                                    'offer_id': matched_offer_id,
+                                                    'upward_payout': upward_payout,
+                                                    'revenue_share_percent': revenue_calc['revenue_share_percent'],
+                                                    'downward_payout': final_payout,
+                                                    'is_percentage': revenue_calc['is_percentage'],
+                                                    'calculation_method': revenue_calc['calculation_method'],
+                                                    'click_id': click_id,
+                                                    'user_id': user_id_from_click,
+                                                    'publisher_id': str(owner_user.get('_id')),
+                                                    'rounding_applied': True,
+                                                    'metadata': {
+                                                        'placement_id': placement_id,
+                                                        'placement_title': placement_title
+                                                    }
+                                                })
+                                            except Exception as log_error:
+                                                logger.warning(f"⚠️ Could not log payout calculation: {log_error}")
+                                            
+                                            points_calc = {
+                                                'base_points': final_payout,
+                                                'has_bonus': False,
+                                                'bonus_percentage': 0,
+                                                'bonus_points': 0,
+                                                'promo_code': None,
+                                                'total_points': final_payout,
+                                                'is_percentage': revenue_calc['is_percentage'],
+                                                'revenue_share_percent': revenue_calc['revenue_share_percent']
+                                            }
+                                        elif matched_payout > 0:
+                                            # Fallback to matched offer payout
                                             points_calc = {
                                                 'base_points': matched_payout,
                                                 'has_bonus': False,

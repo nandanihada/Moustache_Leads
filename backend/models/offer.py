@@ -9,6 +9,100 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
 from frontend_mapping import frontend_to_database, validate_frontend_data
 
+# ==================== OFFER ENHANCEMENT CONSTANTS ====================
+
+# 10 Predefined Verticals (replaces category)
+VALID_VERTICALS = [
+    'Finance', 'Gaming', 'Dating', 'Health', 'E-commerce',
+    'Entertainment', 'Education', 'Travel', 'Utilities', 'Lifestyle'
+]
+
+# Mapping from old category values to new verticals (for migration)
+CATEGORY_TO_VERTICAL_MAP = {
+    'finance': 'Finance',
+    'gaming': 'Gaming',
+    'dating': 'Dating',
+    'health': 'Health',
+    'education': 'Education',
+    'general': 'Lifestyle',
+    'ecommerce': 'E-commerce',
+    'e-commerce': 'E-commerce',
+    'entertainment': 'Entertainment',
+    'travel': 'Travel',
+    'utilities': 'Utilities',
+    'lifestyle': 'Lifestyle',
+}
+
+# Default fallback URL for geo-restricted users
+DEFAULT_NON_ACCESS_URL = 'https://example.com/not-available'
+
+
+def calculate_incentive_type(payout_type='fixed', revenue_share_percent=None):
+    """
+    Auto-calculate incentive type based on payout type.
+    
+    Args:
+        payout_type: Type of payout - 'fixed', 'percentage', 'tiered'
+        revenue_share_percent: Percentage of revenue share (0-100) or None (legacy)
+        
+    Returns:
+        'Non-Incent' if percentage-based payout
+        'Incent' if fixed amount payout
+    
+    Logic:
+        - percentage payout → Non-Incent (user doesn't get direct incentive)
+        - fixed/tiered payout → Incent (user gets fixed incentive)
+    """
+    # Primary logic: Based on payout_type
+    if payout_type == 'percentage':
+        return 'Non-Incent'
+    
+    # Legacy logic: Based on revenue_share_percent (for backward compatibility)
+    if revenue_share_percent and float(revenue_share_percent) > 0:
+        return 'Non-Incent'
+    
+    # Default: Fixed or tiered payout = Incent
+    return 'Incent'
+
+
+def map_category_to_vertical(category_value):
+    """
+    Map old category value to new vertical.
+    
+    Args:
+        category_value: Old category string
+        
+    Returns:
+        Mapped vertical string or 'Lifestyle' as default
+    """
+    if not category_value:
+        return 'Lifestyle'
+    
+    category_lower = str(category_value).lower().strip()
+    return CATEGORY_TO_VERTICAL_MAP.get(category_lower, 'Lifestyle')
+
+
+def validate_vertical(vertical_value):
+    """
+    Validate that vertical is one of the 10 predefined values.
+    
+    Args:
+        vertical_value: Vertical string to validate
+        
+    Returns:
+        Tuple of (is_valid, normalized_value or error_message)
+    """
+    if not vertical_value:
+        return True, 'Lifestyle'  # Default
+    
+    # Check exact match (case-insensitive)
+    for valid_vertical in VALID_VERTICALS:
+        if str(vertical_value).lower().strip() == valid_vertical.lower():
+            return True, valid_vertical
+    
+    return False, f"Invalid vertical '{vertical_value}'. Must be one of: {', '.join(VALID_VERTICALS)}"
+
+
 class Offer:
     def __init__(self):
         self.collection = db_instance.get_collection('offers')
@@ -102,6 +196,42 @@ class Offer:
             except (ValueError, TypeError):
                 return None, "Payout must be a valid number"
             
+            # Process vertical (replaces category) - validate and normalize
+            vertical_input = mapped_data.get('vertical') or mapped_data.get('category', 'Lifestyle')
+            is_valid_vertical, vertical_result = validate_vertical(vertical_input)
+            if not is_valid_vertical:
+                # Try mapping from old category
+                vertical_value = map_category_to_vertical(vertical_input)
+            else:
+                vertical_value = vertical_result
+            
+            # Validate and process revenue share percent
+            revenue_share_percent = float(offer_data.get('revenue_share_percent', 0) or 0)
+            
+            # Validate revenue_share_percent is between 0 and 100
+            if revenue_share_percent < 0 or revenue_share_percent > 100:
+                return None, "Revenue share percent must be between 0 and 100"
+            
+            # Get payout_type and auto-calculate incentive type
+            payout_type = offer_data.get('payout_type', 'fixed')
+            
+            # DEBUG: Print what we're receiving (visible immediately)
+            print("="*80)
+            print("🔍 INCENTIVE DEBUG:")
+            print(f"   payout_type received: '{payout_type}'")
+            print(f"   revenue_share_percent: {revenue_share_percent}")
+            
+            incentive_type = calculate_incentive_type(payout_type, revenue_share_percent)
+            
+            print(f"   calculated incentive_type: '{incentive_type}'")
+            print(f"   (percentage → Non-Incent, fixed/tiered → Incent)")
+            print("="*80)
+            
+            # Process allowed countries for geo-restriction
+            allowed_countries = offer_data.get('allowed_countries', [])
+            if isinstance(allowed_countries, str):
+                allowed_countries = [c.strip().upper() for c in allowed_countries.split(',') if c.strip()]
+            
             # Create offer document using mapped data
             offer_doc = {
                 # SECTION 1: OFFER IDENTIFICATION
@@ -109,7 +239,8 @@ class Offer:
                 'campaign_id': mapped_data['campaign_id'].strip(),  # Publisher's campaign ID
                 'name': mapped_data['name'].strip(),
                 'description': mapped_data.get('description', '').strip(),
-                'category': mapped_data.get('category', 'general'),  # Finance/Gaming/Dating/etc
+                'vertical': vertical_value,  # NEW: Replaces category - one of 10 predefined values
+                'category': vertical_value,  # DEPRECATED: Keep for backward compatibility
                 'offer_type': mapped_data.get('offer_type', 'CPA'),  # CPA/CPL/CPS/CPI/CPC
                 'status': mapped_data.get('status', 'pending'),  # Active/Inactive/Pending/Paused/Hidden
                 'tags': mapped_data.get('tags', []),  # Internal filtering tags
@@ -117,6 +248,8 @@ class Offer:
                 
                 # SECTION 2: TARGETING RULES
                 'countries': mapped_data.get('countries', []),
+                'allowed_countries': allowed_countries,  # NEW: Geo-restriction - allowed country codes
+                'non_access_url': offer_data.get('non_access_url', '').strip(),  # NEW: Fallback URL for blocked users
                 'languages': mapped_data.get('languages', []),  # en, es, fr, etc
                 'device_targeting': mapped_data.get('device_targeting', 'all'),  # all/mobile/desktop
                 'os_targeting': mapped_data.get('os_targeting', []),  # iOS/Android/Windows/Mac
@@ -127,6 +260,8 @@ class Offer:
                 
                 # SECTION 3: PAYOUT & FINANCE
                 'payout': float(offer_data['payout']),
+                'revenue_share_percent': revenue_share_percent,  # NEW: 0-100 percentage for revenue sharing
+                'incentive_type': incentive_type,  # NEW: Auto-calculated - 'Incent' or 'Non-Incent'
                 'currency': offer_data.get('currency', 'USD'),  # USD/EUR/GBP/etc
                 'revenue': offer_data.get('revenue'),  # Optional network earn
                 'payout_type': offer_data.get('payout_type', 'fixed'),  # fixed/tiered/percentage
@@ -369,6 +504,50 @@ class Offer:
                     update_data['payout'] = float(update_data['payout'])
                 except (ValueError, TypeError):
                     return False, "Payout must be a valid number"
+            
+            # Handle vertical field (replaces category)
+            if 'vertical' in update_data or 'category' in update_data:
+                vertical_input = update_data.get('vertical') or update_data.get('category')
+                is_valid, vertical_result = validate_vertical(vertical_input)
+                if not is_valid:
+                    vertical_value = map_category_to_vertical(vertical_input)
+                else:
+                    vertical_value = vertical_result
+                update_data['vertical'] = vertical_value
+                update_data['category'] = vertical_value  # Keep in sync for backward compatibility
+            
+            # Handle allowed_countries for geo-restriction
+            if 'allowed_countries' in update_data:
+                allowed_countries = update_data['allowed_countries']
+                if isinstance(allowed_countries, str):
+                    update_data['allowed_countries'] = [c.strip().upper() for c in allowed_countries.split(',') if c.strip()]
+            
+            # Handle revenue_share_percent and payout_type, recalculate incentive_type
+            if 'revenue_share_percent' in update_data or 'payout' in update_data or 'payout_type' in update_data:
+                # Get current offer to check existing values
+                current_offer = self.collection.find_one({'offer_id': offer_id, 'is_active': True})
+                
+                # Get payout_type (from update or current offer)
+                payout_type = update_data.get('payout_type')
+                if payout_type is None and current_offer:
+                    payout_type = current_offer.get('payout_type', 'fixed')
+                
+                # Get revenue_share_percent (from update or current offer)
+                revenue_share_percent = update_data.get('revenue_share_percent')
+                if revenue_share_percent is None and current_offer:
+                    revenue_share_percent = current_offer.get('revenue_share_percent', 0)
+                
+                if revenue_share_percent is not None:
+                    revenue_share_percent_float = float(revenue_share_percent or 0)
+                    
+                    # Validate revenue_share_percent is between 0 and 100
+                    if revenue_share_percent_float < 0 or revenue_share_percent_float > 100:
+                        return False, "Revenue share percent must be between 0 and 100"
+                    
+                    update_data['revenue_share_percent'] = revenue_share_percent_float
+                
+                # Recalculate incentive_type based on payout_type
+                update_data['incentive_type'] = calculate_incentive_type(payout_type, revenue_share_percent)
             
             update_data['updated_at'] = datetime.utcnow()
             update_data['updated_by'] = updated_by

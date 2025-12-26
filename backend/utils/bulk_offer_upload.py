@@ -12,6 +12,15 @@ import re
 import requests
 from openpyxl import load_workbook
 
+# Import offer constants for validation
+from models.offer import (
+    VALID_VERTICALS, 
+    CATEGORY_TO_VERTICAL_MAP, 
+    calculate_incentive_type,
+    validate_vertical,
+    map_category_to_vertical
+)
+
 # Field mapping from spreadsheet columns to database fields
 SPREADSHEET_TO_DB_MAPPING = {
     'offer_id': 'campaign_id',  # In spreadsheet this is their campaign ID
@@ -33,12 +42,29 @@ SPREADSHEET_TO_DB_MAPPING = {
     'network': 'network',
     'expiry': 'expiration_date',
     'expiration_date': 'expiration_date',
-    'category': 'category',
-    'category of offer': 'category',
+    # Vertical (replaces category) - supports both old and new column names
+    'vertical': 'vertical',
+    'category': 'vertical',  # Backward compatibility - maps to vertical
+    'category of offer': 'vertical',
     'traffic_sources': 'affiliate_terms',
     'traffic sources': 'affiliate_terms',
     'device': 'device_targeting',
     'device_targeting': 'device_targeting',
+    # NEW: Geo-restriction fields
+    'non_access_url': 'non_access_url',
+    'fallback_url': 'non_access_url',
+    'blocked_url': 'non_access_url',
+    'non access url': 'non_access_url',
+    # NEW: Allowed countries for geo-restriction
+    'allowed_countries': 'allowed_countries',
+    'allowed countries': 'allowed_countries',
+    'geo_restrict': 'allowed_countries',
+    # NEW: Revenue sharing fields
+    'percent': 'revenue_share_percent',
+    'revenue_share_percent': 'revenue_share_percent',
+    'revenue_percent': 'revenue_share_percent',
+    'share_percent': 'revenue_share_percent',
+    'revenue share': 'revenue_share_percent',
 }
 
 # Required fields that must be present in spreadsheet
@@ -54,11 +80,11 @@ REQUIRED_FIELDS = [
 
 # Default values for optional fields
 DEFAULT_VALUES = {
-    'preview_url': 'https://example.com/preview',
+    'preview_url': '',  # Will use target_url if not provided
     'image_url': '',  # Will be set dynamically with random image
-    'category': 'general',
+    'vertical': 'Lifestyle',  # NEW: Default vertical (replaces category)
     'affiliate_terms': 'Social, content, and direct traffic allowed.\nNo spam, incent abuse, or automation.\nFollow platform and advertiser rules.\nInvalid traffic will be rejected.',
-    'status': 'pending',
+    'status': 'Active',  # Bulk uploaded offers are active by default
     'offer_type': 'CPA',
     'currency': 'USD',
     'device_targeting': 'all',  # Default: all devices allowed
@@ -72,6 +98,11 @@ DEFAULT_VALUES = {
     'languages': [],
     'tags': [],
     'keywords': [],
+    # NEW: Default values for new fields
+    'allowed_countries': [],  # Empty = no geo-restriction
+    'non_access_url': '',  # Empty = use system default
+    'revenue_share_percent': 0,  # 0 = fixed payout
+    'incentive_type': 'Incent',  # Default for fixed payout
 }
 
 # List of real offer images to use as defaults
@@ -87,6 +118,29 @@ DEFAULT_OFFER_IMAGES = [
     'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=300&h=200&fit=crop',  # Health/fitness
     'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=300&h=200&fit=crop',  # Business/insurance
 ]
+
+
+def parse_payout_value(payout_str: str) -> Tuple[float, float]:
+    """
+    Parse payout value, detecting if it's a percentage.
+    
+    Args:
+        payout_str: Payout value from spreadsheet (e.g., "50" or "50%")
+        
+    Returns:
+        Tuple of (fixed_payout, revenue_share_percent)
+        - If percentage: (0, percent_value)
+        - If fixed: (payout_value, 0)
+    """
+    payout_str = str(payout_str).strip()
+    
+    if '%' in payout_str:
+        # Percentage payout - extract number
+        percent = float(payout_str.replace('%', '').strip())
+        return 0, percent
+    else:
+        # Fixed payout
+        return float(payout_str), 0
 
 
 def normalize_column_name(column: str) -> str:
@@ -288,7 +342,7 @@ def map_spreadsheet_to_db(row_data: Dict[str, Any]) -> Dict[str, Any]:
 
 def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Apply default values for optional fields
+    Apply default values for optional fields and auto-calculate incentive_type
     
     Args:
         row_data: Offer data dictionary
@@ -309,9 +363,41 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     if not result.get('image_url'):
         result['image_url'] = random.choice(DEFAULT_OFFER_IMAGES)
     
+    # Handle payout - detect percentage and extract revenue_share_percent
+    if 'payout' in result:
+        fixed_payout, revenue_share = parse_payout_value(str(result['payout']))
+        if revenue_share > 0:
+            result['payout'] = fixed_payout  # Will be 0 for percentage-based
+            result['revenue_share_percent'] = revenue_share
+        else:
+            result['revenue_share_percent'] = 0
+    
+    # Handle vertical field - validate and normalize
+    if 'vertical' in result:
+        is_valid, vertical_result = validate_vertical(result['vertical'])
+        if is_valid:
+            result['vertical'] = vertical_result
+        else:
+            # Try mapping from old category value
+            result['vertical'] = map_category_to_vertical(result['vertical'])
+    elif not result.get('vertical'):
+        result['vertical'] = 'Lifestyle'  # Default vertical
+    
+    # Auto-calculate incentive_type based on revenue_share_percent
+    revenue_share_percent = result.get('revenue_share_percent', 0)
+    result['incentive_type'] = calculate_incentive_type(revenue_share_percent)
+    
+    # Handle allowed_countries for geo-restriction
+    if 'allowed_countries' in result:
+        allowed_countries = result['allowed_countries']
+        if isinstance(allowed_countries, str):
+            result['allowed_countries'] = [c.strip().upper() for c in allowed_countries.split(',') if c.strip()]
+    
     # Apply other defaults
     for field, default_value in DEFAULT_VALUES.items():
         if field == 'image_url':  # Skip image_url as we handled it above
+            continue
+        if field == 'incentive_type':  # Skip - already calculated above
             continue
         if field not in result or not result[field]:
             result[field] = default_value
@@ -346,12 +432,33 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
                 spreadsheet_col = next((k for k, v in SPREADSHEET_TO_DB_MAPPING.items() if v == required_field), required_field)
                 errors.append(f"Missing required field: {spreadsheet_col}")
         
-        # Validate payout is numeric
+        # Validate payout is numeric (handle percentage format like "50%")
         if 'payout' in mapped_data:
+            payout_str = str(mapped_data['payout']).strip()
             try:
-                float(mapped_data['payout'])
+                # Remove % sign for validation
+                numeric_part = payout_str.replace('%', '').strip()
+                float(numeric_part)
             except (ValueError, TypeError):
-                errors.append(f"Invalid payout value: {mapped_data['payout']} (must be numeric)")
+                errors.append(f"Invalid payout value: {mapped_data['payout']} (must be numeric or percentage like '50%')")
+        
+        # Validate vertical if provided
+        if 'vertical' in mapped_data and mapped_data['vertical']:
+            is_valid, result = validate_vertical(mapped_data['vertical'])
+            if not is_valid:
+                # Check if it can be mapped from old category
+                mapped_vertical = map_category_to_vertical(mapped_data['vertical'])
+                if mapped_vertical == 'Lifestyle' and mapped_data['vertical'].lower() not in ['lifestyle', 'general', '']:
+                    errors.append(f"Invalid vertical '{mapped_data['vertical']}'. Must be one of: {', '.join(VALID_VERTICALS)}")
+        
+        # Validate revenue_share_percent if provided
+        if 'revenue_share_percent' in mapped_data and mapped_data['revenue_share_percent']:
+            try:
+                percent = float(str(mapped_data['revenue_share_percent']).replace('%', '').strip())
+                if percent < 0 or percent > 100:
+                    errors.append(f"Invalid revenue_share_percent: {mapped_data['revenue_share_percent']} (must be 0-100)")
+            except (ValueError, TypeError):
+                errors.append(f"Invalid revenue_share_percent: {mapped_data['revenue_share_percent']} (must be numeric)")
         
         # Validate URL format
         if 'target_url' in mapped_data:
