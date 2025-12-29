@@ -189,7 +189,26 @@ const AdminOffers = () => {
         'Category': offer.category || '',
         'Offer Type': offer.offer_type || '',
         'Network': offer.network,
-        'Payout': `$${offer.payout}`,
+        'Payout': (() => {
+          const revenueSharePercent = (offer as any).revenue_share_percent || 0;
+          const currency = offer.currency || 'USD';
+          const currencySymbols: Record<string, string> = {
+            'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
+            'RUB': '₽', 'BRL': 'R$', 'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF',
+            'SEK': 'kr', 'PLN': 'zł', 'ILS': '₪', 'KRW': '₩', 'THB': '฿',
+            'VND': '₫', 'IDR': 'Rp', 'MYR': 'RM', 'PHP': '₱', 'SGD': 'S$',
+            'HKD': 'HK$', 'TWD': 'NT$', 'ZAR': 'R', 'AED': 'د.إ', 'SAR': 'SR',
+            'QAR': 'QR', 'BHD': 'BD', 'KWD': 'KD', 'OMR': 'OMR'
+          };
+          const symbol = currencySymbols[currency] || '$';
+          
+          if (revenueSharePercent > 0) {
+            return `${revenueSharePercent}%`;
+          } else {
+            return `${symbol}${offer.payout}`;
+          }
+        })(),
+        'Payout Model': (offer as any).payout_model || '',
         'Payout Type': (offer as any).payout_type || 'fixed',
         'Incentive': (offer as any).incentive_type || 'Incent',
         'Currency': offer.currency || 'USD',
@@ -434,7 +453,7 @@ const AdminOffers = () => {
                   <TableHead>Name</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Countries</TableHead>
-                  <TableHead>Payout</TableHead>
+                  <TableHead>Payout/Revenue</TableHead>
                   <TableHead>Incentive</TableHead>
                   <TableHead>Network</TableHead>
                   <TableHead>Hits/Limit</TableHead>
@@ -526,7 +545,25 @@ const AdminOffers = () => {
                       </div>
                     </TableCell>
                     <TableCell className="font-medium text-green-600">
-                      ${offer.payout.toFixed(2)}
+                      {(() => {
+                        const revenueSharePercent = (offer as any).revenue_share_percent || 0;
+                        const currency = offer.currency || 'USD';
+                        const currencySymbols: Record<string, string> = {
+                          'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
+                          'RUB': '₽', 'BRL': 'R$', 'CAD': 'C$', 'AUD': 'A$', 'CHF': 'CHF',
+                          'SEK': 'kr', 'PLN': 'zł', 'ILS': '₪', 'KRW': '₩', 'THB': '฿',
+                          'VND': '₫', 'IDR': 'Rp', 'MYR': 'RM', 'PHP': '₱', 'SGD': 'S$',
+                          'HKD': 'HK$', 'TWD': 'NT$', 'ZAR': 'R', 'AED': 'د.إ', 'SAR': 'SR',
+                          'QAR': 'QR', 'BHD': 'BD', 'KWD': 'KD', 'OMR': 'OMR'
+                        };
+                        const symbol = currencySymbols[currency] || '$';
+                        
+                        if (revenueSharePercent > 0) {
+                          return `${revenueSharePercent}%`;
+                        } else {
+                          return `${symbol}${offer.payout.toFixed(2)}`;
+                        }
+                      })()}
                     </TableCell>
                     <TableCell>
                       {(() => {

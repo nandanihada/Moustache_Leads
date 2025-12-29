@@ -1,0 +1,12 @@
+campaign_id,title,url,country,payout,payout_model,preview_url,image_url,description,platform,expiry,category,device,traffic_sources
+CAMP-USD-001,US Survey - Fixed Dollar,https://example.com/us-survey,US,$5.00,CPA,https://example.com/preview,,Complete a short survey about shopping habits and earn instantly,SurveyNetwork,2026-03-31,surveys,all,Social and content traffic allowed
+CAMP-EUR-001,European Survey - Euro,https://example.com/eu-survey,DE,€4.50,CPA,https://example.com/preview,,Participate in market research survey,EuroSurveys,2026-03-31,surveys,all,Social and content traffic allowed
+CAMP-GBP-001,UK Survey - Pound,https://example.com/uk-survey,GB,£3.75,CPA,https://example.com/preview,,Quick UK consumer survey,UKOffers,2026-03-31,surveys,all,Social and content traffic allowed
+CAMP-INR-001,India Survey - Rupee,https://example.com/in-survey,IN,₹100,CPI,https://example.com/preview,,Indian market research survey,IndiaRewards,2026-03-31,surveys,all,Social and content traffic allowed
+CAMP-REV-001,Revenue Share Offer,https://example.com/revshare,US,50%,RevShare,https://example.com/preview,,Earn 50% revenue share on all conversions,AffiliateHub,2026-03-31,affiliate,all,All traffic types allowed
+CAMP-REV-002,Low Percentage Offer,https://example.com/lowpercent,US,4%,RevShare,https://example.com/preview,,4% commission on sales,CommissionJunction,2026-03-31,ecommerce,all,Social and content traffic allowed
+CAMP-JPY-001,Japan Survey - Yen,https://example.com/jp-survey,JP,¥500,CPA,https://example.com/preview,,Japanese consumer survey,JapanSurveys,2026-03-31,surveys,all,Social and content traffic allowed
+CAMP-BRL-001,Brazil Survey - Real,https://example.com/br-survey,BR,R$15,CPI,https://example.com/preview,,Brazilian app install offer,BrazilApps,2026-03-31,mobile,mobile,Mobile traffic only
+CAMP-CAD-001,Canada Survey - Dollar,https://example.com/ca-survey,CA,C$6.50,CPL,https://example.com/preview,,Canadian lead generation,CanadaLeads,2026-03-31,finance,all,Social and content traffic allowed
+CAMP-AUD-001,Australia Survey - Dollar,https://example.com/au-survey,AU,A$7.00,CPA,https://example.com/preview,,Australian market survey,AussieOffers,2026-03-31,surveys,all,Social and content traffic allowed
+CAMP-PLAIN-001,Plain Number Default USD,https://example.com/plain,US,10.50,CPA,https://example.com/preview,,Plain number defaults to USD,DefaultNetwork,2026-03-31,general,all,All traffic types allowed

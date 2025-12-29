@@ -272,6 +272,7 @@ class Offer:
                 'currency': offer_data.get('currency', 'USD'),  # USD/EUR/GBP/etc
                 'revenue': offer_data.get('revenue'),  # Optional network earn
                 'payout_type': offer_data.get('payout_type', 'fixed'),  # fixed/tiered/percentage
+                'payout_model': offer_data.get('payout_model', '').strip(),  # NEW: CPA/CPI/CPL/CPS/CPM/RevShare (optional)
                 'daily_cap': offer_data.get('daily_cap'),  # Daily conversion limit
                 'weekly_cap': offer_data.get('weekly_cap'),  # Weekly conversion limit
                 'monthly_cap': offer_data.get('monthly_cap'),  # Monthly conversion limit

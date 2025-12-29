@@ -936,6 +936,7 @@ def download_bulk_upload_template():
             'url',
             'country',
             'payout',
+            'payout_model',
             'preview_url',
             'image_url',
             'description',
@@ -953,7 +954,8 @@ def download_bulk_upload_template():
             'Example Offer - Complete Survey',
             'https://example.com/offer',
             'US',
-            '2.50',
+            '$2.50',
+            'CPA',
             'https://example.com/preview',
             '',  # Empty = random image will be assigned
             'Complete a short survey about your shopping habits and earn $5 instantly',

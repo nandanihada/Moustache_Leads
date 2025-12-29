@@ -369,6 +369,32 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                   </div>
                 </div>
 
+                {/* Description */}
+                {offer.description && (
+                  <div className="text-sm pt-2 border-t">
+                    <span className="text-muted-foreground font-medium">Description:</span>
+                    <div className="mt-1 text-gray-700">{offer.description}</div>
+                  </div>
+                )}
+
+                {/* Payout Model & Network */}
+                <div className="grid grid-cols-2 gap-3 text-sm pt-2 border-t">
+                  {(offer as any).payout_model && (
+                    <div>
+                      <span className="text-muted-foreground">Payout Model:</span>
+                      <div>
+                        <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                          {(offer as any).payout_model}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-muted-foreground">Network:</span>
+                    <div className="font-medium">{offer.network}</div>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <span className="text-muted-foreground">Caps:</span>

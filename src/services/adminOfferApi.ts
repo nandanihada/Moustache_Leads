@@ -36,6 +36,7 @@ export interface Offer {
   currency?: string;
   revenue?: number;
   payout_type?: string;
+  payout_model?: string;  // Optional field from bulk upload (e.g., 'CPA', 'CPI', 'CPL')
   tier_rules?: Array<{min_conversions: number; payout: number}>;
   caps?: {
     daily?: number;

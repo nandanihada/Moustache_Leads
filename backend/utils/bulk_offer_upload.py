@@ -65,6 +65,10 @@ SPREADSHEET_TO_DB_MAPPING = {
     'revenue_percent': 'revenue_share_percent',
     'share_percent': 'revenue_share_percent',
     'revenue share': 'revenue_share_percent',
+    # NEW: Payout model field (optional)
+    'payout_model': 'payout_model',
+    'payout model': 'payout_model',
+    'model': 'payout_model',
 }
 
 # Required fields that must be present in spreadsheet
@@ -120,27 +124,86 @@ DEFAULT_OFFER_IMAGES = [
 ]
 
 
-def parse_payout_value(payout_str: str) -> Tuple[float, float]:
+def parse_payout_value(payout_str: str) -> Tuple[float, float, str]:
     """
-    Parse payout value, detecting if it's a percentage.
+    Parse payout value, detecting if it's a percentage or fixed amount with currency.
     
     Args:
-        payout_str: Payout value from spreadsheet (e.g., "50" or "50%")
+        payout_str: Payout value from spreadsheet (e.g., "50", "50%", "$42", "€30", "₹100", "£25")
         
     Returns:
-        Tuple of (fixed_payout, revenue_share_percent)
-        - If percentage: (0, percent_value)
-        - If fixed: (payout_value, 0)
+        Tuple of (fixed_payout, revenue_share_percent, currency)
+        - If percentage: (0, percent_value, 'USD')
+        - If fixed with currency: (payout_value, 0, detected_currency)
+        - If fixed without currency: (payout_value, 0, 'USD')
     """
     payout_str = str(payout_str).strip()
     
+    # Currency symbol mapping
+    currency_symbols = {
+        '$': 'USD',
+        '€': 'EUR',
+        '₹': 'INR',
+        '£': 'GBP',
+        '¥': 'JPY',
+        '₽': 'RUB',
+        'R$': 'BRL',
+        'C$': 'CAD',
+        'A$': 'AUD',
+        'CHF': 'CHF',
+        'kr': 'SEK',
+        'zł': 'PLN',
+        '₪': 'ILS',
+        '₩': 'KRW',
+        '฿': 'THB',
+        '₫': 'VND',
+        'Rp': 'IDR',
+        'RM': 'MYR',
+        '₱': 'PHP',
+        'S$': 'SGD',
+        'HK$': 'HKD',
+        'NT$': 'TWD',
+        'R': 'ZAR',
+        'د.إ': 'AED',
+        'SR': 'SAR',
+        'QR': 'QAR',
+        'BD': 'BHD',
+        'KD': 'KWD',
+        'OMR': 'OMR',
+        '₤': 'GBP',  # Alternative pound symbol
+    }
+    
+    # Check if it's a percentage
     if '%' in payout_str:
         # Percentage payout - extract number
         percent = float(payout_str.replace('%', '').strip())
-        return 0, percent
-    else:
-        # Fixed payout
-        return float(payout_str), 0
+        return 0, percent, 'USD'
+    
+    # Detect currency symbol
+    detected_currency = 'USD'  # Default
+    numeric_part = payout_str
+    
+    # Check for currency symbols at the beginning or end
+    for symbol, currency_code in currency_symbols.items():
+        if payout_str.startswith(symbol):
+            detected_currency = currency_code
+            numeric_part = payout_str[len(symbol):].strip()
+            break
+        elif payout_str.endswith(symbol):
+            detected_currency = currency_code
+            numeric_part = payout_str[:-len(symbol)].strip()
+            break
+    
+    # Remove any remaining non-numeric characters except decimal point
+    numeric_part = re.sub(r'[^\d.]', '', numeric_part)
+    
+    # Parse the numeric value
+    try:
+        payout_value = float(numeric_part) if numeric_part else 0
+    except ValueError:
+        payout_value = 0
+    
+    return payout_value, 0, detected_currency
 
 
 def normalize_column_name(column: str) -> str:
@@ -359,28 +422,42 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
         Dictionary with defaults applied
     """
     import random
+    import logging
+    
+    logger = logging.getLogger(__name__)
     
     result = row_data.copy()
     
-    # Apply default expiration date (30 days from now)
+    # Debug: Log if payout_model is present
+    if 'payout_model' in result:
+        logger.info(f"✅ payout_model found in row data: {result['payout_model']}")
+    else:
+        logger.info("⚠️ payout_model NOT found in row data")
+    
+    # Apply default expiration date (90 days / 3 months from now)
     if not result.get('expiration_date'):
-        expiry_date = datetime.utcnow() + timedelta(days=30)
+        expiry_date = datetime.utcnow() + timedelta(days=90)
         result['expiration_date'] = expiry_date.strftime('%Y-%m-%d')
     
     # Apply random image if not provided
     if not result.get('image_url'):
         result['image_url'] = random.choice(DEFAULT_OFFER_IMAGES)
     
-    # Handle payout - detect percentage and extract revenue_share_percent
+    # Handle payout - detect percentage, currency, and extract revenue_share_percent
     if 'payout' in result and result['payout']:
-        fixed_payout, revenue_share = parse_payout_value(str(result['payout']))
+        fixed_payout, revenue_share, detected_currency = parse_payout_value(str(result['payout']))
         if revenue_share > 0:
             result['payout'] = fixed_payout  # Will be 0 for percentage-based
             result['revenue_share_percent'] = revenue_share
         else:
+            result['payout'] = fixed_payout
             # Only set to 0 if not already set from percent column
             if 'revenue_share_percent' not in result:
                 result['revenue_share_percent'] = 0
+        
+        # Set currency if detected and not already set
+        if 'currency' not in result or not result['currency']:
+            result['currency'] = detected_currency
     elif 'revenue_share_percent' in result and result['revenue_share_percent']:
         # If only percent is provided, ensure payout is 0
         if 'payout' not in result or not result['payout']:
@@ -471,15 +548,15 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
             mapped_data['payout'] = 0
 
         
-        # Validate payout is numeric (handle percentage format like "50%")
+        # Validate payout is numeric (handle percentage format like "50%" and currency symbols like "$42")
         if 'payout' in mapped_data:
             payout_str = str(mapped_data['payout']).strip()
             try:
-                # Remove % sign for validation
-                numeric_part = payout_str.replace('%', '').strip()
-                float(numeric_part)
+                # Try to parse with currency detection
+                fixed_payout, revenue_share, currency = parse_payout_value(payout_str)
+                # If parsing succeeds, the value is valid
             except (ValueError, TypeError):
-                errors.append(f"Invalid payout value: {mapped_data['payout']} (must be numeric or percentage like '50%')")
+                errors.append(f"Invalid payout value: {mapped_data['payout']} (must be numeric, percentage like '50%', or with currency symbol like '$42')")
         
         # Validate vertical if provided
         if 'vertical' in mapped_data and mapped_data['vertical']:
