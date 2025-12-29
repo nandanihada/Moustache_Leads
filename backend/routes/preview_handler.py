@@ -1,6 +1,6 @@
 """
 Preview URL Handler with Timed Redirect
-Shows a preview page with countdown before redirecting to non-access URL
+Shows preview_url in iframe with countdown before redirecting to YouTube
 """
 
 from flask import Blueprint, render_template_string, request, redirect
@@ -18,8 +18,8 @@ geo_restriction_service = get_geo_restriction_service()
 @preview_bp.route('/preview/<offer_id>')
 def show_preview(offer_id):
     """
-    Show preview page with 8-second countdown timer
-    Then redirect to non-access URL or target URL based on geo-restrictions
+    Show preview page with the offer's preview_url loaded
+    Then redirect to YouTube after 8 seconds
     """
     
     try:
@@ -34,7 +34,13 @@ def show_preview(offer_id):
             logger.warning(f"❌ Offer {offer_id} not found for preview")
             return "Offer not found", 404
         
-        # Check country-based access restrictions
+        # Get preview URL from offer (defaults to google.com if not set)
+        preview_url = offer.get('preview_url', 'https://www.google.com')
+        
+        # Always redirect to YouTube after 8 seconds
+        redirect_url = 'https://www.youtube.com'
+        
+        # Check country-based access restrictions (for display purposes)
         user_context = {
             'subid': request.args.get('subid', 'preview'),
             'source': 'preview',
@@ -48,23 +54,21 @@ def show_preview(offer_id):
             user_context=user_context
         )
         
-        # Determine redirect URL based on geo-restriction
         if access_check['allowed']:
-            # Country allowed - redirect to target URL
-            redirect_url = offer.get('target_url', 'https://www.google.com')
+            # Country allowed
             access_status = "allowed"
             country_message = f"Access granted from {access_check['country_name']} ({access_check['country_code']})"
         else:
-            # Country blocked - redirect to non-access URL
-            redirect_url = access_check['redirect_url'] or offer.get('non_access_url', 'https://www.example.com')
+            # Country blocked
             access_status = "denied"
             country_message = f"Access restricted from {access_check['country_name']} ({access_check['country_code']})"
         
-        logger.info(f"🔍 Preview for {offer_id}: {access_status} - {country_message}")
+        logger.info(f"🔍 Preview for {offer_id}: Loading {preview_url}, will redirect to YouTube in 8s")
         
-        # Render preview page with countdown
+        # Render preview page with the actual preview_url loaded
         return render_preview_page(
             offer=offer,
+            preview_url=preview_url,
             redirect_url=redirect_url,
             access_status=access_status,
             country_message=country_message,
@@ -76,8 +80,9 @@ def show_preview(offer_id):
         return f"Error loading preview: {str(e)}", 500
 
 
-def render_preview_page(offer, redirect_url, access_status, country_message, countdown_seconds=8):
-    """Render preview page with countdown timer"""
+
+def render_preview_page(offer, preview_url, redirect_url, access_status, country_message, countdown_seconds=8):
+    """Render preview page with the preview_url loaded in iframe and countdown timer"""
     
     preview_template = """
     <!DOCTYPE html>
@@ -95,40 +100,64 @@ def render_preview_page(offer, redirect_url, access_status, country_message, cou
             
             body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: #000;
                 min-height: 100vh;
                 display: flex;
+                flex-direction: column;
+            }
+            
+            /* Top banner with countdown */
+            .countdown-banner {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 15px 20px;
+                display: flex;
+                justify-content: space-between;
                 align-items: center;
-                justify-content: center;
-                padding: 20px;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+                position: relative;
+                z-index: 1000;
             }
             
-            .preview-container {
-                background: white;
-                border-radius: 20px;
-                box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-                max-width: 600px;
-                width: 100%;
-                padding: 50px 40px;
+            .banner-left {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+            }
+            
+            .offer-info-compact {
+                display: flex;
+                flex-direction: column;
+            }
+            
+            .offer-name-small {
+                font-size: 16px;
+                font-weight: bold;
+            }
+            
+            .offer-id-small {
+                font-size: 12px;
+                opacity: 0.9;
+            }
+            
+            .banner-center {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+            }
+            
+            .countdown-label-small {
+                font-size: 14px;
+                opacity: 0.9;
+            }
+            
+            .countdown-timer-small {
+                font-size: 32px;
+                font-weight: bold;
+                font-family: 'Courier New', monospace;
+                min-width: 50px;
                 text-align: center;
-                animation: slideIn 0.5s ease-out;
-            }
-            
-            @keyframes slideIn {
-                from {
-                    opacity: 0;
-                    transform: translateY(-30px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-            
-            .preview-icon {
-                font-size: 80px;
-                margin-bottom: 20px;
-                animation: pulse 2s infinite;
+                animation: pulse 1s infinite;
             }
             
             @keyframes pulse {
@@ -140,96 +169,38 @@ def render_preview_page(offer, redirect_url, access_status, country_message, cou
                 }
             }
             
-            .preview-title {
-                font-size: 32px;
-                color: #2c3e50;
-                margin-bottom: 15px;
-                font-weight: bold;
-            }
-            
-            .preview-description {
-                font-size: 18px;
-                color: #7f8c8d;
-                margin-bottom: 30px;
-                line-height: 1.6;
-            }
-            
-            .offer-info {
-                background: #f8f9fa;
-                padding: 25px;
-                border-radius: 15px;
-                margin-bottom: 30px;
-            }
-            
-            .offer-name {
-                font-size: 24px;
-                color: #34495e;
-                font-weight: bold;
-                margin-bottom: 10px;
-            }
-            
-            .offer-id {
-                font-family: monospace;
-                background: #ecf0f1;
-                padding: 8px 15px;
-                border-radius: 5px;
+            .skip-button-small {
+                background: rgba(255, 255, 255, 0.2);
+                color: white;
+                border: 2px solid white;
+                padding: 8px 20px;
+                border-radius: 20px;
                 font-size: 14px;
-                color: #555;
-                display: inline-block;
-                margin-bottom: 15px;
-            }
-            
-            .country-status {
-                padding: 12px 20px;
-                border-radius: 10px;
-                font-size: 16px;
-                margin-top: 15px;
-            }
-            
-            .country-status.allowed {
-                background: #d4edda;
-                color: #155724;
-                border: 2px solid #c3e6cb;
-            }
-            
-            .country-status.denied {
-                background: #f8d7da;
-                color: #721c24;
-                border: 2px solid #f5c6cb;
-            }
-            
-            .countdown-container {
-                margin: 40px 0;
-            }
-            
-            .countdown-label {
-                font-size: 18px;
-                color: #7f8c8d;
-                margin-bottom: 15px;
-            }
-            
-            .countdown-timer {
-                font-size: 72px;
                 font-weight: bold;
-                color: #667eea;
-                margin: 20px 0;
-                font-family: 'Courier New', monospace;
-                text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+                cursor: pointer;
+                transition: all 0.3s;
+                text-decoration: none;
+                white-space: nowrap;
             }
             
+            .skip-button-small:hover {
+                background: white;
+                color: #667eea;
+            }
+            
+            /* Progress bar */
             .progress-bar-container {
                 width: 100%;
-                height: 8px;
-                background: #ecf0f1;
-                border-radius: 10px;
-                overflow: hidden;
-                margin-top: 20px;
+                height: 4px;
+                background: rgba(255, 255, 255, 0.3);
+                position: absolute;
+                bottom: 0;
+                left: 0;
             }
             
             .progress-bar {
                 height: 100%;
-                background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-                border-radius: 10px;
+                background: white;
                 transition: width 0.1s linear;
                 animation: progress {{ countdown_seconds }}s linear;
             }
@@ -243,91 +214,116 @@ def render_preview_page(offer, redirect_url, access_status, country_message, cou
                 }
             }
             
-            .redirect-info {
-                font-size: 14px;
-                color: #95a5a6;
-                margin-top: 20px;
+            /* Preview iframe container */
+            .preview-container {
+                flex: 1;
+                width: 100%;
+                height: calc(100vh - 70px);
+                position: relative;
             }
             
-            .skip-button {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
+            .preview-iframe {
+                width: 100%;
+                height: 100%;
                 border: none;
-                padding: 15px 40px;
-                border-radius: 30px;
-                font-size: 16px;
-                font-weight: bold;
-                cursor: pointer;
-                margin-top: 20px;
-                transition: transform 0.2s, box-shadow 0.2s;
-                text-decoration: none;
-                display: inline-block;
             }
             
-            .skip-button:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
+            /* Loading overlay */
+            .loading-overlay {
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-size: 24px;
+                z-index: 999;
             }
             
-            .skip-button:active {
-                transform: translateY(0);
+            .loading-overlay.hidden {
+                display: none;
             }
             
-            @media (max-width: 600px) {
-                .preview-container {
-                    padding: 30px 20px;
+            .spinner {
+                border: 4px solid rgba(255, 255, 255, 0.3);
+                border-top: 4px solid white;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                animation: spin 1s linear infinite;
+                margin-bottom: 20px;
+            }
+            
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            
+            /* Mobile responsive */
+            @media (max-width: 768px) {
+                .countdown-banner {
+                    flex-direction: column;
+                    gap: 10px;
+                    padding: 10px;
                 }
                 
-                .preview-title {
+                .banner-center {
+                    width: 100%;
+                    justify-content: space-between;
+                }
+                
+                .offer-name-small {
+                    font-size: 14px;
+                }
+                
+                .countdown-timer-small {
                     font-size: 24px;
-                }
-                
-                .countdown-timer {
-                    font-size: 56px;
-                }
-                
-                .offer-name {
-                    font-size: 20px;
                 }
             }
         </style>
     </head>
     <body>
+        <!-- Top countdown banner -->
+        <div class="countdown-banner">
+            <div class="banner-left">
+                <div class="offer-info-compact">
+                    <div class="offer-name-small">{{ offer_name }}</div>
+                    <div class="offer-id-small">{{ offer_id }}</div>
+                </div>
+            </div>
+            
+            <div class="banner-center">
+                <span class="countdown-label-small">Redirecting in</span>
+                <div class="countdown-timer-small" id="countdown">{{ countdown_seconds }}</div>
+                <a href="{{ redirect_url }}" class="skip-button-small" id="skipButton">
+                    Skip →
+                </a>
+            </div>
+            
+            <div class="progress-bar-container">
+                <div class="progress-bar"></div>
+            </div>
+        </div>
+        
+        <!-- Preview content -->
         <div class="preview-container">
-            <div class="preview-icon">⏱️</div>
-            <h1 class="preview-title">Offer Preview</h1>
-            <p class="preview-description">
-                You're about to be redirected to this offer
-            </p>
-            
-            <div class="offer-info">
-                <div class="offer-name">{{ offer_name }}</div>
-                <div class="offer-id">Offer ID: {{ offer_id }}</div>
-                
-                <div class="country-status {{ access_status }}">
-                    {{ country_message }}
+            <div class="loading-overlay" id="loadingOverlay">
+                <div style="text-align: center;">
+                    <div class="spinner"></div>
+                    <div>Loading preview...</div>
                 </div>
             </div>
-            
-            <div class="countdown-container">
-                <div class="countdown-label">Redirecting in</div>
-                <div class="countdown-timer" id="countdown">{{ countdown_seconds }}</div>
-                <div class="progress-bar-container">
-                    <div class="progress-bar"></div>
-                </div>
-            </div>
-            
-            <a href="{{ redirect_url }}" class="skip-button" id="skipButton">
-                Skip Wait & Continue →
-            </a>
-            
-            <div class="redirect-info">
-                {% if access_status == 'allowed' %}
-                    ✅ You will be redirected to the offer page
-                {% else %}
-                    ℹ️ You will be redirected to an alternative page
-                {% endif %}
-            </div>
+            <iframe 
+                id="previewFrame"
+                class="preview-iframe" 
+                src="{{ preview_url }}"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+                onload="document.getElementById('loadingOverlay').classList.add('hidden')"
+            ></iframe>
         </div>
         
         <script>
@@ -336,19 +332,19 @@ def render_preview_page(offer, redirect_url, access_status, country_message, cou
             const countdownElement = document.getElementById('countdown');
             const redirectUrl = "{{ redirect_url }}";
             
+            console.log('Preview page loaded');
+            console.log('Initial timeLeft:', timeLeft);
+            console.log('Redirect URL:', redirectUrl);
+            
             // Update countdown every second
             const countdownInterval = setInterval(() => {
                 timeLeft--;
                 countdownElement.textContent = timeLeft;
-                
-                // Add pulse animation
-                countdownElement.style.transform = 'scale(1.1)';
-                setTimeout(() => {
-                    countdownElement.style.transform = 'scale(1)';
-                }, 100);
+                console.log('Countdown:', timeLeft);
                 
                 // Redirect when countdown reaches 0
                 if (timeLeft <= 0) {
+                    console.log('Redirecting to:', redirectUrl);
                     clearInterval(countdownInterval);
                     window.location.href = redirectUrl;
                 }
@@ -356,8 +352,15 @@ def render_preview_page(offer, redirect_url, access_status, country_message, cou
             
             // Allow manual skip
             document.getElementById('skipButton').addEventListener('click', (e) => {
+                console.log('Skip button clicked');
                 clearInterval(countdownInterval);
+                // Let the link handle the redirect
             });
+            
+            // Hide loading overlay after 5 seconds even if iframe doesn't load
+            setTimeout(() => {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+            }, 5000);
         </script>
     </body>
     </html>
@@ -367,6 +370,7 @@ def render_preview_page(offer, redirect_url, access_status, country_message, cou
         preview_template,
         offer_name=offer.get('name', 'Unknown Offer'),
         offer_id=offer.get('offer_id', 'N/A'),
+        preview_url=preview_url,
         redirect_url=redirect_url,
         access_status=access_status,
         country_message=country_message,

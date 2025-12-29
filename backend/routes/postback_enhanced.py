@@ -12,6 +12,69 @@ logger = logging.getLogger(__name__)
 
 postback_enhanced_bp = Blueprint('postback_enhanced', __name__)
 
+
+def calculate_downward_payout(upward_payout, offer):
+    """
+    Calculate the payout to forward to downward partner based on revenue share settings.
+    
+    Args:
+        upward_payout: The payout amount received from upward partner
+        offer: Offer document with revenue_share_percent field
+        
+    Returns:
+        dict: {
+            'downward_payout': float,
+            'is_percentage': bool,
+            'revenue_share_percent': float,
+            'calculation_method': str,
+            'upward_payout': float
+        }
+    """
+    try:
+        upward_payout = float(upward_payout) if upward_payout else 0
+        
+        # Check if offer has revenue share percentage configured
+        revenue_share_percent = offer.get('revenue_share_percent', 0)
+        
+        if revenue_share_percent and float(revenue_share_percent) > 0:
+            # Percentage-based: forward percentage of upward payout
+            percent = float(revenue_share_percent)
+            downward_payout = upward_payout * (percent / 100)
+            
+            logger.info(f"💰 Revenue share calculation: {upward_payout} × {percent}% = {downward_payout}")
+            
+            return {
+                'downward_payout': round(downward_payout, 2),
+                'is_percentage': True,
+                'revenue_share_percent': percent,
+                'calculation_method': f'{percent}% of {upward_payout}',
+                'upward_payout': upward_payout
+            }
+        else:
+            # Fixed payout: use offer's fixed payout value
+            fixed_payout = float(offer.get('payout', 0))
+            
+            logger.info(f"💰 Fixed payout: {fixed_payout} (upward was {upward_payout})")
+            
+            return {
+                'downward_payout': fixed_payout,
+                'is_percentage': False,
+                'revenue_share_percent': 0,
+                'calculation_method': f'Fixed: {fixed_payout}',
+                'upward_payout': upward_payout
+            }
+            
+    except Exception as e:
+        logger.error(f"❌ Error calculating downward payout: {e}")
+        # Fallback to offer's fixed payout
+        return {
+            'downward_payout': float(offer.get('payout', 0)),
+            'is_percentage': False,
+            'revenue_share_percent': 0,
+            'calculation_method': 'Fallback to fixed payout',
+            'upward_payout': upward_payout
+        }
+
 @postback_enhanced_bp.route('/postback', methods=['GET', 'POST'])
 def handle_postback():
     """
@@ -59,8 +122,33 @@ def handle_postback():
         
         # Extract standard fields
         status = all_params.get('status', 'approved').lower()
-        payout = float(all_params.get('payout', 0))
+        upward_payout = float(all_params.get('payout', 0))  # Payout from upstream partner
         transaction_id = all_params.get('transaction_id') or all_params.get('txn_id') or f'TXN-{secrets.token_hex(8).upper()}'
+        
+        # Fetch offer to get revenue share settings
+        offers_collection = db_instance.get_collection('offers')
+        offer = offers_collection.find_one({'offer_id': click.get('offer_id')})
+        
+        # Calculate downward payout (what we pay to affiliate)
+        if offer:
+            payout_calc = calculate_downward_payout(upward_payout, offer)
+            affiliate_payout = payout_calc['downward_payout']
+            
+            logger.info(f"💰 Payout Calculation:")
+            logger.info(f"   Upward (from partner): ${upward_payout}")
+            logger.info(f"   Method: {payout_calc['calculation_method']}")
+            logger.info(f"   Downward (to affiliate): ${affiliate_payout}")
+        else:
+            # Fallback if offer not found
+            logger.warning(f"⚠️ Offer not found: {click.get('offer_id')}, using upward payout")
+            affiliate_payout = upward_payout
+            payout_calc = {
+                'downward_payout': upward_payout,
+                'is_percentage': False,
+                'revenue_share_percent': 0,
+                'calculation_method': 'Offer not found - using upward payout',
+                'upward_payout': upward_payout
+            }
         
         # Remove standard fields from params to get custom data
         custom_data = {k: v for k, v in all_params.items() 
@@ -79,7 +167,14 @@ def handle_postback():
             'user_id': click.get('user_id'),
             'affiliate_id': click.get('affiliate_id'),
             'status': status,
-            'payout': payout,
+            
+            # Payout fields - NEW: separate upward and downward payouts
+            'payout': affiliate_payout,  # What we pay to affiliate (calculated)
+            'upward_payout': upward_payout,  # What we received from partner
+            'is_revenue_share': payout_calc['is_percentage'],
+            'revenue_share_percent': payout_calc['revenue_share_percent'],
+            'payout_calculation_method': payout_calc['calculation_method'],
+            
             'currency': all_params.get('currency', 'USD'),
             'country': click.get('country', 'Unknown'),
             'device_type': click.get('device_type', 'unknown'),
@@ -125,7 +220,9 @@ def handle_postback():
         logger.info(f"   Conversion ID: {conversion_id}")
         logger.info(f"   Transaction ID: {transaction_id}")
         logger.info(f"   Status: {status}")
-        logger.info(f"   Payout: ${payout}")
+        logger.info(f"   Upward Payout (from partner): ${upward_payout}")
+        logger.info(f"   Affiliate Payout (to user): ${affiliate_payout}")
+        logger.info(f"   Revenue Share: {payout_calc['is_percentage']}")
         logger.info(f"   Custom Data Fields: {len(custom_data)}")
         
         # Return success (partners expect simple response)
