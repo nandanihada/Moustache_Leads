@@ -25,7 +25,7 @@ export const bulkOfferApi = {
     formData.append('file', file);
 
     const token = localStorage.getItem('token');
-    
+
     const response = await fetch(`${API_BASE_URL}/api/admin/offers/bulk-upload`, {
       method: 'POST',
       headers: {
@@ -36,14 +36,23 @@ export const bulkOfferApi = {
 
     const data = await response.json();
 
+    // Debug logging
+    console.log('Response status:', response.status);
+    console.log('Response data:', data);
+
     if (!response.ok) {
       // If there are validation errors, include them in the error
       if (data.validation_errors) {
+        console.log('Validation errors found:', data.validation_errors);
         const error: any = new Error(data.error || 'Validation errors found');
         error.validation_errors = data.validation_errors;
         error.error_count = data.error_count;
         error.valid_count = data.valid_count;
         throw error;
+      }
+      // If there are creation errors, log them
+      if (data.creation_errors) {
+        console.log('Creation errors found:', data.creation_errors);
       }
       throw new Error(data.error || 'Failed to upload file');
     }
@@ -56,7 +65,7 @@ export const bulkOfferApi = {
    */
   uploadFromGoogleSheets: async (url: string): Promise<BulkUploadResult> => {
     const token = localStorage.getItem('token');
-    
+
     const response = await fetch(`${API_BASE_URL}/api/admin/offers/bulk-upload`, {
       method: 'POST',
       headers: {
@@ -88,7 +97,7 @@ export const bulkOfferApi = {
    */
   downloadTemplate: async (): Promise<void> => {
     const token = localStorage.getItem('token');
-    
+
     const response = await fetch(`${API_BASE_URL}/api/admin/offers/bulk-upload/template`, {
       method: 'GET',
       headers: {
@@ -103,14 +112,14 @@ export const bulkOfferApi = {
     // Create blob from response
     const blob = await response.blob();
     const downloadUrl = window.URL.createObjectURL(blob);
-    
+
     // Create temporary link and trigger download
     const link = document.createElement('a');
     link.href = downloadUrl;
     link.download = 'bulk_offer_template.csv';
     document.body.appendChild(link);
     link.click();
-    
+
     // Clean up
     document.body.removeChild(link);
     window.URL.revokeObjectURL(downloadUrl);

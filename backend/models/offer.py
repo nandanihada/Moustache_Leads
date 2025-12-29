@@ -170,10 +170,15 @@ class Offer:
             offer_id = self._get_next_offer_id()
             
             # Validate required fields
-            required_fields = ['campaign_id', 'name', 'payout', 'network', 'target_url']
+            # Note: payout can be 0 for revenue share offers, so check for None/missing explicitly
+            required_fields = ['campaign_id', 'name', 'network', 'target_url']
             for field in required_fields:
                 if not mapped_data.get(field):
                     return None, f"Field '{field}' is required"
+            
+            # Special validation for payout: must be present (can be 0 for revenue share)
+            if 'payout' not in mapped_data or mapped_data['payout'] is None:
+                return None, "Field 'payout' is required"
             
             # Validate URL format
             url_pattern = re.compile(
@@ -190,9 +195,11 @@ class Offer:
             if mapped_data.get('preview_url') and not url_pattern.match(mapped_data['preview_url']):
                 return None, "Invalid preview URL format"
             
-            # Validate payout is numeric
+            # Validate payout is numeric (can be 0 for revenue share)
             try:
-                float(mapped_data['payout'])
+                payout_value = float(mapped_data['payout'])
+                if payout_value < 0:
+                    return None, "Payout cannot be negative"
             except (ValueError, TypeError):
                 return None, "Payout must be a valid number"
             

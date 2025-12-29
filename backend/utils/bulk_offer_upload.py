@@ -68,19 +68,19 @@ SPREADSHEET_TO_DB_MAPPING = {
 }
 
 # Required fields that must be present in spreadsheet
+# Note: Either 'payout' OR 'revenue_share_percent' must be present (validated separately)
 REQUIRED_FIELDS = [
     'campaign_id',  # offer_id in spreadsheet
     'name',         # title in spreadsheet
     'target_url',   # url in spreadsheet
     'countries',    # country in spreadsheet
-    'payout',
     'description',
     'network'       # platform in spreadsheet
 ]
 
 # Default values for optional fields
 DEFAULT_VALUES = {
-    'preview_url': '',  # Will use target_url if not provided
+    'preview_url': 'https://www.google.com',  # Default preview URL if not provided
     'image_url': '',  # Will be set dynamically with random image
     'vertical': 'Lifestyle',  # NEW: Default vertical (replaces category)
     'affiliate_terms': 'Social, content, and direct traffic allowed.\nNo spam, incent abuse, or automation.\nFollow platform and advertiser rules.\nInvalid traffic will be rejected.',
@@ -334,10 +334,18 @@ def map_spreadsheet_to_db(row_data: Dict[str, Any]) -> Dict[str, Any]:
                     mapped_data[db_field] = [c.strip().upper() for c in value.split(',') if c.strip()]
                 else:
                     mapped_data[db_field] = [str(value).strip().upper()]
+            # Handle revenue_share_percent - remove % sign if present
+            elif db_field == 'revenue_share_percent' and value:
+                value_str = str(value).strip()
+                # Remove % sign and convert to float
+                if '%' in value_str:
+                    value_str = value_str.replace('%', '').strip()
+                mapped_data[db_field] = value_str
             else:
                 mapped_data[db_field] = value
     
     return mapped_data
+
 
 
 def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -364,13 +372,26 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
         result['image_url'] = random.choice(DEFAULT_OFFER_IMAGES)
     
     # Handle payout - detect percentage and extract revenue_share_percent
-    if 'payout' in result:
+    if 'payout' in result and result['payout']:
         fixed_payout, revenue_share = parse_payout_value(str(result['payout']))
         if revenue_share > 0:
             result['payout'] = fixed_payout  # Will be 0 for percentage-based
             result['revenue_share_percent'] = revenue_share
         else:
+            # Only set to 0 if not already set from percent column
+            if 'revenue_share_percent' not in result:
+                result['revenue_share_percent'] = 0
+    elif 'revenue_share_percent' in result and result['revenue_share_percent']:
+        # If only percent is provided, ensure payout is 0
+        if 'payout' not in result or not result['payout']:
+            result['payout'] = 0
+    else:
+        # Neither payout nor percent provided - set defaults
+        if 'payout' not in result:
+            result['payout'] = 0
+        if 'revenue_share_percent' not in result:
             result['revenue_share_percent'] = 0
+
     
     # Handle vertical field - validate and normalize
     if 'vertical' in result:
@@ -425,12 +446,30 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
         # Map spreadsheet columns to database fields
         mapped_data = map_spreadsheet_to_db(row)
         
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Row {row_number} mapped data: {mapped_data}")
+
+        
         # Check required fields
         for required_field in REQUIRED_FIELDS:
             if required_field not in mapped_data or not mapped_data[required_field]:
                 # Map back to spreadsheet column name for user-friendly error
                 spreadsheet_col = next((k for k, v in SPREADSHEET_TO_DB_MAPPING.items() if v == required_field), required_field)
                 errors.append(f"Missing required field: {spreadsheet_col}")
+        
+        # Special validation: Either 'payout' OR 'revenue_share_percent' must be present
+        has_payout = 'payout' in mapped_data and mapped_data['payout']
+        has_percent = 'revenue_share_percent' in mapped_data and mapped_data['revenue_share_percent']
+        
+        if not has_payout and not has_percent:
+            errors.append("Missing required field: either 'payout' or 'percent' must be provided")
+        
+        # If only percent is provided, set payout to 0
+        if has_percent and not has_payout:
+            mapped_data['payout'] = 0
+
         
         # Validate payout is numeric (handle percentage format like "50%")
         if 'payout' in mapped_data:
@@ -509,16 +548,23 @@ def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str) ->
         row_number = offer_data.pop('_row_number', 'Unknown')
         
         try:
+            # Log offer data before creation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Creating offer for row {row_number}: {offer_data}")
+            
             # Create offer using the existing create_offer method
             created_offer, error = offer_model.create_offer(offer_data, created_by)
             
             if error:
+                logger.error(f"Offer creation failed for row {row_number}: {error}")
                 creation_errors.append({
                     'row': row_number,
                     'error': error,
                     'data': offer_data
                 })
             else:
+                logger.info(f"Successfully created offer {created_offer['offer_id']} for row {row_number}")
                 created_offer_ids.append(created_offer['offer_id'])
                 
         except Exception as e:

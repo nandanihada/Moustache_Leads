@@ -88,7 +88,7 @@ const OffersContent = () => {
     const matchesTab = activeTab === "all" || offer.status === activeTab;
     const searchValue = searchBy === "name" ? offer.title : 
                        searchBy === "id" ? offer.id : 
-                       offer.category;
+                       (offer as any).vertical || offer.category;  // Support both vertical and category
     const matchesSearch = searchValue
       ?.toString()
       .toLowerCase()
@@ -143,7 +143,7 @@ const OffersContent = () => {
                 <SelectContent>
                   <SelectItem value="name">Name</SelectItem>
                   <SelectItem value="id">Offer ID</SelectItem>
-                  <SelectItem value="category">Category</SelectItem>
+                  <SelectItem value="vertical">Vertical</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -191,7 +191,7 @@ const OffersContent = () => {
                       <TableHead>Offer ID</TableHead>
                       <TableHead>Offer Name</TableHead>
                       <TableHead>Countries</TableHead>
-                      <TableHead>Category</TableHead>
+                      <TableHead>Vertical</TableHead>
                       <TableHead>Devices</TableHead>
                       <TableHead>Payout</TableHead>
                       <TableHead>Actions</TableHead>
@@ -240,7 +240,7 @@ const OffersContent = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{offer.category}</Badge>
+                          <Badge variant="outline">{(offer as any).vertical || offer.category}</Badge>
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">

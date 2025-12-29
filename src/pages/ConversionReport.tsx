@@ -17,7 +17,7 @@ const CONVERSION_COLUMNS: ColumnDefinition[] = [
   { id: 'transaction_id', label: 'Transaction ID', defaultVisible: true },
   { id: 'offer_name', label: 'Offer Name', defaultVisible: true },
   { id: 'offer_url', label: 'Offer URL', defaultVisible: false },
-  { id: 'category', label: 'Category', defaultVisible: false },
+  { id: 'vertical', label: 'Vertical', defaultVisible: false },
   { id: 'currency', label: 'Currency', defaultVisible: false },
   { id: 'ad_group', label: 'Ad Group', defaultVisible: false },
   { id: 'goal', label: 'Goal', defaultVisible: false },
@@ -324,7 +324,7 @@ export default function ConversionReport() {
                 {visibleColumns.transaction_id && <th className="p-3 text-left">Transaction ID</th>}
                 {visibleColumns.offer_name && <th className="p-3 text-left">Offer</th>}
                 {visibleColumns.offer_url && <th className="p-3 text-left">Offer URL</th>}
-                {visibleColumns.category && <th className="p-3 text-left">Category</th>}
+                {visibleColumns.vertical && <th className="p-3 text-left">Vertical</th>}
                 {visibleColumns.currency && <th className="p-3 text-left">Currency</th>}
                 {visibleColumns.ad_group && <th className="p-3 text-left">Ad Group</th>}
                 {visibleColumns.goal && <th className="p-3 text-left">Goal</th>}
@@ -378,7 +378,7 @@ export default function ConversionReport() {
                     )}
                     {visibleColumns.offer_name && <td className="p-3">{conv.offer_name}</td>}
                     {visibleColumns.offer_url && <td className="p-3 text-xs"><a href={conv.offer_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{conv.offer_url ? (conv.offer_url.length > 40 ? conv.offer_url.substring(0, 40) + '...' : conv.offer_url) : '-'}</a></td>}
-                    {visibleColumns.category && <td className="p-3">{conv.category || '-'}</td>}
+                    {visibleColumns.vertical && <td className="p-3">{conv.vertical || conv.category || '-'}</td>}
                     {visibleColumns.currency && <td className="p-3">{conv.currency || 'USD'}</td>}
                     {visibleColumns.ad_group && <td className="p-3">{conv.ad_group || '-'}</td>}
                     {visibleColumns.goal && <td className="p-3">{conv.goal || '-'}</td>}

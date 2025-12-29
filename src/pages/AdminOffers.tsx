@@ -190,6 +190,8 @@ const AdminOffers = () => {
         'Offer Type': offer.offer_type || '',
         'Network': offer.network,
         'Payout': `$${offer.payout}`,
+        'Payout Type': (offer as any).payout_type || 'fixed',
+        'Incentive': (offer as any).incentive_type || 'Incent',
         'Currency': offer.currency || 'USD',
         'Revenue': offer.revenue ? `$${offer.revenue}` : '',
         'Countries': Array.isArray(offer.countries) ? offer.countries.join(', ') : '',
@@ -433,6 +435,7 @@ const AdminOffers = () => {
                   <TableHead>Status</TableHead>
                   <TableHead>Countries</TableHead>
                   <TableHead>Payout</TableHead>
+                  <TableHead>Incentive</TableHead>
                   <TableHead>Network</TableHead>
                   <TableHead>Hits/Limit</TableHead>
                   <TableHead>Actions</TableHead>
@@ -525,6 +528,22 @@ const AdminOffers = () => {
                     <TableCell className="font-medium text-green-600">
                       ${offer.payout.toFixed(2)}
                     </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const incentiveType = (offer as any).incentive_type || 'Incent';
+                        const isIncent = incentiveType === 'Incent';
+                        return (
+                          <Badge
+                            className={isIncent
+                              ? 'bg-green-100 text-green-800 hover:bg-green-200'
+                              : 'bg-orange-100 text-orange-800 hover:bg-orange-200'
+                            }
+                          >
+                            {isIncent ? '🟢 Incent' : '🔴 Non-Incent'}
+                          </Badge>
+                        );
+                      })()}
+                    </TableCell>
                     <TableCell className="text-sm">
                       {offer.network}
                     </TableCell>
@@ -564,7 +583,10 @@ const AdminOffers = () => {
                             <Copy className="h-4 w-4 mr-2" />
                             Clone
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => window.open(offer.preview_url || offer.target_url, '_blank')}>
+                          <DropdownMenuItem onClick={() => {
+                            const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                            window.open(`${baseUrl}/preview/${offer.offer_id}`, '_blank');
+                          }}>
                             <ExternalLink className="h-4 w-4 mr-2" />
                             Preview
                           </DropdownMenuItem>

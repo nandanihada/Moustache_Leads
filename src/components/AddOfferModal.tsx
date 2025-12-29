@@ -98,6 +98,12 @@ const DISALLOWED_TRAFFIC = ['Adult', 'Fraud', 'Brand Bidding', 'Spam', 'Incentiv
 
 const NETWORK_PARTNERS = ['PepperAds', 'PepeLeads', 'MaxBounty', 'ClickDealer', 'CPAlead'];
 
+// 10 Predefined Verticals (replaces category)
+const VALID_VERTICALS = [
+  'Finance', 'Gaming', 'Dating', 'Health', 'E-commerce',
+  'Entertainment', 'Education', 'Travel', 'Utilities', 'Lifestyle'
+];
+
 // Schedule + Smart Rules constants
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const RULE_TYPES = ['Backup', 'Rotation', 'GEO', 'Time'];
@@ -128,6 +134,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [selectedAllowedCountries, setSelectedAllowedCountries] = useState<string[]>([]);  // NEW: For geo-restriction
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedOS, setSelectedOS] = useState<string[]>([]);
@@ -198,8 +205,13 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     name: '',
     description: '',
     status: 'pending',
+    vertical: 'Lifestyle',  // NEW: Replaces category - one of 10 predefined values
     countries: [],
+    allowed_countries: [],  // NEW: Geo-restriction - allowed country codes
+    non_access_url: '',  // NEW: Fallback URL for geo-blocked users
     payout: 0,
+    revenue_share_percent: 0,  // NEW: 0-100 percentage for revenue sharing
+    incentive_type: 'Incent',  // NEW: Auto-calculated - 'Incent' or 'Non-Incent'
     network: '',
     partner_id: '',
     affiliates: 'all',
@@ -569,18 +581,15 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="category">Category</Label>
-                      <Select value={formData.category || ''} onValueChange={(value) => handleInputChange('category', value)}>
+                      <Label htmlFor="vertical">Vertical</Label>
+                      <Select value={formData.vertical || 'Lifestyle'} onValueChange={(value) => handleInputChange('vertical', value)}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
+                          <SelectValue placeholder="Select vertical" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="finance">Finance</SelectItem>
-                          <SelectItem value="gaming">Gaming</SelectItem>
-                          <SelectItem value="dating">Dating</SelectItem>
-                          <SelectItem value="health">Health</SelectItem>
-                          <SelectItem value="education">Education</SelectItem>
-                          <SelectItem value="general">General</SelectItem>
+                          {VALID_VERTICALS.map(vertical => (
+                            <SelectItem key={vertical} value={vertical}>{vertical}</SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
@@ -638,6 +647,43 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                     </div>
                     <p className="text-sm text-gray-500 mt-1">
                       Selected: {selectedCountries.length} countries
+                    </p>
+                  </div>
+
+                  {/* NEW: Allowed Countries for Geo-Restriction */}
+                  <div>
+                    <Label>Allowed Countries (Geo-Restriction)</Label>
+                    <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-gray-50 max-h-32 overflow-y-auto">
+                      {COUNTRIES.map(country => (
+                        <Badge
+                          key={`allowed-${country.code}`}
+                          variant={selectedAllowedCountries.includes(country.code) ? "default" : "outline"}
+                          className="cursor-pointer hover:bg-green-100 flex items-center gap-2 px-2 py-1"
+                          onClick={() => {
+                            const updated = selectedAllowedCountries.includes(country.code)
+                              ? selectedAllowedCountries.filter(c => c !== country.code)
+                              : [...selectedAllowedCountries, country.code];
+                            setSelectedAllowedCountries(updated);
+                            handleInputChange('allowed_countries', updated);
+                          }}
+                          title={country.name}
+                        >
+                          <img
+                            src={getFlagUrl(country.code)}
+                            alt={`${country.name} flag`}
+                            className="w-6 h-4 object-cover rounded-sm"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                          />
+                          <span className="font-medium">{country.code}</span>
+                        </Badge>
+                      ))}
+                    </div>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {selectedAllowedCountries.length === 0 
+                        ? 'No restriction - all countries allowed' 
+                        : `Only ${selectedAllowedCountries.length} countries can access this offer`}
                     </p>
                   </div>
 
@@ -778,7 +824,13 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         step="0.01"
                         min="0"
                         value={formData.payout}
-                        onChange={(e) => handleInputChange('payout', parseFloat(e.target.value) || 0)}
+                        onChange={(e) => {
+                          const payout = parseFloat(e.target.value) || 0;
+                          handleInputChange('payout', payout);
+                          // Auto-calculate incentive type
+                          const revenueShare = formData.revenue_share_percent || 0;
+                          handleInputChange('incentive_type', revenueShare > 0 ? 'Non-Incent' : 'Incent');
+                        }}
                         placeholder="5.00"
                         required
                       />
@@ -809,6 +861,49 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           <SelectItem value="percentage">Percentage</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  {/* NEW: Revenue Share and Incentive Type */}
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="revenue_share_percent">Revenue Share %</Label>
+                      <Input
+                        id="revenue_share_percent"
+                        type="number"
+                        step="1"
+                        min="0"
+                        max="100"
+                        value={formData.revenue_share_percent || 0}
+                        onChange={(e) => {
+                          const percent = parseFloat(e.target.value) || 0;
+                          handleInputChange('revenue_share_percent', percent);
+                          // Auto-calculate incentive type
+                          handleInputChange('incentive_type', percent > 0 ? 'Non-Incent' : 'Incent');
+                        }}
+                        placeholder="0"
+                      />
+                      <p className="text-sm text-gray-500 mt-1">% of upward payout to forward</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="incentive_type">Incentive Type</Label>
+                      <Input
+                        id="incentive_type"
+                        value={formData.incentive_type || 'Incent'}
+                        disabled
+                        className="bg-gray-100"
+                      />
+                      <p className="text-sm text-gray-500 mt-1">Auto-calculated</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="non_access_url">Non-Access URL</Label>
+                      <Input
+                        id="non_access_url"
+                        value={formData.non_access_url || ''}
+                        onChange={(e) => handleInputChange('non_access_url', e.target.value)}
+                        placeholder="https://example.com/fallback"
+                      />
+                      <p className="text-sm text-gray-500 mt-1">Redirect for geo-blocked users</p>
                     </div>
                   </div>
 

@@ -344,7 +344,27 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                   <div>
                     <span className="text-muted-foreground">Payout:</span>
                     <div className="font-semibold text-green-600">
-                      ${offer.payout.toFixed(2)} {offer.currency || 'USD'}
+                      {(offer as any).revenue_share_percent > 0 
+                        ? `${(offer as any).revenue_share_percent}% Revenue Share`
+                        : `$${offer.payout.toFixed(2)} ${offer.currency || 'USD'}`
+                      }
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Vertical:</span>
+                    <div>
+                      <Badge variant="outline">{(offer as any).vertical || (offer as any).category || 'Lifestyle'}</Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Incentive Type:</span>
+                    <div>
+                      <Badge className={`text-xs ${(offer as any).incentive_type === 'Non-Incent' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                        {(offer as any).incentive_type || 'Incent'}
+                      </Badge>
                     </div>
                   </div>
                 </div>
@@ -440,15 +460,23 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                   <span className="capitalize">{offer.device_targeting}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Incentive:</span>
-                  <Badge className={`text-xs ${(offer as any).incentive_allowed !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {(offer as any).incentive_allowed !== false ? 'Incent' : 'Non-Incent'}
+                  <span className="text-muted-foreground">Incentive Type:</span>
+                  <Badge className={`text-xs ${(offer as any).incentive_type === 'Non-Incent' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                    {(offer as any).incentive_type || 'Incent'}
                   </Badge>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Conversion Window:</span>
                   <span>{(offer.tracking?.conversion_window || (offer as any).conversion_window || 30)} days</span>
                 </div>
+                {(offer as any).allowed_countries && (offer as any).allowed_countries.length > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Geo-Restricted:</span>
+                    <Badge className="text-xs bg-yellow-100 text-yellow-800">
+                      {(offer as any).allowed_countries.length} countries only
+                    </Badge>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

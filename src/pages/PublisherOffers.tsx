@@ -70,8 +70,8 @@ const PublisherOffers = () => {
         return offer.name.toLowerCase().includes(term);
       case "id":
         return offer.offer_id.toLowerCase().includes(term);
-      case "category":
-        return (offer.category || "").toLowerCase().includes(term);
+      case "vertical":
+        return ((offer as any).vertical || offer.category || "").toLowerCase().includes(term);
       default:
         return true;
     }
@@ -154,7 +154,7 @@ const PublisherOffers = () => {
                   <SelectContent>
                     <SelectItem value="name">Name</SelectItem>
                     <SelectItem value="id">Offer ID</SelectItem>
-                    <SelectItem value="category">Category</SelectItem>
+                    <SelectItem value="vertical">Vertical</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button onClick={fetchOffers} variant="outline">

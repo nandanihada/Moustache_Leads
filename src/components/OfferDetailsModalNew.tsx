@@ -4,10 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { 
-  Globe, 
-  DollarSign, 
-  Link, 
+import {
+  Globe,
+  DollarSign,
+  Link,
   Eye,
   Copy,
   QrCode,
@@ -47,7 +47,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
     if (offer) {
       try {
         const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-        
+
         // Get user from localStorage
         let userId = '';
         try {
@@ -59,17 +59,17 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
         } catch (e) {
           console.error('Error getting user ID:', e);
         }
-        
+
         // Build tracking link
         const params = new URLSearchParams();
         if (userId) {
           params.append('user_id', userId);
         }
         params.append('sub1', customSubId || 'default');
-        
+
         const link = `${baseUrl}/track/${offer.offer_id}?${params.toString()}`;
         setTrackingLink(link);
-        
+
         // Fetch offer stats
         fetchOfferStats(offer.offer_id);
       } catch (error) {
@@ -88,7 +88,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
       const end = new Date();
       const start = new Date();
       start.setDate(start.getDate() - 30);
-      
+
       const response = await userReportsApi.getPerformanceReport({
         start_date: start.toISOString().split('T')[0],
         end_date: end.toISOString().split('T')[0],
@@ -96,7 +96,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
         page: 1,
         per_page: 1
       });
-      
+
       if (response.summary) {
         setStats(response.summary);
       }
@@ -118,7 +118,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
       });
       return;
     }
-    
+
     navigator.clipboard.writeText(text).then(() => {
       toast({
         title: "✅ Copied!",
@@ -137,8 +137,8 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
         const user = JSON.parse(userStr);
         userId = user._id || user.id;
       }
-    } catch (e) {}
-    
+    } catch (e) { }
+
     const params = new URLSearchParams();
     if (userId) {
       params.append('user_id', userId);
@@ -146,10 +146,10 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
     if (customSubId) {
       params.append('sub1', customSubId);
     }
-    
+
     const link = `${baseUrl}/track/${offer.offer_id}?${params.toString()}`;
     setTrackingLink(link);
-    
+
     toast({
       title: "✅ Link Updated",
       description: "Tracking link updated with your custom Sub ID"
@@ -199,8 +199,8 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                 ${offer.payout.toFixed(2)} {offer.currency || 'USD'}
               </Badge>
               <Badge className={
-                ('status' in offer ? offer.status : offer.approval_status) === 'active' 
-                  ? 'bg-green-100 text-green-800' 
+                ('status' in offer ? offer.status : offer.approval_status) === 'active'
+                  ? 'bg-green-100 text-green-800'
                   : 'bg-gray-100 text-gray-800'
               }>
                 {('status' in offer ? offer.status : offer.approval_status)?.toUpperCase() || 'UNKNOWN'}
@@ -272,7 +272,10 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open(offer.preview_url || offer.target_url, '_blank')}
+                onClick={() => {
+                  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                  window.open(`${baseUrl}/preview/${offer.offer_id}`, '_blank');
+                }}
               >
                 <Eye className="h-4 w-4 mr-1" />
                 Preview Landing Page
@@ -403,12 +406,11 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                             {new Date((offer as any).expiration_date).toLocaleDateString()}
                           </span>
                           {daysRemaining !== null && (
-                            <Badge 
-                              className={`text-xs ${
-                                isExpired ? 'bg-red-100 text-red-800' :
+                            <Badge
+                              className={`text-xs ${isExpired ? 'bg-red-100 text-red-800' :
                                 isExpiringSoon ? 'bg-yellow-100 text-yellow-800' :
-                                'bg-green-100 text-green-800'
-                              }`}
+                                  'bg-green-100 text-green-800'
+                                }`}
                             >
                               {isExpired ? 'EXPIRED' : `${daysRemaining}d left`}
                             </Badge>
@@ -498,7 +500,10 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
               </CardHeader>
               <CardContent>
                 <Button
-                  onClick={() => window.open(offer.preview_url || offer.target_url, '_blank')}
+                  onClick={() => {
+                    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                    window.open(`${baseUrl}/preview/${offer.offer_id}`, '_blank');
+                  }}
                   className="w-full"
                   variant="outline"
                 >
