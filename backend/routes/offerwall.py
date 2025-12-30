@@ -1930,11 +1930,13 @@ def get_offers():
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, status: {status}")
         
         # Build query filter
-        query_filter = {}
+        query_filter = {
+            'is_active': True  # Only show active offers (not deleted)
+        }
         
         # Filter by status (default to active offers only)
         if status and status != 'all':
-            query_filter['status'] = status
+            query_filter['status'] = status.lower()  # Force lowercase for consistency
         
         # Filter by category if provided
         if category:

@@ -249,7 +249,7 @@ class Offer:
                 'vertical': vertical_value,  # NEW: Replaces category - one of 10 predefined values
                 'category': vertical_value,  # DEPRECATED: Keep for backward compatibility
                 'offer_type': mapped_data.get('offer_type', 'CPA'),  # CPA/CPL/CPS/CPI/CPC
-                'status': mapped_data.get('status', 'pending'),  # Active/Inactive/Pending/Paused/Hidden
+                'status': mapped_data.get('status', 'active').lower(),  # Active/Inactive/Pending/Paused/Hidden - force lowercase
                 'tags': mapped_data.get('tags', []),  # Internal filtering tags
                 'keywords': mapped_data.get('keywords', []),  # SEO/filtering keywords
                 

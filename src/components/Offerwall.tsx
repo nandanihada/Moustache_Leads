@@ -79,7 +79,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
 
       // Load offers
       const offersResponse = await fetch(
-        `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=12`
+        `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=100`
       );
       
       if (!offersResponse.ok) {

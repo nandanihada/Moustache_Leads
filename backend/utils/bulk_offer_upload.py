@@ -88,7 +88,7 @@ DEFAULT_VALUES = {
     'image_url': '',  # Will be set dynamically with random image
     'vertical': 'Lifestyle',  # NEW: Default vertical (replaces category)
     'affiliate_terms': 'Social, content, and direct traffic allowed.\nNo spam, incent abuse, or automation.\nFollow platform and advertiser rules.\nInvalid traffic will be rejected.',
-    'status': 'Active',  # Bulk uploaded offers are active by default
+    'status': 'active',  # Bulk uploaded offers are active by default (lowercase!)
     'offer_type': 'CPA',
     'currency': 'USD',
     'device_targeting': 'all',  # Default: all devices allowed
