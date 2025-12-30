@@ -31,7 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { partnerApi, Partner, CreatePartnerData } from '@/services/partnerApi';
-import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings } from 'lucide-react';
+import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings, ArrowRight } from 'lucide-react';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import {
   AlertDialog,
@@ -86,6 +86,58 @@ const Partners: React.FC = () => {
     status: 'active',
     description: ''
   });
+
+  // Parameter mapping state for postback URL builder
+  interface ParameterMapping {
+    ourParam: string;
+    theirParam: string;
+    enabled: boolean;
+  }
+
+  const AVAILABLE_OUR_PARAMS = [
+    { value: 'user_id', label: 'user_id', description: 'User MongoDB ID' },
+    { value: 'click_id', label: 'click_id', description: 'Unique click identifier' },
+    { value: 'payout', label: 'payout', description: 'Conversion payout amount' },
+    { value: 'status', label: 'status', description: 'Conversion status' },
+    { value: 'transaction_id', label: 'transaction_id', description: 'Transaction identifier' },
+    { value: 'offer_id', label: 'offer_id', description: 'Offer identifier' },
+    { value: 'conversion_id', label: 'conversion_id', description: 'Conversion identifier' },
+    { value: 'currency', label: 'currency', description: 'Currency code' },
+  ];
+
+  const PARTNER_TEMPLATES: Record<string, ParameterMapping[]> = {
+    'LeadAds': [
+      { ourParam: 'user_id', theirParam: 'aff_sub', enabled: true },
+      { ourParam: 'status', theirParam: 'status', enabled: true },
+      { ourParam: 'payout', theirParam: 'payout', enabled: true },
+      { ourParam: 'transaction_id', theirParam: 'transaction_id', enabled: true },
+    ],
+    'CPALead': [
+      { ourParam: 'user_id', theirParam: 'subid', enabled: true },
+      { ourParam: 'click_id', theirParam: 's2', enabled: true },
+      { ourParam: 'status', theirParam: 'status', enabled: true },
+      { ourParam: 'payout', theirParam: 'payout', enabled: true },
+    ],
+    'OfferToro': [
+      { ourParam: 'user_id', theirParam: 'user_id', enabled: true },
+      { ourParam: 'status', theirParam: 'status', enabled: true },
+      { ourParam: 'payout', theirParam: 'amount', enabled: true },
+      { ourParam: 'transaction_id', theirParam: 'oid', enabled: true },
+    ],
+    'AdGate Media': [
+      { ourParam: 'user_id', theirParam: 'subid', enabled: true },
+      { ourParam: 'status', theirParam: 'status', enabled: true },
+      { ourParam: 'payout', theirParam: 'payout', enabled: true },
+    ],
+    'Custom': [
+      { ourParam: 'user_id', theirParam: '', enabled: true },
+      { ourParam: 'status', theirParam: '', enabled: true },
+      { ourParam: 'payout', theirParam: '', enabled: true },
+    ],
+  };
+
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('LeadAds');
+  const [parameterMappings, setParameterMappings] = useState<ParameterMapping[]>(PARTNER_TEMPLATES['LeadAds']);
 
   // User edit form data
   const [userFormData, setUserFormData] = useState({
@@ -254,6 +306,27 @@ const Partners: React.FC = () => {
       status: 'active',
       description: ''
     });
+    setSelectedTemplate('LeadAds');
+    setParameterMappings(PARTNER_TEMPLATES['LeadAds']);
+  };
+
+  const handleTemplateChange = (template: string) => {
+    setSelectedTemplate(template);
+    setParameterMappings(PARTNER_TEMPLATES[template] || PARTNER_TEMPLATES['Custom']);
+  };
+
+  const handleMappingChange = (index: number, field: 'ourParam' | 'theirParam' | 'enabled', value: string | boolean) => {
+    const newMappings = [...parameterMappings];
+    newMappings[index] = { ...newMappings[index], [field]: value };
+    setParameterMappings(newMappings);
+  };
+
+  const addMapping = () => {
+    setParameterMappings([...parameterMappings, { ourParam: '', theirParam: '', enabled: true }]);
+  };
+
+  const removeMapping = (index: number) => {
+    setParameterMappings(parameterMappings.filter((_, i) => i !== index));
   };
 
   // User management functions
@@ -568,63 +641,247 @@ const Partners: React.FC = () => {
 
       {/* Generate Postback URL Modal */}
       <Dialog open={isAddModalOpen} onOpenChange={setIsAddModalOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Generate Postback URL for Upward Partner</DialogTitle>
             <DialogDescription>
-              Create a unique postback URL to share with your upward partner. They will use this URL to send conversion notifications to you.
+              Create a unique postback URL with visual parameter mapping to share with your upward partner.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="partner_name">Partner Name *</Label>
-              <Input
-                id="partner_name"
-                value={formData.partner_name}
-                onChange={(e) => setFormData({ ...formData, partner_name: e.target.value })}
-                placeholder="e.g., SurveyTitans, CPAlead, MaxBounty"
-              />
-              <p className="text-sm text-gray-500 mt-1">
-                Enter the name of the partner who will send you postbacks
-              </p>
+          <div className="space-y-6">
+            {/* Basic Information Section */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800">Basic Information</h3>
+              
+              <div>
+                <Label htmlFor="partner_name">Partner Name *</Label>
+                <Input
+                  id="partner_name"
+                  value={formData.partner_name}
+                  onChange={(e) => setFormData({ ...formData, partner_name: e.target.value })}
+                  placeholder="e.g., LeadAds, CPALead, OfferToro"
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  Enter the name of the partner who will send you postbacks
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="description">Description (Optional)</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="e.g., Survey offers partner, CPA network for gaming offers"
+                  rows={2}
+                />
+              </div>
+
+              <div>
+                <Label>Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(value: 'active' | 'inactive') => setFormData({ ...formData, status: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div>
-              <Label htmlFor="description">Description (Optional)</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="e.g., Survey offers partner, CPA network for gaming offers"
-                rows={2}
-              />
+            {/* Parameter Mapping Section */}
+            <div className="space-y-4 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">Parameter Mapping</h3>
+                  <p className="text-sm text-gray-600">Map your parameters to their parameter names</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addMapping}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Parameter
+                </Button>
+              </div>
+
+              {/* Partner Template Selection */}
+              <div>
+                <Label>Partner Template (Quick Start)</Label>
+                <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LeadAds">LeadAds</SelectItem>
+                    <SelectItem value="CPALead">CPALead</SelectItem>
+                    <SelectItem value="OfferToro">OfferToro</SelectItem>
+                    <SelectItem value="AdGate Media">AdGate Media</SelectItem>
+                    <SelectItem value="Custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-gray-500 mt-1">
+                  Select a template to auto-fill common parameter mappings
+                </p>
+              </div>
+
+              {/* Parameter Mapping Table */}
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                {/* Table Header */}
+                <div className="grid grid-cols-12 gap-3 bg-gray-50 px-4 py-3 border-b border-gray-200 text-sm">
+                  <div className="col-span-1 text-center font-medium text-gray-700">Enable</div>
+                  <div className="col-span-4 font-medium text-gray-700">OUR Parameter</div>
+                  <div className="col-span-1 text-center text-gray-400"></div>
+                  <div className="col-span-4 font-medium text-gray-700">THEIR Parameter</div>
+                  <div className="col-span-2 text-center font-medium text-gray-700">Actions</div>
+                </div>
+
+                {/* Table Body */}
+                <div className="divide-y divide-gray-200 max-h-64 overflow-y-auto">
+                  {parameterMappings.map((mapping, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-3 px-4 py-3 items-center hover:bg-gray-50">
+                      {/* Enable Checkbox */}
+                      <div className="col-span-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={mapping.enabled}
+                          onChange={(e) => handleMappingChange(index, 'enabled', e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* Our Parameter */}
+                      <div className="col-span-4">
+                        <select
+                          value={mapping.ourParam}
+                          onChange={(e) => handleMappingChange(index, 'ourParam', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                        >
+                          <option value="">Select...</option>
+                          {AVAILABLE_OUR_PARAMS.map(param => (
+                            <option key={param.value} value={param.value}>
+                              {param.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Arrow */}
+                      <div className="col-span-1 text-center">
+                        <ArrowRight className="mx-auto text-blue-500" size={18} />
+                      </div>
+
+                      {/* Their Parameter */}
+                      <div className="col-span-4">
+                        <Input
+                          value={mapping.theirParam}
+                          onChange={(e) => handleMappingChange(index, 'theirParam', e.target.value)}
+                          placeholder="e.g., aff_sub, subid"
+                          className="font-mono text-sm"
+                        />
+                      </div>
+
+                      {/* Actions */}
+                      <div className="col-span-2 text-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeMapping(index)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {parameterMappings.length === 0 && (
+                <div className="text-center py-6 text-gray-500 text-sm">
+                  No parameter mappings. Click "Add Parameter" to start.
+                </div>
+              )}
             </div>
 
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value: 'active' | 'inactive') => setFormData({ ...formData, status: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
+            {/* Info Section */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <h4 className="font-semibold text-blue-900 mb-2">What happens next?</h4>
+              <h4 className="font-semibold text-blue-900 mb-2">📋 How It Works:</h4>
               <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
-                <li>We'll generate a unique postback URL for this partner</li>
+                <li>We'll generate a unique postback URL with your parameter mappings</li>
                 <li>Share this URL with your partner</li>
-                <li>They'll use it to send conversion notifications to you</li>
-                <li>You'll see all received postbacks in the "Postback" tab</li>
+                <li>Partner will send postbacks using THEIR parameter names</li>
+                <li>Our system automatically maps their parameters to ours</li>
+                <li>Users get credited based on the mapped user_id</li>
               </ol>
+            </div>
+
+            {/* Generated URL Preview */}
+            <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                Generated Postback URL Preview
+              </h4>
+              <div className="space-y-2">
+                <p className="text-xs text-gray-600">This URL will be generated and shared with your partner:</p>
+                <div className="relative">
+                  <div className="bg-white border border-gray-300 rounded-lg p-3 pr-12 font-mono text-xs break-all">
+                    {(() => {
+                      const baseURL = 'https://moustacheleads-backend.onrender.com/postback';
+                      const params = parameterMappings
+                        .filter(m => m.enabled && m.ourParam && m.theirParam)
+                        .map(m => `${m.theirParam}={${m.theirParam}}`)
+                        .join('&');
+                      return `${baseURL}/[UNIQUE_KEY]${params ? '?' + params : ''}`;
+                    })()}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const baseURL = 'https://moustacheleads-backend.onrender.com/postback';
+                      const params = parameterMappings
+                        .filter(m => m.enabled && m.ourParam && m.theirParam)
+                        .map(m => `${m.theirParam}={${m.theirParam}}`)
+                        .join('&');
+                      copyToClipboard(`${baseURL}/[UNIQUE_KEY]${params ? '?' + params : ''}`);
+                    }}
+                    className="absolute top-2 right-2"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Note: [UNIQUE_KEY] will be automatically generated when you create the partner
+                </p>
+              </div>
+            </div>
+
+            {/* Example */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-2">💡 Example:</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <code className="bg-white px-2 py-1 rounded border text-xs">user_id</code>
+                  <ArrowRight size={14} className="text-gray-400" />
+                  <code className="bg-white px-2 py-1 rounded border text-xs">aff_sub</code>
+                  <span className="text-gray-600">Partner uses "aff_sub" for user tracking</span>
+                </div>
+                <div className="mt-2 p-2 bg-white rounded border">
+                  <p className="text-xs text-gray-600 mb-1">Generated URL will include:</p>
+                  <code className="text-xs text-gray-800">?aff_sub={'{aff_sub}'}&status={'{status}'}&payout={'{payout}'}</code>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -633,7 +890,7 @@ const Partners: React.FC = () => {
               Cancel
             </Button>
             <Button onClick={handleAddPartner}>
-              Generate URL
+              Generate Postback URL
             </Button>
           </DialogFooter>
         </DialogContent>

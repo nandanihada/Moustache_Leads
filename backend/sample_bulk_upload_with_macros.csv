@@ -1,0 +1,7 @@
+campaign_id,title,url,country,payout,payout_model,preview_url,image_url,description,platform,expiry,category,device,traffic_sources
+LEADADS-001,LeadAds Survey 1,https://leadads.go2jump.org/aff_c?offer_id=75999&aff_id=10843&aff_sub={user_id},US,$10.00,CPA,https://example.com/preview,,Complete survey and earn,LeadAds,2026-03-31,surveys,all,Social and content traffic allowed
+LEADADS-002,LeadAds Survey 2,https://leadads.go2jump.org/aff_c?offer_id=76000&aff_id=10843&aff_sub={user_id},US,$8.00,CPA,https://example.com/preview,,Quick opinion survey,LeadAds,2026-03-31,surveys,all,Social and content traffic allowed
+CPALEAD-001,CPALead App Install,https://cpalead.com/offer?id=12345&subid={user_id}&s2={click_id},US,$5.00,CPI,https://example.com/preview,,Install app and get rewarded,CPALead,2026-03-31,mobile,mobile,Mobile traffic only
+OFFERTORO-001,OfferToro Sign Up,https://offertoro.com/ifr/show/67890?user_id={user_id}&pub_id=456,GB,£3.50,CPL,https://example.com/preview,,Sign up for free trial,OfferToro,2026-03-31,finance,all,All traffic types allowed
+ADGATE-001,AdGate Survey,https://adgatemedia.com/wall/123?subid={user_id}&subid2={placement_id},CA,C$6.00,CPA,https://example.com/preview,,Canadian consumer survey,AdGateMedia,2026-03-31,surveys,all,Social and content traffic allowed
+GENERIC-001,Generic Partner Offer,https://partner.com/offer?oid=99999&uid={user_id}&cid={click_id}&ts={timestamp},US,$12.00,CPA,https://example.com/preview,,Multi-parameter tracking example,GenericPartner,2026-03-31,general,all,All traffic types allowed

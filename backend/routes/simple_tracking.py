@@ -7,6 +7,7 @@ Format: /track/{offer_id}?user_id={publisher_id}&sub1=...
 from flask import Blueprint, request, redirect, jsonify
 from models.analytics import Analytics
 from database import db_instance
+from services.macro_replacement_service import macro_service
 import logging
 from datetime import datetime
 import secrets
@@ -64,6 +65,26 @@ def track_offer_click(offer_id):
         # Generate unique click ID
         click_id = generate_click_id()
         
+        # 🔄 MACRO REPLACEMENT: Replace {user_id}, {click_id}, etc. in target URL
+        macro_context = {
+            'user_id': user_id or '',
+            'username': user_id or '',  # Use user_id as username fallback
+            'click_id': click_id,
+            'session_id': sub1 or '',  # Use sub1 as session_id
+            'placement_id': sub1 or '',  # Use sub1 as placement_id
+            'publisher_id': user_id or '',
+            'country': 'Unknown',  # Will be enhanced with geo-detection
+            'device_type': 'unknown',
+            'ip_address': ip_address,
+            'offer_id': offer_id,
+        }
+        
+        # Replace macros in target URL
+        if macro_service.has_macros(target_url):
+            logger.info(f"🔄 Replacing macros in URL for offer {offer_id}")
+            target_url = macro_service.replace_macros(target_url, macro_context)
+            logger.info(f"✅ Macros replaced. Final URL: {target_url}")
+        
         # Prepare click data for database
         click_data = {
             'click_id': click_id,
@@ -98,9 +119,9 @@ def track_offer_click(offer_id):
         else:
             logger.error("❌ Could not access clicks collection")
         
-        # Append click_id to target URL for conversion tracking
-        separator = '&' if '?' in target_url else '?'
-        redirect_url = f"{target_url}{separator}click_id={click_id}"
+        # NOTE: We already replaced macros above, so target_url is ready to use
+        # No need to append click_id since it's already in the URL if partner needs it
+        redirect_url = target_url
         
         logger.info(f"↗️  Redirecting to: {redirect_url}")
         

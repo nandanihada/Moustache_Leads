@@ -576,8 +576,14 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
             except (ValueError, TypeError):
                 errors.append(f"Invalid revenue_share_percent: {mapped_data['revenue_share_percent']} (must be numeric)")
         
-        # Validate URL format
+        # Validate URL format (allow macros like {user_id})
         if 'target_url' in mapped_data:
+            # First, temporarily replace macros with placeholder for validation
+            temp_url = str(mapped_data['target_url'])
+            import re as regex_module
+            # Replace all {macro} patterns with a valid placeholder
+            temp_url = regex_module.sub(r'\{[^}]+\}', 'MACRO_PLACEHOLDER', temp_url)
+            
             url_pattern = re.compile(
                 r'^https?://'
                 r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
@@ -586,7 +592,7 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
                 r'(?::\d+)?'
                 r'(?:/?|[/?]\S+)$', re.IGNORECASE)
             
-            if not url_pattern.match(str(mapped_data['target_url'])):
+            if not url_pattern.match(temp_url):
                 errors.append(f"Invalid URL format: {mapped_data['target_url']}")
         
         if errors:
