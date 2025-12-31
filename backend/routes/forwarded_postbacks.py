@@ -123,3 +123,53 @@ def get_forwarded_postback_details(postback_id):
     except Exception as e:
         print(f"Error fetching forwarded postback details: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
+
+@forwarded_postbacks_bp.route('/admin/forwarded-postbacks/bulk-delete', methods=['POST'])
+@token_required
+@admin_required
+def bulk_delete_forwarded_postbacks():
+    """Bulk delete forwarded postbacks"""
+    try:
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        data = request.get_json()
+        
+        if not data or 'log_ids' not in data:
+            return jsonify({'error': 'log_ids array is required'}), 400
+        
+        log_ids = data['log_ids']
+        
+        if not isinstance(log_ids, list) or len(log_ids) == 0:
+            return jsonify({'error': 'log_ids must be a non-empty array'}), 400
+        
+        forwarded_postbacks_collection = db_instance.get_collection('forwarded_postbacks')
+        if not forwarded_postbacks_collection:
+            return jsonify({'error': 'Database not available'}), 503
+        
+        # Convert string IDs to ObjectId
+        object_ids = []
+        for log_id in log_ids:
+            try:
+                object_ids.append(ObjectId(log_id))
+            except:
+                # If not a valid ObjectId, skip it
+                pass
+        
+        if len(object_ids) == 0:
+            return jsonify({'error': 'No valid log IDs provided'}), 400
+        
+        # Delete logs
+        result = forwarded_postbacks_collection.delete_many({'_id': {'$in': object_ids}})
+        
+        logger.info(f"✅ Bulk deleted {result.deleted_count} forwarded postback logs")
+        
+        return jsonify({
+            'message': f'Successfully deleted {result.deleted_count} forwarded postback logs',
+            'deleted_count': result.deleted_count
+        }), 200
+        
+    except Exception as e:
+        import logging
+        logging.error(f"Error bulk deleting forwarded postbacks: {str(e)}")
+        return jsonify({'error': str(e)}), 500

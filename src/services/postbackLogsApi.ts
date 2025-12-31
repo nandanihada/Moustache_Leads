@@ -113,6 +113,32 @@ class PostbackLogsApi {
       throw error.response?.data || error;
     }
   }
+
+  async bulkDeletePostbackLogs(logIds: string[]): Promise<{ message: string; deleted_count: number }> {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/postback-logs/bulk-delete`, 
+        { log_ids: logIds },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error bulk deleting postback logs:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async bulkDeleteForwardedLogs(logIds: string[]): Promise<{ message: string; deleted_count: number }> {
+    try {
+      const response = await axios.post(`${API_BASE_URL}/partner-distribution-logs/bulk-delete`, 
+        { log_ids: logIds },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error bulk deleting forwarded logs:', error);
+      throw error.response?.data || error;
+    }
+  }
 }
 
 export const postbackLogsApi = new PostbackLogsApi();

@@ -22,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { postbackLogsApi, PostbackLog, PostbackStats } from '@/services/postbackLogsApi';
 import { partnerApi } from '@/services/partnerApi';
-import { RefreshCw, Filter, CheckCircle, XCircle, Loader2, Eye, RotateCcw } from 'lucide-react';
+import { RefreshCw, Filter, CheckCircle, XCircle, Loader2, Eye, RotateCcw, Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +51,11 @@ const PostbackLogs: React.FC = () => {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [activeTab, setActiveTab] = useState('received');
+  
+  // Bulk selection state
+  const [selectedLogs, setSelectedLogs] = useState<string[]>([]);
+  const [selectedForwardedLogs, setSelectedForwardedLogs] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Filters
   const [filters, setFilters] = useState({
@@ -179,6 +184,107 @@ const PostbackLogs: React.FC = () => {
     });
     setPage(1);
     setForwardedPage(1);
+  };
+
+  const handleSelectLog = (logId: string) => {
+    setSelectedLogs(prev =>
+      prev.includes(logId)
+        ? prev.filter(id => id !== logId)
+        : [...prev, logId]
+    );
+  };
+
+  const handleSelectAllLogs = () => {
+    if (selectedLogs.length === logs.length) {
+      setSelectedLogs([]);
+    } else {
+      setSelectedLogs(logs.map(log => log.log_id));
+    }
+  };
+
+  const handleSelectForwardedLog = (logId: string) => {
+    setSelectedForwardedLogs(prev =>
+      prev.includes(logId)
+        ? prev.filter(id => id !== logId)
+        : [...prev, logId]
+    );
+  };
+
+  const handleSelectAllForwardedLogs = () => {
+    if (selectedForwardedLogs.length === forwardedLogs.length) {
+      setSelectedForwardedLogs([]);
+    } else {
+      setSelectedForwardedLogs(forwardedLogs.map(log => log._id));
+    }
+  };
+
+  const handleBulkDeleteReceivedLogs = async () => {
+    if (selectedLogs.length === 0) {
+      toast({
+        title: 'No Selection',
+        description: 'Please select logs to delete',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedLogs.length} postback log(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const result = await postbackLogsApi.bulkDeletePostbackLogs(selectedLogs);
+      toast({
+        title: 'Success',
+        description: result.message
+      });
+      setSelectedLogs([]);
+      fetchLogs();
+      fetchStats();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.error || 'Failed to delete logs',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleBulkDeleteForwardedLogs = async () => {
+    if (selectedForwardedLogs.length === 0) {
+      toast({
+        title: 'No Selection',
+        description: 'Please select logs to delete',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedForwardedLogs.length} forwarded log(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const result = await postbackLogsApi.bulkDeleteForwardedLogs(selectedForwardedLogs);
+      toast({
+        title: 'Success',
+        description: result.message
+      });
+      setSelectedForwardedLogs([]);
+      fetchForwardedLogs();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.error || 'Failed to delete logs',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // useEffects - run after functions are defined
@@ -370,8 +476,26 @@ const PostbackLogs: React.FC = () => {
       {/* Logs Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Postback Logs</CardTitle>
-          <CardDescription>Detailed postback delivery logs</CardDescription>
+          <div className="flex justify-between items-center">
+            <div>
+              <CardTitle>Postback Logs</CardTitle>
+              <CardDescription>Detailed postback delivery logs</CardDescription>
+            </div>
+            {selectedLogs.length > 0 && (
+              <Button
+                variant="destructive"
+                onClick={handleBulkDeleteReceivedLogs}
+                disabled={isDeleting}
+              >
+                {isDeleting ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4 mr-2" />
+                )}
+                Delete Selected ({selectedLogs.length})
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -383,6 +507,14 @@ const PostbackLogs: React.FC = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-12">
+                      <input
+                        type="checkbox"
+                        checked={logs.length > 0 && selectedLogs.length === logs.length}
+                        onChange={handleSelectAllLogs}
+                        className="rounded border-gray-300"
+                      />
+                    </TableHead>
                     <TableHead>Timestamp</TableHead>
                     <TableHead>Partner</TableHead>
                     <TableHead>Offer ID</TableHead>
@@ -396,13 +528,21 @@ const PostbackLogs: React.FC = () => {
                 <TableBody>
                   {logs.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-gray-500">
+                      <TableCell colSpan={9} className="text-center text-gray-500">
                         No postback logs found
                       </TableCell>
                     </TableRow>
                   ) : (
                     logs.map((log) => (
                       <TableRow key={log.log_id}>
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={selectedLogs.includes(log.log_id)}
+                            onChange={() => handleSelectLog(log.log_id)}
+                            className="rounded border-gray-300"
+                          />
+                        </TableCell>
                         <TableCell>
                           {new Date(log.sent_at).toLocaleString()}
                         </TableCell>
@@ -473,8 +613,26 @@ const PostbackLogs: React.FC = () => {
         <TabsContent value="forwarded">
           <Card>
             <CardHeader>
-              <CardTitle>Forwarded Postbacks</CardTitle>
-              <CardDescription>Postbacks sent to your partners</CardDescription>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Forwarded Postbacks</CardTitle>
+                  <CardDescription>Postbacks sent to your partners</CardDescription>
+                </div>
+                {selectedForwardedLogs.length > 0 && (
+                  <Button
+                    variant="destructive"
+                    onClick={handleBulkDeleteForwardedLogs}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4 mr-2" />
+                    )}
+                    Delete Selected ({selectedForwardedLogs.length})
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {forwardedLoading ? (
@@ -490,6 +648,14 @@ const PostbackLogs: React.FC = () => {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead className="w-12">
+                          <input
+                            type="checkbox"
+                            checked={forwardedLogs.length > 0 && selectedForwardedLogs.length === forwardedLogs.length}
+                            onChange={handleSelectAllForwardedLogs}
+                            className="rounded border-gray-300"
+                          />
+                        </TableHead>
                         <TableHead>Partner</TableHead>
                         <TableHead>Method</TableHead>
                         <TableHead>Status</TableHead>
@@ -502,6 +668,14 @@ const PostbackLogs: React.FC = () => {
                     <TableBody>
                       {forwardedLogs.map((log: any) => (
                         <TableRow key={log._id}>
+                          <TableCell>
+                            <input
+                              type="checkbox"
+                              checked={selectedForwardedLogs.includes(log._id)}
+                              onChange={() => handleSelectForwardedLog(log._id)}
+                              className="rounded border-gray-300"
+                            />
+                          </TableCell>
                           <TableCell>
                             <div>
                               <div className="font-medium">{log.partner_name}</div>

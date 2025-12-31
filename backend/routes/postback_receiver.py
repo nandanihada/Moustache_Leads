@@ -855,6 +855,54 @@ def get_received_postback_detail(log_id):
         logger.error(f"Error fetching postback detail: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+@postback_receiver_bp.route('/api/admin/received-postbacks/bulk-delete', methods=['POST'])
+@token_required
+@admin_required
+def bulk_delete_received_postbacks():
+    """
+    Bulk delete received postbacks
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'log_ids' not in data:
+            return jsonify({'error': 'log_ids array is required'}), 400
+        
+        log_ids = data['log_ids']
+        
+        if not isinstance(log_ids, list) or len(log_ids) == 0:
+            return jsonify({'error': 'log_ids must be a non-empty array'}), 400
+        
+        received_postbacks_collection = get_collection('received_postbacks')
+        if received_postbacks_collection is None:
+            return jsonify({'error': 'Database not connected'}), 503
+        
+        # Convert string IDs to ObjectId
+        object_ids = []
+        for log_id in log_ids:
+            try:
+                object_ids.append(ObjectId(log_id))
+            except:
+                # If not a valid ObjectId, skip it
+                pass
+        
+        if len(object_ids) == 0:
+            return jsonify({'error': 'No valid log IDs provided'}), 400
+        
+        # Delete logs
+        result = received_postbacks_collection.delete_many({'_id': {'$in': object_ids}})
+        
+        logger.info(f"✅ Bulk deleted {result.deleted_count} received postback logs")
+        
+        return jsonify({
+            'message': f'Successfully deleted {result.deleted_count} received postback logs',
+            'deleted_count': result.deleted_count
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error bulk deleting received postbacks: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 @postback_receiver_bp.route('/api/admin/postback-receiver/generate-quick', methods=['POST'])
 @token_required
 @admin_required

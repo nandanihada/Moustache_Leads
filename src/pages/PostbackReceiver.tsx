@@ -40,7 +40,8 @@ import {
   Send,
   Key,
   Plus,
-  TestTube
+  TestTube,
+  Trash2
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -58,6 +59,19 @@ const PostbackReceiver: React.FC = () => {
   const [isForwardedDetailModalOpen, setIsForwardedDetailModalOpen] = useState(false);
   const [isGenerateModalOpen, setIsGenerateModalOpen] = useState(false);
   const [generatedUrl, setGeneratedUrl] = useState('');
+
+  // Pagination state
+  const [receivedPage, setReceivedPage] = useState(1);
+  const [receivedTotalPages, setReceivedTotalPages] = useState(1);
+  const [receivedTotal, setReceivedTotal] = useState(0);
+  const [forwardedPage, setForwardedPage] = useState(1);
+  const [forwardedTotalPages, setForwardedTotalPages] = useState(1);
+  const [forwardedTotal, setForwardedTotal] = useState(0);
+
+  // Bulk selection state
+  const [selectedReceivedIds, setSelectedReceivedIds] = useState<string[]>([]);
+  const [selectedForwardedIds, setSelectedForwardedIds] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Quick postback generator state
   const [isQuickGenerateModalOpen, setIsQuickGenerateModalOpen] = useState(false);
@@ -91,19 +105,23 @@ const PostbackReceiver: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [receivedPage, forwardedPage]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       const [partnersData, postbacksData, forwardedData] = await Promise.all([
         partnerApi.getPartners(),
-        postbackReceiverApi.getReceivedPostbacks({ limit: 50 }),
-        forwardedPostbackApi.getForwardedPostbacks({ limit: 50 })
+        postbackReceiverApi.getReceivedPostbacks({ limit: 20, offset: (receivedPage - 1) * 20 }),
+        forwardedPostbackApi.getForwardedPostbacks({ limit: 20, offset: (forwardedPage - 1) * 20 })
       ]);
       setPartners(partnersData.partners);
       setReceivedPostbacks(postbacksData.logs);
+      setReceivedTotal(postbacksData.total);
+      setReceivedTotalPages(Math.ceil(postbacksData.total / 20));
       setForwardedPostbacks(forwardedData.logs);
+      setForwardedTotal(forwardedData.total);
+      setForwardedTotalPages(Math.ceil(forwardedData.total / 20));
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -270,6 +288,104 @@ const PostbackReceiver: React.FC = () => {
     setQuickGeneratedUrl(null);
     setTestParams({});
     setIsQuickUrlResultModalOpen(false);
+  };
+
+  // Bulk selection handlers
+  const handleSelectReceivedPostback = (id: string) => {
+    setSelectedReceivedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllReceivedPostbacks = () => {
+    if (selectedReceivedIds.length === receivedPostbacks.length) {
+      setSelectedReceivedIds([]);
+    } else {
+      setSelectedReceivedIds(receivedPostbacks.map(p => p._id));
+    }
+  };
+
+  const handleSelectForwardedPostback = (id: string) => {
+    setSelectedForwardedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllForwardedPostbacks = () => {
+    if (selectedForwardedIds.length === forwardedPostbacks.length) {
+      setSelectedForwardedIds([]);
+    } else {
+      setSelectedForwardedIds(forwardedPostbacks.map(p => p._id));
+    }
+  };
+
+  // Bulk delete handlers
+  const handleBulkDeleteReceivedPostbacks = async () => {
+    if (selectedReceivedIds.length === 0) {
+      toast({
+        title: 'No Selection',
+        description: 'Please select postbacks to delete',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedReceivedIds.length} received postback(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const result = await postbackReceiverApi.bulkDeleteReceivedPostbacks(selectedReceivedIds);
+      toast({
+        title: 'Success',
+        description: result.message
+      });
+      setSelectedReceivedIds([]);
+      loadData();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete postbacks',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleBulkDeleteForwardedPostbacks = async () => {
+    if (selectedForwardedIds.length === 0) {
+      toast({
+        title: 'No Selection',
+        description: 'Please select postbacks to delete',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedForwardedIds.length} forwarded postback(s)? This action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsDeleting(true);
+      const result = await forwardedPostbackApi.bulkDeleteForwardedPostbacks(selectedForwardedIds);
+      toast({
+        title: 'Success',
+        description: result.message
+      });
+      setSelectedForwardedIds([]);
+      loadData();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete postbacks',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -555,15 +671,32 @@ const PostbackReceiver: React.FC = () => {
             <CardHeader>
               <div className="flex justify-between items-center">
                 <div>
-                  <CardTitle>Received Postbacks</CardTitle>
+                  <CardTitle>Received Postbacks ({receivedTotal})</CardTitle>
                   <CardDescription>
                     View all incoming postback requests
                   </CardDescription>
                 </div>
-                <Button onClick={loadData} variant="outline" size="sm">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  {selectedReceivedIds.length > 0 && (
+                    <Button
+                      variant="destructive"
+                      onClick={handleBulkDeleteReceivedPostbacks}
+                      disabled={isDeleting}
+                      size="sm"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4 mr-2" />
+                      )}
+                      Delete ({selectedReceivedIds.length})
+                    </Button>
+                  )}
+                  <Button onClick={loadData} variant="outline" size="sm">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -572,63 +705,106 @@ const PostbackReceiver: React.FC = () => {
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Partner</TableHead>
-                      <TableHead>Method</TableHead>
-                      <TableHead>Parameters</TableHead>
-                      <TableHead>IP Address</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {receivedPostbacks.length === 0 ? (
+                <>
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-gray-500">
-                          No postbacks received yet
-                        </TableCell>
+                        <TableHead className="w-12">
+                          <input
+                            type="checkbox"
+                            checked={receivedPostbacks.length > 0 && selectedReceivedIds.length === receivedPostbacks.length}
+                            onChange={handleSelectAllReceivedPostbacks}
+                            className="rounded border-gray-300"
+                          />
+                        </TableHead>
+                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Partner</TableHead>
+                        <TableHead>Method</TableHead>
+                        <TableHead>Parameters</TableHead>
+                        <TableHead>IP Address</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    ) : (
-                      receivedPostbacks.map((postback) => (
-                        <TableRow key={postback._id}>
-                          <TableCell className="text-sm">
-                            {formatTimestamp(postback.timestamp)}
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <div className="font-medium">{postback.partner_name}</div>
-                              <div className="text-xs text-gray-500">{postback.partner_id}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={postback.method === 'GET' ? 'default' : 'secondary'}>
-                              {postback.method}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-xs">
-                              {Object.keys(postback.query_params).length} params
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {postback.ip_address}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => viewPostbackDetail(postback)}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                    </TableHeader>
+                    <TableBody>
+                      {receivedPostbacks.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-gray-500">
+                            No postbacks received yet
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        receivedPostbacks.map((postback) => (
+                          <TableRow key={postback._id}>
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                checked={selectedReceivedIds.includes(postback._id)}
+                                onChange={() => handleSelectReceivedPostback(postback._id)}
+                                className="rounded border-gray-300"
+                              />
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {formatTimestamp(postback.timestamp)}
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{postback.partner_name}</div>
+                                <div className="text-xs text-gray-500">{postback.partner_id}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={postback.method === 'GET' ? 'default' : 'secondary'}>
+                                {postback.method}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-xs">
+                                {Object.keys(postback.query_params).length} params
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {postback.ip_address}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => viewPostbackDetail(postback)}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+
+                  {/* Pagination */}
+                  {receivedTotalPages > 1 && (
+                    <div className="flex justify-center items-center gap-2 mt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setReceivedPage(Math.max(1, receivedPage - 1))}
+                        disabled={receivedPage === 1}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm">
+                        Page {receivedPage} of {receivedTotalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setReceivedPage(Math.min(receivedTotalPages, receivedPage + 1))}
+                        disabled={receivedPage === receivedTotalPages}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -640,15 +816,32 @@ const PostbackReceiver: React.FC = () => {
             <CardHeader>
               <div className="flex justify-between items-center">
                 <div>
-                  <CardTitle>Forwarded Postbacks</CardTitle>
+                  <CardTitle>Forwarded Postbacks ({forwardedTotal})</CardTitle>
                   <CardDescription>
                     Postbacks forwarded to downward partners with enriched data (username + points)
                   </CardDescription>
                 </div>
-                <Button onClick={loadData} variant="outline" size="sm">
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh
-                </Button>
+                <div className="flex gap-2">
+                  {selectedForwardedIds.length > 0 && (
+                    <Button
+                      variant="destructive"
+                      onClick={handleBulkDeleteForwardedPostbacks}
+                      disabled={isDeleting}
+                      size="sm"
+                    >
+                      {isDeleting ? (
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Trash2 className="h-4 w-4 mr-2" />
+                      )}
+                      Delete ({selectedForwardedIds.length})
+                    </Button>
+                  )}
+                  <Button onClick={loadData} variant="outline" size="sm">
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -657,76 +850,119 @@ const PostbackReceiver: React.FC = () => {
                   <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Timestamp</TableHead>
-                      <TableHead>Publisher</TableHead>
-                      <TableHead>Username</TableHead>
-                      <TableHead>Points</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {forwardedPostbacks.length === 0 ? (
+                <>
+                  <Table>
+                    <TableHeader>
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-gray-500">
-                          No forwarded postbacks yet
-                        </TableCell>
+                        <TableHead className="w-12">
+                          <input
+                            type="checkbox"
+                            checked={forwardedPostbacks.length > 0 && selectedForwardedIds.length === forwardedPostbacks.length}
+                            onChange={handleSelectAllForwardedPostbacks}
+                            className="rounded border-gray-300"
+                          />
+                        </TableHead>
+                        <TableHead>Timestamp</TableHead>
+                        <TableHead>Publisher</TableHead>
+                        <TableHead>Username</TableHead>
+                        <TableHead>Points</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
-                    ) : (
-                      forwardedPostbacks.map((postback) => (
-                        <TableRow key={postback._id}>
-                          <TableCell className="text-sm">
-                            {formatTimestamp(postback.timestamp)}
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <div className="font-medium">{postback.publisher_name}</div>
-                              <div className="text-xs text-gray-500">{postback.publisher_id}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <code className="text-xs bg-gray-100 px-2 py-1 rounded">
-                              {postback.username}
-                            </code>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="secondary">
-                              {postback.points} pts
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {postback.forward_status === 'success' ? (
-                              <Badge variant="default" className="bg-green-500">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Success
-                              </Badge>
-                            ) : (
-                              <Badge variant="destructive">
-                                <XCircle className="h-3 w-3 mr-1" />
-                                Failed
-                              </Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedForwardedPostback(postback);
-                                setIsForwardedDetailModalOpen(true);
-                              }}
-                            >
-                              <Eye className="h-4 w-4" />
-                            </Button>
+                    </TableHeader>
+                    <TableBody>
+                      {forwardedPostbacks.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center text-gray-500">
+                            No forwarded postbacks yet
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        forwardedPostbacks.map((postback) => (
+                          <TableRow key={postback._id}>
+                            <TableCell>
+                              <input
+                                type="checkbox"
+                                checked={selectedForwardedIds.includes(postback._id)}
+                                onChange={() => handleSelectForwardedPostback(postback._id)}
+                                className="rounded border-gray-300"
+                              />
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {formatTimestamp(postback.timestamp)}
+                            </TableCell>
+                            <TableCell>
+                              <div>
+                                <div className="font-medium">{postback.publisher_name}</div>
+                                <div className="text-xs text-gray-500">{postback.publisher_id}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <code className="text-xs bg-gray-100 px-2 py-1 rounded">
+                                {postback.username}
+                              </code>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="secondary">
+                                {postback.points} pts
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              {postback.forward_status === 'success' ? (
+                                <Badge variant="default" className="bg-green-500">
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                  Success
+                                </Badge>
+                              ) : (
+                                <Badge variant="destructive">
+                                  <XCircle className="h-3 w-3 mr-1" />
+                                  Failed
+                                </Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedForwardedPostback(postback);
+                                  setIsForwardedDetailModalOpen(true);
+                                }}
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+
+                  {/* Pagination */}
+                  {forwardedTotalPages > 1 && (
+                    <div className="flex justify-center items-center gap-2 mt-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setForwardedPage(Math.max(1, forwardedPage - 1))}
+                        disabled={forwardedPage === 1}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm">
+                        Page {forwardedPage} of {forwardedTotalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setForwardedPage(Math.min(forwardedTotalPages, forwardedPage + 1))}
+                        disabled={forwardedPage === forwardedTotalPages}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>

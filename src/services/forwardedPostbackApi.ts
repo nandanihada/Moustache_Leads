@@ -51,4 +51,15 @@ export const forwardedPostbackApi = {
     );
     return response.data;
   },
+
+  /**
+   * Bulk delete forwarded postbacks
+   */
+  async bulkDeleteForwardedPostbacks(logIds: string[]): Promise<{ message: string; deleted_count: number }> {
+    const response = await api.post<{ message: string; deleted_count: number }>(
+      `/admin/forwarded-postbacks/bulk-delete`,
+      { log_ids: logIds }
+    );
+    return response.data;
+  },
 };

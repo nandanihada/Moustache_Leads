@@ -275,3 +275,80 @@ def get_postback_log_details(log_id):
     except Exception as e:
         logger.error(f"Error fetching postback log details: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@postback_logs_bp.route('/postback-logs/bulk-delete', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('postback-logs')
+def bulk_delete_postback_logs():
+    """Bulk delete postback logs"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'log_ids' not in data:
+            return jsonify({'error': 'log_ids array is required'}), 400
+        
+        log_ids = data['log_ids']
+        
+        if not isinstance(log_ids, list) or len(log_ids) == 0:
+            return jsonify({'error': 'log_ids must be a non-empty array'}), 400
+        
+        postback_logs_collection = db_instance.get_collection('postback_logs')
+        
+        # Delete logs
+        result = postback_logs_collection.delete_many({'log_id': {'$in': log_ids}})
+        
+        logger.info(f"✅ Bulk deleted {result.deleted_count} postback logs")
+        
+        return jsonify({
+            'message': f'Successfully deleted {result.deleted_count} postback logs',
+            'deleted_count': result.deleted_count
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error bulk deleting postback logs: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@postback_logs_bp.route('/partner-distribution-logs/bulk-delete', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('postback-logs')
+def bulk_delete_forwarded_logs():
+    """Bulk delete forwarded postback logs"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'log_ids' not in data:
+            return jsonify({'error': 'log_ids array is required'}), 400
+        
+        log_ids = data['log_ids']
+        
+        if not isinstance(log_ids, list) or len(log_ids) == 0:
+            return jsonify({'error': 'log_ids must be a non-empty array'}), 400
+        
+        partner_logs_collection = db_instance.get_collection('partner_postback_logs')
+        
+        # Convert string IDs to ObjectId
+        from bson import ObjectId
+        object_ids = []
+        for log_id in log_ids:
+            try:
+                object_ids.append(ObjectId(log_id))
+            except:
+                # If not a valid ObjectId, skip it
+                pass
+        
+        if len(object_ids) == 0:
+            return jsonify({'error': 'No valid log IDs provided'}), 400
+        
+        # Delete logs
+        result = partner_logs_collection.delete_many({'_id': {'$in': object_ids}})
+        
+        logger.info(f"✅ Bulk deleted {result.deleted_count} forwarded postback logs")
+        
+        return jsonify({
+            'message': f'Successfully deleted {result.deleted_count} forwarded postback logs',
+            'deleted_count': result.deleted_count
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error bulk deleting forwarded logs: {str(e)}")
+        return jsonify({'error': str(e)}), 500

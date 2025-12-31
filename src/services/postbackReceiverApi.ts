@@ -44,6 +44,7 @@ class PostbackReceiverApi {
     unique_key?: string;
     limit?: number;
     skip?: number;
+    offset?: number;
   }): Promise<{ logs: ReceivedPostback[]; total: number }> {
     try {
       const response = await axios.get(`${API_BASE_URL}/received-postbacks`, {
@@ -64,6 +65,19 @@ class PostbackReceiverApi {
       return response.data;
     } catch (error: any) {
       throw new Error(error.response?.data?.error || 'Failed to fetch postback detail');
+    }
+  }
+
+  async bulkDeleteReceivedPostbacks(logIds: string[]): Promise<{ message: string; deleted_count: number }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/received-postbacks/bulk-delete`,
+        { log_ids: logIds },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to delete postbacks');
     }
   }
 
