@@ -38,7 +38,26 @@ def create_partner():
         # Generate unique postback key for this partner
         import secrets
         unique_key = secrets.token_urlsafe(24)
-        postback_receiver_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+        
+        # Get parameter mappings from request
+        parameter_mapping = data.get('parameter_mapping', {})
+        
+        # Build postback URL with parameters
+        base_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+        
+        # Add parameters to URL if mappings exist
+        if parameter_mapping:
+            params = []
+            for their_param, our_param in parameter_mapping.items():
+                # Use their parameter name in the URL with a macro
+                params.append(f"{their_param}={{{their_param}}}")
+            
+            if params:
+                postback_receiver_url = f"{base_url}?{'&'.join(params)}"
+            else:
+                postback_receiver_url = base_url
+        else:
+            postback_receiver_url = base_url
         
         # Create partner document
         partner_doc = {
@@ -50,6 +69,7 @@ def create_partner():
             'description': data.get('description', '').strip(),
             'unique_postback_key': unique_key,
             'postback_receiver_url': postback_receiver_url,
+            'parameter_mapping': parameter_mapping,  # Store the mapping
             'created_by': str(request.current_user['_id']),
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
@@ -151,10 +171,34 @@ def update_partner(partner_id):
         }
         
         # Update allowed fields
-        allowed_fields = ['partner_name', 'postback_url', 'method', 'status', 'description']
+        allowed_fields = ['partner_name', 'postback_url', 'method', 'status', 'description', 'parameter_mapping']
         for field in allowed_fields:
             if field in data:
-                update_doc[field] = data[field].strip() if isinstance(data[field], str) else data[field]
+                if field == 'parameter_mapping':
+                    update_doc[field] = data[field]
+                else:
+                    update_doc[field] = data[field].strip() if isinstance(data[field], str) else data[field]
+        
+        # If parameter_mapping is updated, regenerate the postback_receiver_url
+        if 'parameter_mapping' in data:
+            parameter_mapping = data['parameter_mapping']
+            unique_key = partner.get('unique_postback_key')
+            
+            if unique_key:
+                base_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+                
+                # Add parameters to URL if mappings exist
+                if parameter_mapping:
+                    params = []
+                    for their_param, our_param in parameter_mapping.items():
+                        params.append(f"{their_param}={{{their_param}}}")
+                    
+                    if params:
+                        update_doc['postback_receiver_url'] = f"{base_url}?{'&'.join(params)}"
+                    else:
+                        update_doc['postback_receiver_url'] = base_url
+                else:
+                    update_doc['postback_receiver_url'] = base_url
         
         # Update in database
         partners_collection.update_one(

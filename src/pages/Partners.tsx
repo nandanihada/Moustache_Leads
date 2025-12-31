@@ -193,12 +193,20 @@ const Partners: React.FC = () => {
         return;
       }
 
+      // Build parameter mapping object from enabled mappings
+      const paramMapping: Record<string, string> = {};
+      parameterMappings
+        .filter(m => m.enabled && m.ourParam && m.theirParam)
+        .forEach(m => {
+          paramMapping[m.theirParam] = m.ourParam;
+        });
+
       // We're generating a postback URL FOR the partner, not receiving one FROM them
-      // So we set a placeholder - the backend will generate the actual unique URL
       const partnerData = {
         ...formData,
         postback_url: 'https://placeholder.com', // Placeholder - backend generates real URL
-        method: 'GET' as 'GET' | 'POST' // Default method
+        method: 'GET' as 'GET' | 'POST', // Default method
+        parameter_mapping: paramMapping // Send parameter mappings to backend
       };
 
       await partnerApi.createPartner(partnerData);
@@ -222,7 +230,20 @@ const Partners: React.FC = () => {
     if (!selectedPartner) return;
 
     try {
-      await partnerApi.updatePartner(selectedPartner.partner_id, formData);
+      // Build parameter mapping object from enabled mappings
+      const paramMapping: Record<string, string> = {};
+      parameterMappings
+        .filter(m => m.enabled && m.ourParam && m.theirParam)
+        .forEach(m => {
+          paramMapping[m.theirParam] = m.ourParam;
+        });
+
+      const updateData = {
+        ...formData,
+        parameter_mapping: paramMapping
+      };
+
+      await partnerApi.updatePartner(selectedPartner.partner_id, updateData);
       toast({
         title: 'Success',
         description: 'Partner updated successfully'
@@ -290,6 +311,19 @@ const Partners: React.FC = () => {
       status: partner.status,
       description: partner.description || ''
     });
+    
+    // Load parameter mappings if they exist
+    if (partner.parameter_mapping) {
+      const mappings: ParameterMapping[] = Object.entries(partner.parameter_mapping).map(([theirParam, ourParam]) => ({
+        ourParam: ourParam as string,
+        theirParam: theirParam,
+        enabled: true
+      }));
+      setParameterMappings(mappings);
+    } else {
+      setParameterMappings(PARTNER_TEMPLATES['Custom']);
+    }
+    
     setIsEditModalOpen(true);
   };
 
@@ -427,6 +461,7 @@ const Partners: React.FC = () => {
         <TabsList>
           <TabsTrigger value="upward">Upward Partners</TabsTrigger>
           <TabsTrigger value="downward">Downward Partners (Users)</TabsTrigger>
+          <TabsTrigger value="docs">Docs</TabsTrigger>
         </TabsList>
 
         {/* Upward Partners Tab */}
@@ -636,6 +671,468 @@ const Partners: React.FC = () => {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* Documentation Tab */}
+        <TabsContent value="docs" className="space-y-6">
+          <div>
+            <h2 className="text-2xl font-semibold mb-2">Postback Parameter Documentation</h2>
+            <p className="text-gray-600">Complete reference for all parameters accepted in postback URLs</p>
+          </div>
+
+          {/* URL Format Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Postback URL Format</CardTitle>
+              <CardDescription>How to structure your postback URLs</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
+                <p className="text-sm font-medium text-gray-700 mb-2">Base URL Format:</p>
+                <code className="text-sm bg-white px-3 py-2 rounded border border-gray-200 block break-all">
+                  https://moustacheleads-backend.onrender.com/postback/{'<UNIQUE_KEY>'}
+                </code>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-300 rounded-lg p-4">
+                <p className="text-sm font-medium text-blue-900 mb-2">Complete URL with Parameters:</p>
+                <code className="text-xs bg-white px-3 py-2 rounded border border-blue-200 block break-all">
+                  https://moustacheleads-backend.onrender.com/postback/{'<UNIQUE_KEY>'}?user_id={'{aff_sub}'}&payout={'{payout}'}&status={'{status}'}
+                </code>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
+                <p className="text-sm font-semibold text-yellow-900 mb-2">⚠️ Important:</p>
+                <ul className="text-sm text-yellow-800 space-y-1 list-disc list-inside">
+                  <li>Replace {'<UNIQUE_KEY>'} with your partner's unique postback key</li>
+                  <li>Use THEIR parameter names in the URL (e.g., aff_sub, subid)</li>
+                  <li>Wrap parameter values in curly braces as macros: {'{parameter_name}'}</li>
+                  <li>Partner will replace macros with actual values when sending postbacks</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Parameter Mapping Explanation */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Understanding Parameter Mapping</CardTitle>
+              <CardDescription>How OUR parameters map to THEIR parameters</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-green-50 border border-green-300 rounded-lg p-4">
+                  <h4 className="font-semibold text-green-900 mb-2">OUR Parameters (Left Side)</h4>
+                  <p className="text-sm text-green-800">
+                    These are the field names we use internally in our database. Examples: user_id, click_id, payout, status
+                  </p>
+                </div>
+                <div className="bg-purple-50 border border-purple-300 rounded-lg p-4">
+                  <h4 className="font-semibold text-purple-900 mb-2">THEIR Parameters (Right Side)</h4>
+                  <p className="text-sm text-purple-800">
+                    These are the parameter names the partner uses in their system. Examples: aff_sub, subid, s2, amount
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-r from-green-50 to-purple-50 border border-gray-300 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-900 mb-3">Example Mapping Flow:</h4>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="bg-green-100 px-3 py-1 rounded font-mono text-green-900">user_id</span>
+                    <ArrowRight className="text-gray-500" size={20} />
+                    <span className="bg-purple-100 px-3 py-1 rounded font-mono text-purple-900">aff_sub</span>
+                    <span className="text-gray-600 ml-2">LeadAds uses "aff_sub" for user tracking</span>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded p-3 space-y-2">
+                    <p className="text-xs text-gray-600">Generated URL includes:</p>
+                    <code className="text-xs block">?aff_sub={'{aff_sub}'}</code>
+                    <p className="text-xs text-gray-600 mt-2">When LeadAds sends postback:</p>
+                    <code className="text-xs block">?aff_sub=507f1f77bcf86cd799439011</code>
+                    <p className="text-xs text-green-700 mt-2 font-medium">✅ Our system maps aff_sub → user_id and credits that user!</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* All Available Parameters */}
+          <Card>
+            <CardHeader>
+              <CardTitle>All Available Parameters</CardTitle>
+              <CardDescription>Complete list of parameters we accept and their usage</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-6">
+                {/* Core Parameters */}
+                <div>
+                  <h4 className="font-semibold text-lg mb-3 flex items-center gap-2">
+                    <Badge variant="default">Core Parameters</Badge>
+                  </h4>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Parameter</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Example Value</TableHead>
+                        <TableHead>Required</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">user_id</code></TableCell>
+                        <TableCell>User MongoDB ID - identifies which user to credit</TableCell>
+                        <TableCell><code className="text-xs">507f1f77bcf86cd799439011</code></TableCell>
+                        <TableCell><Badge variant="destructive">Required</Badge></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">click_id</code></TableCell>
+                        <TableCell>Unique click identifier for tracking</TableCell>
+                        <TableCell><code className="text-xs">CLK-ABC123</code></TableCell>
+                        <TableCell><Badge variant="outline">Optional</Badge></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">payout</code></TableCell>
+                        <TableCell>Conversion payout amount (decimal)</TableCell>
+                        <TableCell><code className="text-xs">10.50</code></TableCell>
+                        <TableCell><Badge variant="outline">Optional</Badge></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">status</code></TableCell>
+                        <TableCell>Conversion status</TableCell>
+                        <TableCell><code className="text-xs">approved, pending, rejected</code></TableCell>
+                        <TableCell><Badge variant="outline">Optional</Badge></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Transaction Parameters */}
+                <div>
+                  <h4 className="font-semibold text-lg mb-3 flex items-center gap-2">
+                    <Badge variant="secondary">Transaction Parameters</Badge>
+                  </h4>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Parameter</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Example Value</TableHead>
+                        <TableHead>Usage</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">transaction_id</code></TableCell>
+                        <TableCell>Transaction identifier from partner</TableCell>
+                        <TableCell><code className="text-xs">TXN-XYZ789</code></TableCell>
+                        <TableCell>Tracking & reconciliation</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">conversion_id</code></TableCell>
+                        <TableCell>Conversion identifier</TableCell>
+                        <TableCell><code className="text-xs">CONV-456</code></TableCell>
+                        <TableCell>Unique conversion tracking</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">offer_id</code></TableCell>
+                        <TableCell>Offer identifier</TableCell>
+                        <TableCell><code className="text-xs">OFFER-123</code></TableCell>
+                        <TableCell>Match to specific offer</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">currency</code></TableCell>
+                        <TableCell>Currency code (ISO 4217)</TableCell>
+                        <TableCell><code className="text-xs">USD, EUR, GBP</code></TableCell>
+                        <TableCell>Multi-currency support</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Tracking Parameters */}
+                <div>
+                  <h4 className="font-semibold text-lg mb-3 flex items-center gap-2">
+                    <Badge variant="outline">Tracking Parameters</Badge>
+                  </h4>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Parameter</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Example Value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">sub_id</code></TableCell>
+                        <TableCell>Sub-affiliate ID for tracking</TableCell>
+                        <TableCell><code className="text-xs">SUB-001</code></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">campaign_id</code></TableCell>
+                        <TableCell>Campaign identifier</TableCell>
+                        <TableCell><code className="text-xs">CAMP-789</code></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">affiliate_id</code></TableCell>
+                        <TableCell>Affiliate identifier</TableCell>
+                        <TableCell><code className="text-xs">AFF-456</code></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Additional Info Parameters */}
+                <div>
+                  <h4 className="font-semibold text-lg mb-3 flex items-center gap-2">
+                    <Badge variant="outline">Additional Info</Badge>
+                  </h4>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Parameter</TableHead>
+                        <TableHead>Description</TableHead>
+                        <TableHead>Example Value</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">country</code></TableCell>
+                        <TableCell>User's country code</TableCell>
+                        <TableCell><code className="text-xs">US, UK, CA</code></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">device_id</code></TableCell>
+                        <TableCell>Device identifier</TableCell>
+                        <TableCell><code className="text-xs">DEV-ABC123</code></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">ip</code></TableCell>
+                        <TableCell>User's IP address</TableCell>
+                        <TableCell><code className="text-xs">192.168.1.1</code></TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell><code className="text-sm bg-gray-100 px-2 py-1 rounded">user_agent</code></TableCell>
+                        <TableCell>Browser user agent</TableCell>
+                        <TableCell><code className="text-xs">Mozilla/5.0...</code></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              <div className="mt-6 bg-blue-50 border border-blue-300 rounded-lg p-4">
+                <p className="text-sm font-semibold text-blue-900 mb-2">💡 Custom Parameters:</p>
+                <p className="text-sm text-blue-800">
+                  Any additional parameters you send will be captured in the <code className="bg-white px-2 py-0.5 rounded">custom_data</code> field 
+                  and stored for reporting purposes. This allows you to send partner-specific data without modifying our system.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Common Partner Templates */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Common Partner Parameter Names</CardTitle>
+              <CardDescription>How different partners name their parameters</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid md:grid-cols-2 gap-4">
+                  {/* LeadAds */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h4 className="font-semibold mb-3">LeadAds</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">user_id</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">aff_sub</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">status</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">status</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">payout</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">payout</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">transaction_id</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">transaction_id</code>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CPALead */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h4 className="font-semibold mb-3">CPALead</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">user_id</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">subid</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">click_id</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">s2</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">status</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">status</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">payout</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">payout</code>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* OfferToro */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h4 className="font-semibold mb-3">OfferToro</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">user_id</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">user_id</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">status</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">status</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">payout</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">amount</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">transaction_id</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">oid</code>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AdGate Media */}
+                  <div className="border border-gray-200 rounded-lg p-4">
+                    <h4 className="font-semibold mb-3">AdGate Media</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">user_id</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">subid</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">status</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">status</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <code className="bg-green-100 px-2 py-1 rounded text-xs">payout</code>
+                        <ArrowRight size={14} />
+                        <code className="bg-purple-100 px-2 py-1 rounded text-xs">payout</code>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Real Example */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Complete Example: LeadAds Integration</CardTitle>
+              <CardDescription>Step-by-step example of how postback URLs work</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
+                  <p className="font-semibold mb-2">Step 1: Generate Postback URL</p>
+                  <p className="text-sm text-gray-700 mb-2">You create a partner "LeadAds" with these mappings:</p>
+                  <div className="bg-white border rounded p-3 space-y-1 text-sm">
+                    <div><code>user_id → aff_sub</code></div>
+                    <div><code>payout → payout</code></div>
+                    <div><code>status → status</code></div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-300 rounded-lg p-4">
+                  <p className="font-semibold mb-2">Step 2: System Generates URL</p>
+                  <code className="text-xs bg-white px-3 py-2 rounded border block break-all">
+                    https://moustacheleads-backend.onrender.com/postback/7oT5qV7uYB3iCyx33iOGluhlalhSEGDq?aff_sub={'{aff_sub}'}&payout={'{payout}'}&status={'{status}'}
+                  </code>
+                  <p className="text-sm text-blue-800 mt-2">You share this URL with LeadAds</p>
+                </div>
+
+                <div className="bg-green-50 border border-green-300 rounded-lg p-4">
+                  <p className="font-semibold mb-2">Step 3: LeadAds Sends Postback</p>
+                  <p className="text-sm text-gray-700 mb-2">When user completes offer, LeadAds sends:</p>
+                  <code className="text-xs bg-white px-3 py-2 rounded border block break-all">
+                    https://moustacheleads-backend.onrender.com/postback/7oT5qV7uYB3iCyx33iOGluhlalhSEGDq?aff_sub=507f1f77bcf86cd799439011&payout=10.00&status=approved
+                  </code>
+                </div>
+
+                <div className="bg-purple-50 border border-purple-300 rounded-lg p-4">
+                  <p className="font-semibold mb-2">Step 4: Our System Processes</p>
+                  <div className="text-sm space-y-2">
+                    <p>✅ Receives: <code className="bg-white px-2 py-1 rounded">aff_sub=507f1f77bcf86cd799439011</code></p>
+                    <p>✅ Maps: <code className="bg-white px-2 py-1 rounded">aff_sub → user_id</code></p>
+                    <p>✅ Credits: User <code className="bg-white px-2 py-1 rounded">507f1f77bcf86cd799439011</code> with $10.00</p>
+                    <p className="text-green-700 font-medium mt-2">🎉 User receives points!</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Quick Tips */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Quick Tips & Best Practices</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Always use THEIR parameter names in the URL</p>
+                    <p className="text-sm text-gray-600">The URL is for the partner to use, so it must use their naming convention</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Use parameter mapping to avoid confusion</p>
+                    <p className="text-sm text-gray-600">Map OUR internal names to THEIR external names for clarity</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Test with sample data first</p>
+                    <p className="text-sm text-gray-600">Always test postback URLs before going live with a partner</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                  <div>
+                    <p className="font-medium">Keep unique keys confidential</p>
+                    <p className="text-sm text-gray-600">Each partner gets a unique key - don't share it publicly</p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -864,6 +1361,31 @@ const Partners: React.FC = () => {
                 <p className="text-xs text-gray-500">
                   Note: [UNIQUE_KEY] will be automatically generated when you create the partner
                 </p>
+                
+                {/* Mapping Explanation */}
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-xs font-semibold text-blue-900 mb-2">📌 How the mapping works:</p>
+                  <div className="space-y-1 text-xs text-blue-800">
+                    {parameterMappings
+                      .filter(m => m.enabled && m.ourParam && m.theirParam)
+                      .map((m, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="font-mono bg-white px-2 py-0.5 rounded border border-blue-300">
+                            {m.theirParam}
+                          </span>
+                          <span>in URL maps to</span>
+                          <span className="font-mono bg-white px-2 py-0.5 rounded border border-blue-300">
+                            {m.ourParam}
+                          </span>
+                          <span>in your database</span>
+                        </div>
+                      ))}
+                  </div>
+                  <p className="text-xs text-blue-700 mt-2">
+                    When LeadAds sends <code className="bg-white px-1 rounded">aff_sub=507f1f77...</code>, 
+                    your system will credit the user with that ID.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -898,88 +1420,232 @@ const Partners: React.FC = () => {
 
       {/* Edit Partner Modal */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Partner</DialogTitle>
             <DialogDescription>
-              Update partner configuration
+              Update partner configuration and parameter mappings
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="edit_partner_name">Partner Name *</Label>
-              <Input
-                id="edit_partner_name"
-                value={formData.partner_name}
-                onChange={(e) => setFormData({ ...formData, partner_name: e.target.value })}
-              />
-            </div>
+          <div className="space-y-6">
+            {/* Basic Information */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800">Basic Information</h3>
+              
+              <div>
+                <Label htmlFor="edit_partner_name">Partner Name *</Label>
+                <Input
+                  id="edit_partner_name"
+                  value={formData.partner_name}
+                  onChange={(e) => setFormData({ ...formData, partner_name: e.target.value })}
+                />
+              </div>
 
-            <div>
-              <Label htmlFor="edit_postback_url">Postback URL *</Label>
-              <Textarea
-                id="edit_postback_url"
-                value={formData.postback_url}
-                onChange={(e) => setFormData({ ...formData, postback_url: e.target.value })}
-                rows={3}
-              />
-              <div className="flex flex-wrap gap-2 mt-2">
-                <p className="text-sm text-gray-600 w-full">Insert macros:</p>
-                {['{click_id}', '{payout}', '{status}', '{offer_id}', '{conversion_id}', '{transaction_id}'].map((macro) => (
-                  <Button
-                    key={macro}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => insertMacro(macro)}
-                  >
-                    {macro}
-                  </Button>
-                ))}
+              <div>
+                <Label htmlFor="edit_status">Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(value: 'active' | 'inactive') => setFormData({ ...formData, status: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="edit_description">Description</Label>
+                <Textarea
+                  id="edit_description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows={2}
+                />
               </div>
             </div>
 
-            <div>
-              <Label htmlFor="edit_method">Method *</Label>
-              <Select
-                value={formData.method}
-                onValueChange={(value: 'GET' | 'POST') => setFormData({ ...formData, method: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="GET">GET</SelectItem>
-                  <SelectItem value="POST">POST</SelectItem>
-                </SelectContent>
-              </Select>
+            {/* Parameter Mapping Section */}
+            <div className="space-y-4 border-t pt-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">Parameter Mapping</h3>
+                  <p className="text-sm text-gray-600">Map your parameters to their parameter names</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addMapping}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Parameter
+                </Button>
+              </div>
+
+              {/* Partner Template Selection */}
+              <div>
+                <Label>Partner Template (Quick Start)</Label>
+                <Select value={selectedTemplate} onValueChange={handleTemplateChange}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LeadAds">LeadAds</SelectItem>
+                    <SelectItem value="CPALead">CPALead</SelectItem>
+                    <SelectItem value="OfferToro">OfferToro</SelectItem>
+                    <SelectItem value="AdGate Media">AdGate Media</SelectItem>
+                    <SelectItem value="Custom">Custom</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Parameter Mapping Table */}
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                {/* Table Header */}
+                <div className="grid grid-cols-12 gap-3 bg-gray-50 px-4 py-3 border-b border-gray-200 text-sm">
+                  <div className="col-span-1 text-center font-medium text-gray-700">Enable</div>
+                  <div className="col-span-4 font-medium text-gray-700">OUR Parameter</div>
+                  <div className="col-span-1 text-center text-gray-400"></div>
+                  <div className="col-span-4 font-medium text-gray-700">THEIR Parameter</div>
+                  <div className="col-span-2 text-center font-medium text-gray-700">Actions</div>
+                </div>
+
+                {/* Table Body */}
+                <div className="divide-y divide-gray-200 max-h-64 overflow-y-auto">
+                  {parameterMappings.map((mapping, index) => (
+                    <div key={index} className="grid grid-cols-12 gap-3 px-4 py-3 items-center hover:bg-gray-50">
+                      {/* Enable Checkbox */}
+                      <div className="col-span-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={mapping.enabled}
+                          onChange={(e) => handleMappingChange(index, 'enabled', e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* Our Parameter */}
+                      <div className="col-span-4">
+                        <select
+                          value={mapping.ourParam}
+                          onChange={(e) => handleMappingChange(index, 'ourParam', e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                        >
+                          <option value="">Select...</option>
+                          {AVAILABLE_OUR_PARAMS.map(param => (
+                            <option key={param.value} value={param.value}>
+                              {param.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Arrow */}
+                      <div className="col-span-1 text-center">
+                        <ArrowRight className="mx-auto text-blue-500" size={18} />
+                      </div>
+
+                      {/* Their Parameter */}
+                      <div className="col-span-4">
+                        <Input
+                          value={mapping.theirParam}
+                          onChange={(e) => handleMappingChange(index, 'theirParam', e.target.value)}
+                          placeholder="e.g., aff_sub, subid"
+                          className="font-mono text-sm"
+                        />
+                      </div>
+
+                      {/* Actions */}
+                      <div className="col-span-2 text-center">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeMapping(index)}
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 size={16} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {parameterMappings.length === 0 && (
+                <div className="text-center py-6 text-gray-500 text-sm">
+                  No parameter mappings. Click "Add Parameter" to start.
+                </div>
+              )}
             </div>
 
-            <div>
-              <Label htmlFor="edit_status">Status</Label>
-              <Select
-                value={formData.status}
-                onValueChange={(value: 'active' | 'inactive') => setFormData({ ...formData, status: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="inactive">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div>
-              <Label htmlFor="edit_description">Description</Label>
-              <Textarea
-                id="edit_description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={2}
-              />
+            {/* Generated URL Preview */}
+            <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-4">
+              <h4 className="font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                <CheckCircle className="h-5 w-5 text-green-600" />
+                Updated Postback URL Preview
+              </h4>
+              <div className="space-y-2">
+                <p className="text-xs text-gray-600">This URL will be updated:</p>
+                <div className="relative">
+                  <div className="bg-white border border-gray-300 rounded-lg p-3 pr-12 font-mono text-xs break-all">
+                    {(() => {
+                      const baseURL = selectedPartner?.postback_receiver_url?.split('?')[0] || 'https://moustacheleads-backend.onrender.com/postback/[KEY]';
+                      const params = parameterMappings
+                        .filter(m => m.enabled && m.ourParam && m.theirParam)
+                        .map(m => `${m.theirParam}={${m.theirParam}}`)
+                        .join('&');
+                      return `${baseURL}${params ? '?' + params : ''}`;
+                    })()}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const baseURL = selectedPartner?.postback_receiver_url?.split('?')[0] || '';
+                      const params = parameterMappings
+                        .filter(m => m.enabled && m.ourParam && m.theirParam)
+                        .map(m => `${m.theirParam}={${m.theirParam}}`)
+                        .join('&');
+                      copyToClipboard(`${baseURL}${params ? '?' + params : ''}`);
+                    }}
+                    className="absolute top-2 right-2"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                </div>
+                
+                {/* Mapping Explanation */}
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-xs font-semibold text-blue-900 mb-2">📌 How the mapping works:</p>
+                  <div className="space-y-1 text-xs text-blue-800">
+                    {parameterMappings
+                      .filter(m => m.enabled && m.ourParam && m.theirParam)
+                      .map((m, idx) => (
+                        <div key={idx} className="flex items-center gap-2">
+                          <span className="font-mono bg-white px-2 py-0.5 rounded border border-blue-300">
+                            {m.theirParam}
+                          </span>
+                          <span>in URL maps to</span>
+                          <span className="font-mono bg-white px-2 py-0.5 rounded border border-blue-300">
+                            {m.ourParam}
+                          </span>
+                          <span>in your database</span>
+                        </div>
+                      ))}
+                  </div>
+                  <p className="text-xs text-blue-700 mt-2">
+                    The URL uses <strong>their parameter names</strong> (like aff_sub) because that's what they expect. 
+                    Your backend will map it back to <strong>your field names</strong> (like user_id).
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

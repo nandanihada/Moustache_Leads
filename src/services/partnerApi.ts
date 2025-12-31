@@ -16,6 +16,7 @@ export interface Partner {
   // Postback receiver fields
   unique_postback_key?: string;
   postback_receiver_url?: string;
+  parameter_mapping?: Record<string, string>;
 }
 
 export interface CreatePartnerData {
@@ -24,6 +25,7 @@ export interface CreatePartnerData {
   method: 'GET' | 'POST';
   status?: 'active' | 'inactive';
   description?: string;
+  parameter_mapping?: Record<string, string>;
 }
 
 export interface TestPostbackResponse {
