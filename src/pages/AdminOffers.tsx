@@ -42,6 +42,7 @@ import { DomainManagementModal } from '@/components/DomainManagementModal';
 import { AdvancedSettingsModal } from '@/components/AdvancedSettingsModal';
 import { OfferDetailsModal } from '@/components/OfferDetailsModal';
 import { BulkOfferUpload } from '@/components/BulkOfferUpload';
+import { ApiImportModal } from '@/components/ApiImportModal';
 import { adminOfferApi, Offer } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -59,7 +60,9 @@ const AdminOffers = () => {
   const [advancedSettingsModalOpen, setAdvancedSettingsModalOpen] = useState(false);
   const [offerDetailsModalOpen, setOfferDetailsModalOpen] = useState(false);
   const [bulkUploadModalOpen, setBulkUploadModalOpen] = useState(false);
+  const [apiImportModalOpen, setApiImportModalOpen] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
+  const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [pagination, setPagination] = useState({
     page: 1,
     per_page: 20,
@@ -118,6 +121,55 @@ const AdminOffers = () => {
         description: error instanceof Error ? error.message : "Failed to delete offer",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedOffers.size === 0) {
+      toast({
+        title: "No Selection",
+        description: "Please select offers to delete",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedOffers.size} offer(s)?`)) {
+      return;
+    }
+
+    try {
+      const result = await adminOfferApi.bulkDeleteOffers(Array.from(selectedOffers));
+      toast({
+        title: "Bulk Delete Complete",
+        description: `Deleted ${result.deleted} offer(s). ${result.failed > 0 ? `Failed: ${result.failed}` : ''}`,
+      });
+      setSelectedOffers(new Set());
+      fetchOffers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to bulk delete offers",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleOfferSelection = (offerId: string) => {
+    const newSelection = new Set(selectedOffers);
+    if (newSelection.has(offerId)) {
+      newSelection.delete(offerId);
+    } else {
+      newSelection.add(offerId);
+    }
+    setSelectedOffers(newSelection);
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedOffers.size === offers.length) {
+      setSelectedOffers(new Set());
+    } else {
+      setSelectedOffers(new Set(offers.map(o => o.offer_id)));
     }
   };
 
@@ -350,6 +402,22 @@ const AdminOffers = () => {
                 <Upload className="h-4 w-4 mr-2" />
                 Bulk Upload
               </Button>
+              <Button
+                variant="secondary"
+                onClick={() => setApiImportModalOpen(true)}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                API Import
+              </Button>
+              {selectedOffers.size > 0 && (
+                <Button
+                  variant="destructive"
+                  onClick={handleBulkDelete}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Selected ({selectedOffers.size})
+                </Button>
+              )}
               <Button variant="outline">
                 <Copy className="h-4 w-4 mr-2" />
                 Clone
@@ -447,6 +515,14 @@ const AdminOffers = () => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedOffers.size === offers.length && offers.length > 0}
+                      onChange={toggleSelectAll}
+                      className="rounded border-gray-300"
+                    />
+                  </TableHead>
                   <TableHead>Image</TableHead>
                   <TableHead>Offer ID</TableHead>
                   <TableHead>Campaign</TableHead>
@@ -463,6 +539,14 @@ const AdminOffers = () => {
               <TableBody>
                 {offers.map((offer) => (
                   <TableRow key={offer.offer_id}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedOffers.has(offer.offer_id)}
+                        onChange={() => toggleOfferSelection(offer.offer_id)}
+                        className="rounded border-gray-300"
+                      />
+                    </TableCell>
                     <TableCell>
                       {(() => {
                         const creativeType = (offer as any).creative_type || 'image';
@@ -761,6 +845,13 @@ const AdminOffers = () => {
         open={bulkUploadModalOpen}
         onOpenChange={setBulkUploadModalOpen}
         onUploadComplete={fetchOffers}
+      />
+
+      {/* API Import Modal */}
+      <ApiImportModal
+        open={apiImportModalOpen}
+        onOpenChange={setApiImportModalOpen}
+        onImportComplete={fetchOffers}
       />
     </div>
   );

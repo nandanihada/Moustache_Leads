@@ -548,6 +548,56 @@ def delete_offer(offer_id):
         logging.error(f"Delete offer error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to delete offer: {str(e)}'}), 500
 
+@admin_offers_bp.route('/offers/bulk-delete', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_delete_offers():
+    """Delete multiple offers at once (Admin only)"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'offer_ids' not in data:
+            return jsonify({'error': 'offer_ids array is required'}), 400
+        
+        offer_ids = data.get('offer_ids', [])
+        
+        if not isinstance(offer_ids, list) or len(offer_ids) == 0:
+            return jsonify({'error': 'offer_ids must be a non-empty array'}), 400
+        
+        # Delete each offer
+        deleted_count = 0
+        failed_count = 0
+        errors = []
+        
+        for offer_id in offer_ids:
+            try:
+                success = offer_model.delete_offer(offer_id)
+                if success:
+                    deleted_count += 1
+                else:
+                    failed_count += 1
+                    errors.append({
+                        'offer_id': offer_id,
+                        'error': 'Offer not found or already deleted'
+                    })
+            except Exception as e:
+                failed_count += 1
+                errors.append({
+                    'offer_id': offer_id,
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'message': f'Bulk delete completed',
+            'deleted': deleted_count,
+            'failed': failed_count,
+            'errors': errors if errors else None
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Bulk delete offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to bulk delete offers: {str(e)}'}), 500
+
 @admin_offers_bp.route('/offers/<offer_id>/clone', methods=['POST'])
 @token_required
 @subadmin_or_admin_required('offers')
@@ -982,3 +1032,352 @@ def download_bulk_upload_template():
     except Exception as e:
         logging.error(f"Template download error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to generate template: {str(e)}'}), 500
+
+
+# ==================== API IMPORT ENDPOINTS ====================
+
+@admin_offers_bp.route('/offers/api-import/test', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def test_api_connection():
+    """Test connection to affiliate network API"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        api_key = data.get('api_key')
+        network_type = data.get('network_type', 'hasoffers')
+        
+        if not network_id or not api_key:
+            return jsonify({'error': 'network_id and api_key are required'}), 400
+        
+        # Import service
+        from services.network_api_service import network_api_service
+        
+        # Test connection
+        success, offer_count, error = network_api_service.test_connection(
+            network_id, api_key, network_type
+        )
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Connection successful',
+                'offer_count': offer_count,
+                'network_name': network_id
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'error': error or 'Connection failed'
+            }), 400
+            
+    except Exception as e:
+        logging.error(f"API connection test failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to test connection: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/api-import/preview', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def preview_api_offers():
+    """Preview offers from affiliate network API"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        api_key = data.get('api_key')
+        network_type = data.get('network_type', 'hasoffers')
+        filters = data.get('filters', {})
+        limit = data.get('limit', 5)  # Preview only 5 offers
+        
+        if not network_id or not api_key:
+            return jsonify({'error': 'network_id and api_key are required'}), 400
+        
+        # Import services
+        from services.network_api_service import network_api_service
+        from services.network_field_mapper import network_field_mapper
+        
+        # Fetch offers
+        offers, error = network_api_service.fetch_offers(
+            network_id, api_key, network_type, filters, limit
+        )
+        
+        # Debug with print (always shows)
+        print("="*80)
+        print(f"🔍 PREVIEW DEBUG:")
+        print(f"   Network: {network_id}")
+        print(f"   Type: {network_type}")
+        print(f"   Offers fetched: {len(offers)}")
+        print(f"   Error: {error}")
+        print("="*80)
+        
+        if error:
+            return jsonify({
+                'success': False,
+                'error': error
+            }), 400
+        
+        # Map offers to preview format
+        preview_offers = []
+        for offer_data in offers[:limit]:
+            try:
+                mapped = network_field_mapper.map_to_db_format(offer_data, network_type, network_id)
+                if mapped:
+                    preview_offers.append({
+                        'name': mapped.get('name', 'Unknown'),
+                        'payout': mapped.get('payout', 0),
+                        'currency': mapped.get('currency', 'USD'),
+                        'countries': mapped.get('countries', []),
+                        'status': mapped.get('status', 'active')
+                    })
+                    logging.info(f"   ✅ Mapped preview offer: {mapped.get('name')}")
+            except Exception as e:
+                logging.error(f"   ❌ Error mapping offer: {str(e)}")
+                continue
+        
+        logging.info(f"✅ Returning {len(preview_offers)} preview offers")
+        
+        return jsonify({
+            'success': True,
+            'offers': preview_offers,
+            'total_available': len(offers)
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"API preview failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to preview offers: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/api-import', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def import_api_offers():
+    """Import offers from affiliate network API"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        api_key = data.get('api_key')
+        network_type = data.get('network_type', 'hasoffers')
+        filters = data.get('filters', {})
+        options = data.get('options', {})
+        
+        if not network_id or not api_key:
+            return jsonify({'error': 'network_id and api_key are required'}), 400
+        
+        # Import services
+        from services.network_api_service import network_api_service
+        from services.network_field_mapper import network_field_mapper
+        from utils.duplicate_detection import create_duplicate_detector
+        
+        # Get current user
+        current_user = request.current_user
+        created_by = current_user.get('username', 'admin')
+        
+        # Fetch offers
+        offers, error = network_api_service.fetch_offers(
+            network_id, api_key, network_type, filters
+        )
+        
+        # Debug logging
+        logging.info(f"🔍 API Import Debug:")
+        logging.info(f"   Network: {network_id}")
+        logging.info(f"   Type: {network_type}")
+        logging.info(f"   Offers fetched: {len(offers)}")
+        logging.info(f"   Error: {error}")
+        
+        if error:
+            return jsonify({
+                'success': False,
+                'error': error
+            }), 400
+        
+        # Initialize counters
+        imported_count = 0
+        skipped_count = 0
+        error_count = 0
+        imported_offers = []
+        skipped_offers = []
+        errors = []
+        
+        # Get duplicate strategy
+        skip_duplicates = options.get('skip_duplicates', True)
+        update_existing = options.get('update_existing', False)
+        auto_activate = options.get('auto_activate', True)
+        
+        duplicate_strategy = 'skip' if skip_duplicates else ('update' if update_existing else 'create_new')
+        
+        # Create duplicate detector
+        duplicate_detector = create_duplicate_detector(db_instance)
+        
+        # Process each offer
+        for offer_data in offers:
+            try:
+                # Map to database format - pass network_id
+                mapped_offer = network_field_mapper.map_to_db_format(offer_data, network_type, network_id)
+                
+                if not mapped_offer:
+                    error_count += 1
+                    errors.append({
+                        'offer_name': 'Unknown',
+                        'error': 'Failed to map offer data'
+                    })
+                    continue
+                
+                # Validate mapped offer
+                is_valid, validation_errors = network_field_mapper.validate_mapped_offer(mapped_offer)
+                if not is_valid:
+                    error_count += 1
+                    errors.append({
+                        'offer_name': mapped_offer.get('name', 'Unknown'),
+                        'error': ', '.join(validation_errors)
+                    })
+                    continue
+                
+                # Check for duplicates
+                is_duplicate, duplicate_id, existing_offer = duplicate_detector.check_duplicate(
+                    mapped_offer, duplicate_strategy
+                )
+                
+                if is_duplicate and duplicate_strategy == 'skip':
+                    skipped_count += 1
+                    skipped_offers.append({
+                        'name': mapped_offer.get('name'),
+                        'reason': f'Already exists (campaign_id: {mapped_offer.get("campaign_id")})'
+                    })
+                    continue
+                
+                # Set status based on auto_activate option
+                if not auto_activate:
+                    mapped_offer['status'] = 'inactive'
+                
+                # Create or update offer
+                if is_duplicate and duplicate_strategy == 'update':
+                    # Update existing offer
+                    action, offer_id = duplicate_detector.handle_duplicate(
+                        mapped_offer, existing_offer, 'update'
+                    )
+                    imported_count += 1
+                    imported_offers.append(offer_id)
+                else:
+                    # Create new offer
+                    created_offer, create_error = offer_model.create_offer(mapped_offer, created_by)
+                    
+                    if create_error:
+                        error_count += 1
+                        errors.append({
+                            'offer_name': mapped_offer.get('name'),
+                            'error': create_error
+                        })
+                    else:
+                        imported_count += 1
+                        imported_offers.append(created_offer['offer_id'])
+                
+            except Exception as e:
+                error_count += 1
+                errors.append({
+                    'offer_name': mapped_offer.get('name', 'Unknown') if 'mapped_offer' in locals() else 'Unknown',
+                    'error': str(e)
+                })
+                logging.error(f"Error importing offer: {str(e)}", exc_info=True)
+        
+        # Return summary
+        return jsonify({
+            'success': True,
+            'summary': {
+                'total_fetched': len(offers),
+                'imported': imported_count,
+                'skipped': skipped_count,
+                'errors': error_count
+            },
+            'imported_offers': imported_offers,
+            'skipped_offers': skipped_offers[:10],  # Limit to first 10
+            'errors': errors[:10]  # Limit to first 10
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"API import failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to import offers: {str(e)}'}), 500
+
+
+# ==================== DEBUG ENDPOINT ====================
+
+@admin_offers_bp.route('/offers/api-import/debug', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def debug_api_response():
+    """Debug endpoint to see raw API response"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        api_key = data.get('api_key')
+        network_type = data.get('network_type', 'hasoffers')
+        
+        if not network_id or not api_key:
+            return jsonify({'error': 'network_id and api_key are required'}), 400
+        
+        # Make direct API call
+        import requests
+        
+        url = f"https://{network_id}.api.hasoffers.com/Apiv3/json"
+        params = {
+            'NetworkId': network_id,
+            'Target': 'Affiliate_Offer',
+            'Method': 'findMyOffers',
+            'api_key': api_key,
+            'limit': 5
+        }
+        
+        response = requests.get(url, params=params, timeout=30)
+        raw_data = response.json()
+        
+        # Log the response
+        logging.info("="*80)
+        logging.info("🔍 RAW API RESPONSE:")
+        logging.info(f"Status Code: {response.status_code}")
+        logging.info(f"Response Keys: {list(raw_data.keys())}")
+        
+        if 'response' in raw_data:
+            logging.info(f"Response Status: {raw_data['response'].get('status')}")
+            logging.info(f"Response Data Type: {type(raw_data['response'].get('data'))}")
+            
+            data_obj = raw_data['response'].get('data', {})
+            if isinstance(data_obj, dict):
+                logging.info(f"Data Keys (first 5): {list(data_obj.keys())[:5]}")
+                
+                # Check first offer structure
+                first_key = list(data_obj.keys())[0] if data_obj else None
+                if first_key:
+                    first_offer = data_obj[first_key]
+                    logging.info(f"First Offer Keys: {list(first_offer.keys()) if isinstance(first_offer, dict) else 'Not a dict'}")
+        
+        logging.info("="*80)
+        
+        return jsonify({
+            'success': True,
+            'raw_response': raw_data,
+            'summary': {
+                'status_code': response.status_code,
+                'response_status': raw_data.get('response', {}).get('status'),
+                'data_type': str(type(raw_data.get('response', {}).get('data'))),
+                'data_count': len(raw_data.get('response', {}).get('data', {})) if isinstance(raw_data.get('response', {}).get('data'), dict) else 0
+            }
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Debug endpoint failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Debug failed: {str(e)}'}), 500

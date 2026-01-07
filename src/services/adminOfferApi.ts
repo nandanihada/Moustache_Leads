@@ -344,6 +344,20 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
+  async bulkDeleteOffers(offerIds: string[]): Promise<{ message: string; deleted: number; failed: number; errors?: any[] }> {
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-delete`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offer_ids: offerIds }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to bulk delete offers');
+    }
+
+    return this.handleResponse(response);
+  }
+
   async cloneOffer(offerId: string): Promise<{ message: string; offer: Offer }> {
     const response = await fetch(`${API_BASE_URL}/offers/${offerId}/clone`, {
       method: 'POST',
