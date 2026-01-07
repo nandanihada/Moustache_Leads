@@ -3,7 +3,12 @@
  * Handles API calls for importing offers from affiliate networks
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+// Use relative URL for production, falls back to localhost for development
+const API_BASE_URL = import.meta.env.VITE_API_URL || (
+  typeof window !== 'undefined' && window.location.origin.includes('localhost')
+    ? 'http://localhost:5000'
+    : '' // Use relative URL in production
+);
 
 export interface TestConnectionRequest {
   network_id: string;
@@ -91,17 +96,21 @@ class ApiImportService {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(request),
+        credentials: 'include', // Include credentials for CORS
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to test connection');
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
 
+      const data = await response.json();
       return data;
     } catch (error) {
       console.error('Test connection error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
+      }
       throw error;
     }
   }
@@ -112,17 +121,21 @@ class ApiImportService {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(request),
+        credentials: 'include', // Include credentials for CORS
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch preview');
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
 
+      const data = await response.json();
       return data;
     } catch (error) {
       console.error('Fetch preview error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
+      }
       throw error;
     }
   }
@@ -133,17 +146,21 @@ class ApiImportService {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(request),
+        credentials: 'include', // Include credentials for CORS
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to import offers');
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
       }
 
+      const data = await response.json();
       return data;
     } catch (error) {
       console.error('Import offers error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
+      }
       throw error;
     }
   }
