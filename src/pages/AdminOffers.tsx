@@ -63,6 +63,7 @@ const AdminOffers = () => {
   const [apiImportModalOpen, setApiImportModalOpen] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
     per_page: 20,
@@ -152,6 +153,74 @@ const AdminOffers = () => {
         description: error instanceof Error ? error.message : "Failed to bulk delete offers",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleCheckAndRemoveDuplicates = async () => {
+    try {
+      setCheckingDuplicates(true);
+
+      // First, check for duplicates
+      const checkResult = await adminOfferApi.checkDuplicates();
+
+      if (!checkResult.success) {
+        toast({
+          title: "Error",
+          description: "Failed to check for duplicates",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const { summary } = checkResult;
+
+      if (summary.total_duplicate_groups === 0) {
+        toast({
+          title: "No Duplicates Found",
+          description: "All offers have unique offer_ids",
+        });
+        return;
+      }
+
+      // Show confirmation dialog with details
+      const confirmMessage = `Found ${summary.total_duplicate_groups} offer_id(s) with duplicates.\n\n` +
+        `Total duplicate documents: ${summary.total_duplicate_documents}\n` +
+        `Documents to be removed: ${summary.total_documents_to_remove}\n\n` +
+        `The newest version of each offer will be kept.\n\n` +
+        `Do you want to proceed with removing duplicates?`;
+
+      if (!confirm(confirmMessage)) {
+        return;
+      }
+
+      // Remove duplicates
+      const removeResult = await adminOfferApi.removeDuplicates('newest');
+
+      if (removeResult.success) {
+        toast({
+          title: "Duplicates Removed",
+          description: `Successfully removed ${removeResult.removed} duplicate offer(s)`,
+        });
+
+        // Refresh the offers list
+        fetchOffers();
+      } else {
+        toast({
+          title: "Error",
+          description: removeResult.errors?.[0] || "Failed to remove duplicates",
+          variant: "destructive",
+        });
+      }
+
+    } catch (error) {
+      console.error('Duplicate removal error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to remove duplicates",
+        variant: "destructive",
+      });
+    } finally {
+      setCheckingDuplicates(false);
     }
   };
 
@@ -438,6 +507,15 @@ const AdminOffers = () => {
                 <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
+              <Button 
+                variant="outline" 
+                onClick={handleCheckAndRemoveDuplicates} 
+                disabled={checkingDuplicates || loading}
+                className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+              >
+                <Trash2 className={`h-4 w-4 mr-2 ${checkingDuplicates ? 'animate-pulse' : ''}`} />
+                {checkingDuplicates ? 'Checking...' : 'Remove Duplicates'}
+              </Button>
               <Button variant="outline" onClick={() => setDomainManagementModalOpen(true)}>
                 <Globe className="h-4 w-4 mr-2" />
                 Manage Domains
@@ -532,6 +610,7 @@ const AdminOffers = () => {
                   <TableHead>Payout/Revenue</TableHead>
                   <TableHead>Incentive</TableHead>
                   <TableHead>Network</TableHead>
+                  <TableHead>Date Added</TableHead>
                   <TableHead>Hits/Limit</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -667,6 +746,57 @@ const AdminOffers = () => {
                     </TableCell>
                     <TableCell className="text-sm">
                       {offer.network}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {(() => {
+                        const createdAt = (offer as any).created_at;
+                        if (!createdAt) return 'N/A';
+                        
+                        const date = new Date(createdAt);
+                        const now = new Date();
+                        const diffTime = Math.abs(now.getTime() - date.getTime());
+                        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                        
+                        // Format date
+                        const formattedDate = date.toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric'
+                        });
+                        
+                        // Show relative time for recent offers
+                        if (diffDays === 0) {
+                          return (
+                            <div>
+                              <div className="font-medium">Today</div>
+                              <div className="text-xs text-muted-foreground">{formattedDate}</div>
+                            </div>
+                          );
+                        } else if (diffDays === 1) {
+                          return (
+                            <div>
+                              <div className="font-medium">Yesterday</div>
+                              <div className="text-xs text-muted-foreground">{formattedDate}</div>
+                            </div>
+                          );
+                        } else if (diffDays < 7) {
+                          return (
+                            <div>
+                              <div className="font-medium">{diffDays} days ago</div>
+                              <div className="text-xs text-muted-foreground">{formattedDate}</div>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div>
+                              <div className="font-medium">{formattedDate}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </div>
+                          );
+                        }
+                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">

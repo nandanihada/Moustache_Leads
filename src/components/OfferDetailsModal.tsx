@@ -373,7 +373,11 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                 {offer.description && (
                   <div className="text-sm pt-2 border-t">
                     <span className="text-muted-foreground font-medium">Description:</span>
-                    <div className="mt-1 text-gray-700">{offer.description}</div>
+                    <div className="mt-2 p-3 bg-gray-50 rounded-md border">
+                      <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                        {offer.description}
+                      </p>
+                    </div>
                   </div>
                 )}
 
@@ -433,10 +437,10 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                 </div>
 
                 <div className="text-sm">
-                  <span className="text-muted-foreground">Offer Protocol:</span>
+                  <span className="text-muted-foreground">Tracking Protocol:</span>
                   <div className="mt-1">
-                    <Badge variant="outline">
-                      {offer.tracking?.protocol || (offer as any).tracking_protocol || 'Server Postback w/ Transaction ID'}
+                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                      {(offer as any).tracking_protocol || offer.tracking?.protocol || 'Server Postback w/ Transaction ID'}
                     </Badge>
                   </div>
                 </div>

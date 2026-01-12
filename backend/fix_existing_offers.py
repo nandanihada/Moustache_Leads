@@ -1,129 +1,234 @@
 """
-Add masked links to existing offers that don't have them
-Run this to retroactively add masking to all existing offers
+Fix Existing Offers - Apply Enhancements to Old Data
+Cleans HTML from descriptions and formats offer names for existing offers
 """
-from database import db_instance
-from models.link_masking import LinkMasking
-import logging
 
-logging.basicConfig(level=logging.INFO)
+import sys
+import os
+sys.path.insert(0, os.path.dirname(__file__))
+
+from database import Database
+from utils.html_cleaner import clean_html_description, format_offer_name
+from datetime import datetime
+
 
 def fix_existing_offers():
-    """Add masked links to offers that don't have them"""
+    """Apply enhancements to existing offers in database"""
     
-    print("\n" + "=" * 70)
-    print("🔧 FIXING EXISTING OFFERS - Adding Masked Links")
-    print("=" * 70)
+    print("="*80)
+    print("🔧 FIXING EXISTING OFFERS")
+    print("="*80)
     
-    # Get masking domain
-    link_masking = LinkMasking()
-    domains = link_masking.get_masking_domains(active_only=True)
-    
-    if not domains or len(domains) == 0:
-        print("❌ NO MASKING DOMAINS FOUND!")
-        print("   Please run: python setup_masking_domain.py")
+    try:
+        # Connect to database
+        db = Database()
+        offers_collection = db.get_collection('offers')
+        
+        # Get all offers
+        all_offers = list(offers_collection.find({}))
+        total_offers = len(all_offers)
+        
+        print(f"\n📊 Found {total_offers} offers in database")
+        print(f"⏰ Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("\n" + "-"*80)
+        
+        fixed_count = 0
+        skipped_count = 0
+        error_count = 0
+        
+        for i, offer in enumerate(all_offers, 1):
+            try:
+                offer_id = offer.get('offer_id', 'unknown')
+                name = offer.get('name', '')
+                description = offer.get('description', '')
+                
+                print(f"\n[{i}/{total_offers}] Processing: {name[:50]}...")
+                
+                # Track what needs updating
+                updates = {}
+                changes = []
+                
+                # 1. Fix offer name (remove underscores, format properly)
+                if name and '_' in name:
+                    formatted_name = format_offer_name(name)
+                    if formatted_name != name:
+                        updates['name'] = formatted_name
+                        changes.append(f"Name: '{name[:30]}...' → '{formatted_name[:30]}...'")
+                
+                # 2. Clean HTML from description
+                if description and ('<' in description or '&' in description):
+                    clean_desc = clean_html_description(description)
+                    if clean_desc != description:
+                        updates['description'] = clean_desc
+                        changes.append(f"Description: Cleaned HTML ({len(description)} → {len(clean_desc)} chars)")
+                
+                # 3. Add missing fields with defaults
+                if 'tracking_protocol' not in offer:
+                    updates['tracking_protocol'] = 'pixel'
+                    changes.append("Added: tracking_protocol = 'pixel'")
+                
+                if 'payout_model' not in offer:
+                    updates['payout_model'] = offer.get('offer_type', 'CPA')
+                    changes.append(f"Added: payout_model = '{updates['payout_model']}'")
+                
+                if 'category' not in offer:
+                    updates['category'] = offer.get('vertical', 'Lifestyle')
+                    changes.append(f"Added: category = '{updates['category']}'")
+                
+                if 'conversion_window' not in offer:
+                    updates['conversion_window'] = 30
+                    changes.append("Added: conversion_window = 30")
+                
+                if 'incentive_type' not in offer:
+                    # Detect from name
+                    name_lower = name.lower()
+                    if 'non incent' in name_lower or 'non-incent' in name_lower:
+                        updates['incentive_type'] = 'Non-Incent'
+                    else:
+                        updates['incentive_type'] = 'Incent'
+                    changes.append(f"Added: incentive_type = '{updates['incentive_type']}'")
+                
+                # 4. Add created_at if missing (use current time as fallback)
+                if 'created_at' not in offer:
+                    updates['created_at'] = datetime.now()
+                    changes.append("Added: created_at (current timestamp)")
+                
+                # Apply updates if any
+                if updates:
+                    offers_collection.update_one(
+                        {'_id': offer['_id']},
+                        {'$set': updates}
+                    )
+                    fixed_count += 1
+                    print(f"   ✅ FIXED ({len(changes)} changes):")
+                    for change in changes:
+                        print(f"      • {change}")
+                else:
+                    skipped_count += 1
+                    print(f"   ⏭️  SKIPPED (no changes needed)")
+                
+            except Exception as e:
+                error_count += 1
+                print(f"   ❌ ERROR: {str(e)}")
+                continue
+        
+        # Summary
+        print("\n" + "="*80)
+        print("📊 SUMMARY")
+        print("="*80)
+        print(f"Total Offers:    {total_offers}")
+        print(f"✅ Fixed:        {fixed_count}")
+        print(f"⏭️  Skipped:      {skipped_count}")
+        print(f"❌ Errors:       {error_count}")
+        print(f"⏰ Completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("="*80)
+        
+        if fixed_count > 0:
+            print("\n✨ Success! Existing offers have been updated with enhancements.")
+            print("\n📝 Changes applied:")
+            print("   • Cleaned HTML from descriptions")
+            print("   • Formatted offer names (removed underscores)")
+            print("   • Added missing fields (protocol, payout_model, etc.)")
+            print("\n💡 Tip: Refresh your browser to see the changes!")
+        else:
+            print("\n✅ All offers are already up to date!")
+        
+    except Exception as e:
+        print(f"\n❌ FATAL ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
     
-    default_domain = domains[0]
-    print(f"\n✅ Using masking domain: {default_domain['domain']}")
+    return True
+
+
+def preview_changes():
+    """Preview what changes would be made without applying them"""
     
-    # Get all offers without masked URLs
-    offers_collection = db_instance.get_collection('offers')
-    offers_without_masking = list(offers_collection.find({
-        '$or': [
-            {'masked_url': {'$exists': False}},
-            {'masked_url': None},
-            {'masked_url': ''}
-        ],
-        'is_active': True
-    }))
+    print("="*80)
+    print("👀 PREVIEW MODE - No changes will be made")
+    print("="*80)
     
-    print(f"\n📊 Found {len(offers_without_masking)} offers without masked links")
-    
-    if len(offers_without_masking) == 0:
-        print("✅ All offers already have masked links!")
-        return True
-    
-    # Get admin user for created_by field
-    users_collection = db_instance.get_collection('users')
-    admin_user = users_collection.find_one({'role': 'admin'})
-    admin_id = str(admin_user['_id']) if admin_user else 'system'
-    
-    # Process each offer
-    success_count = 0
-    fail_count = 0
-    
-    for offer in offers_without_masking:
-        try:
-            offer_id = offer['offer_id']
-            target_url = offer.get('target_url', '')
+    try:
+        db = Database()
+        offers_collection = db.get_collection('offers')
+        
+        all_offers = list(offers_collection.find({}))
+        total_offers = len(all_offers)
+        
+        print(f"\n📊 Found {total_offers} offers in database")
+        print("\n" + "-"*80)
+        
+        needs_fix_count = 0
+        
+        for i, offer in enumerate(all_offers, 1):
+            name = offer.get('name', '')
+            description = offer.get('description', '')
             
-            if not target_url:
-                print(f"⚠️  Skipping {offer_id} - No target URL")
-                fail_count += 1
-                continue
+            changes = []
             
-            print(f"\n🔄 Processing {offer_id}: {offer['name']}")
-            print(f"   Target: {target_url[:60]}...")
+            # Check name
+            if name and '_' in name:
+                formatted_name = format_offer_name(name)
+                if formatted_name != name:
+                    changes.append(f"Name: '{name}' → '{formatted_name}'")
             
-            # Create masked link
-            masking_settings = {
-                'domain_id': str(default_domain['_id']),
-                'redirect_type': '302',
-                'subid_append': True,
-                'preview_mode': False,
-                'auto_rotation': False,
-                'code_length': 8
-            }
+            # Check description
+            if description and ('<' in description or '&' in description):
+                changes.append(f"Description: Has HTML tags (will be cleaned)")
             
-            masked_link, error = link_masking.create_masked_link(
-                offer_id,
-                target_url,
-                masking_settings,
-                admin_id
-            )
+            # Check missing fields
+            if 'tracking_protocol' not in offer:
+                changes.append("Missing: tracking_protocol")
+            if 'payout_model' not in offer:
+                changes.append("Missing: payout_model")
+            if 'category' not in offer:
+                changes.append("Missing: category")
+            if 'conversion_window' not in offer:
+                changes.append("Missing: conversion_window")
+            if 'incentive_type' not in offer:
+                changes.append("Missing: incentive_type")
+            if 'created_at' not in offer:
+                changes.append("Missing: created_at")
             
-            if error:
-                print(f"   ❌ Failed: {error}")
-                fail_count += 1
-                continue
-            
-            # Update offer with masked URL
-            result = offers_collection.update_one(
-                {'offer_id': offer_id},
-                {'$set': {
-                    'masked_url': masked_link['masked_url'],
-                    'masked_link_id': str(masked_link['_id'])
-                }}
-            )
-            
-            if result.modified_count > 0:
-                print(f"   ✅ Masked link: {masked_link['masked_url']}")
-                success_count += 1
-            else:
-                print(f"   ⚠️  Update failed")
-                fail_count += 1
-                
-        except Exception as e:
-            print(f"   ❌ Exception: {str(e)}")
-            fail_count += 1
-    
-    # Summary
-    print("\n" + "=" * 70)
-    print("📊 SUMMARY")
-    print("=" * 70)
-    print(f"✅ Successfully processed: {success_count} offers")
-    print(f"❌ Failed: {fail_count} offers")
-    print(f"📝 Total: {len(offers_without_masking)} offers")
-    print("=" * 70)
-    
-    return success_count > 0
+            if changes:
+                needs_fix_count += 1
+                print(f"\n[{i}/{total_offers}] {name[:50]}...")
+                for change in changes:
+                    print(f"   • {change}")
+        
+        print("\n" + "="*80)
+        print("📊 PREVIEW SUMMARY")
+        print("="*80)
+        print(f"Total Offers:           {total_offers}")
+        print(f"Needs Fixing:           {needs_fix_count}")
+        print(f"Already Up to Date:     {total_offers - needs_fix_count}")
+        print("="*80)
+        
+        if needs_fix_count > 0:
+            print(f"\n💡 Run without --preview flag to apply changes to {needs_fix_count} offers")
+        else:
+            print("\n✅ All offers are already up to date!")
+        
+    except Exception as e:
+        print(f"\n❌ ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
 
 if __name__ == '__main__':
-    success = fix_existing_offers()
+    import sys
     
-    if success:
-        print("\n✅ Done! All existing offers now have masked links.")
-        print("💡 Future offers will automatically get masked links when created.")
+    if '--preview' in sys.argv:
+        preview_changes()
     else:
-        print("\n⚠️  Some offers could not be processed. Check errors above.")
+        print("\n⚠️  WARNING: This will modify existing offers in the database!")
+        print("💡 Run with --preview flag to see what changes would be made first")
+        print("\nPress Enter to continue or Ctrl+C to cancel...")
+        try:
+            input()
+        except KeyboardInterrupt:
+            print("\n\n❌ Cancelled by user")
+            sys.exit(0)
+        
+        fix_existing_offers()

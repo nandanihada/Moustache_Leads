@@ -86,13 +86,15 @@ class NetworkAPIService:
                 'Target': 'Affiliate_Offer',
                 'Method': 'findMyOffers',
                 'api_key': api_key,
-                'limit': 100  # Get more for accurate count
+                'limit': 100,  # Get more for accurate count
+                'contain[]': ['Country', 'Thumbnail']  # Request related data
             }
             
             print("="*80)
             print(f"🔍 TESTING HASOFFERS CONNECTION")
             print(f"   URL: {url}")
             print(f"   Network ID: {network_id}")
+            print(f"   Requesting: Country, Thumbnail data")
             print("="*80)
             
             response = self.session.get(url, params=params, timeout=self.timeout)
@@ -167,7 +169,8 @@ class NetworkAPIService:
                 'Target': 'Affiliate_Offer',
                 'Method': 'findMyOffers',
                 'api_key': api_key,
-                'limit': limit or 1000  # Default to 1000 if not specified
+                'limit': limit or 1000,  # Default to 1000 if not specified
+                'contain[]': ['Country', 'Thumbnail']  # Request related data
             }
             
             # Add filters if provided
@@ -182,6 +185,7 @@ class NetworkAPIService:
             print(f"   URL: {url}")
             print(f"   Network ID: {network_id}")
             print(f"   Limit: {limit or 1000}")
+            print(f"   Requesting: Country, Thumbnail data")
             print("="*80)
             
             response = self.session.get(url, params=params, timeout=self.timeout)

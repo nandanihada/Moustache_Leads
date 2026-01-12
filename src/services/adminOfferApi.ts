@@ -376,6 +376,50 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
+  // Duplicate removal methods
+  async checkDuplicates(): Promise<{
+    success: boolean;
+    summary: {
+      total_duplicate_groups: number;
+      total_duplicate_documents: number;
+      total_documents_to_remove: number;
+      duplicate_groups: Array<{
+        offer_id: string;
+        count: number;
+        documents: Array<{
+          _id: string;
+          name: string;
+          created_at?: string;
+          updated_at?: string;
+          status: string;
+        }>;
+      }>;
+    };
+  }> {
+    const response = await fetch(`${API_BASE_URL}/offers/duplicates/check`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async removeDuplicates(keepStrategy: 'newest' | 'oldest' = 'newest'): Promise<{
+    success: boolean;
+    message: string;
+    total_duplicates_found: number;
+    removed: number;
+    errors?: string[];
+  }> {
+    const response = await fetch(`${API_BASE_URL}/offers/duplicates/remove`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ keep_strategy: keepStrategy }),
+    });
+
+    return this.handleResponse(response);
+  }
+
   // Utility method for testing
   async quickLogin(username: string = 'admin', password: string = 'admin123'): Promise<void> {
     const response = await fetch(`${BASE_URL}/api/auth/login`, {

@@ -1925,13 +1925,18 @@ def get_offers():
         user_id = request.args.get('user_id')
         category = request.args.get('category')
         status = request.args.get('status', 'active')
-        limit = int(request.args.get('limit', 50))
+        limit = int(request.args.get('limit', 1000))  # Increased default limit to show more offers
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, status: {status}")
         
         # Build query filter
+        # NOTE: is_active field may not exist on all offers (bulk upload, API import don't set it)
+        # So we check: is_active is either True OR doesn't exist (None)
         query_filter = {
-            'is_active': True  # Only show active offers (not deleted)
+            '$or': [
+                {'is_active': True},
+                {'is_active': {'$exists': False}}  # Include offers without is_active field
+            ]
         }
         
         # Filter by status (default to active offers only)
@@ -1949,8 +1954,8 @@ def get_offers():
             logger.error("❌ Database connection not available")
             return jsonify({'error': 'Database connection not available'}), 500
         
-        # Fetch offers from database
-        offers_cursor = offers_collection.find(query_filter).limit(limit)
+        # Fetch offers from database - SORT BY NEWEST FIRST (created_at descending)
+        offers_cursor = offers_collection.find(query_filter).sort('created_at', -1).limit(limit)
         offers_list = list(offers_cursor)
         
         logger.info(f"✅ Found {len(offers_list)} offers in database")

@@ -1381,3 +1381,64 @@ def debug_api_response():
     except Exception as e:
         logging.error(f"Debug endpoint failed: {str(e)}", exc_info=True)
         return jsonify({'error': f'Debug failed: {str(e)}'}), 500
+
+
+# ==================== DUPLICATE REMOVAL ENDPOINTS ====================
+
+@admin_offers_bp.route('/offers/duplicates/check', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def check_duplicates():
+    """Check for duplicate offers without removing them"""
+    try:
+        from utils.duplicate_remover import DuplicateOfferRemover
+        
+        remover = DuplicateOfferRemover()
+        summary = remover.get_duplicate_summary()
+        
+        return jsonify({
+            'success': True,
+            'summary': summary
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Check duplicates error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to check duplicates: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/duplicates/remove', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def remove_duplicates():
+    """Remove duplicate offers, keeping only one per offer_id"""
+    try:
+        from utils.duplicate_remover import DuplicateOfferRemover
+        
+        data = request.get_json() or {}
+        keep_strategy = data.get('keep_strategy', 'newest')  # 'newest' or 'oldest'
+        
+        if keep_strategy not in ['newest', 'oldest']:
+            return jsonify({'error': 'keep_strategy must be "newest" or "oldest"'}), 400
+        
+        remover = DuplicateOfferRemover()
+        total_duplicates, removed_count, errors = remover.remove_duplicates(keep_strategy)
+        
+        if errors:
+            return jsonify({
+                'success': True,
+                'message': f'Removed {removed_count} duplicate offers with some errors',
+                'total_duplicates_found': total_duplicates,
+                'removed': removed_count,
+                'errors': errors
+            }), 200
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully removed {removed_count} duplicate offers',
+            'total_duplicates_found': total_duplicates,
+            'removed': removed_count
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Remove duplicates error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to remove duplicates: {str(e)}'}), 500
