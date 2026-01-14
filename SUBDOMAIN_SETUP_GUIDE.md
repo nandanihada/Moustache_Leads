@@ -8,7 +8,7 @@ This guide will help you set up subdomains for your MoustacheLeads application:
 - `landing.moustacheleads.com` → Landing page (`/`)
 
 **Note:** Postback URLs remain on the backend domain:
-- `https://moustacheleads-backend.onrender.com/postback/{key}?params...`
+- `https://moustache-leads-1.onrender.com/postback/{key}?params...`
 
 ---
 

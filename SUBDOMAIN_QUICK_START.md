@@ -7,7 +7,7 @@ Set up 4 subdomains for MoustacheLeads:
 3. `offerwall.moustacheleads.com` → User offerwall
 4. `landing.moustacheleads.com` → Landing page
 
-**Note:** Postback URLs stay on backend: `https://moustacheleads-backend.onrender.com/postback/{key}`
+**Note:** Postback URLs stay on backend: `https://moustache-leads-1.onrender.com/postback/{key}`
 
 ---
 
