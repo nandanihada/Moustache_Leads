@@ -117,17 +117,13 @@ blueprints = [
     (comprehensive_analytics_bp, ''),  # Comprehensive analytics - routes include /api/admin prefix
     (login_logs_bp, '/api/admin'),  # Login logs and activity tracking - admin only
     (admin_subadmin_management_bp, '/api/admin'),  # Subadmin management - admin only
-    (gift_cards_bp, '/api'),  # Gift card redemption and management
-    (forwarded_postbacks_bp, '/api'),  # Forwarded postbacks - admin only
-    (user_dashboard_bp, '/api'),  # User dashboard statistics
-    (payout_settings_bp, '/api/payout'),  # Payout settings and earnings
-    (admin_geo_restriction_bp, '/api'),  # Geo-restriction logs and management - admin only
-    (preview_bp, ''),  # Preview handler with countdown - no prefix for /preview/{offer_id}
-    (fix_incentives_bp, '/api')  # Fix incentive types - admin only
-]
+    (partner_profile_bp, '/api'),  # Partner profile routes
+    (partner_postback_logs_bp, ''),  # Partner postback logs - admin routes
+    (diagnostic_bp, ''),  # Diagnostic routes
+    (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
+    (setup_bp, ''),  # One-time setup routes
     (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
     (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
-    (test_admin_simple_bp, '/api/admin'),  # Test admin routes
     (admin_offer_requests_bp, '/api/admin'),  # Admin offer access requests management
     (publisher_settings_bp, ''),  # Publisher settings - routes include /api/publisher prefix
     (admin_promo_codes_bp, ''),  # Admin promo code management - routes include /api/admin prefix
@@ -143,6 +139,10 @@ blueprints = [
     (forwarded_postbacks_bp, '/api'),  # Forwarded postbacks - admin only
     (user_dashboard_bp, '/api'),  # User dashboard statistics
     (payout_settings_bp, '/api/payout'),  # Payout settings and earnings
+    (admin_geo_restriction_bp, '/api'),  # Geo-restriction logs and management - admin only
+    (preview_bp, ''),  # Preview handler with countdown - no prefix for /preview/{offer_id}
+    (fix_incentives_bp, '/api')  # Fix incentive types - admin only
+]
     (admin_geo_restriction_bp, '/api'),  # Geo-restriction logs and management - admin only
     (preview_bp, ''),  # Preview handler with countdown - no prefix for /preview/{offer_id}
     (fix_incentives_bp, '/api')  # Fix incentive types - admin only
