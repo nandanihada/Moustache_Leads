@@ -863,12 +863,12 @@ const IntegrationGuide = ({ data }) => {
             </p>
             <div className="bg-white border rounded p-2 mb-3">
               <code className="text-sm text-gray-800 break-all">
-                {baseUrl}/offerwall?placement_id={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=test_user&api_key={data.apiKey || 'YOUR_API_KEY'}
+                {offerwallUrl}/offerwall?placement_id={data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=test_user&api_key={data.apiKey || 'YOUR_API_KEY'}
               </code>
             </div>
             {isReady && (
               <button
-                onClick={() => window.open(`${baseUrl}/offerwall?placement_id=${data.placementIdentifier}&user_id=test_user&api_key=${data.apiKey}`, '_blank')}
+                onClick={() => window.open(`${offerwallUrl}/offerwall?placement_id=${data.placementIdentifier}&user_id=test_user&api_key=${data.apiKey}`, '_blank')}
                 className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors"
               >
                 Open in New Tab

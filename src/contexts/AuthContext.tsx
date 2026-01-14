@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { getAuthToken, getAuthUser, setAuthToken, setAuthUser, clearAuth } from '../utils/cookies';
 
 interface User {
   id: string;
@@ -38,20 +39,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing token on app load
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+    // Check for existing token on app load (from cookies or localStorage)
+    const storedToken = getAuthToken();
+    const storedUser = getAuthUser();
 
     if (storedToken && storedUser) {
-      try {
-        const parsedUser = JSON.parse(storedUser);
-        setToken(storedToken);
-        setUser(parsedUser);
-      } catch (error) {
-        // Invalid stored data, clear it
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-      }
+      setToken(storedToken);
+      setUser(storedUser);
     }
     setLoading(false);
   }, []);
@@ -59,8 +53,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const login = (newToken: string, newUser: User) => {
     setToken(newToken);
     setUser(newUser);
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
+    // Store in both cookies (for cross-subdomain) and localStorage (for backward compatibility)
+    setAuthToken(newToken);
+    setAuthUser(newUser);
   };
 
   const logout = async () => {
@@ -82,11 +77,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     }
 
-    // Clear local storage
+    // Clear local storage and cookies
     setToken(null);
     setUser(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAuth();
     localStorage.removeItem('session_id');
   };
 
