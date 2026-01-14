@@ -16,16 +16,40 @@ export const SubdomainRouter: React.FC<{ children: React.ReactNode }> = ({ child
   const subdomain = getCurrentSubdomain();
 
   useEffect(() => {
+    // Skip if on localhost
+    if (!subdomain) return;
+
+    // Check if we need to redirect to a different subdomain
+    const currentPath = location.pathname;
+    
+    // Admin routes should be on dashboard subdomain
+    if (currentPath.startsWith('/admin') && subdomain !== 'dashboard') {
+      window.location.href = `https://dashboard.moustacheleads.com${currentPath}${location.search}`;
+      return;
+    }
+    
+    // Publisher offers should be on offers subdomain
+    if (currentPath.startsWith('/dashboard/offers') && subdomain !== 'offers') {
+      window.location.href = `https://offers.moustacheleads.com${currentPath}${location.search}`;
+      return;
+    }
+    
+    // Offerwall should be on offerwall subdomain
+    if (currentPath.startsWith('/offerwall') && subdomain !== 'offerwall') {
+      window.location.href = `https://offerwall.moustacheleads.com${currentPath}${location.search}`;
+      return;
+    }
+
     // If on a subdomain, ensure we're on the correct route
-    if (subdomain && SUBDOMAIN_ROUTES[subdomain]) {
+    if (SUBDOMAIN_ROUTES[subdomain]) {
       const expectedRoute = SUBDOMAIN_ROUTES[subdomain];
       
       // If not on the expected route or a sub-route, navigate to it
-      if (!location.pathname.startsWith(expectedRoute)) {
+      if (!currentPath.startsWith(expectedRoute)) {
         navigate(expectedRoute, { replace: true });
       }
     }
-  }, [subdomain, location.pathname, navigate]);
+  }, [subdomain, location.pathname, location.search, navigate]);
 
   return <>{children}</>;
 };

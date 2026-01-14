@@ -36,24 +36,19 @@ link_redirect_bp = safe_import_blueprint('routes.link_masking', 'link_redirect_b
 analytics_bp = safe_import_blueprint('routes.analytics', 'analytics_bp')
 offer_serving_bp = safe_import_blueprint('routes.offer_serving', 'offer_serving_bp')
 file_upload_bp = safe_import_blueprint('routes.file_upload', 'file_upload_bp')
-test_schedule_rules_bp = safe_import_blueprint('routes.test_schedule_rules', 'test_schedule_rules_bp')
 partners_bp = safe_import_blueprint('routes.partners', 'partners_bp')
 postback_logs_bp = safe_import_blueprint('routes.postback_logs', 'postback_logs_bp')
 postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postback_receiver_bp')
 tracking_api_bp = safe_import_blueprint('routes.tracking_api', 'tracking_api_bp')
 reports_api_bp = safe_import_blueprint('routes.reports_api', 'reports_api_bp')
 tracking_click_bp = safe_import_blueprint('routes.tracking_click_handler', 'tracking_click_bp')
-test_helpers_bp = safe_import_blueprint('routes.test_helpers', 'test_helpers_bp')
-simple_test_bp = safe_import_blueprint('routes.simple_test', 'simple_test_bp')
 partner_profile_bp = safe_import_blueprint('routes.partner_profile', 'partner_profile_bp')
 partner_postback_logs_bp = safe_import_blueprint('routes.partner_postback_logs', 'partner_postback_logs_bp')
 diagnostic_bp = safe_import_blueprint('routes.diagnostic', 'diagnostic_bp')
 user_reports_bp = safe_import_blueprint('routes.user_reports', 'user_reports_bp')
 simple_tracking_bp = safe_import_blueprint('routes.simple_tracking', 'simple_tracking_bp')
 publisher_offers_bp = safe_import_blueprint('routes.publisher_offers', 'publisher_offers_bp')
-admin_publishers_bp = safe_import_blueprint('routes.admin_publishers', 'admin_publishers_bp')
 admin_publishers_simple_bp = safe_import_blueprint('routes.admin_publishers_simple', 'admin_publishers_simple_bp')
-test_admin_simple_bp = safe_import_blueprint('routes.test_admin_simple', 'test_admin_simple_bp')
 admin_offer_requests_bp = safe_import_blueprint('routes.admin_offer_requests', 'admin_offer_requests_bp')
 publisher_settings_bp = safe_import_blueprint('routes.publisher_settings', 'publisher_settings_bp')
 admin_promo_codes_bp = safe_import_blueprint('routes.admin_promo_codes', 'admin_promo_codes_bp')
@@ -67,7 +62,6 @@ login_logs_bp = safe_import_blueprint('routes.login_logs', 'login_logs_bp')
 admin_subadmin_management_bp = safe_import_blueprint('routes.admin_subadmin_management', 'admin_subadmin_management_bp')
 gift_cards_bp = safe_import_blueprint('routes.gift_cards', 'gift_cards_bp')
 forwarded_postbacks_bp = safe_import_blueprint('routes.forwarded_postbacks', 'forwarded_postbacks_bp')
-postback_receiver_bp = safe_import_blueprint('routes.postback_receiver', 'postback_receiver_bp')
 setup_bp = safe_import_blueprint('routes.setup', 'setup_bp')
 user_dashboard_bp = safe_import_blueprint('routes.user_dashboard', 'user_dashboard_bp')
 payout_settings_bp = safe_import_blueprint('routes.payout_settings', 'payout_settings_bp')
@@ -99,20 +93,38 @@ blueprints = [
     (user_reports_bp, '/api'),  # User reports - publisher-facing
     (offer_serving_bp, ''),  # No prefix so /track/click works directly
     (file_upload_bp, '/api'),
-    (test_schedule_rules_bp, '/api'),  # Test routes
     (partners_bp, '/api/admin'),  # Partner management
     (postback_logs_bp, '/api/admin'),  # Postback logs
     (postback_receiver_bp, ''),  # Postback receiver - no prefix for /postback/{key}
     (tracking_api_bp, '/api'),  # Tracking API
     (reports_api_bp, '/api/admin'),  # Reports API
     (tracking_click_bp, ''),  # Tracking click handler - no prefix for /track/click
-    (test_helpers_bp, '/api'),  # Test helpers
-    (simple_test_bp, ''),  # Simple test - no prefix
     (partner_profile_bp, '/api'),  # Partner profile routes
     (partner_postback_logs_bp, ''),  # Partner postback logs - admin routes
     (diagnostic_bp, ''),  # Diagnostic routes
     (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
     (setup_bp, ''),  # One-time setup routes
+    (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
+    (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
+    (admin_offer_requests_bp, '/api/admin'),  # Admin offer access requests management
+    (publisher_settings_bp, ''),  # Publisher settings - routes include /api/publisher prefix
+    (admin_promo_codes_bp, ''),  # Admin promo code management - routes include /api/admin prefix
+    (publisher_promo_codes_bp, ''),  # Publisher promo code routes - routes include /api/publisher prefix
+    (publisher_promo_codes_mgmt_bp, ''),  # Publisher promo code management - routes include /api/publisher prefix
+    (bonus_management_bp, ''),  # Bonus management routes - routes include /api/admin and /api/publisher prefix
+    (admin_offerwall_analytics_bp, ''),  # Admin offerwall analytics - routes include /api/admin prefix
+    (user_offerwall_rewards_bp, ''),  # User offerwall rewards - routes include /api/user prefix
+    (comprehensive_analytics_bp, ''),  # Comprehensive analytics - routes include /api/admin prefix
+    (login_logs_bp, '/api/admin'),  # Login logs and activity tracking - admin only
+    (admin_subadmin_management_bp, '/api/admin'),  # Subadmin management - admin only
+    (gift_cards_bp, '/api'),  # Gift card redemption and management
+    (forwarded_postbacks_bp, '/api'),  # Forwarded postbacks - admin only
+    (user_dashboard_bp, '/api'),  # User dashboard statistics
+    (payout_settings_bp, '/api/payout'),  # Payout settings and earnings
+    (admin_geo_restriction_bp, '/api'),  # Geo-restriction logs and management - admin only
+    (preview_bp, ''),  # Preview handler with countdown - no prefix for /preview/{offer_id}
+    (fix_incentives_bp, '/api')  # Fix incentive types - admin only
+]
     (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
     (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
     (test_admin_simple_bp, '/api/admin'),  # Test admin routes
