@@ -1595,7 +1595,7 @@ const Partners: React.FC = () => {
                 <div className="relative">
                   <div className="bg-white border border-gray-300 rounded-lg p-3 pr-12 font-mono text-xs break-all">
                     {(() => {
-                      const baseURL = selectedPartner?.postback_receiver_url?.split('?')[0] || 'https://moustacheleads-backend.onrender.com/postback/[KEY]';
+                      const baseURL = selectedPartner?.postback_receiver_url?.split('?')[0] || 'https://postback.moustacheleads.com/postback/[KEY]';
                       const params = parameterMappings
                         .filter(m => m.enabled && m.ourParam && m.theirParam)
                         .map(m => `${m.theirParam}={${m.theirParam}}`)

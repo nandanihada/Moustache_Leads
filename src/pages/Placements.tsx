@@ -697,14 +697,14 @@ const IntegrationGuide = ({ data }) => {
   const [testUserId, setTestUserId] = useState('test_user_123');
   const [showPreview, setShowPreview] = useState(true);
   
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const offerwallUrl = 'https://offerwall.moustacheleads.com';
   const iframeSnippet = `<iframe 
-  src="${baseUrl}/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id={user_id}&api_key=${data.apiKey || 'YOUR_API_KEY'}"
+  src="${offerwallUrl}/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id={user_id}&api_key=${data.apiKey || 'YOUR_API_KEY'}"
   style="height:100vh;width:100%;border:0;"
   title="${data.offerwallTitle || 'Offerwall'}">
 </iframe>`;
 
-  const previewUrl = `${baseUrl}/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=${testUserId}&api_key=${data.apiKey || 'YOUR_API_KEY'}`;
+  const previewUrl = `${offerwallUrl}/offerwall?placement_id=${data.placementIdentifier || 'YOUR_PLACEMENT_ID'}&user_id=${testUserId}&api_key=${data.apiKey || 'YOUR_API_KEY'}`;
 
   const copyToClipboard = async () => {
     try {

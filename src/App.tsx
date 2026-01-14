@@ -69,8 +69,7 @@ const App = () => (
         <Sonner />
         <AuthProvider>
           <BrowserRouter>
-            <SubdomainRouter>
-              <Routes>
+            <Routes>
               {/* Public routes */}
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
@@ -136,8 +135,7 @@ const App = () => (
 
               {/* Smart redirect based on authentication status */}
               <Route path="*" element={<SmartRedirect />} />
-              </Routes>
-            </SubdomainRouter>
+            </Routes>
           </BrowserRouter>
         </AuthProvider>
       </TooltipProvider>

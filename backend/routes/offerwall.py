@@ -1887,14 +1887,14 @@ def serve_offerwall():
             # Local development
             frontend_url = 'http://localhost:8080'
         elif 'onrender.com' in request.host:
-            # Backend is on Render, frontend is on Vercel
-            frontend_url = 'https://moustache-leads.vercel.app'
+            # Backend is on Render, frontend is on moustacheleads.com
+            frontend_url = 'https://offerwall.moustacheleads.com'
         elif 'theinterwebsite.space' in request.host:
             # Both on theinterwebsite.space
             frontend_url = 'https://theinterwebsite.space'
         else:
             # Default fallback
-            frontend_url = 'https://moustache-leads.vercel.app'
+            frontend_url = 'https://offerwall.moustacheleads.com'
         
         # Build query string
         query_params = f'placement_id={placement_id}&user_id={user_id}'
