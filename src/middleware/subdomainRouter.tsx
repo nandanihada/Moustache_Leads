@@ -1,93 +1,69 @@
 import { useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { getCurrentSubdomain, redirectToSubdomain } from '../config/subdomains';
+import { useLocation } from 'react-router-dom';
+import { getCurrentSubdomain } from '../config/subdomains';
 
 // Map subdomains to their default routes
 const SUBDOMAIN_ROUTES: Record<string, string> = {
-  dashboard: '/admin',           // Admin dashboard
-  offers: '/dashboard/offers',   // Publisher offers (inside dashboard)
-  offerwall: '/offerwall',       // User offerwall (with query params)
-  landing: '/'                   // Landing page
+  dashboard: '/admin',
+  offers: '/dashboard/offers',
+  offerwall: '/offerwall'
 };
 
 export const SubdomainRouter: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const navigate = useNavigate();
   const location = useLocation();
   const subdomain = getCurrentSubdomain();
 
   useEffect(() => {
-    // Skip if on localhost
-    if (!subdomain) return;
+    // Skip if on localhost or no subdomain
+    if (!subdomain || subdomain === 'www') return;
 
-    // Check if we need to redirect to a different subdomain
     const currentPath = location.pathname;
+    const currentSearch = location.search;
     
-    // Admin routes should be on dashboard subdomain
+    // Check if we're on the wrong subdomain for this path
     if (currentPath.startsWith('/admin') && subdomain !== 'dashboard') {
-      window.location.href = `https://dashboard.moustacheleads.com${currentPath}${location.search}`;
+      window.location.href = `https://dashboard.moustacheleads.com${currentPath}${currentSearch}`;
       return;
     }
     
-    // Publisher offers should be on offers subdomain
     if (currentPath.startsWith('/dashboard/offers') && subdomain !== 'offers') {
-      window.location.href = `https://offers.moustacheleads.com${currentPath}${location.search}`;
+      window.location.href = `https://offers.moustacheleads.com${currentPath}${currentSearch}`;
       return;
     }
     
-    // Offerwall should be on offerwall subdomain
     if (currentPath.startsWith('/offerwall') && subdomain !== 'offerwall') {
-      window.location.href = `https://offerwall.moustacheleads.com${currentPath}${location.search}`;
+      window.location.href = `https://offerwall.moustacheleads.com${currentPath}${currentSearch}`;
       return;
     }
 
-    // If on a subdomain, ensure we're on the correct route
-    if (SUBDOMAIN_ROUTES[subdomain]) {
-      const expectedRoute = SUBDOMAIN_ROUTES[subdomain];
-      
-      // If not on the expected route or a sub-route, navigate to it
-      if (!currentPath.startsWith(expectedRoute)) {
-        navigate(expectedRoute, { replace: true });
-      }
-    }
-  }, [subdomain, location.pathname, location.search, navigate]);
+  }, [subdomain, location.pathname, location.search]);
 
   return <>{children}</>;
 };
 
 // Hook to handle subdomain-aware navigation
 export const useSubdomainNavigation = () => {
-  const navigate = useNavigate();
-
   const navigateToRoute = (path: string) => {
     const currentSubdomain = getCurrentSubdomain();
     
-    // Check if path should be on a different subdomain
-    if (path.startsWith('/admin')) {
-      if (currentSubdomain !== 'dashboard') {
-        redirectToSubdomain('admin', path);
-        return;
-      }
-    } else if (path.startsWith('/dashboard/offers')) {
-      if (currentSubdomain !== 'offers') {
-        redirectToSubdomain('offers', path);
-        return;
-      }
-    } else if (path.startsWith('/offerwall')) {
-      if (currentSubdomain !== 'offerwall') {
-        // Preserve query parameters when redirecting to offerwall
-        const fullPath = path.includes('?') ? path : `${path}${window.location.search}`;
-        redirectToSubdomain('offerwall', fullPath);
-        return;
-      }
-    } else if (path === '/' || path.startsWith('/landing')) {
-      if (currentSubdomain !== 'landing' && currentSubdomain !== null) {
-        redirectToSubdomain('landing', path);
-        return;
-      }
+    // Determine which subdomain this path should be on
+    if (path.startsWith('/admin') && currentSubdomain !== 'dashboard') {
+      window.location.href = `https://dashboard.moustacheleads.com${path}`;
+      return;
+    }
+    
+    if (path.startsWith('/dashboard/offers') && currentSubdomain !== 'offers') {
+      window.location.href = `https://offers.moustacheleads.com${path}`;
+      return;
+    }
+    
+    if (path.startsWith('/offerwall') && currentSubdomain !== 'offerwall') {
+      window.location.href = `https://offerwall.moustacheleads.com${path}`;
+      return;
     }
 
-    // Navigate normally if already on correct subdomain
-    navigate(path);
+    // If already on correct subdomain, use normal navigation
+    window.location.href = path;
   };
 
   return { navigateToRoute };

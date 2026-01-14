@@ -17,14 +17,24 @@ export const getCurrentSubdomain = (): string | null => {
   const hostname = window.location.hostname;
   
   // Local development
-  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+  if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.includes('192.168') || hostname.includes('10.')) {
     return null;
   }
   
+  // Remove www if present
+  const cleanHostname = hostname.replace('www.', '');
+  
   // Extract subdomain
-  const parts = hostname.split('.');
+  const parts = cleanHostname.split('.');
+  
+  // If it's just moustacheleads.com (2 parts), no subdomain
+  if (parts.length === 2) {
+    return null;
+  }
+  
+  // If it's subdomain.moustacheleads.com (3 parts), return subdomain
   if (parts.length >= 3) {
-    return parts[0]; // Returns 'dashboard', 'offers', etc.
+    return parts[0]; // Returns 'dashboard', 'offers', 'offerwall', etc.
   }
   
   return null;
