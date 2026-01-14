@@ -88,64 +88,42 @@ blueprints = [
     (schedule_rules_bp, '/api/admin'),
     (click_handler_bp, '/api'),
     (link_masking_bp, '/api/masking'),
-    (link_redirect_bp, ''),  # Masked link redirects at root level
+    (link_redirect_bp, ''),
     (analytics_bp, '/api/analytics'),
-    (user_reports_bp, '/api'),  # User reports - publisher-facing
-    (offer_serving_bp, ''),  # No prefix so /track/click works directly
+    (user_reports_bp, '/api'),
+    (offer_serving_bp, ''),
     (file_upload_bp, '/api'),
-    (partners_bp, '/api/admin'),  # Partner management
-    (postback_logs_bp, '/api/admin'),  # Postback logs
-    (postback_receiver_bp, ''),  # Postback receiver - no prefix for /postback/{key}
-    (tracking_api_bp, '/api'),  # Tracking API
-    (reports_api_bp, '/api/admin'),  # Reports API
-    (tracking_click_bp, ''),  # Tracking click handler - no prefix for /track/click
-    (partner_profile_bp, '/api'),  # Partner profile routes
-    (partner_postback_logs_bp, ''),  # Partner postback logs - admin routes
-    (diagnostic_bp, ''),  # Diagnostic routes
-    (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
-    (setup_bp, ''),  # One-time setup routes
-    (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
-    (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
-    (admin_offer_requests_bp, '/api/admin'),  # Admin offer access requests management
-    (publisher_settings_bp, ''),  # Publisher settings - routes include /api/publisher prefix
-    (admin_promo_codes_bp, ''),  # Admin promo code management - routes include /api/admin prefix
-    (publisher_promo_codes_bp, ''),  # Publisher promo code routes - routes include /api/publisher prefix
-    (publisher_promo_codes_mgmt_bp, ''),  # Publisher promo code management - routes include /api/publisher prefix
-    (bonus_management_bp, ''),  # Bonus management routes - routes include /api/admin and /api/publisher prefix
-    (admin_offerwall_analytics_bp, ''),  # Admin offerwall analytics - routes include /api/admin prefix
-    (user_offerwall_rewards_bp, ''),  # User offerwall rewards - routes include /api/user prefix
-    (comprehensive_analytics_bp, ''),  # Comprehensive analytics - routes include /api/admin prefix
-    (login_logs_bp, '/api/admin'),  # Login logs and activity tracking - admin only
-    (admin_subadmin_management_bp, '/api/admin'),  # Subadmin management - admin only
-    (partner_profile_bp, '/api'),  # Partner profile routes
-    (partner_postback_logs_bp, ''),  # Partner postback logs - admin routes
-    (diagnostic_bp, ''),  # Diagnostic routes
-    (simple_tracking_bp, ''),  # Simple tracking - /track/{offer_id}
-    (setup_bp, ''),  # One-time setup routes
-    (publisher_offers_bp, '/api/publisher'),  # Publisher offers - no admin required
-    (admin_publishers_simple_bp, '/api/admin'),  # Admin publisher management (simplified)
-    (admin_offer_requests_bp, '/api/admin'),  # Admin offer access requests management
-    (publisher_settings_bp, ''),  # Publisher settings - routes include /api/publisher prefix
-    (admin_promo_codes_bp, ''),  # Admin promo code management - routes include /api/admin prefix
-    (publisher_promo_codes_bp, ''),  # Publisher promo code routes - routes include /api/publisher prefix
-    (publisher_promo_codes_mgmt_bp, ''),  # Publisher promo code management - routes include /api/publisher prefix
-    (bonus_management_bp, ''),  # Bonus management routes - routes include /api/admin and /api/publisher prefix
-    (admin_offerwall_analytics_bp, ''),  # Admin offerwall analytics - routes include /api/admin prefix
-    (user_offerwall_rewards_bp, ''),  # User offerwall rewards - routes include /api/user prefix
-    (comprehensive_analytics_bp, ''),  # Comprehensive analytics - routes include /api/admin prefix
-    (login_logs_bp, '/api/admin'),  # Login logs and activity tracking - admin only
-    (admin_subadmin_management_bp, '/api/admin'),  # Subadmin management - admin only
-    (gift_cards_bp, '/api'),  # Gift card redemption and management
-    (forwarded_postbacks_bp, '/api'),  # Forwarded postbacks - admin only
-    (user_dashboard_bp, '/api'),  # User dashboard statistics
-    (payout_settings_bp, '/api/payout'),  # Payout settings and earnings
-    (admin_geo_restriction_bp, '/api'),  # Geo-restriction logs and management - admin only
-    (preview_bp, ''),  # Preview handler with countdown - no prefix for /preview/{offer_id}
-    (fix_incentives_bp, '/api')  # Fix incentive types - admin only
-]
-    (admin_geo_restriction_bp, '/api'),  # Geo-restriction logs and management - admin only
-    (preview_bp, ''),  # Preview handler with countdown - no prefix for /preview/{offer_id}
-    (fix_incentives_bp, '/api')  # Fix incentive types - admin only
+    (partners_bp, '/api/admin'),
+    (postback_logs_bp, '/api/admin'),
+    (postback_receiver_bp, ''),
+    (tracking_api_bp, '/api'),
+    (reports_api_bp, '/api/admin'),
+    (tracking_click_bp, ''),
+    (partner_profile_bp, '/api'),
+    (partner_postback_logs_bp, ''),
+    (diagnostic_bp, ''),
+    (simple_tracking_bp, ''),
+    (setup_bp, ''),
+    (publisher_offers_bp, '/api/publisher'),
+    (admin_publishers_simple_bp, '/api/admin'),
+    (admin_offer_requests_bp, '/api/admin'),
+    (publisher_settings_bp, ''),
+    (admin_promo_codes_bp, ''),
+    (publisher_promo_codes_bp, ''),
+    (publisher_promo_codes_mgmt_bp, ''),
+    (bonus_management_bp, ''),
+    (admin_offerwall_analytics_bp, ''),
+    (user_offerwall_rewards_bp, ''),
+    (comprehensive_analytics_bp, ''),
+    (login_logs_bp, '/api/admin'),
+    (admin_subadmin_management_bp, '/api/admin'),
+    (gift_cards_bp, '/api'),
+    (forwarded_postbacks_bp, '/api'),
+    (user_dashboard_bp, '/api'),
+    (payout_settings_bp, '/api/payout'),
+    (admin_geo_restriction_bp, '/api'),
+    (preview_bp, ''),
+    (fix_incentives_bp, '/api')
 ]
 
 def create_app():
