@@ -57,6 +57,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthDebug } from "./components/AuthDebug";
 import { SmartRedirect } from "./components/SmartRedirect";
 import { TestOfferModal } from "./components/TestOfferModal";
+import { SubdomainRouter } from "./middleware/subdomainRouter";
 
 const queryClient = new QueryClient();
 
@@ -68,7 +69,8 @@ const App = () => (
         <Sonner />
         <AuthProvider>
           <BrowserRouter>
-            <Routes>
+            <SubdomainRouter>
+              <Routes>
               {/* Public routes */}
               <Route path="/" element={<Landing />} />
               <Route path="/login" element={<Login />} />
@@ -134,7 +136,8 @@ const App = () => (
 
               {/* Smart redirect based on authentication status */}
               <Route path="*" element={<SmartRedirect />} />
-            </Routes>
+              </Routes>
+            </SubdomainRouter>
           </BrowserRouter>
         </AuthProvider>
       </TooltipProvider>

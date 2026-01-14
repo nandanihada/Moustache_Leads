@@ -175,7 +175,13 @@ def create_app():
                  "https://moustache-leads.vercel.app",
                  "https://theinterwebsite.space",
                  "https://www.theinterwebsite.space",
-                 "https://api.theinterwebsite.space"
+                 "https://api.theinterwebsite.space",
+                 "https://moustacheleads.com",
+                 "https://www.moustacheleads.com",
+                 "https://dashboard.moustacheleads.com",
+                 "https://offers.moustacheleads.com",
+                 "https://offerwall.moustacheleads.com",
+                 "https://landing.moustacheleads.com"
              ],
              "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
              "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
@@ -214,11 +220,17 @@ def create_app():
             "https://moustache-leads.vercel.app",
             "https://theinterwebsite.space",
             "https://www.theinterwebsite.space",
-            "https://api.theinterwebsite.space"
+            "https://api.theinterwebsite.space",
+            "https://moustacheleads.com",
+            "https://www.moustacheleads.com",
+            "https://dashboard.moustacheleads.com",
+            "https://offers.moustacheleads.com",
+            "https://offerwall.moustacheleads.com",
+            "https://landing.moustacheleads.com"
         ]
         
-        # Allow all Vercel preview deployments and theinterwebsite.space subdomains
-        if origin and (origin in allowed_origins or '.vercel.app' in origin or 'theinterwebsite.space' in origin):
+        # Allow all Vercel preview deployments, theinterwebsite.space subdomains, and moustacheleads.com subdomains
+        if origin and (origin in allowed_origins or '.vercel.app' in origin or 'theinterwebsite.space' in origin or 'moustacheleads.com' in origin):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
