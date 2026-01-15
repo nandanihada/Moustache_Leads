@@ -59,7 +59,7 @@ export default function PostbackURLBuilder() {
   const [postbackKey, setPostbackKey] = useState<string>('YOUR_POSTBACK_KEY');
   const [mappings, setMappings] = useState<ParameterMapping[]>(PARTNER_TEMPLATES['LeadAds']);
   const [copied, setCopied] = useState(false);
-  const [baseURL] = useState('https://moustacheleads-backend.onrender.com/postback');
+  const [baseURL] = useState('https://postback.moustacheleads.com/postback');
 
   const handlePartnerChange = (partner: string) => {
     setSelectedPartner(partner);

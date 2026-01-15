@@ -690,14 +690,14 @@ const Partners: React.FC = () => {
               <div className="bg-gray-50 border border-gray-300 rounded-lg p-4">
                 <p className="text-sm font-medium text-gray-700 mb-2">Base URL Format:</p>
                 <code className="text-sm bg-white px-3 py-2 rounded border border-gray-200 block break-all">
-                  https://moustacheleads-backend.onrender.com/postback/{'<UNIQUE_KEY>'}
+                  https://postback.moustacheleads.com/postback/{'<UNIQUE_KEY>'}
                 </code>
               </div>
 
               <div className="bg-blue-50 border border-blue-300 rounded-lg p-4">
                 <p className="text-sm font-medium text-blue-900 mb-2">Complete URL with Parameters:</p>
                 <code className="text-xs bg-white px-3 py-2 rounded border border-blue-200 block break-all">
-                  https://moustacheleads-backend.onrender.com/postback/{'<UNIQUE_KEY>'}?user_id={'{aff_sub}'}&payout={'{payout}'}&status={'{status}'}
+                  https://postback.moustacheleads.com/postback/{'<UNIQUE_KEY>'}?user_id={'{aff_sub}'}&payout={'{payout}'}&status={'{status}'}
                 </code>
               </div>
 
@@ -1069,7 +1069,7 @@ const Partners: React.FC = () => {
                 <div className="bg-blue-50 border border-blue-300 rounded-lg p-4">
                   <p className="font-semibold mb-2">Step 2: System Generates URL</p>
                   <code className="text-xs bg-white px-3 py-2 rounded border block break-all">
-                    https://moustacheleads-backend.onrender.com/postback/7oT5qV7uYB3iCyx33iOGluhlalhSEGDq?aff_sub={'{aff_sub}'}&payout={'{payout}'}&status={'{status}'}
+                    https://postback.moustacheleads.com/postback/7oT5qV7uYB3iCyx33iOGluhlalhSEGDq?aff_sub={'{aff_sub}'}&payout={'{payout}'}&status={'{status}'}
                   </code>
                   <p className="text-sm text-blue-800 mt-2">You share this URL with LeadAds</p>
                 </div>
@@ -1078,7 +1078,7 @@ const Partners: React.FC = () => {
                   <p className="font-semibold mb-2">Step 3: LeadAds Sends Postback</p>
                   <p className="text-sm text-gray-700 mb-2">When user completes offer, LeadAds sends:</p>
                   <code className="text-xs bg-white px-3 py-2 rounded border block break-all">
-                    https://moustacheleads-backend.onrender.com/postback/7oT5qV7uYB3iCyx33iOGluhlalhSEGDq?aff_sub=507f1f77bcf86cd799439011&payout=10.00&status=approved
+                    https://postback.moustacheleads.com/postback/7oT5qV7uYB3iCyx33iOGluhlalhSEGDq?aff_sub=507f1f77bcf86cd799439011&payout=10.00&status=approved
                   </code>
                 </div>
 
@@ -1333,7 +1333,7 @@ const Partners: React.FC = () => {
                 <div className="relative">
                   <div className="bg-white border border-gray-300 rounded-lg p-3 pr-12 font-mono text-xs break-all">
                     {(() => {
-                      const baseURL = 'https://moustacheleads-backend.onrender.com/postback';
+                      const baseURL = 'https://postback.moustacheleads.com/postback';
                       const params = parameterMappings
                         .filter(m => m.enabled && m.ourParam && m.theirParam)
                         .map(m => `${m.theirParam}={${m.theirParam}}`)
@@ -1346,7 +1346,7 @@ const Partners: React.FC = () => {
                     variant="ghost"
                     size="sm"
                     onClick={() => {
-                      const baseURL = 'https://moustacheleads-backend.onrender.com/postback';
+                      const baseURL = 'https://postback.moustacheleads.com/postback';
                       const params = parameterMappings
                         .filter(m => m.enabled && m.ourParam && m.theirParam)
                         .map(m => `${m.theirParam}={${m.theirParam}}`)

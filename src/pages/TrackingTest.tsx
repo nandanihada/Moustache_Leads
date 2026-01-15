@@ -39,7 +39,11 @@ const TrackingTest = () => {
       setLoadingData(true);
       
       // Load offers and users in parallel
-      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
+      const baseUrl = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5000' 
+        : (window.location.hostname.includes('moustacheleads.com') 
+          ? 'https://moustacheleads-backend.onrender.com' 
+          : 'https://moustacheleads-backend.onrender.com');
       const [offersResponse, usersResponse] = await Promise.all([
         fetch(`${baseUrl}/api/test/available-offers`),
         fetch(`${baseUrl}/api/test/sample-users`)
@@ -91,7 +95,11 @@ const TrackingTest = () => {
     try {
       setLoading(true);
       
-      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
+      const baseUrl = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5000' 
+        : (window.location.hostname.includes('moustacheleads.com') 
+          ? 'https://moustacheleads-backend.onrender.com' 
+          : 'https://moustacheleads-backend.onrender.com');
       const response = await fetch(`${baseUrl}/api/test/setup-test-offer`, {
         method: 'POST',
         headers: {
@@ -145,7 +153,11 @@ const TrackingTest = () => {
       setLoading(true);
       
       // Call the real test endpoint for actual postbacks
-      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
+      const baseUrl = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5000' 
+        : (window.location.hostname.includes('moustacheleads.com') 
+          ? 'https://moustacheleads-backend.onrender.com' 
+          : 'https://moustacheleads-backend.onrender.com');
       const response = await fetch(`${baseUrl}/test-complete-flow`, {
         method: 'POST',
         headers: {
@@ -212,7 +224,11 @@ const TrackingTest = () => {
     try {
       setLoading(true);
       
-      const baseUrl = window.location.hostname === 'localhost' ? 'http://localhost:5000' : 'https://moustacheleads-backend.onrender.com';
+      const baseUrl = window.location.hostname === 'localhost' 
+        ? 'http://localhost:5000' 
+        : (window.location.hostname.includes('moustacheleads.com') 
+          ? 'https://moustacheleads-backend.onrender.com' 
+          : 'https://moustacheleads-backend.onrender.com');
       const response = await fetch(`${baseUrl}/generate-tracking-link`, {
         method: 'POST',
         headers: {

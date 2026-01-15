@@ -3,7 +3,9 @@
  * Handles all reports-related API calls for admin dashboard
  */
 
-const API_BASE_URL = 'https://moustacheleads-backend.onrender.com/api/admin';
+import { getApiBaseUrl } from './apiConfig';
+
+const API_BASE_URL = `${getApiBaseUrl()}/api/admin`;
 
 export interface ReportSummaryMetrics {
   total_clicks: number;

@@ -3,7 +3,9 @@
  * Handles all tracking-related API calls
  */
 
-const API_BASE_URL = 'https://moustacheleads-backend.onrender.com/api';
+import { getApiBaseUrl } from './apiConfig';
+
+const API_BASE_URL = `${getApiBaseUrl()}/api`;
 
 export interface TrackingStats {
   clicks: {

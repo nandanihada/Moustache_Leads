@@ -1275,14 +1275,14 @@ const PostbackReceiver: React.FC = () => {
                   <Label className="text-sm text-gray-600">Base URL</Label>
                   <div className="flex gap-2 mt-1">
                     <Input
-                      value="https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+                      value="https://postback.moustacheleads.com/postback/{unique_key}"
                       readOnly
                       className="font-mono text-sm"
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => copyToClipboard("https://moustacheleads-backend.onrender.com/postback/{unique_key}")}
+                      onClick={() => copyToClipboard("https://postback.moustacheleads.com/postback/{unique_key}")}
                     >
                       <Copy className="h-4 w-4" />
                     </Button>
@@ -1296,10 +1296,10 @@ const PostbackReceiver: React.FC = () => {
                       value={(() => {
                         const allParams = [...selectedParameters, ...customParams.filter(p => p.trim())];
                         if (allParams.length === 0) {
-                          return "https://moustacheleads-backend.onrender.com/postback/{unique_key}";
+                          return "https://postback.moustacheleads.com/postback/{unique_key}";
                         }
                         const paramString = allParams.map(p => `${p}={${p}}`).join('&');
-                        return `https://moustacheleads-backend.onrender.com/postback/{unique_key}?${paramString}`;
+                        return `https://postback.moustacheleads.com/postback/{unique_key}?${paramString}`;
                       })()}
                       readOnly
                       className="font-mono text-sm"
@@ -1310,10 +1310,10 @@ const PostbackReceiver: React.FC = () => {
                       onClick={() => {
                         const allParams = [...selectedParameters, ...customParams.filter(p => p.trim())];
                         if (allParams.length === 0) {
-                          copyToClipboard("https://moustacheleads-backend.onrender.com/postback/{unique_key}");
+                          copyToClipboard("https://postback.moustacheleads.com/postback/{unique_key}");
                         } else {
                           const paramString = allParams.map(p => `${p}={${p}}`).join('&');
-                          copyToClipboard(`https://moustacheleads-backend.onrender.com/postback/{unique_key}?${paramString}`);
+                          copyToClipboard(`https://postback.moustacheleads.com/postback/{unique_key}?${paramString}`);
                         }
                       }}
                     >
