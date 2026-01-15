@@ -69,14 +69,15 @@ const App = () => (
         <Sonner />
         <AuthProvider>
           <BrowserRouter>
-            <Routes>
-              {/* Public routes */}
-              <Route path="/" element={<Landing />} />
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              <Route path="/verify-email" element={<VerifyEmail />} />
-              <Route path="/test-modal" element={<TestOfferModal />} />
-              <Route path="/offerwall" element={<OfferwallPage />} />
+            <SubdomainRouter>
+              <Routes>
+                {/* Public routes */}
+                <Route path="/" element={<Landing />} />
+                <Route path="/login" element={<Login />} />
+                <Route path="/register" element={<Register />} />
+                <Route path="/verify-email" element={<VerifyEmail />} />
+                <Route path="/test-modal" element={<TestOfferModal />} />
+                <Route path="/offerwall" element={<OfferwallPage />} />
 
               {/* Protected dashboard routes */}
               <Route
@@ -136,6 +137,7 @@ const App = () => (
               {/* Smart redirect based on authentication status */}
               <Route path="*" element={<SmartRedirect />} />
             </Routes>
+            </SubdomainRouter>
           </BrowserRouter>
         </AuthProvider>
       </TooltipProvider>

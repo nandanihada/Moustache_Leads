@@ -2004,11 +2004,11 @@ def get_offers():
                         if 'theinterwebsite.space' in host:
                             base_url = "https://api.theinterwebsite.space"
                         elif 'moustacheleads.com' in host or 'vercel.app' in host:
-                            # Use offers subdomain for tracking
-                            base_url = "https://offers.moustacheleads.com"
+                            # Use backend URL directly (no subdomain limit)
+                            base_url = "https://moustacheleads-backend.onrender.com"
                         elif 'onrender.com' in host:
                             # Request from Render itself
-                            base_url = "https://offers.moustacheleads.com"
+                            base_url = "https://moustacheleads-backend.onrender.com"
                         else:
                             # Development - use localhost
                             base_url = f"{protocol}://{host}:5000"

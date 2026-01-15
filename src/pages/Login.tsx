@@ -39,7 +39,25 @@ export default function Login() {
         }
 
         alert("Login successful!");
-        navigate("/dashboard");
+        
+        // Redirect based on user role and use correct subdomain
+        const isProduction = window.location.hostname.includes('moustacheleads.com');
+        
+        if (isProduction) {
+          // In production, redirect to appropriate subdomain
+          if (data.user.role === 'admin' || data.user.role === 'subadmin') {
+            window.location.href = 'https://dashboard.moustacheleads.com/admin';
+          } else {
+            window.location.href = 'https://moustacheleads.com/dashboard';
+          }
+        } else {
+          // In development, use normal navigation
+          if (data.user.role === 'admin' || data.user.role === 'subadmin') {
+            navigate("/admin");
+          } else {
+            navigate("/dashboard");
+          }
+        }
       } else {
         alert(data.error || "Login failed");
       }

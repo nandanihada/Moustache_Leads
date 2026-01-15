@@ -57,8 +57,8 @@ class TrackingService:
             
             tracking_hash = hashlib.md5(hash_data.encode()).hexdigest()
             
-            # Create tracking URL - use offers subdomain for tracking links
-            base_url = "https://offers.moustacheleads.com"  # Tracking subdomain
+            # Create tracking URL - use backend URL directly (no subdomain)
+            base_url = "https://moustacheleads-backend.onrender.com"
             tracking_url = f"{base_url}/track/click/{click_id}"
             
             # Add parameters

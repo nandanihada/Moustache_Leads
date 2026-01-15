@@ -4,7 +4,7 @@ Receives postback notifications from external partners/networks
 """
 
 from flask import Blueprint, request, jsonify
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from bson import ObjectId
 import logging
 import secrets
@@ -762,7 +762,7 @@ def generate_unique_key():
                 '$set': {
                     'unique_postback_key': unique_key,
                     'postback_receiver_url': f"https://postback.moustacheleads.com/postback/{unique_key}",
-                    'updated_at': datetime.utcnow()
+                    'updated_at': datetime.now(timezone.utc)
                 }
             }
         )
@@ -908,12 +908,13 @@ def bulk_delete_received_postbacks():
 @admin_required
 def generate_quick_postback():
     """
-    Generate a quick postback URL without requiring a partner
+    Generate a quick postback URL without requiring a partner and save it to database
     """
     try:
         data = request.get_json()
         parameters = data.get('parameters', [])
         custom_params = data.get('custom_params', [])
+        partner_name = data.get('partner_name', 'Quick Generated Partner')
         
         # Generate unique key (32 characters)
         unique_key = secrets.token_urlsafe(24)
@@ -935,6 +936,29 @@ def generate_quick_postback():
         else:
             full_url = base_url
         
+        # Save to database as a partner
+        partners_collection = get_collection('partners')
+        if partners_collection is not None:
+            import uuid
+            partner_doc = {
+                'partner_id': str(uuid.uuid4()),
+                'partner_name': partner_name,
+                'postback_url': '',  # They send TO us, not we send to them
+                'method': 'GET',
+                'status': 'active',
+                'description': f'Quick generated postback with parameters: {", ".join(all_params)}',
+                'unique_postback_key': unique_key,
+                'postback_receiver_url': full_url,
+                'parameter_mapping': {param: param for param in all_params if param.strip()},
+                'created_by': str(request.current_user['_id']),
+                'created_at': datetime.now(timezone.utc),
+                'updated_at': datetime.now(timezone.utc),
+                'is_quick_generated': True  # Flag to identify quick generated partners
+            }
+            
+            partners_collection.insert_one(partner_doc)
+            logger.info(f"✅ Saved quick postback to database: {partner_name} - {unique_key}")
+        
         logger.info(f"✅ Generated quick postback URL: {unique_key}")
         
         return jsonify({
@@ -942,7 +966,8 @@ def generate_quick_postback():
             'unique_key': unique_key,
             'base_url': base_url,
             'full_url': full_url,
-            'parameters': all_params
+            'parameters': all_params,
+            'partner_name': partner_name
         }), 200
         
     except Exception as e:
