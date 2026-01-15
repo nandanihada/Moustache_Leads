@@ -215,7 +215,7 @@ def get_username_from_user_id(user_id):
 def receive_postback(unique_key):
     """
     Receive postback from external partners
-    URL format: https://moustacheleads-backend.onrender.com/postback/{unique_key}?param1=value1&param2=value2
+    URL format: https://postback.moustacheleads.com/postback/{unique_key}?param1=value1&param2=value2
     """
     logger.info(f"🔔 POSTBACK RECEIVER FUNCTION CALLED - VERSION WITH DISTRIBUTION")
     try:
@@ -761,7 +761,7 @@ def generate_unique_key():
             {
                 '$set': {
                     'unique_postback_key': unique_key,
-                    'postback_receiver_url': f"https://moustacheleads-backend.onrender.com/postback/{unique_key}",
+                    'postback_receiver_url': f"https://postback.moustacheleads.com/postback/{unique_key}",
                     'updated_at': datetime.utcnow()
                 }
             }
@@ -775,7 +775,7 @@ def generate_unique_key():
         return jsonify({
             'success': True,
             'unique_key': unique_key,
-            'postback_url': f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+            'postback_url': f"https://postback.moustacheleads.com/postback/{unique_key}"
         }), 200
         
     except Exception as e:
@@ -919,7 +919,7 @@ def generate_quick_postback():
         unique_key = secrets.token_urlsafe(24)
         
         # Build base URL
-        base_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+        base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
         
         # Build full URL with parameters
         all_params = parameters + custom_params
@@ -965,7 +965,7 @@ def test_quick_postback():
             return jsonify({'error': 'unique_key is required'}), 400
         
         # Build test URL
-        base_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+        base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
         
         # Add test parameters
         import urllib.parse
@@ -1040,7 +1040,7 @@ def test_postback_receiver():
             return jsonify({'error': 'unique_key is required'}), 400
         
         # Build test URL
-        base_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+        base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
         
         # Add test parameters
         import urllib.parse

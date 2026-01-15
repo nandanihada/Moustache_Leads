@@ -43,7 +43,7 @@ def create_partner():
         parameter_mapping = data.get('parameter_mapping', {})
         
         # Build postback URL with parameters
-        base_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+        base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
         
         # Add parameters to URL if mappings exist
         if parameter_mapping:
@@ -185,7 +185,7 @@ def update_partner(partner_id):
             unique_key = partner.get('unique_postback_key')
             
             if unique_key:
-                base_url = f"https://moustacheleads-backend.onrender.com/postback/{unique_key}"
+                base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
                 
                 # Add parameters to URL if mappings exist
                 if parameter_mapping:

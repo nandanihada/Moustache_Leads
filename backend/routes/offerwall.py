@@ -2000,16 +2000,17 @@ def get_offers():
                         protocol = request.scheme
                         host = request.host.split(':')[0]  # Remove port if present
                         
-                        # Map frontend domains to backend domains
+                        # Map frontend domains to backend domains for tracking
                         if 'theinterwebsite.space' in host:
                             base_url = "https://api.theinterwebsite.space"
-                        elif 'vercel.app' in host or 'moustache-leads' in host:
-                            base_url = "https://moustacheleads-backend.onrender.com"
+                        elif 'moustacheleads.com' in host or 'vercel.app' in host:
+                            # Use offers subdomain for tracking
+                            base_url = "https://offers.moustacheleads.com"
                         elif 'onrender.com' in host:
-                            # Request from Render itself - no port needed
-                            base_url = f"{protocol}://{host}"
+                            # Request from Render itself
+                            base_url = "https://offers.moustacheleads.com"
                         else:
-                            # Development or unknown - add port 5000
+                            # Development - use localhost
                             base_url = f"{protocol}://{host}:5000"
                     
                     # Create tracking URL in the format: /track/{offer_id}?user_id={user_id}&sub1={placement_id}
