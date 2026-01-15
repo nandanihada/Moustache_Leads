@@ -18,8 +18,8 @@ export const getApiBaseUrl = (): string => {
     return 'http://localhost:5000';
   }
 
-  // Vercel deployment - use Render backend
-  if (hostname.includes('vercel.app') || hostname.includes('moustache-leads')) {
+  // Vercel deployment or moustacheleads.com - use Render backend
+  if (hostname.includes('vercel.app') || hostname.includes('moustacheleads')) {
     return 'https://moustacheleads-backend.onrender.com';
   }
 
