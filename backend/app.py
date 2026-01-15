@@ -139,46 +139,48 @@ def create_app():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Enable CORS with detailed configuration
+    # Enable CORS with detailed configuration - Allow all moustacheleads.com subdomains
     CORS(app, 
-         resources={r"/api/*": {
-             "origins": [
-                 "http://localhost:3000",
-                 "http://localhost:5173",
-                 "http://localhost:8080",
-                 "http://localhost:8081",
-                 "http://localhost:8082",
-                 "http://127.0.0.1:3000",
-                 "http://127.0.0.1:5173",
-                 "http://127.0.0.1:8080",
-                 "http://127.0.0.1:8081",
-                 "http://127.0.0.1:8082",
-                 "http://192.168.1.15:8080",
-                 "http://192.168.1.15:8081",
-                 "http://192.168.1.15:8082",
-                 "http://192.168.1.15:5173",
-                 "http://10.59.206.163:3000",
-                 "http://10.59.206.163:5173",
-                 "http://10.59.206.163:8080",
-                 "http://10.59.206.163:8081",
-                 "http://10.59.206.163:8082",
-                 "https://moustache-leads.vercel.app",
-                 "https://theinterwebsite.space",
-                 "https://www.theinterwebsite.space",
-                 "https://api.theinterwebsite.space",
-                 "https://moustacheleads.com",
-                 "https://www.moustacheleads.com",
-                 "https://dashboard.moustacheleads.com",
-                 "https://offers.moustacheleads.com",
-                 "https://offerwall.moustacheleads.com",
-                 "https://landing.moustacheleads.com"
-             ],
-             "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-             "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
-             "expose_headers": ["Content-Type", "Authorization"],
-             "supports_credentials": True,
-             "max_age": 3600
-         }},
+         resources={
+             r"/*": {  # Match ALL routes, not just /api/*
+                 "origins": [
+                     "http://localhost:3000",
+                     "http://localhost:5173",
+                     "http://localhost:8080",
+                     "http://localhost:8081",
+                     "http://localhost:8082",
+                     "http://127.0.0.1:3000",
+                     "http://127.0.0.1:5173",
+                     "http://127.0.0.1:8080",
+                     "http://127.0.0.1:8081",
+                     "http://127.0.0.1:8082",
+                     "http://192.168.1.15:8080",
+                     "http://192.168.1.15:8081",
+                     "http://192.168.1.15:8082",
+                     "http://192.168.1.15:5173",
+                     "http://10.59.206.163:3000",
+                     "http://10.59.206.163:5173",
+                     "http://10.59.206.163:8080",
+                     "http://10.59.206.163:8081",
+                     "http://10.59.206.163:8082",
+                     "https://moustache-leads.vercel.app",
+                     "https://theinterwebsite.space",
+                     "https://www.theinterwebsite.space",
+                     "https://api.theinterwebsite.space",
+                     "https://moustacheleads.com",
+                     "https://www.moustacheleads.com",
+                     "https://dashboard.moustacheleads.com",
+                     "https://offers.moustacheleads.com",
+                     "https://offerwall.moustacheleads.com",
+                     "https://landing.moustacheleads.com"
+                 ],
+                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+                 "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+                 "expose_headers": ["Content-Type", "Authorization"],
+                 "supports_credentials": True,
+                 "max_age": 3600
+             }
+         },
          supports_credentials=True)
     
     # Custom CORS handler for additional origins (Vercel deployments and production)
