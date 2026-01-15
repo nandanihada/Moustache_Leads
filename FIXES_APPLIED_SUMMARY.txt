@@ -1,0 +1,173 @@
+================================================================================
+SUBDOMAIN FIXES APPLIED - SUMMARY
+================================================================================
+Date: $(date)
+
+ISSUES IDENTIFIED:
+==================
+
+1. ❌ Publisher Offers Page - Network Error (CORS)
+   - Status: CORS is already configured correctly in backend
+   - Root Cause: Frontend trying to access offers.moustacheleads.com but DNS not set up
+   
+2. ❌ Postback Links Not Working (SSL Error)
+   - Status: Backend code is correct (uses postback.moustacheleads.com)
+   - Root Cause: DNS CNAME records not properly configured in GoDaddy
+   - Error: "ERR_SSL_VERSION_OR_CIPHER_MISMATCH"
+   
+3. ❌ Tracking Links Still Showing Backend URL
+   - Status: FIXED in this update
+   - Changed: backend/services/tracking_service.py
+   - Now uses: https://offers.moustacheleads.com/track/click/{click_id}
+
+FIXES APPLIED:
+==============
+
+✅ BACKEND FIXES:
+
+1. backend/services/tracking_service.py (Line 62)
+   OLD: base_url = "https://moustacheleads-backend.onrender.com"
+   NEW: base_url = "https://offers.moustacheleads.com"
+   
+   This ensures all tracking links generated for offers now use the 
+   offers.moustacheleads.com subdomain instead of the backend URL.
+
+✅ FRONTEND FIXES (Already Applied in Previous Update):
+
+1. src/services/trackingApi.ts
+   - Now uses getApiBaseUrl() from apiConfig.ts
+   
+2. src/services/reportsApi.ts
+   - Now uses getApiBaseUrl() from apiConfig.ts
+   
+3. src/pages/TrackingTest.tsx (4 instances)
+   - Updated to use dynamic backend detection
+   
+4. src/pages/PostbackReceiver.tsx (4 instances)
+   - All postback URLs now use postback.moustacheleads.com
+   
+5. src/pages/Partners.tsx (6 instances)
+   - All postback URL examples now use postback.moustacheleads.com
+   
+6. src/components/PostbackURLBuilder.tsx
+   - Base URL updated to postback.moustacheleads.com
+
+✅ BACKEND POSTBACK URLS (Already Correct):
+
+1. backend/routes/postback_receiver.py
+   - Line 764: Uses https://postback.moustacheleads.com/postback/{key}
+   
+2. backend/routes/partners.py
+   - Line 46: Uses https://postback.moustacheleads.com/postback/{key}
+
+✅ BACKEND CORS (Already Correct):
+
+- backend/app.py includes all moustacheleads.com subdomains
+- Allows: dashboard, offers, offerwall, landing subdomains
+- Supports credentials for cross-subdomain authentication
+
+WHAT YOU NEED TO DO NOW:
+=========================
+
+🔴 CRITICAL - DNS SETUP IN GODADDY:
+
+You MUST add these CNAME records in GoDaddy DNS settings:
+
+Record Type | Name      | Points To
+------------|-----------|----------------------------------
+CNAME       | postback  | moustacheleads-backend.onrender.com
+CNAME       | offers    | moustacheleads-backend.onrender.com
+CNAME       | dashboard | cname.vercel-dns.com
+CNAME       | offerwall | cname.vercel-dns.com
+CNAME       | landing   | cname.vercel-dns.com
+
+IMPORTANT NOTES:
+- postback and offers point to BACKEND (Render)
+- dashboard, offerwall, landing point to FRONTEND (Vercel)
+- TTL can be set to 600 seconds (10 minutes) or 1 Hour
+
+WHY POSTBACK IS NOT WORKING:
+- The subdomain postback.moustacheleads.com doesn't exist yet
+- You need to add the CNAME record in GoDaddy
+- Once added, it will take 10-60 minutes to propagate
+- The backend is already configured to handle it
+
+WHY OFFERS PAGE SHOWS NETWORK ERROR:
+- The subdomain offers.moustacheleads.com doesn't exist yet
+- You need to add the CNAME record in GoDaddy
+- CORS is already configured correctly in backend
+- Once DNS is set up, the offers page will work
+
+🔴 VERCEL ENVIRONMENT VARIABLE:
+
+Make sure this is set in Vercel (Production, Preview, Development):
+
+VITE_API_URL=https://moustacheleads-backend.onrender.com
+
+To check/set:
+1. Go to Vercel Dashboard
+2. Select your project
+3. Go to Settings → Environment Variables
+4. Add/verify VITE_API_URL
+5. Redeploy if you make changes
+
+TESTING AFTER DNS SETUP:
+=========================
+
+1. Wait 10-60 minutes after adding DNS records
+
+2. Test Postback URL:
+   - Try opening: https://postback.moustacheleads.com/postback/test
+   - Should show a response (not SSL error)
+
+3. Test Offers Subdomain:
+   - Try opening: https://offers.moustacheleads.com
+   - Should redirect or show backend response
+
+4. Test Publisher Offers Page:
+   - Go to: https://dashboard.moustacheleads.com/dashboard/offers
+   - Should load without Network Error
+
+5. Create a New Offer:
+   - The tracking link should now show:
+     https://offers.moustacheleads.com/track/ML-XXXXX?user_id=...
+   - NOT the backend URL
+
+SUBDOMAIN ARCHITECTURE:
+=======================
+
+Frontend (Vercel):
+- moustacheleads.com (main site)
+- dashboard.moustacheleads.com (admin dashboard)
+- offerwall.moustacheleads.com (user offerwall)
+- landing.moustacheleads.com (landing page)
+
+Backend (Render):
+- moustacheleads-backend.onrender.com (API server)
+- postback.moustacheleads.com → points to backend (postback endpoint)
+- offers.moustacheleads.com → points to backend (tracking endpoint)
+
+CURRENT STATUS:
+===============
+
+✅ Backend code is correct
+✅ Frontend code is correct
+✅ CORS is configured correctly
+✅ Tracking URLs will use offers.moustacheleads.com
+✅ Postback URLs use postback.moustacheleads.com
+❌ DNS records NOT set up yet (YOU NEED TO DO THIS)
+❌ Vercel environment variable needs verification
+
+NEXT STEPS:
+===========
+
+1. Add DNS CNAME records in GoDaddy (see table above)
+2. Verify Vercel environment variable
+3. Wait 10-60 minutes for DNS propagation
+4. Test all subdomains
+5. Push code to repository
+6. Redeploy on Vercel
+
+DO NOT PUSH CODE YET - Review these changes first!
+
+================================================================================
