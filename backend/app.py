@@ -232,6 +232,22 @@ def create_app():
         
         return response
     
+    # Handle OPTIONS preflight requests explicitly
+    @app.before_request
+    def handle_preflight():
+        if request.method == 'OPTIONS':
+            origin = request.headers.get('Origin')
+            
+            # Check if origin is allowed
+            if origin and ('moustacheleads.com' in origin or 'vercel.app' in origin or 'theinterwebsite.space' in origin or 'localhost' in origin or '127.0.0.1' in origin):
+                response = app.make_default_options_response()
+                response.headers['Access-Control-Allow-Origin'] = origin
+                response.headers['Access-Control-Allow-Credentials'] = 'true'
+                response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
+                response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+                response.headers['Access-Control-Max-Age'] = '3600'
+                return response
+    
     # Register blueprints (only if successfully imported)
     for blueprint, url_prefix in blueprints:
         if blueprint:
@@ -294,6 +310,17 @@ def create_app():
                 'database': 'disconnected',
                 'error': str(e)
             }), 500
+    
+    # CORS test endpoint
+    @app.route('/api/test-cors', methods=['GET', 'OPTIONS'])
+    def test_cors():
+        """Test endpoint to verify CORS is working"""
+        return jsonify({
+            'message': 'CORS is working!',
+            'origin': request.headers.get('Origin'),
+            'cors_pattern': 'r"/*"',
+            'timestamp': datetime.now().isoformat()
+        }), 200
     
     # Root endpoint
     @app.route('/', methods=['GET'])
