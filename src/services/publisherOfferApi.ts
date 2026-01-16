@@ -18,6 +18,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Enable credentials for cross-origin requests
+  timeout: 30000, // 30 second timeout
 });
 
 // Add auth token to requests
@@ -33,6 +34,16 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Log detailed error information for debugging
+    console.error('API Error Details:', {
+      message: error.message,
+      code: error.code,
+      status: error.response?.status,
+      url: error.config?.url,
+      baseURL: error.config?.baseURL,
+      method: error.config?.method,
+    });
+    
     if (error.response?.status === 401) {
       // Token expired or invalid
       localStorage.removeItem('token');
@@ -98,19 +109,29 @@ export interface GetOfferResponse {
 /**
  * Get available offers for publishers
  */
-export const getAvailableOffers = async (params: GetOffersParams = {}): Promise<GetOffersResponse> => {
+export const getAvailableOffers = async (params: GetOffersParams = {}, retryCount = 0): Promise<GetOffersResponse> => {
   const { page = 1, per_page = 100, status = 'active', search = '' } = params;
   
-  const response = await api.get('/api/publisher/offers/available', {
-    params: {
-      page,
-      per_page,
-      status,
-      search,
-    },
-  });
-  
-  return response.data;
+  try {
+    const response = await api.get('/api/publisher/offers/available', {
+      params: {
+        page,
+        per_page,
+        status,
+        search,
+      },
+    });
+    
+    return response.data;
+  } catch (error: any) {
+    // Retry on network errors (backend might be restarting)
+    if (error.code === 'ERR_NETWORK' && retryCount < 2) {
+      console.log(`Network error, retrying... (attempt ${retryCount + 1}/2)`);
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+      return getAvailableOffers(params, retryCount + 1);
+    }
+    throw error;
+  }
 };
 
 /**

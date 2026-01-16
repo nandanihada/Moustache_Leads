@@ -34,8 +34,11 @@ def token_required(f):
         # Allow OPTIONS requests (CORS preflight) without authentication
         # Return empty 200 response - the after_request handler will add CORS headers
         if request.method == 'OPTIONS':
+            logging.info(f"🔍 token_required: Allowing OPTIONS request to {request.path}")
             from flask import make_response
             return make_response('', 200)
+        
+        logging.info(f"🔍 token_required: Checking auth for {request.method} {request.path}")
         
         token = None
         
@@ -44,16 +47,22 @@ def token_required(f):
             auth_header = request.headers['Authorization']
             try:
                 token = auth_header.split(" ")[1]  # Bearer <token>
+                logging.info(f"🔍 token_required: Token found in Authorization header")
             except IndexError:
+                logging.error(f"❌ token_required: Invalid token format")
                 return jsonify({'error': 'Invalid token format'}), 401
         
         if not token:
+            logging.error(f"❌ token_required: Token is missing")
             return jsonify({'error': 'Token is missing'}), 401
         
         # Decode token
         payload = decode_token(token)
         if payload is None:
+            logging.error(f"❌ token_required: Token is invalid or expired")
             return jsonify({'error': 'Token is invalid or expired'}), 401
+        
+        logging.info(f"✅ token_required: Token valid for user {payload.get('username')}")
         
         # Get user data
         user_model = User()
@@ -72,6 +81,7 @@ def token_required(f):
                     'is_active': True
                 }
             else:
+                logging.error(f"❌ token_required: User not found for user_id {payload['user_id']}")
                 return jsonify({'error': 'User not found'}), 401
         
         # Remove password from user data and ensure id field exists

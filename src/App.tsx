@@ -33,6 +33,7 @@ import PartnerProfile from "./pages/PartnerProfile";
 import PerformanceReport from "./pages/PerformanceReport";
 import ConversionReport from "./pages/ConversionReport";
 import AdminPromoCodeManagement from "./pages/AdminPromoCodeManagement";
+import AdminTestPostback from "./pages/AdminTestPostback";
 import PublisherPromoCodeManagement from "./pages/PublisherPromoCodeManagement";
 import AdminBonusManagement from "./pages/AdminBonusManagement";
 import TestPage from "./pages/TestPage";
@@ -130,6 +131,7 @@ const App = () => (
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="partners" element={<Partners />} />
                 <Route path="postback" element={<PostbackReceiver />} />
+                <Route path="test-postback" element={<AdminTestPostback />} />
                 <Route path="subadmin-management" element={<AdminSubadminManagement />} />
                 <Route path="gift-cards" element={<AdminGiftCardManagement />} />
               </Route>

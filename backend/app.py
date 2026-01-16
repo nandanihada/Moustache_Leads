@@ -48,6 +48,7 @@ diagnostic_bp = safe_import_blueprint('routes.diagnostic', 'diagnostic_bp')
 user_reports_bp = safe_import_blueprint('routes.user_reports', 'user_reports_bp')
 simple_tracking_bp = safe_import_blueprint('routes.simple_tracking', 'simple_tracking_bp')
 publisher_offers_bp = safe_import_blueprint('routes.publisher_offers', 'publisher_offers_bp')
+test_postback_bp = safe_import_blueprint('routes.test_postback', 'test_postback_bp')
 admin_publishers_simple_bp = safe_import_blueprint('routes.admin_publishers_simple', 'admin_publishers_simple_bp')
 admin_offer_requests_bp = safe_import_blueprint('routes.admin_offer_requests', 'admin_offer_requests_bp')
 publisher_settings_bp = safe_import_blueprint('routes.publisher_settings', 'publisher_settings_bp')
@@ -123,7 +124,8 @@ blueprints = [
     (payout_settings_bp, '/api/payout'),
     (admin_geo_restriction_bp, '/api'),
     (preview_bp, ''),
-    (fix_incentives_bp, '/api')
+    (fix_incentives_bp, '/api'),
+    (test_postback_bp, '/api/admin')
 ]
 
 def create_app():
@@ -187,6 +189,11 @@ def create_app():
     @app.after_request
     def after_request(response):
         origin = request.headers.get('Origin')
+        method = request.method
+        path = request.path
+        
+        # DEBUG: Log every request
+        logging.info(f"🔍 Request: {method} {path} from origin: {origin}")
         
         # List of allowed origins
         allowed_origins = [
@@ -223,12 +230,15 @@ def create_app():
         
         # Allow all Vercel preview deployments, theinterwebsite.space subdomains, and moustacheleads.com subdomains
         if origin and (origin in allowed_origins or '.vercel.app' in origin or 'theinterwebsite.space' in origin or 'moustacheleads.com' in origin):
+            logging.info(f"✅ CORS: Allowing origin {origin}")
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
             response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
             response.headers['Access-Control-Max-Age'] = '3600'
+        else:
+            logging.warning(f"❌ CORS: Rejecting origin {origin}")
         
         return response
     
@@ -237,9 +247,13 @@ def create_app():
     def handle_preflight():
         if request.method == 'OPTIONS':
             origin = request.headers.get('Origin')
+            path = request.path
+            
+            logging.info(f"🔍 OPTIONS preflight: {path} from {origin}")
             
             # Check if origin is allowed
             if origin and ('moustacheleads.com' in origin or 'vercel.app' in origin or 'theinterwebsite.space' in origin or 'localhost' in origin or '127.0.0.1' in origin):
+                logging.info(f"✅ OPTIONS: Allowing preflight from {origin}")
                 response = app.make_default_options_response()
                 response.headers['Access-Control-Allow-Origin'] = origin
                 response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -247,6 +261,8 @@ def create_app():
                 response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
                 response.headers['Access-Control-Max-Age'] = '3600'
                 return response
+            else:
+                logging.warning(f"❌ OPTIONS: Rejecting preflight from {origin}")
     
     # Register blueprints (only if successfully imported)
     for blueprint, url_prefix in blueprints:
@@ -269,22 +285,24 @@ def create_app():
     except Exception as e:
         print(f"❌ Failed to initialize comprehensive analytics tracker: {str(e)}")
     
-    # Start postback processor
-    try:
-        from services.tracking_service import TrackingService
-        tracking_service = TrackingService()
-        tracking_service.start_postback_processor()
-        print("✅ Postback processor started")
-    except Exception as e:
-        print(f"❌ Failed to start postback processor: {str(e)}")
-    
-    # Start offer scheduler service
-    try:
-        from services.offer_scheduler_service import offer_scheduler_service
-        offer_scheduler_service.start_scheduler()
-        print("✅ Offer scheduler service started")
-    except Exception as e:
-        print(f"❌ Failed to start offer scheduler service: {str(e)}")
+    # NOTE: Background services are started OUTSIDE create_app() to avoid duplicate starts
+    # when Gunicorn creates multiple workers
+    # # Start postback processor
+    # try:
+    #     from services.tracking_service import TrackingService
+    #     tracking_service = TrackingService()
+    #     tracking_service.start_postback_processor()
+    #     print("✅ Postback processor started")
+    # except Exception as e:
+    #     print(f"❌ Failed to start postback processor: {str(e)}")
+    # 
+    # # Start offer scheduler service
+    # try:
+    #     from services.offer_scheduler_service import offer_scheduler_service
+    #     offer_scheduler_service.start_scheduler()
+    #     print("✅ Offer scheduler service started")
+    # except Exception as e:
+    #     print(f"❌ Failed to start offer scheduler service: {str(e)}")
     
     # Health check endpoint
     @app.route('/health', methods=['GET'])

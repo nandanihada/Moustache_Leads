@@ -14,7 +14,7 @@ publisher_offers_bp = Blueprint('publisher_offers', __name__)
 logger = logging.getLogger(__name__)
 access_service = AccessControlService()
 
-@publisher_offers_bp.route('/offers/available', methods=['GET'])
+@publisher_offers_bp.route('/offers/available', methods=['GET', 'OPTIONS'])
 @token_required
 def get_available_offers():
     """
@@ -22,6 +22,11 @@ def get_available_offers():
     No admin permission required - any authenticated user can view
     """
     try:
+        # DEBUG: Log request details
+        logger.info(f"🔍 GET /offers/available - Method: {request.method}")
+        logger.info(f"🔍 Headers: {dict(request.headers)}")
+        logger.info(f"🔍 Origin: {request.headers.get('Origin')}")
+        
         user = request.current_user
         logger.info(f"📦 Publisher {user.get('username')} requesting available offers")
         
