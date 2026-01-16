@@ -32,8 +32,10 @@ def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         # Allow OPTIONS requests (CORS preflight) without authentication
+        # Return empty 200 response - the after_request handler will add CORS headers
         if request.method == 'OPTIONS':
-            return f(*args, **kwargs)
+            from flask import make_response
+            return make_response('', 200)
         
         token = None
         
@@ -90,8 +92,10 @@ def token_required_with_user(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         # Allow OPTIONS requests (CORS preflight) without authentication
+        # Return empty 200 response - the after_request handler will add CORS headers
         if request.method == 'OPTIONS':
-            return f(None, *args, **kwargs)
+            from flask import make_response
+            return make_response('', 200)
         
         token = None
         
