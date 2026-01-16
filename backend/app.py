@@ -329,6 +329,18 @@ def create_app():
                 'error': str(e)
             }), 500
     
+    # Test CORS endpoint - no auth required
+    @app.route('/api/test-cors', methods=['GET', 'OPTIONS'])
+    def test_cors():
+        """Simple endpoint to test CORS without authentication"""
+        logging.info(f"🔍 TEST-CORS: {request.method} from {request.headers.get('Origin')}")
+        return jsonify({
+            'message': 'CORS is working!',
+            'origin': request.headers.get('Origin'),
+            'method': request.method,
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    
     # CORS test endpoint
     @app.route('/api/test-cors', methods=['GET', 'OPTIONS'])
     def test_cors():

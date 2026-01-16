@@ -36,10 +36,12 @@ const PublisherOffers = () => {
   }, []);
 
   const fetchOffers = async () => {
+    console.log('🔍 fetchOffers: Starting...');
     try {
       setLoading(true);
       setError(null);
       
+      console.log('🔍 fetchOffers: Calling API...');
       // Fetch all active offers
       const response = await publisherOfferApi.getAvailableOffers({
         status: 'active',
@@ -47,9 +49,16 @@ const PublisherOffers = () => {
         per_page: 100
       });
       
+      console.log('✅ fetchOffers: Success!', response);
       setOffers(response.offers || []);
     } catch (err: any) {
-      console.error('Error fetching offers:', err);
+      console.error('❌ fetchOffers: Error!', err);
+      console.error('Error details:', {
+        message: err.message,
+        code: err.code,
+        response: err.response,
+        stack: err.stack
+      });
       setError(err.message || 'Failed to fetch offers');
       toast({
         title: "Error",
@@ -57,6 +66,7 @@ const PublisherOffers = () => {
         variant: "destructive",
       });
     } finally {
+      console.log('🔍 fetchOffers: Finished');
       setLoading(false);
     }
   };
