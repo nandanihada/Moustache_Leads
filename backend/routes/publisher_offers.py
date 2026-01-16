@@ -20,14 +20,16 @@ def get_available_offers():
     """
     Get all active offers available to publishers
     No admin permission required - any authenticated user can view
+    
+    OPTIMIZED: Batch fetches all data upfront to avoid N+1 query problem
     """
     try:
         # DEBUG: Log request details
         logger.info(f"🔍 GET /offers/available - Method: {request.method}")
-        logger.info(f"🔍 Headers: {dict(request.headers)}")
         logger.info(f"🔍 Origin: {request.headers.get('Origin')}")
         
         user = request.current_user
+        user_id = user.get('_id')
         logger.info(f"📦 Publisher {user.get('username')} requesting available offers")
         
         # Get query parameters
@@ -46,14 +48,13 @@ def get_available_offers():
             'status': status,
             'is_active': True,
             '$or': [
-                {'approval_status': {'$in': ['active', 'pending']}},  # New offers with approval workflow
-                {'approval_status': {'$exists': False}}  # Legacy offers without approval workflow
+                {'approval_status': {'$in': ['active', 'pending']}},
+                {'approval_status': {'$exists': False}}
             ]
         }
         
         # Add search if provided
         if search:
-            # Combine approval status filter with search filter using $and
             search_conditions = [
                 {'name': {'$regex': search, '$options': 'i'}},
                 {'offer_id': {'$regex': search, '$options': 'i'}},
@@ -81,27 +82,55 @@ def get_available_offers():
         skip = (page - 1) * per_page
         offers = list(offers_collection.find(query).skip(skip).limit(per_page).sort('created_at', -1))
         
-        # Process offers for publisher view
-        user_id = user.get('_id')
+        if not offers:
+            return safe_json_response({
+                'success': True,
+                'offers': [],
+                'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'pages': 0}
+            })
+        
+        # ============================================
+        # OPTIMIZATION: Batch fetch all related data
+        # ============================================
+        
+        # Get all offer IDs for batch queries
+        offer_ids = [offer['offer_id'] for offer in offers]
+        
+        # BATCH QUERY 1: Get all affiliate_requests for this user and these offers (single query)
+        requests_collection = db_instance.get_collection('affiliate_requests')
+        user_requests = list(requests_collection.find({
+            'offer_id': {'$in': offer_ids},
+            'user_id': user_id
+        }))
+        # Create a lookup dict for O(1) access
+        requests_by_offer = {req['offer_id']: req for req in user_requests}
+        
+        # BATCH QUERY 2: Get user data once (already have it from token, but verify active status)
+        users_collection = db_instance.get_collection('users')
+        user_data = users_collection.find_one({'_id': user_id})
+        user_is_active = user_data.get('is_active', True) if user_data else True
+        user_is_premium = (user_data.get('account_type') == 'premium' or user_data.get('is_premium', False)) if user_data else False
+        
+        logger.info(f"📊 Batch loaded {len(user_requests)} requests for {len(offers)} offers")
+        
+        # Process offers for publisher view (no more DB queries in loop!)
         processed_offers = []
         
         for offer in offers:
             if '_id' in offer:
                 offer['_id'] = str(offer['_id'])
             
-            # Check user's access to this offer
-            has_access, access_reason = access_service.check_offer_access(offer['offer_id'], user_id)
-            
             # Get approval settings
             approval_settings = offer.get('approval_settings', {})
             approval_type = approval_settings.get('type', 'auto_approve')
             
-            # Check if user has pending request
-            requests_collection = db_instance.get_collection('affiliate_requests')
-            existing_request = requests_collection.find_one({
-                'offer_id': offer['offer_id'],
-                'user_id': user_id
-            })
+            # Check access using cached data (no DB query)
+            has_access, access_reason = _check_offer_access_fast(
+                offer, user_id, user_is_active, user_is_premium, requests_by_offer
+            )
+            
+            # Check if user has pending request (from cache)
+            existing_request = requests_by_offer.get(offer['offer_id'])
             
             # Prepare offer data for publisher
             offer_data = {
@@ -122,7 +151,6 @@ def get_available_offers():
                 'has_access': has_access,
                 'access_reason': access_reason,
                 'requires_approval': approval_type != 'auto_approve' or approval_settings.get('require_approval', False),
-                # Add promo code info
                 'promo_code': offer.get('promo_code'),
                 'promo_code_id': offer.get('promo_code_id'),
                 'bonus_amount': offer.get('bonus_amount'),
@@ -141,9 +169,8 @@ def get_available_offers():
                 offer_data['target_url'] = offer.get('target_url')
                 offer_data['masked_url'] = offer.get('masked_url')
             else:
-                # Show blurred/preview version
                 offer_data['is_preview'] = True
-                offer_data['estimated_approval_time'] = access_service._get_estimated_approval_time(
+                offer_data['estimated_approval_time'] = _get_estimated_approval_time_fast(
                     approval_type, approval_settings
                 )
             
@@ -165,6 +192,76 @@ def get_available_offers():
     except Exception as e:
         logger.error(f"❌ Error fetching offers: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to fetch offers: {str(e)}'}), 500
+
+
+def _check_offer_access_fast(offer, user_id, user_is_active, user_is_premium, requests_by_offer):
+    """
+    Fast access check using pre-fetched data (no DB queries).
+    This is an optimized version of access_service.check_offer_access()
+    """
+    try:
+        # Check offer status (we already have the offer)
+        if offer.get('status') != 'active':
+            return False, f"Offer is {offer.get('status', 'inactive')}"
+        
+        # Check user status
+        if not user_is_active:
+            return False, "User account is inactive"
+        
+        # Check affiliate access level
+        affiliate_access = offer.get('affiliates', 'all')
+        
+        if affiliate_access == 'all':
+            return True, "Public access allowed"
+        
+        elif affiliate_access == 'premium':
+            if user_is_premium:
+                return True, "Premium access granted"
+            else:
+                return False, "Premium account required"
+        
+        elif affiliate_access == 'selected':
+            selected_users = offer.get('selected_users', [])
+            if user_id in selected_users:
+                return True, "Selected affiliate access granted"
+            else:
+                return False, "Not in selected affiliates list"
+        
+        elif affiliate_access == 'request':
+            # Check cached request status
+            existing_request = requests_by_offer.get(offer['offer_id'])
+            if existing_request:
+                status = existing_request.get('status', 'pending')
+                if status == 'approved':
+                    return True, "Request-based access approved"
+                elif status == 'pending':
+                    return False, "Access request pending approval"
+            return False, "Access request required"
+        
+        else:
+            return False, f"Unknown access type: {affiliate_access}"
+        
+    except Exception as e:
+        logger.error(f"Error in fast access check: {str(e)}")
+        return False, f"Access check error: {str(e)}"
+
+
+def _get_estimated_approval_time_fast(approval_type, approval_settings):
+    """Get estimated approval time without DB query"""
+    if approval_type == 'auto_approve':
+        return 'Instant'
+    elif approval_type == 'auto_approve_delayed':
+        delay = approval_settings.get('delay_minutes', 60)
+        if delay < 60:
+            return f'{delay} minutes'
+        elif delay < 1440:
+            return f'{delay // 60} hours'
+        else:
+            return f'{delay // 1440} days'
+    elif approval_type == 'manual':
+        return '24-48 hours'
+    else:
+        return 'Unknown'
 
 
 @publisher_offers_bp.route('/offers/<offer_id>', methods=['GET'])
