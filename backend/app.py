@@ -338,16 +338,6 @@ def create_app():
             'message': 'CORS is working!',
             'origin': request.headers.get('Origin'),
             'method': request.method,
-            'timestamp': datetime.now().isoformat()
-        }), 200
-    
-    # CORS test endpoint
-    @app.route('/api/test-cors', methods=['GET', 'OPTIONS'])
-    def test_cors():
-        """Test endpoint to verify CORS is working"""
-        return jsonify({
-            'message': 'CORS is working!',
-            'origin': request.headers.get('Origin'),
             'cors_pattern': 'r"/*"',
             'timestamp': datetime.now().isoformat()
         }), 200
