@@ -31,6 +31,10 @@ def token_required(f):
     """Decorator to require valid JWT token"""
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Allow OPTIONS requests (CORS preflight) without authentication
+        if request.method == 'OPTIONS':
+            return f(*args, **kwargs)
+        
         token = None
         
         # Get token from header
@@ -85,6 +89,10 @@ def token_required_with_user(f):
     """Decorator to require valid JWT token AND pass current_user to function"""
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Allow OPTIONS requests (CORS preflight) without authentication
+        if request.method == 'OPTIONS':
+            return f(None, *args, **kwargs)
+        
         token = None
         
         # Get token from header
