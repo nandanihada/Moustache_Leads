@@ -373,10 +373,97 @@ class NetworkFieldMapper:
                     if isinstance(country, str) and len(country) == 2:
                         countries.append(country.upper())
         
+        # Check for geo field (some networks use this)
+        geo = offer.get('geo') or offer.get('geos') or offer.get('targeting_geo')
+        if geo:
+            print(f"   Found geo field: {geo}")
+            extracted = self._parse_geo_string(geo)
+            countries.extend(extracted)
+        
+        # Check for country_targeting field
+        country_targeting = offer.get('country_targeting') or offer.get('geo_targeting')
+        if country_targeting:
+            print(f"   Found country_targeting: {country_targeting}")
+            extracted = self._parse_geo_string(country_targeting)
+            countries.extend(extracted)
+        
+        # Extract from offer name (e.g., "Offer Name - US, CA, UK")
+        offer_name = offer.get('name', '')
+        if offer_name:
+            name_countries = self._extract_countries_from_text(offer_name)
+            if name_countries:
+                print(f"   Extracted from name: {name_countries}")
+                countries.extend(name_countries)
+        
+        # Extract from description
+        description = offer.get('description', '')
+        if description and not countries:  # Only if no countries found yet
+            desc_countries = self._extract_countries_from_text(description)
+            if desc_countries:
+                print(f"   Extracted from description: {desc_countries}")
+                countries.extend(desc_countries)
+        
         # Remove duplicates
         countries = list(set(countries))
         
+        # Handle GLOBAL/WORLDWIDE - if found, return common countries
+        if not countries:
+            # Check if offer mentions global/worldwide
+            text_to_check = f"{offer_name} {description}".lower()
+            if 'global' in text_to_check or 'worldwide' in text_to_check or 'all geos' in text_to_check:
+                print(f"   ⚠️ GLOBAL offer detected - adding common countries")
+                countries = ['US', 'GB', 'CA', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'BE']
+        
         print(f"   Final countries: {countries}")
+        
+        return countries
+    
+    def _parse_geo_string(self, geo_value) -> List[str]:
+        """Parse geo string/list into country codes"""
+        countries = []
+        
+        if isinstance(geo_value, str):
+            # Handle comma-separated string like "US, CA, UK" or "US,CA,UK"
+            parts = geo_value.replace(' ', '').upper().split(',')
+            for part in parts:
+                if len(part) == 2 and part.isalpha():
+                    countries.append(part)
+                elif part in self.COUNTRY_NAME_TO_CODE.values():
+                    countries.append(part)
+        elif isinstance(geo_value, list):
+            for item in geo_value:
+                if isinstance(item, str):
+                    if len(item) == 2 and item.isalpha():
+                        countries.append(item.upper())
+                    elif item in self.COUNTRY_NAME_TO_CODE:
+                        countries.append(self.COUNTRY_NAME_TO_CODE[item])
+                elif isinstance(item, dict):
+                    code = item.get('code') or item.get('country_code')
+                    if code:
+                        countries.append(code.upper())
+        
+        return countries
+    
+    def _extract_countries_from_text(self, text: str) -> List[str]:
+        """Extract country codes from text (offer name, description)"""
+        countries = []
+        
+        # Common 2-letter country codes
+        valid_codes = set(self.COUNTRY_NAME_TO_CODE.values())
+        valid_codes.update(['UK'])  # Add UK as alias for GB
+        
+        # Split by common delimiters
+        import re
+        parts = re.split(r'[\s,\-–—/|]+', text.upper())
+        
+        for part in parts:
+            part = part.strip()
+            if len(part) == 2 and part.isalpha() and part in valid_codes:
+                # Map UK to GB
+                if part == 'UK':
+                    countries.append('GB')
+                else:
+                    countries.append(part)
         
         return countries
     

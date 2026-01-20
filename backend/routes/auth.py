@@ -4,8 +4,34 @@ from utils.auth import generate_token, token_required
 from services.email_verification_service import get_email_verification_service
 import re
 import logging
+from datetime import datetime
+from database import db_instance
 
 auth_bp = Blueprint('auth', __name__)
+
+# Collection for tracking signup attempts
+signup_attempts_collection = db_instance.get_collection('signup_attempts')
+
+def log_signup_attempt(data: dict, status: str, error_message: str = None):
+    """Log signup attempt for admin visibility"""
+    try:
+        attempt = {
+            'username': data.get('username', ''),
+            'email': data.get('email', ''),
+            'status': status,  # 'started', 'validation_failed', 'success', 'error'
+            'error_message': error_message,
+            'ip_address': request.remote_addr,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'timestamp': datetime.utcnow(),
+            'first_name': data.get('first_name', ''),
+            'last_name': data.get('last_name', ''),
+            'company_name': data.get('company_name', ''),
+            'website': data.get('website', '')
+        }
+        signup_attempts_collection.insert_one(attempt)
+        logging.info(f"📝 Signup attempt logged: {data.get('email', 'unknown')} - {status}")
+    except Exception as e:
+        logging.error(f"Failed to log signup attempt: {str(e)}")
 
 def validate_email(email):
     """Validate email format"""
@@ -18,14 +44,192 @@ def validate_password(password):
         return False, "Password must be at least 6 characters long"
     return True, ""
 
+@auth_bp.route('/admin/signup-attempts', methods=['GET'])
+@token_required
+def get_signup_attempts():
+    """Get signup attempts for admin (requires admin role)"""
+    try:
+        user = request.current_user
+        
+        # Check if user is admin
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        # Get query parameters
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        status_filter = request.args.get('status')  # 'started', 'validation_failed', 'success', 'error'
+        
+        # Build query
+        query = {}
+        if status_filter:
+            query['status'] = status_filter
+        
+        # Get total count
+        total = signup_attempts_collection.count_documents(query)
+        
+        # Get attempts with pagination
+        attempts = list(signup_attempts_collection.find(query)
+            .sort('timestamp', -1)
+            .skip((page - 1) * per_page)
+            .limit(per_page))
+        
+        # Convert ObjectId to string
+        for attempt in attempts:
+            attempt['_id'] = str(attempt['_id'])
+            if attempt.get('timestamp'):
+                attempt['timestamp'] = attempt['timestamp'].isoformat()
+        
+        return jsonify({
+            'attempts': attempts,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page
+            },
+            'summary': {
+                'total_attempts': signup_attempts_collection.count_documents({}),
+                'successful': signup_attempts_collection.count_documents({'status': 'success'}),
+                'failed': signup_attempts_collection.count_documents({'status': {'$in': ['validation_failed', 'error']}}),
+                'started_only': signup_attempts_collection.count_documents({'status': 'started'})
+            }
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error getting signup attempts: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get signup attempts: {str(e)}'}), 500
+
+@auth_bp.route('/admin/email-diagnostic', methods=['GET'])
+@token_required
+def email_diagnostic():
+    """Check email configuration status (requires admin role)"""
+    try:
+        user = request.current_user
+        
+        # Check if user is admin
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        import os
+        
+        # Get email configuration
+        smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+        smtp_port = os.getenv('SMTP_PORT', '587')
+        smtp_username = os.getenv('SMTP_USERNAME')
+        smtp_password = os.getenv('SMTP_PASSWORD')
+        from_email = os.getenv('FROM_EMAIL')
+        email_debug = os.getenv('EMAIL_DEBUG', 'false')
+        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+        
+        # Check configuration status
+        config_status = {
+            'smtp_server': smtp_server,
+            'smtp_port': smtp_port,
+            'smtp_username_set': bool(smtp_username),
+            'smtp_password_set': bool(smtp_password),
+            'from_email': from_email,
+            'email_debug_mode': email_debug,
+            'frontend_url': frontend_url,
+            'is_fully_configured': all([smtp_username, smtp_password, from_email])
+        }
+        
+        # Test SMTP connection (without sending)
+        connection_test = {'status': 'not_tested', 'message': ''}
+        try:
+            import smtplib
+            with smtplib.SMTP(smtp_server, int(smtp_port), timeout=10) as server:
+                server.starttls()
+                if smtp_username and smtp_password:
+                    server.login(smtp_username, smtp_password)
+                    connection_test = {'status': 'success', 'message': 'SMTP connection and authentication successful'}
+                else:
+                    connection_test = {'status': 'partial', 'message': 'SMTP connection successful but credentials not set'}
+        except Exception as e:
+            connection_test = {'status': 'failed', 'message': str(e)}
+        
+        return jsonify({
+            'config': config_status,
+            'connection_test': connection_test,
+            'recommendations': []
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error in email diagnostic: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Diagnostic failed: {str(e)}'}), 500
+
+@auth_bp.route('/admin/test-email', methods=['POST'])
+@token_required
+def test_email():
+    """Send a test email (requires admin role)"""
+    try:
+        user = request.current_user
+        
+        # Check if user is admin
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        data = request.get_json() or {}
+        test_email_address = data.get('email', user.get('email'))
+        
+        if not test_email_address:
+            return jsonify({'error': 'Email address required'}), 400
+        
+        # Send test email
+        verification_service = get_email_verification_service()
+        
+        if not verification_service.is_configured:
+            return jsonify({
+                'success': False,
+                'message': 'Email service not configured. Check SMTP settings.'
+            }), 400
+        
+        # Generate a test token
+        test_token = verification_service.generate_verification_token(
+            test_email_address,
+            str(user.get('_id', 'test-user'))
+        )
+        
+        if not test_token:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to generate verification token'
+            }), 500
+        
+        # Send the email
+        email_sent = verification_service.send_verification_email(
+            test_email_address,
+            test_token,
+            user.get('username', 'Test User')
+        )
+        
+        if email_sent:
+            return jsonify({
+                'success': True,
+                'message': f'Test email sent to {test_email_address}'
+            }), 200
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Failed to send test email. Check server logs for details.'
+            }), 500
+        
+    except Exception as e:
+        logging.error(f"Error sending test email: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Test email failed: {str(e)}'}), 500
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     """User registration endpoint with partner support"""
     try:
         data = request.get_json()
         
+        # Log the signup attempt start
+        log_signup_attempt(data or {}, 'started')
+        
         # Validate required fields
         if not data:
+            log_signup_attempt({}, 'validation_failed', 'No data provided')
             return jsonify({'error': 'No data provided'}), 400
         
         username = data.get('username', '').strip()
@@ -33,25 +237,31 @@ def register():
         password = data.get('password', '')
         
         if not username:
+            log_signup_attempt(data, 'validation_failed', 'Username is required')
             return jsonify({'error': 'Username is required'}), 400
         
         if not email:
+            log_signup_attempt(data, 'validation_failed', 'Email is required')
             return jsonify({'error': 'Email is required'}), 400
         
         if not password:
+            log_signup_attempt(data, 'validation_failed', 'Password is required')
             return jsonify({'error': 'Password is required'}), 400
         
         # Validate email format
         if not validate_email(email):
+            log_signup_attempt(data, 'validation_failed', 'Invalid email format')
             return jsonify({'error': 'Invalid email format'}), 400
         
         # Validate password strength
         is_valid, password_error = validate_password(password)
         if not is_valid:
+            log_signup_attempt(data, 'validation_failed', password_error)
             return jsonify({'error': password_error}), 400
         
         # Validate username length
         if len(username) < 3:
+            log_signup_attempt(data, 'validation_failed', 'Username must be at least 3 characters long')
             return jsonify({'error': 'Username must be at least 3 characters long'}), 400
         
         # Extract optional partner fields
@@ -80,7 +290,11 @@ def register():
         user_data, error = user_model.create_user(username, email, password, **optional_fields)
         
         if error:
+            log_signup_attempt(data, 'error', error)
             return jsonify({'error': error}), 400
+        
+        # Log successful registration
+        log_signup_attempt(data, 'success')
         
         # Send verification email asynchronously (non-blocking)
         # This prevents worker timeout if email service is slow or unavailable

@@ -236,8 +236,37 @@ export interface CreateOfferData {
   quality_threshold?: number;  // CR threshold
   validation_type?: string;  // internal/external
   
+  // SECTION 12: IFRAME DISPLAY SETTINGS
+  show_in_iframe?: boolean;  // Show in offerwall iframe
+  star_rating?: number;  // 1-5 star rating for display
+  urgency_type?: string;  // 'limited_slots' | 'high_demand' | 'expires_soon'
+  timer_enabled?: boolean;  // Enable countdown timer
+  timer_end_date?: string;  // ISO date string for timer end
+  
   // SYSTEM FIELDS
   limit?: number;
+  
+  // NEW: Vertical (replaces category)
+  vertical?: string;
+  
+  // NEW: Geo-restriction
+  allowed_countries?: string[];
+  non_access_url?: string;
+  
+  // NEW: Revenue sharing
+  revenue_share_percent?: number;
+  incentive_type?: string;
+  
+  // NEW: Approval workflow
+  approval_type?: string;
+  auto_approve_delay?: number;
+  require_approval?: boolean;
+  approval_message?: string;
+  max_inactive_days?: number;
+  
+  // NEW: Creative fields
+  uploaded_file_name?: string;
+  uploaded_file_size?: number;
 }
 
 export interface OffersResponse {

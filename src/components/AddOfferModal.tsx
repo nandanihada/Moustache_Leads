@@ -234,7 +234,13 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     auto_approve_delay: 0,
     require_approval: false,
     approval_message: '',
-    max_inactive_days: 30
+    max_inactive_days: 30,
+    // 🔥 IFRAME DISPLAY SETTINGS
+    show_in_iframe: true,
+    star_rating: 5,
+    urgency_type: '',
+    timer_enabled: false,
+    timer_end_date: ''
   });
 
   // Update image preview when image_url changes
@@ -460,7 +466,13 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         auto_approve_delay: 0,
         require_approval: false,
         approval_message: '',
-        max_inactive_days: 30
+        max_inactive_days: 30,
+        // 🔥 IFRAME DISPLAY SETTINGS - Reset to defaults
+        show_in_iframe: true,
+        star_rating: 5,
+        urgency_type: '',
+        timer_enabled: false,
+        timer_end_date: ''
       });
       setSelectedCountries([]);
       setSelectedUsers([]);
@@ -608,7 +620,86 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         </SelectContent>
                       </Select>
                     </div>
+                    <div>
+                      <Label htmlFor="star_rating">Star Rating (1-5)</Label>
+                      <Select value={String(formData.star_rating || 5)} onValueChange={(value) => handleInputChange('star_rating', parseInt(value))}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="5 Stars" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="5">⭐⭐⭐⭐⭐ (5 Stars)</SelectItem>
+                          <SelectItem value="4">⭐⭐⭐⭐ (4 Stars)</SelectItem>
+                          <SelectItem value="3">⭐⭐⭐ (3 Stars)</SelectItem>
+                          <SelectItem value="2">⭐⭐ (2 Stars)</SelectItem>
+                          <SelectItem value="1">⭐ (1 Star)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
+
+                  {/* Iframe Display Settings */}
+                  <Card className="border-purple-200 bg-purple-50/50">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-semibold text-purple-800">📱 Iframe Display Settings</CardTitle>
+                      <CardDescription className="text-xs">Configure how this offer appears in the offerwall iframe</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Label htmlFor="show_in_iframe" className="text-sm font-medium">Show in Iframe</Label>
+                          <p className="text-xs text-gray-500">Enable to display this offer in the offerwall</p>
+                        </div>
+                        <Switch
+                          id="show_in_iframe"
+                          checked={formData.show_in_iframe !== false}
+                          onCheckedChange={(checked) => handleInputChange('show_in_iframe', checked)}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <Label htmlFor="urgency_type">Urgency Booster (Optional)</Label>
+                          <Select value={formData.urgency_type || 'none'} onValueChange={(value) => handleInputChange('urgency_type', value === 'none' ? '' : value)}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="No urgency" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">❌ No Urgency</SelectItem>
+                              <SelectItem value="limited_slots">🔥 Limited slots today</SelectItem>
+                              <SelectItem value="high_demand">⚡ High demand</SelectItem>
+                              <SelectItem value="expires_soon">⏰ Expires soon</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-gray-500 mt-1">Shows urgency badge on offer card</p>
+                        </div>
+                        <div>
+                          <Label htmlFor="timer_enabled">Enable Countdown Timer</Label>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Switch
+                              id="timer_enabled"
+                              checked={formData.timer_enabled || false}
+                              onCheckedChange={(checked) => handleInputChange('timer_enabled', checked)}
+                            />
+                            <span className="text-sm text-gray-600">{formData.timer_enabled ? 'Timer ON' : 'Timer OFF'}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {formData.timer_enabled && (
+                        <div>
+                          <Label htmlFor="timer_end_date">Timer End Date & Time</Label>
+                          <Input
+                            id="timer_end_date"
+                            type="datetime-local"
+                            value={formData.timer_end_date || ''}
+                            onChange={(e) => handleInputChange('timer_end_date', e.target.value)}
+                            className="mt-1"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Countdown timer will show on offer card until this date</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
                 </CardContent>
               </Card>
             </TabsContent>

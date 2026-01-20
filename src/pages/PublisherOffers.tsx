@@ -21,6 +21,8 @@ import OfferCardWithApproval from "@/components/OfferCardWithApproval";
 const PublisherOffers = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchBy, setSearchBy] = useState("name");
+  const [sortBy, setSortBy] = useState("newest");
+  const [countryFilter, setCountryFilter] = useState("all");
   const [offers, setOffers] = useState<PublisherOffer[]>([]);
   const [myRequests, setMyRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,18 +74,55 @@ const PublisherOffers = () => {
   };
 
   const filteredOffers = offers.filter((offer) => {
-    if (!searchTerm) return true;
+    // Search filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      let matchesSearch = false;
+      switch (searchBy) {
+        case "name":
+          matchesSearch = offer.name.toLowerCase().includes(term);
+          break;
+        case "id":
+          matchesSearch = offer.offer_id.toLowerCase().includes(term);
+          break;
+        case "vertical":
+          matchesSearch = ((offer as any).vertical || offer.category || "").toLowerCase().includes(term);
+          break;
+        default:
+          matchesSearch = true;
+      }
+      if (!matchesSearch) return false;
+    }
     
-    const term = searchTerm.toLowerCase();
-    switch (searchBy) {
-      case "name":
-        return offer.name.toLowerCase().includes(term);
-      case "id":
-        return offer.offer_id.toLowerCase().includes(term);
-      case "vertical":
-        return ((offer as any).vertical || offer.category || "").toLowerCase().includes(term);
+    // Country filter
+    if (countryFilter !== 'all') {
+      const offerCountries = (offer as any).countries || [];
+      if (!offerCountries.some((c: string) => c.toUpperCase() === countryFilter.toUpperCase())) {
+        return false;
+      }
+    }
+    
+    return true;
+  }).sort((a, b) => {
+    switch (sortBy) {
+      case 'id_asc':
+        return (a.offer_id || '').localeCompare(b.offer_id || '');
+      case 'id_desc':
+        return (b.offer_id || '').localeCompare(a.offer_id || '');
+      case 'payout_high':
+        return (b.payout || 0) - (a.payout || 0);
+      case 'payout_low':
+        return (a.payout || 0) - (b.payout || 0);
+      case 'title_az':
+        return (a.name || '').localeCompare(b.name || '');
+      case 'title_za':
+        return (b.name || '').localeCompare(a.name || '');
+      case 'newest':
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      case 'oldest':
+        return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
       default:
-        return true;
+        return 0;
     }
   });
 
@@ -165,6 +204,54 @@ const PublisherOffers = () => {
                     <SelectItem value="name">Name</SelectItem>
                     <SelectItem value="id">Offer ID</SelectItem>
                     <SelectItem value="vertical">Vertical</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
+                    <SelectItem value="id_asc">ID (A → Z)</SelectItem>
+                    <SelectItem value="id_desc">ID (Z → A)</SelectItem>
+                    <SelectItem value="payout_high">Payout (Highest)</SelectItem>
+                    <SelectItem value="payout_low">Payout (Lowest)</SelectItem>
+                    <SelectItem value="title_az">Title (A → Z)</SelectItem>
+                    <SelectItem value="title_za">Title (Z → A)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={countryFilter} onValueChange={setCountryFilter}>
+                  <SelectTrigger className="w-44">
+                    <SelectValue placeholder="Country" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value="all">All Countries</SelectItem>
+                    <SelectItem value="US">🇺🇸 United States</SelectItem>
+                    <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
+                    <SelectItem value="CA">🇨🇦 Canada</SelectItem>
+                    <SelectItem value="AU">🇦🇺 Australia</SelectItem>
+                    <SelectItem value="DE">🇩🇪 Germany</SelectItem>
+                    <SelectItem value="FR">🇫🇷 France</SelectItem>
+                    <SelectItem value="ES">🇪🇸 Spain</SelectItem>
+                    <SelectItem value="IT">🇮🇹 Italy</SelectItem>
+                    <SelectItem value="NL">🇳🇱 Netherlands</SelectItem>
+                    <SelectItem value="BE">🇧🇪 Belgium</SelectItem>
+                    <SelectItem value="AT">🇦🇹 Austria</SelectItem>
+                    <SelectItem value="CH">🇨🇭 Switzerland</SelectItem>
+                    <SelectItem value="SE">🇸🇪 Sweden</SelectItem>
+                    <SelectItem value="NO">🇳🇴 Norway</SelectItem>
+                    <SelectItem value="DK">🇩🇰 Denmark</SelectItem>
+                    <SelectItem value="FI">🇫🇮 Finland</SelectItem>
+                    <SelectItem value="PL">🇵🇱 Poland</SelectItem>
+                    <SelectItem value="BR">🇧🇷 Brazil</SelectItem>
+                    <SelectItem value="MX">🇲🇽 Mexico</SelectItem>
+                    <SelectItem value="IN">🇮🇳 India</SelectItem>
+                    <SelectItem value="JP">🇯🇵 Japan</SelectItem>
+                    <SelectItem value="KR">🇰🇷 South Korea</SelectItem>
+                    <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
+                    <SelectItem value="NZ">🇳🇿 New Zealand</SelectItem>
+                    <SelectItem value="ZA">🇿🇦 South Africa</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button onClick={fetchOffers} variant="outline">

@@ -22,6 +22,71 @@ import { publisherOfferApi } from '@/services/publisherOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
+// Country code to flag emoji mapping
+const FLAG_MAP: Record<string, string> = {
+  'US': '🇺🇸', 'GB': '🇬🇧', 'UK': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪',
+  'FR': '🇫🇷', 'ES': '🇪🇸', 'IT': '🇮🇹', 'NL': '🇳🇱', 'BE': '🇧🇪', 'AT': '🇦🇹',
+  'CH': '🇨🇭', 'SE': '🇸🇪', 'NO': '🇳🇴', 'DK': '🇩🇰', 'FI': '🇫🇮', 'PL': '🇵🇱',
+  'BR': '🇧🇷', 'MX': '🇲🇽', 'AR': '🇦🇷', 'CL': '🇨🇱', 'CO': '🇨🇴', 'PE': '🇵🇪',
+  'IN': '🇮🇳', 'JP': '🇯🇵', 'KR': '🇰🇷', 'CN': '🇨🇳', 'SG': '🇸🇬', 'MY': '🇲🇾',
+  'TH': '🇹🇭', 'VN': '🇻🇳', 'ID': '🇮🇩', 'PH': '🇵🇭', 'NZ': '🇳🇿', 'ZA': '🇿🇦',
+  'AE': '🇦🇪', 'SA': '🇸🇦', 'IL': '🇮🇱', 'TR': '🇹🇷', 'RU': '🇷🇺', 'UA': '🇺🇦',
+  'PT': '🇵🇹', 'GR': '🇬🇷', 'CZ': '🇨🇿', 'HU': '🇭🇺', 'RO': '🇷🇴', 'IE': '🇮🇪',
+  'HK': '🇭🇰', 'TW': '🇹🇼'
+};
+
+// All valid 2-letter country codes
+const VALID_COUNTRY_CODES = new Set(Object.keys(FLAG_MAP));
+
+// Extract country codes from offer title (e.g., "Opinion Router - Incent AU, BE, CA, DE")
+const extractCountriesFromTitle = (title: string): string[] => {
+  const countries: string[] = [];
+  
+  // Pattern 1: Countries at the end after a dash or hyphen (e.g., "Offer Name - Incent US, CA, GB")
+  const dashPattern = /[-–]\s*(?:Incent|Non[- ]?Incent)?\s*([A-Z]{2}(?:\s*,\s*[A-Z]{2})*)\s*$/i;
+  const dashMatch = title.match(dashPattern);
+  if (dashMatch) {
+    const codes = dashMatch[1].split(/\s*,\s*/);
+    codes.forEach(code => {
+      const upperCode = code.toUpperCase().trim();
+      if (VALID_COUNTRY_CODES.has(upperCode)) {
+        countries.push(upperCode);
+      }
+    });
+  }
+  
+  // Pattern 2: Standalone country codes (2 uppercase letters) anywhere in title
+  const standalonePattern = /\b([A-Z]{2})\b/g;
+  let match;
+  while ((match = standalonePattern.exec(title)) !== null) {
+    const code = match[1];
+    if (VALID_COUNTRY_CODES.has(code) && !countries.includes(code)) {
+      countries.push(code);
+    }
+  }
+  
+  return countries;
+};
+
+// Get countries - prefer offer.countries, fallback to extracting from title
+const getOfferCountries = (offer: any): string[] => {
+  if (offer.countries && Array.isArray(offer.countries) && offer.countries.length > 0) {
+    return offer.countries.map((c: string) => c.toUpperCase());
+  }
+  return extractCountriesFromTitle(offer.name || '');
+};
+
+// Clean title by removing country codes (since they're shown as flags)
+const cleanTitleFromCountries = (title: string): string => {
+  // Remove pattern like "- Incent US, CA, GB" or "- Non Incent AU, NZ"
+  let cleaned = title.replace(/\s*[-–]\s*(?:Incent|Non[- ]?Incent)?\s*([A-Z]{2}(?:\s*,\s*[A-Z]{2})*)\s*$/i, '');
+  
+  // Also remove trailing standalone country codes
+  cleaned = cleaned.replace(/\s+[A-Z]{2}(?:\s*,\s*[A-Z]{2})*\s*$/, '');
+  
+  return cleaned.trim();
+};
+
 interface OfferCardWithApprovalProps {
   offer: PublisherOffer;
   onViewDetails: (offer: PublisherOffer) => void;
@@ -235,7 +300,7 @@ const OfferCardWithApproval: React.FC<OfferCardWithApprovalProps> = ({
           )}
 
           {/* Offer Name */}
-          <h3 className="font-bold text-lg mb-2 line-clamp-2">{offer.name}</h3>
+          <h3 className="font-bold text-lg mb-2 line-clamp-2">{cleanTitleFromCountries(offer.name)}</h3>
 
           {/* Offer ID */}
           <div className="text-xs text-muted-foreground font-mono mb-2">
@@ -279,24 +344,32 @@ const OfferCardWithApproval: React.FC<OfferCardWithApprovalProps> = ({
             </div>
           )}
 
-          {/* Countries */}
-          {offer.countries && offer.countries.length > 0 && (
-            <div className="mb-3">
-              <div className="text-xs text-muted-foreground mb-1">Countries:</div>
-              <div className="flex flex-wrap gap-1">
-                {offer.countries.slice(0, 5).map((country) => (
-                  <Badge key={country} variant="outline" className="text-xs">
-                    {country}
-                  </Badge>
-                ))}
-                {offer.countries.length > 5 && (
-                  <Badge variant="outline" className="text-xs">
-                    +{offer.countries.length - 5}
-                  </Badge>
-                )}
+          {/* Countries with Flags */}
+          {(() => {
+            const countries = getOfferCountries(offer);
+            if (countries.length === 0) return null;
+            
+            const displayCountries = countries.slice(0, 6);
+            const remaining = countries.length - 6;
+            
+            return (
+              <div className="mb-3">
+                <div className="text-xs text-muted-foreground mb-1">Countries:</div>
+                <div className="flex flex-wrap gap-1">
+                  {displayCountries.map((country) => (
+                    <span key={country} className="text-lg" title={country}>
+                      {FLAG_MAP[country] || country}
+                    </span>
+                  ))}
+                  {remaining > 0 && (
+                    <Badge variant="outline" className="text-xs">
+                      +{remaining}
+                    </Badge>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Device Targeting */}
           {(offer as any).device_targeting && (

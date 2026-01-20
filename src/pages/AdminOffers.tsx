@@ -64,6 +64,8 @@ const AdminOffers = () => {
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [sortBy, setSortBy] = useState<string>('newest');
+  const [countryFilter, setCountryFilter] = useState<string>('all');
   const [pagination, setPagination] = useState({
     page: 1,
     per_page: 20,
@@ -91,11 +93,53 @@ const AdminOffers = () => {
         page: pagination.page,
         per_page: pagination.per_page,
         ...(statusFilter !== 'all' && { status: statusFilter }),
-        ...(searchTerm && { search: searchTerm })
+        ...(searchTerm && { search: searchTerm }),
+        ...(sortBy && { sort: sortBy }),
+        ...(countryFilter !== 'all' && { country: countryFilter })
       };
 
       const response = await adminOfferApi.getOffers(params);
-      setOffers(response.offers);
+      
+      // Apply client-side sorting and filtering
+      let filteredOffers = [...response.offers];
+      
+      // Apply country filter client-side if backend doesn't support it
+      if (countryFilter !== 'all') {
+        filteredOffers = filteredOffers.filter(offer => {
+          const offerCountries = offer.countries || [];
+          return offerCountries.some(c => c.toUpperCase() === countryFilter.toUpperCase());
+        });
+      }
+      
+      // Apply sorting
+      switch (sortBy) {
+        case 'id_asc':
+          filteredOffers.sort((a, b) => (a.offer_id || '').localeCompare(b.offer_id || ''));
+          break;
+        case 'id_desc':
+          filteredOffers.sort((a, b) => (b.offer_id || '').localeCompare(a.offer_id || ''));
+          break;
+        case 'payout_high':
+          filteredOffers.sort((a, b) => (b.payout || 0) - (a.payout || 0));
+          break;
+        case 'payout_low':
+          filteredOffers.sort((a, b) => (a.payout || 0) - (b.payout || 0));
+          break;
+        case 'title_az':
+          filteredOffers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          break;
+        case 'title_za':
+          filteredOffers.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+          break;
+        case 'newest':
+          filteredOffers.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          break;
+        case 'oldest':
+          filteredOffers.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+          break;
+      }
+      
+      setOffers(filteredOffers);
       setPagination(response.pagination);
     } catch (error) {
       toast({
@@ -426,7 +470,7 @@ const AdminOffers = () => {
 
   useEffect(() => {
     fetchOffers();
-  }, [pagination.page, statusFilter]);
+  }, [pagination.page, statusFilter, sortBy, countryFilter]);
 
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
@@ -558,6 +602,86 @@ const AdminOffers = () => {
                 <DropdownMenuItem onClick={() => setStatusFilter('inactive')}>
                   Inactive
                 </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  Sort: {
+                    sortBy === 'newest' ? 'Newest' :
+                    sortBy === 'oldest' ? 'Oldest' :
+                    sortBy === 'id_asc' ? 'ID (A→Z)' :
+                    sortBy === 'id_desc' ? 'ID (Z→A)' :
+                    sortBy === 'payout_high' ? 'Payout (High)' :
+                    sortBy === 'payout_low' ? 'Payout (Low)' :
+                    sortBy === 'title_az' ? 'Title (A→Z)' :
+                    sortBy === 'title_za' ? 'Title (Z→A)' : 'Newest'
+                  }
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onClick={() => setSortBy('newest')}>
+                  Newest First
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy('oldest')}>
+                  Oldest First
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy('id_asc')}>
+                  ID (A → Z)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy('id_desc')}>
+                  ID (Z → A)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy('payout_high')}>
+                  Payout (Highest)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy('payout_low')}>
+                  Payout (Lowest)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy('title_az')}>
+                  Title (A → Z)
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setSortBy('title_za')}>
+                  Title (Z → A)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline">
+                  <Globe className="h-4 w-4 mr-2" />
+                  Country: {countryFilter === 'all' ? 'All' : countryFilter}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="max-h-64 overflow-y-auto">
+                <DropdownMenuItem onClick={() => setCountryFilter('all')}>
+                  All Countries
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('US')}>🇺🇸 United States</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('GB')}>🇬🇧 United Kingdom</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('CA')}>🇨🇦 Canada</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('AU')}>🇦🇺 Australia</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('DE')}>🇩🇪 Germany</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('FR')}>🇫🇷 France</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('ES')}>🇪🇸 Spain</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('IT')}>🇮🇹 Italy</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('NL')}>🇳🇱 Netherlands</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('BE')}>🇧🇪 Belgium</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('AT')}>🇦🇹 Austria</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('CH')}>🇨🇭 Switzerland</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('SE')}>🇸🇪 Sweden</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('NO')}>🇳🇴 Norway</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('DK')}>🇩🇰 Denmark</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('FI')}>🇫🇮 Finland</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('PL')}>🇵🇱 Poland</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('BR')}>🇧🇷 Brazil</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('MX')}>🇲🇽 Mexico</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('IN')}>🇮🇳 India</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('JP')}>🇯🇵 Japan</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('KR')}>🇰🇷 South Korea</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('SG')}>🇸🇬 Singapore</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('NZ')}>🇳🇿 New Zealand</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setCountryFilter('ZA')}>🇿🇦 South Africa</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

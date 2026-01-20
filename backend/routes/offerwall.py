@@ -1960,6 +1960,44 @@ def get_offers():
         
         logger.info(f"✅ Found {len(offers_list)} offers in database")
         
+        # Helper function to auto-detect category from offer name/description
+        def detect_category(name, description='', existing_category=None):
+            """Auto-detect category based on offer name and description"""
+            # If already has a valid category (not 'general' or empty), use it
+            if existing_category and existing_category.lower() not in ['general', '', 'unknown', 'other']:
+                return existing_category.lower()
+            
+            text = f"{name} {description}".lower()
+            
+            # Category detection rules (order matters - more specific first)
+            if any(word in text for word in ['survey', 'questionnaire', 'poll', 'opinion', 'feedback']):
+                return 'survey'
+            if any(word in text for word in ['game', 'gaming', 'play', 'level', 'casino', 'slots', 'poker', 'puzzle', 'match']):
+                return 'game'
+            if any(word in text for word in ['video', 'watch', 'stream', 'youtube', 'tiktok', 'movie']):
+                return 'video'
+            if any(word in text for word in ['shop', 'shopping', 'buy', 'purchase', 'store', 'deal', 'discount', 'coupon', 'sale']):
+                return 'shopping'
+            if any(word in text for word in ['app', 'download', 'install', 'mobile', 'android', 'ios', 'iphone']):
+                return 'app'
+            if any(word in text for word in ['signup', 'sign up', 'register', 'create account', 'join', 'subscribe', 'newsletter', 'email']):
+                return 'signup'
+            if any(word in text for word in ['loan', 'credit', 'bank', 'finance', 'invest', 'insurance', 'mortgage', 'trading', 'crypto', 'bitcoin']):
+                return 'finance'
+            if any(word in text for word in ['health', 'fitness', 'diet', 'weight', 'medical', 'doctor', 'pharmacy', 'vitamin', 'supplement']):
+                return 'health'
+            if any(word in text for word in ['travel', 'hotel', 'flight', 'vacation', 'trip', 'booking', 'airbnb']):
+                return 'travel'
+            if any(word in text for word in ['education', 'course', 'learn', 'study', 'school', 'university', 'training', 'tutorial']):
+                return 'education'
+            if any(word in text for word in ['entertainment', 'music', 'spotify', 'netflix', 'streaming', 'tv', 'show']):
+                return 'entertainment'
+            if any(word in text for word in ['lifestyle', 'dating', 'social', 'fashion', 'beauty', 'food', 'recipe']):
+                return 'lifestyle'
+            
+            # Default to 'app' for most offers (common category)
+            return 'app'
+        
         # Transform offers to frontend format
         transformed_offers = []
         for offer in offers_list:
@@ -2027,22 +2065,119 @@ def get_offers():
                 tracking_url = offer.get('target_url') or offer.get('url') or '#'
                 logger.warning(f"⚠️ Using fallback URL: {tracking_url}")
             
+            # Extract countries from multiple possible fields
+            countries_data = offer.get('countries', [])
+            
+            # If countries is empty, try to extract from other fields
+            if not countries_data or len(countries_data) == 0:
+                # Try 'geo' field
+                if offer.get('geo'):
+                    geo = offer.get('geo')
+                    if isinstance(geo, list):
+                        countries_data = geo
+                    elif isinstance(geo, str):
+                        # Parse comma-separated or space-separated
+                        countries_data = [c.strip().upper() for c in geo.replace(',', ' ').split() if len(c.strip()) == 2]
+                
+                # Try 'allowed_countries' field
+                if not countries_data and offer.get('allowed_countries'):
+                    countries_data = offer.get('allowed_countries', [])
+                
+                # Try 'country' field (single country)
+                if not countries_data and offer.get('country'):
+                    country = offer.get('country')
+                    if isinstance(country, str) and len(country) == 2:
+                        countries_data = [country.upper()]
+                    elif isinstance(country, str):
+                        # Try to extract country codes from string like "US, CA, GB"
+                        countries_data = [c.strip().upper() for c in country.replace(',', ' ').split() if len(c.strip()) == 2]
+                
+                # Try to extract from description/name (look for country codes or names)
+                if not countries_data:
+                    text = f"{offer.get('name', '')} {offer.get('description', '')}".upper()
+                    country_patterns = {
+                        'US': ['USA', 'UNITED STATES', ' US ', '(US)', '-US-'],
+                        'GB': ['UK', 'UNITED KINGDOM', 'BRITAIN', ' GB ', '(GB)', '-GB-', '(UK)', '-UK-'],
+                        'CA': ['CANADA', ' CA ', '(CA)', '-CA-'],
+                        'AU': ['AUSTRALIA', ' AU ', '(AU)', '-AU-'],
+                        'DE': ['GERMANY', 'DEUTSCHLAND', ' DE ', '(DE)', '-DE-'],
+                        'FR': ['FRANCE', ' FR ', '(FR)', '-FR-'],
+                        'IT': ['ITALY', 'ITALIA', ' IT ', '(IT)', '-IT-'],
+                        'ES': ['SPAIN', 'ESPAÑA', ' ES ', '(ES)', '-ES-'],
+                        'NL': ['NETHERLANDS', 'HOLLAND', ' NL ', '(NL)', '-NL-'],
+                        'BR': ['BRAZIL', 'BRASIL', ' BR ', '(BR)', '-BR-'],
+                        'IN': ['INDIA', ' IN ', '(IN)', '-IN-'],
+                        'JP': ['JAPAN', ' JP ', '(JP)', '-JP-'],
+                        'KR': ['KOREA', ' KR ', '(KR)', '-KR-'],
+                        'MX': ['MEXICO', ' MX ', '(MX)', '-MX-'],
+                        'SE': ['SWEDEN', ' SE ', '(SE)', '-SE-'],
+                        'NO': ['NORWAY', ' NO ', '(NO)', '-NO-'],
+                        'AT': ['AUSTRIA', ' AT ', '(AT)', '-AT-'],
+                        'CH': ['SWITZERLAND', ' CH ', '(CH)', '-CH-'],
+                        'PL': ['POLAND', ' PL ', '(PL)', '-PL-'],
+                        'PT': ['PORTUGAL', ' PT ', '(PT)', '-PT-'],
+                    }
+                    detected_countries = []
+                    for code, patterns in country_patterns.items():
+                        for pattern in patterns:
+                            if pattern in text:
+                                if code not in detected_countries:
+                                    detected_countries.append(code)
+                                break
+                    if detected_countries:
+                        countries_data = detected_countries
+            
+            # Ensure countries_data is a list
+            if isinstance(countries_data, str):
+                countries_data = [c.strip().upper() for c in countries_data.replace(',', ' ').split() if c.strip()]
+            
+            # Extract device targeting from multiple possible fields
+            device_targeting = offer.get('device_targeting', '')
+            if not device_targeting:
+                device_targeting = offer.get('allowed_devices', '')
+            if not device_targeting:
+                device_targeting = offer.get('devices', '')
+                if isinstance(device_targeting, list):
+                    device_targeting = ', '.join(device_targeting) if device_targeting else ''
+            
+            # Try to detect device from name/description
+            if not device_targeting:
+                text = f"{offer.get('name', '')} {offer.get('description', '')}".lower()
+                if 'android' in text:
+                    device_targeting = 'android'
+                elif 'ios' in text or 'iphone' in text or 'ipad' in text:
+                    device_targeting = 'ios'
+                elif 'mobile' in text:
+                    device_targeting = 'mobile'
+                elif 'desktop' in text or 'web' in text:
+                    device_targeting = 'web'
+            
             transformed_offer = {
                 'id': offer.get('offer_id', str(offer.get('_id'))),
                 'title': offer.get('name', 'Untitled Offer'),
                 'description': offer.get('description', 'No description available'),
                 'reward_amount': offer.get('payout', 0),
                 'reward_currency': offer.get('currency', 'USD'),
-                'category': offer.get('category', 'general'),
+                'category': detect_category(
+                    offer.get('name', ''), 
+                    offer.get('description', ''),
+                    offer.get('category')
+                ),
                 'status': offer.get('status', 'active'),
                 'image_url': image_url,
                 'click_url': tracking_url,
                 'network': offer.get('network', 'Unknown'),
-                'countries': offer.get('countries', []),
+                'countries': countries_data,
                 'devices': offer.get('devices', []),
-                'estimated_time': '5-10 minutes',  # Default value
+                'device_targeting': device_targeting,
+                'estimated_time': offer.get('estimated_time', ''),
                 'created_at': offer.get('created_at', datetime.utcnow()).isoformat() if isinstance(offer.get('created_at'), datetime) else str(offer.get('created_at', '')),
-                # 🔥 ADDITIONAL OFFER INFO FOR BETTER TRACKING
+                'payout': offer.get('payout', 0),
+                'star_rating': offer.get('star_rating', 5),
+                'urgency_type': offer.get('urgency_type'),
+                'timer_enabled': offer.get('timer_enabled', False),
+                'timer_end_date': offer.get('timer_end_date'),
+                'show_in_iframe': offer.get('show_in_iframe', True),
                 'campaign_id': offer.get('campaign_id'),
                 'offer_type': offer.get('offer_type', 'standard'),
                 'conversion_flow': offer.get('conversion_flow', 'single_opt_in'),

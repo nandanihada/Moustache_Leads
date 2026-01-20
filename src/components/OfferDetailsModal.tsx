@@ -63,10 +63,12 @@ const generateQRCode = (url: string) => {
   return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
 };
 
-// Helper function to shorten URL (mock implementation)
+// Helper function to shorten URL (uses production domain)
 const shortenUrl = async (url: string) => {
   const hash = btoa(url).substring(0, 8);
-  return `http://localhost:3000/s/${hash}`;
+  // Use production domain for shortened links
+  const baseUrl = import.meta.env.VITE_APP_URL || 'https://moustacheleads.com';
+  return `${baseUrl}/s/${hash}`;
 };
 
 // Helper function to calculate days remaining
@@ -275,7 +277,7 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => openUrl(offer.preview_url || offer.target_url)}
+                onClick={() => openUrl(offer.preview_url || offer.target_url || 'https://google.com')}
                 className="text-blue-600 hover:text-blue-800"
               >
                 <Eye className="h-4 w-4 mr-1" />

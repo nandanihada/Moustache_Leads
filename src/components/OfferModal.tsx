@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Clock, Star, CheckCircle, AlertCircle, TrendingUp, Sparkles, Award, Zap } from 'lucide-react';
+import { X, CheckCircle, AlertCircle, Sparkles, Award, Globe, Smartphone, Shield } from 'lucide-react';
 
 interface Offer {
   id: string;
@@ -15,9 +15,85 @@ interface Offer {
   network?: string;
   countries?: string[];
   devices?: string[];
+  device_targeting?: string;
   created_at?: string;
   payout_type?: string;
+  payout?: number;
+  star_rating?: number;
 }
+
+// Country flag mapping
+const FLAG_MAP: Record<string, string> = {
+  'US': '🇺🇸', 'UK': '🇬🇧', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪', 
+  'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'BR': '🇧🇷', 'IN': '🇮🇳', 'JP': '🇯🇵',
+  'KR': '🇰🇷', 'CN': '🇨🇳', 'NL': '🇳🇱', 'BE': '🇧🇪', 'AT': '🇦🇹', 'CH': '🇨🇭',
+  'SE': '🇸🇪', 'NO': '🇳🇴', 'DK': '🇩🇰', 'FI': '🇫🇮', 'PL': '🇵🇱', 'PT': '🇵🇹',
+  'IE': '🇮🇪', 'NZ': '🇳🇿', 'MX': '🇲🇽', 'AR': '🇦🇷', 'CL': '🇨🇱', 'CO': '🇨🇴',
+  'TW': '🇹🇼', 'SG': '🇸🇬', 'MY': '🇲🇾', 'TH': '🇹🇭', 'PH': '🇵🇭', 'ID': '🇮🇩',
+  'ZA': '🇿🇦', 'AE': '🇦🇪', 'SA': '🇸🇦', 'IL': '🇮🇱', 'TR': '🇹🇷', 'RU': '🇷🇺',
+  'RO': '🇷🇴', 'GR': '🇬🇷', 'CZ': '🇨🇿', 'HU': '🇭🇺', 'UA': '🇺🇦', 'VN': '🇻🇳'
+};
+
+// Helper: Convert payout to points ($1 = 100 points)
+const payoutToPoints = (payout: number): number => Math.round(payout * 100);
+
+// Helper: Render star rating
+const renderStarRating = (rating: number = 5): JSX.Element => {
+  const stars = Math.min(5, Math.max(1, Math.round(rating)));
+  return (
+    <div className="flex items-center gap-0.5">
+      {[...Array(5)].map((_, i) => (
+        <span key={i} className={`text-lg ${i < stars ? 'text-yellow-400' : 'text-gray-300'}`}>
+          ★
+        </span>
+      ))}
+    </div>
+  );
+};
+
+// Helper: Get country flags display
+const getCountryFlags = (countries?: string[]): JSX.Element | null => {
+  if (!countries || countries.length === 0) return null;
+  
+  return (
+    <div className="flex flex-wrap gap-1 items-center">
+      {countries.slice(0, 10).map((c, i) => (
+        <span key={i} className="text-lg" title={c}>
+          {FLAG_MAP[c.toUpperCase()] || c}
+        </span>
+      ))}
+      {countries.length > 10 && (
+        <span className="text-xs text-gray-500 ml-1">+{countries.length - 10} more</span>
+      )}
+    </div>
+  );
+};
+
+// Helper: Extract countries from title (e.g., "Opinion Router - Incent AU, BE, CA, DE")
+const extractCountriesFromTitle = (title: string): string[] => {
+  const countryCodes = Object.keys(FLAG_MAP);
+  const found: string[] = [];
+  
+  // Split by common delimiters and check each part
+  const parts = title.toUpperCase().split(/[\s,\-]+/);
+  for (const part of parts) {
+    const cleaned = part.trim();
+    if (cleaned.length === 2 && countryCodes.includes(cleaned) && !found.includes(cleaned)) {
+      found.push(cleaned);
+    }
+  }
+  
+  return found;
+};
+
+// Helper: Get countries - from offer.countries or extract from title
+const getOfferCountries = (offer: Offer): string[] => {
+  if (offer.countries && offer.countries.length > 0) {
+    return offer.countries;
+  }
+  // Extract from title if countries array is empty
+  return extractCountriesFromTitle(offer.title || '');
+};
 
 interface OfferModalProps {
   offer: Offer;
@@ -163,14 +239,18 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
             <div className="bg-white/95 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/20">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">Earn Reward</p>
+                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">Earn Points</p>
                   <div className="flex items-baseline gap-2">
                     <span className="text-4xl font-black bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                      {offer.reward_amount}
+                      {payoutToPoints(offer.payout || offer.reward_amount || 0).toLocaleString()}
                     </span>
                     <span className="text-sm font-bold text-gray-600 uppercase">
-                      {offer.reward_currency}
+                      points
                     </span>
+                  </div>
+                  {/* Star Rating */}
+                  <div className="mt-2">
+                    {renderStarRating((offer as any).star_rating || 5)}
                   </div>
                 </div>
                 <div className="bg-gradient-to-br from-yellow-400 to-orange-400 p-3 rounded-xl shadow-lg">
@@ -197,22 +277,33 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
           </h2>
 
           {/* Meta Info */}
-          <div className="flex flex-wrap items-center gap-3 mb-6">
+          <div className="flex flex-wrap items-center gap-3 mb-4">
             <div className="flex items-center gap-2 bg-purple-100 px-3 py-1.5 rounded-full">
               <span className="text-lg">{getCategoryEmoji(offer.category)}</span>
               <span className="text-xs font-bold text-purple-900 uppercase">{offer.category}</span>
             </div>
-            {offer.network && (
+            {offer.device_targeting && (
               <div className="flex items-center gap-2 bg-blue-100 px-3 py-1.5 rounded-full">
-                <Zap className="h-3.5 w-3.5 text-blue-600" />
-                <span className="text-xs font-bold text-blue-900">{offer.network}</span>
+                <Smartphone className="h-3.5 w-3.5 text-blue-600" />
+                <span className="text-xs font-bold text-blue-900">{offer.device_targeting}</span>
               </div>
             )}
-            <div className="flex items-center gap-2 bg-gray-100 px-3 py-1.5 rounded-full">
-              <Clock className="h-3.5 w-3.5 text-gray-600" />
-              <span className="text-xs font-semibold text-gray-700">{offer.estimated_time}</span>
-            </div>
           </div>
+
+          {/* Country Flags */}
+          {(() => {
+            const countries = getOfferCountries(offer);
+            if (countries.length === 0) return null;
+            return (
+              <div className="mb-6 p-3 bg-gradient-to-r from-blue-50 to-green-50 rounded-xl border border-blue-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <Globe className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-gray-700">Available in {countries.length} {countries.length === 1 ? 'Country' : 'Countries'}</span>
+                </div>
+                {getCountryFlags(countries)}
+              </div>
+            );
+          })()}
 
           {/* Description */}
           {offer.description && (
@@ -304,6 +395,34 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
               </div>
             </div>
           </div>
+
+          {/* Compliance Conditions (#56) */}
+          <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-200 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <Shield className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 className="text-red-900 font-bold text-base mb-3">Important Conditions</h4>
+                <ul className="text-red-800 text-sm space-y-2 font-medium">
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500 mt-1">🚫</span>
+                    <span>No VPN / No Proxies</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500 mt-1">🚫</span>
+                    <span>No Emulators / No Bots / No Farms</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500 mt-1">👤</span>
+                    <span>New Users Only</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-red-500 mt-1">⚠️</span>
+                    <span>Same device, IP, or user completions will be rejected and blocked</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Footer - Start Button */}
@@ -316,7 +435,7 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
             className="w-full bg-gradient-to-r from-green-500 via-emerald-500 to-green-600 hover:from-green-600 hover:via-emerald-600 hover:to-green-700 text-white font-black text-lg py-4 px-8 rounded-2xl transition-all duration-200 shadow-xl hover:shadow-2xl transform hover:scale-[1.02] flex items-center justify-center gap-3"
           >
             <Sparkles className="w-6 h-6 animate-pulse" />
-            <span>Start Earning Now</span>
+            <span>Click to Earn</span>
             <Award className="w-6 h-6" />
           </button>
         </div>
