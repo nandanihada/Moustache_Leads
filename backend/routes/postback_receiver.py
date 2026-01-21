@@ -915,6 +915,8 @@ def generate_quick_postback():
         parameters = data.get('parameters', [])
         custom_params = data.get('custom_params', [])
         partner_name = data.get('partner_name', 'Quick Generated Partner')
+        # Get parameter mappings: { our_param: partner_param } e.g., { "username": "aff_id" }
+        parameter_mappings = data.get('parameter_mappings', {})
         
         # Generate unique key (32 characters)
         unique_key = secrets.token_urlsafe(24)
@@ -923,16 +925,25 @@ def generate_quick_postback():
         base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
         
         # Build full URL with parameters
+        # NOTE: We manually build the query string to avoid URL-encoding the curly braces
+        # Partners expect {username} not %7Busername%7D
         all_params = parameters + custom_params
         if all_params:
-            import urllib.parse
-            param_dict = {}
+            param_parts = []
             for param in all_params:
                 if param.strip():
-                    param_dict[param.strip()] = f"{{{param.strip()}}}"
+                    # Get partner's macro name - what THEY call this parameter in their system
+                    partner_macro = parameter_mappings.get(param.strip(), param.strip())
+                    # Format: our_param={partner_macro}
+                    # - Left side (our_param): what WE will receive as the query parameter
+                    # - Right side ({partner_macro}): placeholder that PARTNER replaces with actual value
+                    param_parts.append(f"{param.strip()}={{{partner_macro}}}")
             
-            query_string = urllib.parse.urlencode(param_dict)
-            full_url = f"{base_url}?{query_string}"
+            if param_parts:
+                query_string = "&".join(param_parts)
+                full_url = f"{base_url}?{query_string}"
+            else:
+                full_url = base_url
         else:
             full_url = base_url
         

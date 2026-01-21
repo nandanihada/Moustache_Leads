@@ -395,7 +395,8 @@ class Offer:
             return [], 0
         
         try:
-            query = {'is_active': True}
+            # Exclude deleted offers by default
+            query = {'is_active': True, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
             
             if filters:
                 if filters.get('status'):
@@ -404,11 +405,22 @@ class Offer:
                     query['network'] = {'$regex': filters['network'], '$options': 'i'}
                 if filters.get('search'):
                     search_regex = {'$regex': filters['search'], '$options': 'i'}
-                    query['$or'] = [
-                        {'name': search_regex},
-                        {'campaign_id': search_regex},
-                        {'offer_id': search_regex}
-                    ]
+                    # Need to handle $or properly when search is present
+                    query = {
+                        '$and': [
+                            {'is_active': True},
+                            {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                            {'$or': [
+                                {'name': search_regex},
+                                {'campaign_id': search_regex},
+                                {'offer_id': search_regex}
+                            ]}
+                        ]
+                    }
+                    if filters.get('status'):
+                        query['$and'].append({'status': filters['status']})
+                    if filters.get('network'):
+                        query['$and'].append({'network': {'$regex': filters['network'], '$options': 'i'}})
             
             # Get total count
             total = self.collection.count_documents(query)
@@ -571,18 +583,100 @@ class Offer:
             return False, f"Error updating offer: {str(e)}"
     
     def delete_offer(self, offer_id):
-        """Soft delete an offer"""
+        """Soft delete an offer - moves to recycle bin"""
         if not self._check_db_connection():
             return False
         
         try:
             result = self.collection.update_one(
                 {'offer_id': offer_id},
-                {'$set': {'is_active': False, 'updated_at': datetime.utcnow()}}
+                {
+                    '$set': {
+                        'is_active': False,
+                        'deleted': True,
+                        'deleted_at': datetime.utcnow(),
+                        'updated_at': datetime.utcnow()
+                    }
+                }
             )
             return result.modified_count > 0
         except:
             return False
+    
+    def restore_offer(self, offer_id):
+        """Restore a soft-deleted offer from recycle bin"""
+        if not self._check_db_connection():
+            return False
+        
+        try:
+            result = self.collection.update_one(
+                {'offer_id': offer_id, 'deleted': True},
+                {
+                    '$set': {
+                        'is_active': True,
+                        'deleted': False,
+                        'deleted_at': None,
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            return result.modified_count > 0
+        except:
+            return False
+    
+    def permanent_delete_offer(self, offer_id):
+        """Permanently delete an offer from database"""
+        if not self._check_db_connection():
+            return False
+        
+        try:
+            result = self.collection.delete_one({'offer_id': offer_id})
+            return result.deleted_count > 0
+        except:
+            return False
+    
+    def get_deleted_offers(self, page=1, per_page=20, search=None):
+        """Get all soft-deleted offers (recycle bin)"""
+        if not self._check_db_connection():
+            return [], 0
+        
+        try:
+            query = {'deleted': True}
+            
+            if search:
+                query['$or'] = [
+                    {'name': {'$regex': search, '$options': 'i'}},
+                    {'offer_id': {'$regex': search, '$options': 'i'}},
+                    {'campaign_id': {'$regex': search, '$options': 'i'}}
+                ]
+            
+            total = self.collection.count_documents(query)
+            
+            offers = list(self.collection.find(query)
+                .sort('deleted_at', -1)
+                .skip((page - 1) * per_page)
+                .limit(per_page))
+            
+            # Convert ObjectId to string
+            for offer in offers:
+                offer['_id'] = str(offer['_id'])
+            
+            return offers, total
+        except Exception as e:
+            import logging
+            logging.error(f"Error getting deleted offers: {str(e)}")
+            return [], 0
+    
+    def empty_recycle_bin(self):
+        """Permanently delete all offers in recycle bin"""
+        if not self._check_db_connection():
+            return 0
+        
+        try:
+            result = self.collection.delete_many({'deleted': True})
+            return result.deleted_count
+        except:
+            return 0
     
     def increment_hits(self, offer_id):
         """Increment hit count for an offer"""

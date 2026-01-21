@@ -598,6 +598,140 @@ def bulk_delete_offers():
         logging.error(f"Bulk delete offers error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to bulk delete offers: {str(e)}'}), 500
 
+# ============================================
+# RECYCLE BIN ENDPOINTS
+# ============================================
+
+@admin_offers_bp.route('/offers/recycle-bin', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_recycle_bin():
+    """Get all soft-deleted offers (recycle bin)"""
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        search = request.args.get('search', '')
+        
+        offers, total = offer_model.get_deleted_offers(
+            page=page,
+            per_page=per_page,
+            search=search if search else None
+        )
+        
+        return jsonify({
+            'offers': offers,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page if total > 0 else 0
+            }
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Get recycle bin error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get recycle bin: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/<offer_id>/restore', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def restore_offer(offer_id):
+    """Restore a soft-deleted offer from recycle bin"""
+    try:
+        success = offer_model.restore_offer(offer_id)
+        
+        if not success:
+            return jsonify({'error': 'Offer not found in recycle bin'}), 404
+        
+        return jsonify({'message': 'Offer restored successfully'}), 200
+        
+    except Exception as e:
+        logging.error(f"Restore offer error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to restore offer: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/<offer_id>/permanent-delete', methods=['DELETE'])
+@token_required
+@subadmin_or_admin_required('offers')
+def permanent_delete_offer(offer_id):
+    """Permanently delete an offer (cannot be recovered)"""
+    try:
+        success = offer_model.permanent_delete_offer(offer_id)
+        
+        if not success:
+            return jsonify({'error': 'Offer not found'}), 404
+        
+        return jsonify({'message': 'Offer permanently deleted'}), 200
+        
+    except Exception as e:
+        logging.error(f"Permanent delete offer error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to permanently delete offer: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/recycle-bin/empty', methods=['DELETE'])
+@token_required
+@subadmin_or_admin_required('offers')
+def empty_recycle_bin():
+    """Permanently delete all offers in recycle bin"""
+    try:
+        deleted_count = offer_model.empty_recycle_bin()
+        
+        return jsonify({
+            'message': f'Recycle bin emptied successfully',
+            'deleted_count': deleted_count
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Empty recycle bin error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to empty recycle bin: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/bulk-restore', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_restore_offers():
+    """Restore multiple offers from recycle bin"""
+    try:
+        data = request.get_json()
+        
+        if not data or 'offer_ids' not in data:
+            return jsonify({'error': 'offer_ids array is required'}), 400
+        
+        offer_ids = data.get('offer_ids', [])
+        
+        if not isinstance(offer_ids, list) or len(offer_ids) == 0:
+            return jsonify({'error': 'offer_ids must be a non-empty array'}), 400
+        
+        restored_count = 0
+        failed_count = 0
+        errors = []
+        
+        for offer_id in offer_ids:
+            try:
+                success = offer_model.restore_offer(offer_id)
+                if success:
+                    restored_count += 1
+                else:
+                    failed_count += 1
+                    errors.append({
+                        'offer_id': offer_id,
+                        'error': 'Offer not found in recycle bin'
+                    })
+            except Exception as e:
+                failed_count += 1
+                errors.append({
+                    'offer_id': offer_id,
+                    'error': str(e)
+                })
+        
+        return jsonify({
+            'message': f'Bulk restore completed',
+            'restored': restored_count,
+            'failed': failed_count,
+            'errors': errors if errors else None
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Bulk restore offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to bulk restore offers: {str(e)}'}), 500
+
 @admin_offers_bp.route('/offers/<offer_id>/clone', methods=['POST'])
 @token_required
 @subadmin_or_admin_required('offers')

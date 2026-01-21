@@ -522,41 +522,58 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
               </CardHeader>
               <CardContent className="space-y-2">
                 {/* Allowed Sources */}
-                {(offer.tracking?.allowed_sources || (offer as any).allowed_traffic_sources) ? (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">✅ Allowed:</div>
-                    <div className="flex flex-wrap gap-1">
-                      {(offer.tracking?.allowed_sources || (offer as any).allowed_traffic_sources || []).map((source: string, index: number) => (
-                        <Badge key={index} className="bg-green-100 text-green-800 text-xs">
-                          {source}
-                        </Badge>
-                      ))}
+                {(() => {
+                  const allowedSources = offer.tracking?.allowed_sources || (offer as any).allowed_traffic_sources || [];
+                  if (allowedSources.length > 0) {
+                    return (
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">✅ Allowed:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {allowedSources.map((source: string, index: number) => (
+                            <Badge key={index} className="bg-green-100 text-green-800 text-xs">
+                              {source}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-1">✅ Allowed:</div>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge className="bg-gray-100 text-gray-600 text-xs">All Traffic (Default)</Badge>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">✅ Allowed:</div>
-                    <div className="flex flex-wrap gap-1">
-                      <Badge className="bg-green-100 text-green-800 text-xs">Websites</Badge>
-                      <Badge className="bg-green-100 text-green-800 text-xs">Social Media</Badge>
-                      <Badge className="bg-green-100 text-green-800 text-xs">Email</Badge>
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
                 
                 {/* Blocked Sources */}
-                {(offer.tracking?.blocked_sources || (offer as any).blocked_traffic_sources) && (
-                  <div>
-                    <div className="text-xs text-muted-foreground mb-1">🚫 Prohibited:</div>
-                    <div className="flex flex-wrap gap-1">
-                      {(offer.tracking?.blocked_sources || (offer as any).blocked_traffic_sources || []).map((source: string, index: number) => (
-                        <Badge key={index} className="bg-red-100 text-red-800 text-xs">
-                          {source}
-                        </Badge>
-                      ))}
+                {(() => {
+                  const blockedSources = offer.tracking?.blocked_sources || (offer as any).blocked_traffic_sources || [];
+                  if (blockedSources.length > 0) {
+                    return (
+                      <div>
+                        <div className="text-xs text-muted-foreground mb-1">🚫 Prohibited:</div>
+                        <div className="flex flex-wrap gap-1">
+                          {blockedSources.map((source: string, index: number) => (
+                            <Badge key={index} className="bg-red-100 text-red-800 text-xs">
+                              {source}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div>
+                      <div className="text-xs text-muted-foreground mb-1">🚫 Prohibited:</div>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge className="bg-gray-100 text-gray-600 text-xs">None (Default)</Badge>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </CardContent>
             </Card>
 

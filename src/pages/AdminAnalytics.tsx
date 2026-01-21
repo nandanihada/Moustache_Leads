@@ -4,7 +4,7 @@ import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const AdminAnalytics = () => {
   return (
-    <div className="container mx-auto py-6">
+    <div className="space-y-6">
       <AnalyticsDashboard />
     </div>
   );

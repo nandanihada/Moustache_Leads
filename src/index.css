@@ -101,5 +101,67 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
   }
+  
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+/* Custom scrollbar for better UX */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+/* Fix table overflow issues */
+@layer components {
+  .table-container {
+    @apply w-full overflow-x-auto;
+  }
+  
+  .table-container table {
+    @apply min-w-full;
+  }
+}
+
+/* Fix dialog/modal overflow - ensure dialogs are scrollable */
+[role="dialog"] {
+  max-height: 90vh !important;
+  overflow-y: auto !important;
+}
+
+[data-radix-dialog-content] {
+  max-height: 85vh !important;
+  overflow-y: auto !important;
+}
+
+/* Ensure dialog content scrolls properly */
+.dialog-scroll-content {
+  max-height: calc(85vh - 120px);
+  overflow-y: auto;
 }

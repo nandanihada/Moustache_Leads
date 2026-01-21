@@ -466,6 +466,64 @@ class AdminOfferApi {
       console.error('❌ Admin login failed');
     }
   }
+
+  // ============================================
+  // RECYCLE BIN METHODS
+  // ============================================
+
+  async getRecycleBin(params: { page?: number; per_page?: number; search?: string } = {}): Promise<{
+    offers: Offer[];
+    pagination: { page: number; per_page: number; total: number; pages: number };
+  }> {
+    const queryParams = new URLSearchParams();
+    if (params.page) queryParams.append('page', params.page.toString());
+    if (params.per_page) queryParams.append('per_page', params.per_page.toString());
+    if (params.search) queryParams.append('search', params.search);
+
+    const response = await fetch(`${API_BASE_URL}/offers/recycle-bin?${queryParams}`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async restoreOffer(offerId: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/${offerId}/restore`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async permanentDeleteOffer(offerId: string): Promise<{ message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/${offerId}/permanent-delete`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async emptyRecycleBin(): Promise<{ message: string; deleted_count: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/recycle-bin/empty`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async bulkRestoreOffers(offerIds: string[]): Promise<{ message: string; restored: number; failed: number; errors?: any[] }> {
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-restore`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offer_ids: offerIds }),
+    });
+
+    return this.handleResponse(response);
+  }
 }
 
 export const adminOfferApi = new AdminOfferApi();

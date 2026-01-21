@@ -104,7 +104,7 @@ export default function GiftCardRedemption() {
     });
 
     return (
-        <div className="container mx-auto p-6 max-w-4xl space-y-6">
+        <div className="space-y-6 max-w-4xl">
             {/* Header */}
             <div className="text-center space-y-2">
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">

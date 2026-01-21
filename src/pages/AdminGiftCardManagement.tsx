@@ -133,7 +133,7 @@ export default function AdminGiftCardManagement() {
     };
 
     return (
-        <div className="container mx-auto p-6">
+        <div className="space-y-6">
             {/* Header */}
             <div className="flex justify-between items-center mb-8">
                 <div>

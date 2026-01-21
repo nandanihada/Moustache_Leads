@@ -301,7 +301,37 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 space-y-3">
+        {/* Terms & Privacy Links */}
+        <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground border-t pt-3">
+          <a 
+            href="/terms" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="hover:text-foreground hover:underline transition-colors"
+          >
+            Terms
+          </a>
+          <span>•</span>
+          <a 
+            href="/privacy" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="hover:text-foreground hover:underline transition-colors"
+          >
+            Privacy
+          </a>
+          <span>•</span>
+          <a 
+            href="/team" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="hover:text-foreground hover:underline transition-colors"
+          >
+            Team
+          </a>
+        </div>
+        
         <SidebarMenuButton
           onClick={handleLogout}
           className="text-muted-foreground hover:text-foreground cursor-pointer"

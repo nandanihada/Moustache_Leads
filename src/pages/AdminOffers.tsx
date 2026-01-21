@@ -18,7 +18,9 @@ import {
   Globe,
   Link,
   Settings,
-  ExternalLink
+  ExternalLink,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -46,13 +48,18 @@ import { ApiImportModal } from '@/components/ApiImportModal';
 import { adminOfferApi, Offer } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const AdminOffers = () => {
   const { toast } = useToast();
   const [offers, setOffers] = useState<Offer[]>([]);
+  const [deletedOffers, setDeletedOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recycleBinLoading, setRecycleBinLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [recycleBinSearchTerm, setRecycleBinSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [activeTab, setActiveTab] = useState('offers');
   const [addOfferModalOpen, setAddOfferModalOpen] = useState(false);
   const [editOfferModalOpen, setEditOfferModalOpen] = useState(false);
   const [linkMaskingModalOpen, setLinkMaskingModalOpen] = useState(false);
@@ -63,10 +70,17 @@ const AdminOffers = () => {
   const [apiImportModalOpen, setApiImportModalOpen] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
+  const [selectedDeletedOffers, setSelectedDeletedOffers] = useState<Set<string>>(new Set());
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const [sortBy, setSortBy] = useState<string>('newest');
   const [countryFilter, setCountryFilter] = useState<string>('all');
   const [pagination, setPagination] = useState({
+    page: 1,
+    per_page: 20,
+    total: 0,
+    pages: 0
+  });
+  const [recycleBinPagination, setRecycleBinPagination] = useState({
     page: 1,
     per_page: 20,
     total: 0,
@@ -157,7 +171,7 @@ const AdminOffers = () => {
       await adminOfferApi.deleteOffer(offerId);
       toast({
         title: "Success",
-        description: "Offer deleted successfully",
+        description: "Offer moved to recycle bin",
       });
       fetchOffers();
     } catch (error) {
@@ -179,7 +193,7 @@ const AdminOffers = () => {
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete ${selectedOffers.size} offer(s)?`)) {
+    if (!confirm(`Are you sure you want to move ${selectedOffers.size} offer(s) to recycle bin?`)) {
       return;
     }
 
@@ -187,7 +201,7 @@ const AdminOffers = () => {
       const result = await adminOfferApi.bulkDeleteOffers(Array.from(selectedOffers));
       toast({
         title: "Bulk Delete Complete",
-        description: `Deleted ${result.deleted} offer(s). ${result.failed > 0 ? `Failed: ${result.failed}` : ''}`,
+        description: `Moved ${result.deleted} offer(s) to recycle bin. ${result.failed > 0 ? `Failed: ${result.failed}` : ''}`,
       });
       setSelectedOffers(new Set());
       fetchOffers();
@@ -197,6 +211,137 @@ const AdminOffers = () => {
         description: error instanceof Error ? error.message : "Failed to bulk delete offers",
         variant: "destructive",
       });
+    }
+  };
+
+  // ============================================
+  // RECYCLE BIN FUNCTIONS
+  // ============================================
+
+  const fetchRecycleBin = async () => {
+    try {
+      setRecycleBinLoading(true);
+      const response = await adminOfferApi.getRecycleBin({
+        page: recycleBinPagination.page,
+        per_page: recycleBinPagination.per_page,
+        search: recycleBinSearchTerm || undefined
+      });
+      setDeletedOffers(response.offers);
+      setRecycleBinPagination(response.pagination);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to fetch recycle bin",
+        variant: "destructive",
+      });
+    } finally {
+      setRecycleBinLoading(false);
+    }
+  };
+
+  const handleRestoreOffer = async (offerId: string) => {
+    try {
+      await adminOfferApi.restoreOffer(offerId);
+      toast({
+        title: "Success",
+        description: "Offer restored successfully",
+      });
+      fetchRecycleBin();
+      fetchOffers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to restore offer",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePermanentDelete = async (offerId: string) => {
+    if (!confirm('Are you sure you want to PERMANENTLY delete this offer? This cannot be undone!')) {
+      return;
+    }
+
+    try {
+      await adminOfferApi.permanentDeleteOffer(offerId);
+      toast({
+        title: "Success",
+        description: "Offer permanently deleted",
+      });
+      fetchRecycleBin();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to permanently delete offer",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkRestore = async () => {
+    if (selectedDeletedOffers.size === 0) {
+      toast({
+        title: "No Selection",
+        description: "Please select offers to restore",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const result = await adminOfferApi.bulkRestoreOffers(Array.from(selectedDeletedOffers));
+      toast({
+        title: "Bulk Restore Complete",
+        description: `Restored ${result.restored} offer(s). ${result.failed > 0 ? `Failed: ${result.failed}` : ''}`,
+      });
+      setSelectedDeletedOffers(new Set());
+      fetchRecycleBin();
+      fetchOffers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to bulk restore offers",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEmptyRecycleBin = async () => {
+    if (!confirm('Are you sure you want to PERMANENTLY delete ALL offers in the recycle bin? This cannot be undone!')) {
+      return;
+    }
+
+    try {
+      const result = await adminOfferApi.emptyRecycleBin();
+      toast({
+        title: "Success",
+        description: `Permanently deleted ${result.deleted_count} offer(s)`,
+      });
+      fetchRecycleBin();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to empty recycle bin",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const toggleDeletedOfferSelection = (offerId: string) => {
+    const newSelection = new Set(selectedDeletedOffers);
+    if (newSelection.has(offerId)) {
+      newSelection.delete(offerId);
+    } else {
+      newSelection.add(offerId);
+    }
+    setSelectedDeletedOffers(newSelection);
+  };
+
+  const toggleSelectAllDeleted = () => {
+    if (selectedDeletedOffers.size === deletedOffers.length) {
+      setSelectedDeletedOffers(new Set());
+    } else {
+      setSelectedDeletedOffers(new Set(deletedOffers.map(o => o.offer_id)));
     }
   };
 
@@ -484,6 +629,27 @@ const AdminOffers = () => {
     return () => clearTimeout(delayedSearch);
   }, [searchTerm]);
 
+  // Fetch recycle bin when tab changes
+  useEffect(() => {
+    if (activeTab === 'recycle-bin') {
+      fetchRecycleBin();
+    }
+  }, [activeTab, recycleBinPagination.page]);
+
+  // Debounced search for recycle bin
+  useEffect(() => {
+    if (activeTab === 'recycle-bin') {
+      const delayedSearch = setTimeout(() => {
+        if (recycleBinPagination.page === 1) {
+          fetchRecycleBin();
+        } else {
+          setRecycleBinPagination(prev => ({ ...prev, page: 1 }));
+        }
+      }, 500);
+      return () => clearTimeout(delayedSearch);
+    }
+  }, [recycleBinSearchTerm]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -688,14 +854,29 @@ const AdminOffers = () => {
         </CardContent>
       </Card>
 
-      {/* Offers Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Offers ({pagination.total})</CardTitle>
-          <CardDescription>
-            Manage your offers with full tracking and masking capabilities
-          </CardDescription>
-        </CardHeader>
+      {/* Tabs for Offers and Recycle Bin */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="offers" className="flex items-center gap-2">
+            <Globe className="h-4 w-4" />
+            Active Offers ({pagination.total})
+          </TabsTrigger>
+          <TabsTrigger value="recycle-bin" className="flex items-center gap-2">
+            <Trash2 className="h-4 w-4" />
+            Recycle Bin ({recycleBinPagination.total})
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Active Offers Tab */}
+        <TabsContent value="offers" className="space-y-4">
+          {/* Offers Table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Offers ({pagination.total})</CardTitle>
+              <CardDescription>
+                Manage your offers with full tracking and masking capabilities
+              </CardDescription>
+            </CardHeader>
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-8">
@@ -807,8 +988,9 @@ const AdminOffers = () => {
                       <div>
                         <div className="font-medium">{offer.name}</div>
                         <div className="text-sm text-muted-foreground">
-                          {offer.affiliates === 'all' ? 'All Users' :
-                            offer.affiliates === 'premium' ? 'Premium Only' : 'Selected Users'}
+                          {offer.affiliates === 'all' || !offer.affiliates ? 'All Users' :
+                            offer.affiliates === 'premium' ? 'Premium Only' : 
+                            offer.affiliates === 'selected' ? 'Selected Users' : 'All Users'}
                         </div>
                       </div>
                     </TableCell>
@@ -1039,6 +1221,223 @@ const AdminOffers = () => {
           </CardContent>
         </Card>
       )}
+        </TabsContent>
+
+        {/* Recycle Bin Tab */}
+        <TabsContent value="recycle-bin" className="space-y-4">
+          {/* Recycle Bin Actions */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Trash2 className="h-5 w-5" />
+                    Recycle Bin
+                  </CardTitle>
+                  <CardDescription>
+                    Deleted offers can be restored or permanently removed
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedDeletedOffers.size > 0 && (
+                    <Button
+                      variant="outline"
+                      onClick={handleBulkRestore}
+                    >
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Restore Selected ({selectedDeletedOffers.size})
+                    </Button>
+                  )}
+                  <Button
+                    variant="destructive"
+                    onClick={handleEmptyRecycleBin}
+                    disabled={deletedOffers.length === 0}
+                  >
+                    <AlertTriangle className="h-4 w-4 mr-2" />
+                    Empty Recycle Bin
+                  </Button>
+                  <Button variant="outline" onClick={fetchRecycleBin} disabled={recycleBinLoading}>
+                    <RefreshCw className={`h-4 w-4 mr-2 ${recycleBinLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input
+                  placeholder="Search deleted offers..."
+                  value={recycleBinSearchTerm}
+                  onChange={(e) => setRecycleBinSearchTerm(e.target.value)}
+                  className="pl-10 max-w-md"
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Recycle Bin Table */}
+          <Card>
+            <CardContent className="pt-6">
+              {recycleBinLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+                  Loading deleted offers...
+                </div>
+              ) : deletedOffers.length === 0 ? (
+                <div className="text-center py-8">
+                  <Trash2 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">Recycle bin is empty</p>
+                  <p className="text-sm text-muted-foreground mt-1">Deleted offers will appear here</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-12">
+                        <input
+                          type="checkbox"
+                          checked={selectedDeletedOffers.size === deletedOffers.length && deletedOffers.length > 0}
+                          onChange={toggleSelectAllDeleted}
+                          className="rounded border-gray-300"
+                        />
+                      </TableHead>
+                      <TableHead>Image</TableHead>
+                      <TableHead>Offer ID</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Network</TableHead>
+                      <TableHead>Deleted At</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {deletedOffers.map((offer) => (
+                      <TableRow key={offer.offer_id} className="bg-red-50/30">
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={selectedDeletedOffers.has(offer.offer_id)}
+                            onChange={() => toggleDeletedOfferSelection(offer.offer_id)}
+                            className="rounded border-gray-300"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          {(offer.thumbnail_url || offer.image_url) ? (
+                            <img
+                              src={offer.thumbnail_url || offer.image_url}
+                              alt={offer.name}
+                              className="w-12 h-12 object-cover rounded border opacity-60"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center opacity-60">
+                              <span className="text-xs text-gray-400">No Image</span>
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-mono font-medium text-muted-foreground">
+                          {offer.offer_id}
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-muted-foreground">{offer.name}</div>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {offer.network}
+                        </TableCell>
+                        <TableCell className="text-sm text-red-600">
+                          {(offer as any).deleted_at ? new Date((offer as any).deleted_at).toLocaleString() : 'Unknown'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleRestoreOffer(offer.offer_id)}
+                              className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                            >
+                              <RotateCcw className="h-4 w-4 mr-1" />
+                              Restore
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handlePermanentDelete(offer.offer_id)}
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            >
+                              <Trash2 className="h-4 w-4 mr-1" />
+                              Delete Forever
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Recycle Bin Pagination */}
+          {recycleBinPagination.total > recycleBinPagination.per_page && (
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    Showing {((recycleBinPagination.page - 1) * recycleBinPagination.per_page) + 1} to {Math.min(recycleBinPagination.page * recycleBinPagination.per_page, recycleBinPagination.total)} of {recycleBinPagination.total} deleted offers
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRecycleBinPagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                      disabled={recycleBinPagination.page === 1 || recycleBinLoading}
+                    >
+                      Previous
+                    </Button>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, recycleBinPagination.pages) }, (_, i) => {
+                        let pageNum;
+                        if (recycleBinPagination.pages <= 5) {
+                          pageNum = i + 1;
+                        } else if (recycleBinPagination.page <= 3) {
+                          pageNum = i + 1;
+                        } else if (recycleBinPagination.page >= recycleBinPagination.pages - 2) {
+                          pageNum = recycleBinPagination.pages - 4 + i;
+                        } else {
+                          pageNum = recycleBinPagination.page - 2 + i;
+                        }
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={recycleBinPagination.page === pageNum ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setRecycleBinPagination(prev => ({ ...prev, page: pageNum }))}
+                            disabled={recycleBinLoading}
+                            className="w-10"
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setRecycleBinPagination(prev => ({ ...prev, page: Math.min(prev.pages, prev.page + 1) }))}
+                      disabled={recycleBinPagination.page === recycleBinPagination.pages || recycleBinLoading}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Add Offer Modal */}
       <AddOfferModal

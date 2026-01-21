@@ -84,12 +84,16 @@ const PostbackReceiver: React.FC = () => {
     full_url: string;
     parameters: string[];
     partner_name: string;
+    parameter_mappings?: Record<string, string>;
   } | null>(null);
   const [isGeneratingQuick, setIsGeneratingQuick] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [isQuickUrlResultModalOpen, setIsQuickUrlResultModalOpen] = useState(false);
   const [testParams, setTestParams] = useState<Record<string, string>>({});
   const [generatedUrls, setGeneratedUrls] = useState<Array<{ id: string; url: string; partnerName: string; timestamp: string; type: 'quick' | 'partner' }>>([]);
+  // Parameter mappings: our_param -> partner_param (e.g., username -> aff_id)
+  const [parameterMappings, setParameterMappings] = useState<Record<string, string>>({});
+  const [isDeletingPartner, setIsDeletingPartner] = useState<string | null>(null);
 
   // Predefined parameters
   const predefinedParameters = [
@@ -230,9 +234,29 @@ const PostbackReceiver: React.FC = () => {
     try {
       setIsGeneratingQuick(true);
       const validCustomParams = customParams.filter(p => p.trim());
-      const result = await postbackReceiverApi.generateQuickPostback(selectedParameters, validCustomParams, partnerName.trim());
 
-      setQuickGeneratedUrl(result);
+      // Build the parameter mappings to send to the API
+      // Format: { our_param: partner_param }
+      const mappingsToSend: Record<string, string> = {};
+      selectedParameters.forEach(p => {
+        mappingsToSend[p] = parameterMappings[p] || p;
+      });
+      validCustomParams.forEach(p => {
+        mappingsToSend[p] = p;
+      });
+
+      const result = await postbackReceiverApi.generateQuickPostbackWithMappings(
+        selectedParameters,
+        validCustomParams,
+        partnerName.trim(),
+        mappingsToSend
+      );
+
+      // Store the mappings with the result
+      setQuickGeneratedUrl({
+        ...result,
+        parameter_mappings: mappingsToSend
+      });
       setIsQuickGenerateModalOpen(false);
       setIsQuickUrlResultModalOpen(true);
 
@@ -288,6 +312,41 @@ const PostbackReceiver: React.FC = () => {
     setQuickGeneratedUrl(null);
     setTestParams({});
     setIsQuickUrlResultModalOpen(false);
+    setParameterMappings({});
+  };
+
+  const handleDeletePartner = async (partnerId: string, partnerName: string) => {
+    if (!confirm(`Are you sure you want to delete the partner "${partnerName}"? This will remove the postback URL.`)) {
+      return;
+    }
+
+    try {
+      setIsDeletingPartner(partnerId);
+      await partnerApi.deletePartner(partnerId);
+      toast({
+        title: 'Success',
+        description: `Partner "${partnerName}" deleted successfully`
+      });
+      // Remove from generated URLs list
+      setGeneratedUrls(prev => prev.filter(u => u.id !== partnerId));
+      // Reload data to refresh the partners list
+      await loadData();
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete partner',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsDeletingPartner(null);
+    }
+  };
+
+  const handleParameterMappingChange = (ourParam: string, partnerParam: string) => {
+    setParameterMappings(prev => ({
+      ...prev,
+      [ourParam]: partnerParam
+    }));
   };
 
   // Bulk selection handlers
@@ -389,7 +448,7 @@ const PostbackReceiver: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto p-6">
+    <div className="space-y-6">
       <div className="mb-6">
         <h1 className="text-3xl font-bold">Postback Receiver</h1>
         <p className="text-gray-600 mt-1">
@@ -610,18 +669,34 @@ const PostbackReceiver: React.FC = () => {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              onClick={() => handleGenerateUrl(partner)}
-                              disabled={generating}
-                            >
-                              {generating ? (
-                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              ) : (
-                                <Key className="h-4 w-4 mr-2" />
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleGenerateUrl(partner)}
+                                disabled={generating}
+                              >
+                                {generating ? (
+                                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                ) : (
+                                  <Key className="h-4 w-4 mr-2" />
+                                )}
+                                {partner.postback_receiver_url ? 'Regenerate' : 'Generate'} URL
+                              </Button>
+                              {partner.postback_receiver_url && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => handleDeletePartner(partner.partner_id, partner.partner_name)}
+                                  disabled={isDeletingPartner === partner.partner_id}
+                                >
+                                  {isDeletingPartner === partner.partner_id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                </Button>
                               )}
-                              {partner.postback_receiver_url ? 'Regenerate' : 'Generate'} URL
-                            </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))
@@ -1210,23 +1285,43 @@ const PostbackReceiver: React.FC = () => {
 
             {/* Parameter Selection */}
             <div>
-              <Label className="text-base font-semibold mb-4 block">Select Parameters</Label>
-              <div className="grid grid-cols-2 gap-3">
+              <Label className="text-base font-semibold mb-2 block">Select Parameters</Label>
+              <p className="text-xs text-gray-500 mb-4">
+                Check the parameters you need, then enter what the partner calls each parameter in their system.
+              </p>
+              <div className="grid grid-cols-1 gap-3">
                 {predefinedParameters.map((param) => (
-                  <div key={param.key} className="flex items-center space-x-2">
+                  <div key={param.key} className="flex items-center gap-3 p-2 rounded-lg border border-gray-100 hover:bg-gray-50">
                     <input
                       type="checkbox"
                       id={param.key}
                       checked={selectedParameters.includes(param.key)}
                       onChange={() => handleParameterToggle(param.key)}
-                      className="rounded border-gray-300"
+                      className="rounded border-gray-300 h-4 w-4"
                     />
-                    <Label htmlFor={param.key} className="text-sm font-medium">
-                      {param.label}
-                    </Label>
-                    <code className="text-xs bg-gray-100 px-2 py-1 rounded">
-                      {param.placeholder}
-                    </code>
+                    <div className="flex-shrink-0 w-28">
+                      <Label htmlFor={param.key} className="text-sm font-medium cursor-pointer">
+                        {param.label}
+                      </Label>
+                    </div>
+                    {selectedParameters.includes(param.key) ? (
+                      <div className="flex-1 flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Partner's macro:</span>
+                        <Input
+                          value={parameterMappings[param.key] || ''}
+                          onChange={(e) => handleParameterMappingChange(param.key, e.target.value)}
+                          placeholder={`e.g., ${param.key}`}
+                          className="h-8 text-sm flex-1"
+                        />
+                        <code className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded whitespace-nowrap">
+                          {param.key}={`{${parameterMappings[param.key] || param.key}}`}
+                        </code>
+                      </div>
+                    ) : (
+                      <code className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-400">
+                        {param.placeholder}
+                      </code>
+                    )}
                   </div>
                 ))}
               </div>
@@ -1294,12 +1389,20 @@ const PostbackReceiver: React.FC = () => {
                   <div className="flex gap-2 mt-1">
                     <Input
                       value={(() => {
-                        const allParams = [...selectedParameters, ...customParams.filter(p => p.trim())];
-                        if (allParams.length === 0) {
+                        // Build params: our_param={partner_macro}
+                        // Left = what WE receive, Right = placeholder PARTNER fills in
+                        const paramParts: string[] = [];
+                        selectedParameters.forEach(p => {
+                          const partnerMacro = parameterMappings[p] || p;
+                          paramParts.push(`${p}={${partnerMacro}}`);
+                        });
+                        customParams.filter(p => p.trim()).forEach(p => {
+                          paramParts.push(`${p}={${p}}`);
+                        });
+                        if (paramParts.length === 0) {
                           return "https://postback.moustacheleads.com/postback/{unique_key}";
                         }
-                        const paramString = allParams.map(p => `${p}={${p}}`).join('&');
-                        return `https://postback.moustacheleads.com/postback/{unique_key}?${paramString}`;
+                        return `https://postback.moustacheleads.com/postback/{unique_key}?${paramParts.join('&')}`;
                       })()}
                       readOnly
                       className="font-mono text-sm"
@@ -1308,12 +1411,18 @@ const PostbackReceiver: React.FC = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        const allParams = [...selectedParameters, ...customParams.filter(p => p.trim())];
-                        if (allParams.length === 0) {
+                        const paramParts: string[] = [];
+                        selectedParameters.forEach(p => {
+                          const partnerMacro = parameterMappings[p] || p;
+                          paramParts.push(`${p}={${partnerMacro}}`);
+                        });
+                        customParams.filter(p => p.trim()).forEach(p => {
+                          paramParts.push(`${p}={${p}}`);
+                        });
+                        if (paramParts.length === 0) {
                           copyToClipboard("https://postback.moustacheleads.com/postback/{unique_key}");
                         } else {
-                          const paramString = allParams.map(p => `${p}={${p}}`).join('&');
-                          copyToClipboard(`https://postback.moustacheleads.com/postback/{unique_key}?${paramString}`);
+                          copyToClipboard(`https://postback.moustacheleads.com/postback/{unique_key}?${paramParts.join('&')}`);
                         }
                       }}
                     >

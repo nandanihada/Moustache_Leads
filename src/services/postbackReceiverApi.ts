@@ -100,6 +100,35 @@ class PostbackReceiverApi {
     }
   }
 
+  async generateQuickPostbackWithMappings(
+    parameters: string[], 
+    customParams: string[], 
+    partnerName: string,
+    parameterMappings: Record<string, string>
+  ): Promise<{
+    unique_key: string;
+    base_url: string;
+    full_url: string;
+    parameters: string[];
+    partner_name: string;
+  }> {
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/postback-receiver/generate-quick`,
+        { 
+          parameters, 
+          custom_params: customParams, 
+          partner_name: partnerName,
+          parameter_mappings: parameterMappings
+        },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Failed to generate quick postback URL');
+    }
+  }
+
   async testQuickPostback(uniqueKey: string, params: Record<string, any>): Promise<{ test_url: string }> {
     try {
       const response = await axios.post(

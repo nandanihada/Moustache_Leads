@@ -250,7 +250,7 @@ const PartnerProfile: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-6xl">
+    <div className="space-y-6 max-w-6xl">
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-gray-900 mb-2">Partner Profile</h1>
         <p className="text-gray-600">Manage your account settings and postback configuration</p>
