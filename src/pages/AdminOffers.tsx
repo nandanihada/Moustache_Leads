@@ -3,6 +3,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Plus,
   Copy,
   X,
@@ -20,7 +28,11 @@ import {
   Settings,
   ExternalLink,
   RotateCcw,
-  AlertTriangle
+  AlertTriangle,
+  ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  Layers
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -72,6 +84,12 @@ const AdminOffers = () => {
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [selectedDeletedOffers, setSelectedDeletedOffers] = useState<Set<string>>(new Set());
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [assigningImages, setAssigningImages] = useState(false);
+  const [duplicatePreviewOpen, setDuplicatePreviewOpen] = useState(false);
+  const [duplicateData, setDuplicateData] = useState<any>(null);
+  const [keepStrategy, setKeepStrategy] = useState<'newest' | 'oldest'>('newest');
+  const [carouselViewOpen, setCarouselViewOpen] = useState(false);
+  const [carouselIndex, setCarouselIndex] = useState(0);
   const [sortBy, setSortBy] = useState<string>('newest');
   const [countryFilter, setCountryFilter] = useState<string>('all');
   const [pagination, setPagination] = useState({
@@ -212,6 +230,92 @@ const AdminOffers = () => {
         variant: "destructive",
       });
     }
+  };
+
+  // Generate tracking link for an offer
+  const generateTrackingLink = (offer: Offer) => {
+    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    let userId = '';
+    try {
+      const userStr = localStorage.getItem('user');
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        userId = user._id || user.id || '';
+      }
+    } catch (e) {}
+    const params = new URLSearchParams();
+    if (userId) params.append('user_id', userId);
+    params.append('sub1', 'default');
+    return `${baseUrl}/track/${offer.offer_id}?${params.toString()}`;
+  };
+
+  // Bulk copy tracking links for selected offers
+  const handleBulkCopyLinks = () => {
+    if (selectedOffers.size === 0) {
+      toast({
+        title: "No Selection",
+        description: "Please select offers to copy links",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const selectedOffersList = offers.filter(o => selectedOffers.has(o.offer_id));
+    const links = selectedOffersList.map(offer => {
+      const link = generateTrackingLink(offer);
+      return `${offer.name}\n${link}`;
+    }).join('\n\n');
+
+    navigator.clipboard.writeText(links).then(() => {
+      toast({
+        title: "Links Copied!",
+        description: `${selectedOffers.size} tracking link(s) copied to clipboard`,
+      });
+    }).catch(() => {
+      toast({
+        title: "Error",
+        description: "Failed to copy to clipboard",
+        variant: "destructive",
+      });
+    });
+  };
+
+  // Bulk copy full details for selected offers
+  const handleBulkCopyDetails = () => {
+    if (selectedOffers.size === 0) {
+      toast({
+        title: "No Selection",
+        description: "Please select offers to copy",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const selectedOffersList = offers.filter(o => selectedOffers.has(o.offer_id));
+    const details = selectedOffersList.map(offer => {
+      const link = generateTrackingLink(offer);
+      return [
+        `Name: ${offer.name}`,
+        `Offer ID: ${offer.offer_id}`,
+        `Payout: $${offer.payout?.toFixed(2) || '0.00'}`,
+        `Countries: ${offer.countries?.join(', ') || 'N/A'}`,
+        `Tracking Link: ${link}`,
+        '---'
+      ].join('\n');
+    }).join('\n');
+
+    navigator.clipboard.writeText(details).then(() => {
+      toast({
+        title: "Details Copied!",
+        description: `${selectedOffers.size} offer(s) details copied to clipboard`,
+      });
+    }).catch(() => {
+      toast({
+        title: "Error",
+        description: "Failed to copy to clipboard",
+        variant: "destructive",
+      });
+    });
   };
 
   // ============================================
@@ -371,19 +475,28 @@ const AdminOffers = () => {
         return;
       }
 
-      // Show confirmation dialog with details
-      const confirmMessage = `Found ${summary.total_duplicate_groups} offer_id(s) with duplicates.\n\n` +
-        `Total duplicate documents: ${summary.total_duplicate_documents}\n` +
-        `Documents to be removed: ${summary.total_documents_to_remove}\n\n` +
-        `The newest version of each offer will be kept.\n\n` +
-        `Do you want to proceed with removing duplicates?`;
+      // Store duplicate data and open preview modal
+      setDuplicateData(summary);
+      setDuplicatePreviewOpen(true);
 
-      if (!confirm(confirmMessage)) {
-        return;
-      }
+    } catch (error) {
+      console.error('Duplicate check error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to check duplicates",
+        variant: "destructive",
+      });
+    } finally {
+      setCheckingDuplicates(false);
+    }
+  };
 
-      // Remove duplicates
-      const removeResult = await adminOfferApi.removeDuplicates('newest');
+  const handleConfirmRemoveDuplicates = async () => {
+    try {
+      setCheckingDuplicates(true);
+
+      // Remove duplicates with selected strategy
+      const removeResult = await adminOfferApi.removeDuplicates(keepStrategy);
 
       if (removeResult.success) {
         toast({
@@ -391,7 +504,9 @@ const AdminOffers = () => {
           description: `Successfully removed ${removeResult.removed} duplicate offer(s)`,
         });
 
-        // Refresh the offers list
+        // Close modal and refresh
+        setDuplicatePreviewOpen(false);
+        setDuplicateData(null);
         fetchOffers();
       } else {
         toast({
@@ -410,6 +525,78 @@ const AdminOffers = () => {
       });
     } finally {
       setCheckingDuplicates(false);
+    }
+  };
+
+  // Carousel navigation functions
+  const handleCarouselPrev = () => {
+    setCarouselIndex(prev => (prev > 0 ? prev - 1 : offers.length - 1));
+  };
+
+  const handleCarouselNext = () => {
+    setCarouselIndex(prev => (prev < offers.length - 1 ? prev + 1 : 0));
+  };
+
+  const openCarouselView = (index: number = 0) => {
+    setCarouselIndex(index);
+    setCarouselViewOpen(true);
+  };
+
+  const handleAssignRandomImages = async () => {
+    try {
+      setAssigningImages(true);
+
+      // First check how many offers need images
+      const countResult = await adminOfferApi.countOffersWithoutImages();
+      
+      if (!countResult.success) {
+        toast({
+          title: "Error",
+          description: "Failed to check offers without images",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (countResult.count === 0) {
+        toast({
+          title: "All Good!",
+          description: "All offers already have images",
+        });
+        return;
+      }
+
+      // Confirm with user
+      if (!confirm(`Found ${countResult.count} offers without images. Assign random placeholder images to them?`)) {
+        return;
+      }
+
+      // Assign images
+      const result = await adminOfferApi.assignRandomImages();
+
+      if (result.success) {
+        toast({
+          title: "Images Assigned",
+          description: `Assigned images to ${result.updated_count} offers`,
+        });
+        fetchOffers();
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to assign images",
+          variant: "destructive",
+        });
+      }
+
+    } catch (error) {
+      console.error('Assign images error:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to assign images",
+        variant: "destructive",
+      });
+    } finally {
+      setAssigningImages(false);
     }
   };
 
@@ -664,31 +851,49 @@ const AdminOffers = () => {
 
       {/* Top Actions */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button
-                className="bg-primary hover:bg-primary/90"
-                onClick={() => setAddOfferModalOpen(true)}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Offer
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setBulkUploadModalOpen(true)}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Bulk Upload
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setApiImportModalOpen(true)}
-              >
-                <Download className="h-4 w-4 mr-2" />
-                API Import
-              </Button>
-              {selectedOffers.size > 0 && (
+        <CardHeader className="pb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              className="bg-primary hover:bg-primary/90"
+              onClick={() => setAddOfferModalOpen(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Offer
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setBulkUploadModalOpen(true)}
+            >
+              <Upload className="h-4 w-4 mr-2" />
+              Bulk Upload
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setApiImportModalOpen(true)}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              API Import
+            </Button>
+            {selectedOffers.size > 0 && (
+              <>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy Selected ({selectedOffers.size})
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem onClick={handleBulkCopyLinks}>
+                      <Link className="h-4 w-4 mr-2" />
+                      Copy Tracking Links Only
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleBulkCopyDetails}>
+                      <Copy className="h-4 w-4 mr-2" />
+                      Copy Full Details
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
                   variant="destructive"
                   onClick={handleBulkDelete}
@@ -696,41 +901,59 @@ const AdminOffers = () => {
                   <Trash2 className="h-4 w-4 mr-2" />
                   Delete Selected ({selectedOffers.size})
                 </Button>
-              )}
-              <Button variant="outline">
-                <Copy className="h-4 w-4 mr-2" />
-                Clone
-              </Button>
-              <Button variant="outline">
-                <X className="h-4 w-4 mr-2" />
-                Clear
-              </Button>
-              <Button variant="outline">
-                <Eye className="h-4 w-4 mr-2" />
-                Preview
-              </Button>
-              <Button variant="outline" onClick={handleCSVExport} disabled={loading}>
-                <Download className="h-4 w-4 mr-2" />
-                CSV Export
-              </Button>
-              <Button variant="outline" onClick={fetchOffers} disabled={loading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={handleCheckAndRemoveDuplicates} 
-                disabled={checkingDuplicates || loading}
-                className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-              >
-                <Trash2 className={`h-4 w-4 mr-2 ${checkingDuplicates ? 'animate-pulse' : ''}`} />
-                {checkingDuplicates ? 'Checking...' : 'Remove Duplicates'}
-              </Button>
-              <Button variant="outline" onClick={() => setDomainManagementModalOpen(true)}>
-                <Globe className="h-4 w-4 mr-2" />
-                Manage Domains
-              </Button>
-            </div>
+              </>
+            )}
+            <Button variant="outline">
+              <Copy className="h-4 w-4 mr-2" />
+              Clone
+            </Button>
+            <Button variant="outline">
+              <X className="h-4 w-4 mr-2" />
+              Clear
+            </Button>
+            <Button variant="outline">
+              <Eye className="h-4 w-4 mr-2" />
+              Preview
+            </Button>
+            <Button variant="outline" onClick={handleCSVExport} disabled={loading}>
+              <Download className="h-4 w-4 mr-2" />
+              CSV Export
+            </Button>
+            <Button variant="outline" onClick={fetchOffers} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleCheckAndRemoveDuplicates} 
+              disabled={checkingDuplicates || loading}
+              className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+            >
+              <Trash2 className={`h-4 w-4 mr-2 ${checkingDuplicates ? 'animate-pulse' : ''}`} />
+              {checkingDuplicates ? 'Checking...' : 'Remove Duplicates'}
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={handleAssignRandomImages} 
+              disabled={assigningImages || loading}
+              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            >
+              <ImageIcon className={`h-4 w-4 mr-2 ${assigningImages ? 'animate-pulse' : ''}`} />
+              {assigningImages ? 'Assigning...' : 'Assign Images'}
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => openCarouselView(0)} 
+              disabled={loading || offers.length === 0}
+              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+            >
+              <Layers className="h-4 w-4 mr-2" />
+              Carousel View
+            </Button>
+            <Button variant="outline" onClick={() => setDomainManagementModalOpen(true)}>
+              <Globe className="h-4 w-4 mr-2" />
+              Manage Domains
+            </Button>
           </div>
         </CardHeader>
       </Card>
@@ -738,8 +961,8 @@ const AdminOffers = () => {
       {/* Search and Filters */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1">
+          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
+            <div className="relative flex-1 w-full">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
               <Input
                 placeholder="Search offers by name, campaign ID, or offer ID..."
@@ -748,31 +971,32 @@ const AdminOffers = () => {
                 className="pl-10"
               />
             </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Filter className="h-4 w-4 mr-2" />
+                    Status: {statusFilter === 'all' ? 'All' : statusFilter}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => setStatusFilter('all')}>
+                    All Statuses
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter('active')}>
+                    Active
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter('pending')}>
+                    Pending
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setStatusFilter('inactive')}>
+                    Inactive
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline">
-                  <Filter className="h-4 w-4 mr-2" />
-                  Status: {statusFilter === 'all' ? 'All' : statusFilter}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setStatusFilter('all')}>
-                  All Statuses
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('active')}>
-                  Active
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('pending')}>
-                  Pending
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setStatusFilter('inactive')}>
-                  Inactive
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline">
+                <Button variant="outline" size="sm">
                   Sort: {
                     sortBy === 'newest' ? 'Newest' :
                     sortBy === 'oldest' ? 'Oldest' :
@@ -814,7 +1038,7 @@ const AdminOffers = () => {
             </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline">
+                <Button variant="outline" size="sm">
                   <Globe className="h-4 w-4 mr-2" />
                   Country: {countryFilter === 'all' ? 'All' : countryFilter}
                 </Button>
@@ -850,13 +1074,14 @@ const AdminOffers = () => {
                 <DropdownMenuItem onClick={() => setCountryFilter('ZA')}>🇿🇦 South Africa</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
           </div>
         </CardContent>
       </Card>
 
       {/* Tabs for Offers and Recycle Bin */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="offers" className="flex items-center gap-2">
             <Globe className="h-4 w-4" />
             Active Offers ({pagination.total})
@@ -877,7 +1102,7 @@ const AdminOffers = () => {
                 Manage your offers with full tracking and masking capabilities
               </CardDescription>
             </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-6 w-6 animate-spin mr-2" />
@@ -895,6 +1120,7 @@ const AdminOffers = () => {
               </Button>
             </div>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -1161,17 +1387,47 @@ const AdminOffers = () => {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
 
       {/* Pagination Controls */}
-      {pagination.total > pagination.per_page && (
+      {pagination.total > 0 && (
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">
-                Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} offers
+            <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="text-sm text-muted-foreground">
+                  Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} offers
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Show:</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        {pagination.per_page} per page
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 20, page: 1 }))}>
+                        20 per page
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 50, page: 1 }))}>
+                        50 per page
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 100, page: 1 }))}>
+                        100 per page
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 200, page: 1 }))}>
+                        200 per page
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: pagination.total, page: 1 }))}>
+                        Show All ({pagination.total})
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -1182,7 +1438,7 @@ const AdminOffers = () => {
                 >
                   Previous
                 </Button>
-                <div className="flex items-center gap-1">
+                <div className="hidden sm:flex items-center gap-1">
                   {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
                     let pageNum;
                     if (pagination.pages <= 5) {
@@ -1208,6 +1464,9 @@ const AdminOffers = () => {
                     );
                   })}
                 </div>
+                <span className="sm:hidden text-sm text-muted-foreground">
+                  {pagination.page} / {pagination.pages}
+                </span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -1506,6 +1765,306 @@ const AdminOffers = () => {
         onOpenChange={setApiImportModalOpen}
         onImportComplete={fetchOffers}
       />
+
+      {/* Duplicate Preview Modal */}
+      <Dialog open={duplicatePreviewOpen} onOpenChange={setDuplicatePreviewOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Duplicate Offers Found
+            </DialogTitle>
+            <DialogDescription>
+              Review the duplicate offers below and choose which version to keep.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {duplicateData && (
+            <div className="space-y-4">
+              {/* Summary */}
+              <div className="grid grid-cols-3 gap-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600">{duplicateData.total_duplicate_groups}</div>
+                  <div className="text-sm text-muted-foreground">Duplicate Groups</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600">{duplicateData.total_duplicate_documents}</div>
+                  <div className="text-sm text-muted-foreground">Total Duplicates</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">{duplicateData.total_documents_to_remove}</div>
+                  <div className="text-sm text-muted-foreground">To Be Removed</div>
+                </div>
+              </div>
+
+              {/* Keep Strategy Selection */}
+              <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">
+                <span className="font-medium">Keep:</span>
+                <div className="flex gap-2">
+                  <Button
+                    variant={keepStrategy === 'newest' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setKeepStrategy('newest')}
+                  >
+                    Newest Version
+                  </Button>
+                  <Button
+                    variant={keepStrategy === 'oldest' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setKeepStrategy('oldest')}
+                  >
+                    Oldest Version
+                  </Button>
+                </div>
+              </div>
+
+              {/* Duplicate Groups List */}
+              <div className="space-y-3 max-h-[40vh] overflow-y-auto">
+                {duplicateData.duplicate_groups?.slice(0, 10).map((group: any, index: number) => (
+                  <div key={`${group.duplicate_type}-${group.duplicate_value}-${index}`} className="p-3 border rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge 
+                          variant="outline" 
+                          className={group.duplicate_type === 'offer_id' ? 'text-blue-600 border-blue-300' : 'text-purple-600 border-purple-300'}
+                        >
+                          {group.duplicate_type === 'offer_id' ? 'By ID' : 'By Name'}
+                        </Badge>
+                        <span className="font-mono font-medium text-sm truncate max-w-[300px]">
+                          {group.duplicate_value}
+                        </span>
+                      </div>
+                      <Badge variant="outline" className="text-orange-600">
+                        {group.count} copies
+                      </Badge>
+                    </div>
+                    <div className="space-y-1">
+                      {group.documents?.slice(0, 3).map((doc: any, docIndex: number) => (
+                        <div key={doc._id} className="flex items-center justify-between text-sm p-2 bg-gray-50 rounded">
+                          <div className="flex items-center gap-2">
+                            {docIndex === 0 && keepStrategy === 'newest' && (
+                              <Badge className="bg-green-100 text-green-800 text-xs">KEEP</Badge>
+                            )}
+                            {docIndex === group.documents.length - 1 && keepStrategy === 'oldest' && (
+                              <Badge className="bg-green-100 text-green-800 text-xs">KEEP</Badge>
+                            )}
+                            {!(docIndex === 0 && keepStrategy === 'newest') && 
+                             !(docIndex === group.documents.length - 1 && keepStrategy === 'oldest') && (
+                              <Badge className="bg-red-100 text-red-800 text-xs">DELETE</Badge>
+                            )}
+                            <span className="truncate max-w-[200px]">{doc.name}</span>
+                            {group.duplicate_type === 'name' && (
+                              <span className="text-xs text-muted-foreground font-mono">({doc.offer_id})</span>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground text-xs">
+                            {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : 'Unknown date'}
+                          </div>
+                        </div>
+                      ))}
+                      {group.documents?.length > 3 && (
+                        <div className="text-xs text-muted-foreground text-center py-1">
+                          +{group.documents.length - 3} more...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {duplicateData.duplicate_groups?.length > 10 && (
+                  <div className="text-center text-sm text-muted-foreground py-2">
+                    +{duplicateData.duplicate_groups.length - 10} more duplicate groups...
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDuplicatePreviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleConfirmRemoveDuplicates}
+              disabled={checkingDuplicates}
+            >
+              {checkingDuplicates ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Removing...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Remove {duplicateData?.total_documents_to_remove || 0} Duplicates
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Carousel View Modal */}
+      <Dialog open={carouselViewOpen} onOpenChange={setCarouselViewOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <span>Offer {carouselIndex + 1} of {offers.length}</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCarouselPrev}
+                  disabled={offers.length <= 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCarouselNext}
+                  disabled={offers.length <= 1}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          
+          {offers[carouselIndex] && (
+            <div className="space-y-4">
+              {/* Offer Header */}
+              <div className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg">
+                {(offers[carouselIndex].thumbnail_url || offers[carouselIndex].image_url) ? (
+                  <img
+                    src={offers[carouselIndex].thumbnail_url || offers[carouselIndex].image_url}
+                    alt={offers[carouselIndex].name}
+                    className="w-24 h-24 object-cover rounded border"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div className="w-24 h-24 bg-gray-200 rounded border flex items-center justify-center">
+                    <span className="text-xs text-gray-400">No Image</span>
+                  </div>
+                )}
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold">{offers[carouselIndex].name}</h3>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge className={getStatusColor(offers[carouselIndex].status)}>
+                      {offers[carouselIndex].status}
+                    </Badge>
+                    <span className="font-mono text-sm text-muted-foreground">
+                      {offers[carouselIndex].offer_id}
+                    </span>
+                  </div>
+                  <div className="text-2xl font-bold text-green-600 mt-2">
+                    ${offers[carouselIndex].payout?.toFixed(2) || '0.00'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Offer Details Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div className="p-3 border rounded">
+                    <div className="text-sm text-muted-foreground">Network</div>
+                    <div className="font-medium">{offers[carouselIndex].network}</div>
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm text-muted-foreground">Device Targeting</div>
+                    <div className="font-medium capitalize">{offers[carouselIndex].device_targeting}</div>
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm text-muted-foreground">Affiliates</div>
+                    <div className="font-medium capitalize">
+                      {offers[carouselIndex].affiliates === 'all' ? 'All Users' :
+                       offers[carouselIndex].affiliates === 'premium' ? 'Premium Only' : 
+                       offers[carouselIndex].affiliates === 'selected' ? 'Selected Users' : 'All Users'}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="p-3 border rounded">
+                    <div className="text-sm text-muted-foreground">Countries</div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {offers[carouselIndex].countries?.slice(0, 6).map((country) => (
+                        <Badge key={country} variant="outline" className="text-xs">
+                          {country}
+                        </Badge>
+                      ))}
+                      {(offers[carouselIndex].countries?.length || 0) > 6 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{offers[carouselIndex].countries.length - 6}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm text-muted-foreground">Hits / Limit</div>
+                    <div className="font-medium">
+                      {offers[carouselIndex].hits?.toLocaleString() || 0} / {offers[carouselIndex].limit?.toLocaleString() || '∞'}
+                    </div>
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm text-muted-foreground">Created</div>
+                    <div className="font-medium">
+                      {offers[carouselIndex].created_at 
+                        ? new Date(offers[carouselIndex].created_at).toLocaleDateString() 
+                        : 'Unknown'}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              {offers[carouselIndex].description && (
+                <div className="p-3 border rounded">
+                  <div className="text-sm text-muted-foreground mb-1">Description</div>
+                  <div className="text-sm">{offers[carouselIndex].description}</div>
+                </div>
+              )}
+
+              {/* Target URL */}
+              <div className="p-3 border rounded">
+                <div className="text-sm text-muted-foreground mb-1">Target URL</div>
+                <div className="font-mono text-sm break-all">{offers[carouselIndex].target_url}</div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 pt-4 border-t">
+                <Button onClick={() => handleEditOffer(offers[carouselIndex])}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit
+                </Button>
+                <Button variant="outline" onClick={() => handleViewDetails(offers[carouselIndex])}>
+                  <Eye className="h-4 w-4 mr-2" />
+                  Full Details
+                </Button>
+                <Button variant="outline" onClick={() => handleCloneOffer(offers[carouselIndex].offer_id)}>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Clone
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="text-red-600 hover:text-red-700"
+                  onClick={() => {
+                    handleDeleteOffer(offers[carouselIndex].offer_id);
+                    setCarouselViewOpen(false);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

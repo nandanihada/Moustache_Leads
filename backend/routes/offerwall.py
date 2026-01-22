@@ -1925,17 +1925,24 @@ def get_offers():
         user_id = request.args.get('user_id')
         category = request.args.get('category')
         status = request.args.get('status', 'active')
-        limit = int(request.args.get('limit', 1000))  # Increased default limit to show more offers
+        limit = int(request.args.get('limit', 10000))  # Increased to show ALL offers
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, status: {status}")
         
-        # Build query filter
-        # NOTE: is_active field may not exist on all offers (bulk upload, API import don't set it)
-        # So we check: is_active is either True OR doesn't exist (None)
+        # Build query filter - show ALL active offers (not deleted)
         query_filter = {
-            '$or': [
-                {'is_active': True},
-                {'is_active': {'$exists': False}}  # Include offers without is_active field
+            '$and': [
+                # Not deleted
+                {'$or': [
+                    {'deleted': {'$exists': False}},
+                    {'deleted': False},
+                    {'deleted': None}
+                ]},
+                # Active or no is_active field (bulk imports may not have it)
+                {'$or': [
+                    {'is_active': True},
+                    {'is_active': {'$exists': False}}
+                ]}
             ]
         }
         
@@ -1945,7 +1952,10 @@ def get_offers():
         
         # Filter by category if provided
         if category:
-            query_filter['category'] = category
+            query_filter['$or'] = [
+                {'category': {'$regex': category, '$options': 'i'}},
+                {'vertical': {'$regex': category, '$options': 'i'}}
+            ]
         
         # Get offers from database
         offers_collection = db_instance.get_collection('offers')
@@ -1954,7 +1964,7 @@ def get_offers():
             logger.error("❌ Database connection not available")
             return jsonify({'error': 'Database connection not available'}), 500
         
-        # Fetch offers from database - SORT BY NEWEST FIRST (created_at descending)
+        # Fetch ALL offers from database - SORT BY NEWEST FIRST (created_at descending)
         offers_cursor = offers_collection.find(query_filter).sort('created_at', -1).limit(limit)
         offers_list = list(offers_cursor)
         

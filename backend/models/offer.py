@@ -103,6 +103,129 @@ def validate_vertical(vertical_value):
     return False, f"Invalid vertical '{vertical_value}'. Must be one of: {', '.join(VALID_VERTICALS)}"
 
 
+# Keywords for auto-detecting vertical from description/name
+VERTICAL_KEYWORDS = {
+    'Finance': [
+        'bank', 'banking', 'loan', 'credit', 'debit', 'card', 'money', 'cash', 'invest', 
+        'investment', 'trading', 'forex', 'crypto', 'bitcoin', 'stock', 'insurance', 
+        'mortgage', 'finance', 'financial', 'payment', 'pay', 'wallet', 'savings',
+        'account', 'transfer', 'deposit', 'withdraw', 'interest', 'apr', 'fico',
+        'debt', 'budget', 'tax', 'ira', '401k', 'retirement', 'pension', 'fintech',
+        'neobank', 'paypal', 'venmo', 'zelle', 'cashback', 'rewards', 'bonus'
+    ],
+    'Gaming': [
+        'game', 'gaming', 'play', 'player', 'casino', 'bet', 'betting', 'poker', 
+        'slots', 'spin', 'jackpot', 'win', 'winner', 'esports', 'mobile game',
+        'puzzle', 'rpg', 'mmorpg', 'fps', 'strategy', 'arcade', 'console', 'pc game',
+        'playstation', 'xbox', 'nintendo', 'steam', 'epic games', 'roblox', 'fortnite',
+        'minecraft', 'league', 'dota', 'valorant', 'cod', 'gta', 'fifa', 'nba',
+        'fantasy', 'sports betting', 'sportsbook', 'gambling', 'wager', 'odds'
+    ],
+    'Dating': [
+        'date', 'dating', 'match', 'love', 'relationship', 'single', 'singles',
+        'meet', 'hookup', 'romance', 'romantic', 'partner', 'soulmate', 'tinder',
+        'bumble', 'hinge', 'okcupid', 'plenty of fish', 'pof', 'eharmony', 'zoosk',
+        'chat', 'flirt', 'connection', 'compatible', 'swipe', 'profile', 'matchmaking'
+    ],
+    'Health': [
+        'health', 'healthy', 'medical', 'medicine', 'doctor', 'hospital', 'clinic',
+        'pharmacy', 'drug', 'prescription', 'vitamin', 'supplement', 'fitness',
+        'workout', 'exercise', 'gym', 'weight', 'diet', 'nutrition', 'wellness',
+        'mental health', 'therapy', 'counseling', 'insurance', 'medicare', 'medicaid',
+        'dental', 'vision', 'hearing', 'sleep', 'cbd', 'hemp', 'organic', 'natural',
+        'skincare', 'beauty', 'cosmetic', 'anti-aging', 'hair', 'teeth', 'whitening'
+    ],
+    'E-commerce': [
+        'shop', 'shopping', 'store', 'buy', 'purchase', 'order', 'cart', 'checkout',
+        'amazon', 'ebay', 'walmart', 'target', 'aliexpress', 'shopify', 'etsy',
+        'product', 'deal', 'discount', 'coupon', 'promo', 'sale', 'offer', 'free shipping',
+        'delivery', 'retail', 'wholesale', 'marketplace', 'vendor', 'seller', 'buyer',
+        'fashion', 'clothing', 'shoes', 'accessories', 'electronics', 'gadget', 'tech',
+        'home', 'furniture', 'decor', 'kitchen', 'appliance', 'grocery', 'food'
+    ],
+    'Entertainment': [
+        'movie', 'film', 'tv', 'television', 'show', 'series', 'stream', 'streaming',
+        'netflix', 'hulu', 'disney', 'hbo', 'amazon prime', 'youtube', 'spotify',
+        'music', 'song', 'album', 'artist', 'concert', 'ticket', 'event', 'live',
+        'podcast', 'radio', 'news', 'magazine', 'book', 'ebook', 'audiobook',
+        'celebrity', 'gossip', 'viral', 'trending', 'meme', 'funny', 'comedy',
+        'drama', 'action', 'horror', 'thriller', 'documentary', 'anime', 'cartoon'
+    ],
+    'Education': [
+        'learn', 'learning', 'course', 'class', 'school', 'college', 'university',
+        'degree', 'diploma', 'certificate', 'certification', 'training', 'tutorial',
+        'study', 'student', 'teacher', 'tutor', 'education', 'educational', 'academic',
+        'online course', 'e-learning', 'udemy', 'coursera', 'skillshare', 'masterclass',
+        'language', 'english', 'spanish', 'coding', 'programming', 'development',
+        'skill', 'career', 'job', 'resume', 'interview', 'professional', 'mba', 'phd'
+    ],
+    'Travel': [
+        'travel', 'trip', 'vacation', 'holiday', 'flight', 'airline', 'airport',
+        'hotel', 'resort', 'booking', 'reservation', 'airbnb', 'vrbo', 'expedia',
+        'kayak', 'priceline', 'tripadvisor', 'cruise', 'tour', 'destination',
+        'beach', 'mountain', 'city', 'country', 'international', 'domestic',
+        'passport', 'visa', 'luggage', 'rental car', 'uber', 'lyft', 'taxi',
+        'adventure', 'explore', 'backpack', 'tourism', 'tourist', 'sightseeing'
+    ],
+    'Utilities': [
+        'utility', 'utilities', 'electric', 'electricity', 'power', 'energy', 'gas',
+        'water', 'internet', 'wifi', 'broadband', 'cable', 'phone', 'mobile',
+        'cellular', 'carrier', 'verizon', 'at&t', 'tmobile', 't-mobile', 'sprint',
+        'vpn', 'security', 'antivirus', 'software', 'app', 'tool', 'service',
+        'subscription', 'plan', 'bill', 'payment', 'solar', 'renewable', 'smart home',
+        'iot', 'device', 'gadget', 'storage', 'cloud', 'backup', 'cleaner', 'optimizer'
+    ],
+    'Lifestyle': [
+        'lifestyle', 'life', 'living', 'home', 'family', 'pet', 'dog', 'cat',
+        'garden', 'outdoor', 'hobby', 'craft', 'diy', 'art', 'photography',
+        'cooking', 'recipe', 'food', 'restaurant', 'wine', 'beer', 'coffee',
+        'fashion', 'style', 'trend', 'luxury', 'premium', 'vip', 'exclusive',
+        'membership', 'club', 'community', 'social', 'network', 'influencer'
+    ]
+}
+
+
+def detect_vertical_from_text(name, description=''):
+    """
+    Auto-detect vertical/category from offer name and description.
+    
+    Args:
+        name: Offer name/title
+        description: Offer description
+        
+    Returns:
+        Detected vertical string (one of VALID_VERTICALS)
+    """
+    # Combine name and description for analysis
+    text = f"{name} {description}".lower()
+    
+    # Count keyword matches for each vertical
+    scores = {}
+    for vertical, keywords in VERTICAL_KEYWORDS.items():
+        score = 0
+        for keyword in keywords:
+            # Check for whole word match (with word boundaries)
+            if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', text):
+                # Give higher weight to matches in the name
+                if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', name.lower()):
+                    score += 3  # Name match = 3 points
+                else:
+                    score += 1  # Description match = 1 point
+        scores[vertical] = score
+    
+    # Find the vertical with highest score
+    if scores:
+        best_vertical = max(scores, key=scores.get)
+        best_score = scores[best_vertical]
+        
+        # Only return detected vertical if score is meaningful (at least 1 match)
+        if best_score > 0:
+            return best_vertical
+    
+    # Default to Lifestyle if no matches found
+    return 'Lifestyle'
+
+
 class Offer:
     def __init__(self):
         self.collection = db_instance.get_collection('offers')
@@ -204,13 +327,22 @@ class Offer:
                 return None, "Payout must be a valid number"
             
             # Process vertical (replaces category) - validate and normalize
-            vertical_input = mapped_data.get('vertical') or mapped_data.get('category', 'Lifestyle')
-            is_valid_vertical, vertical_result = validate_vertical(vertical_input)
-            if not is_valid_vertical:
-                # Try mapping from old category
-                vertical_value = map_category_to_vertical(vertical_input)
+            vertical_input = mapped_data.get('vertical') or mapped_data.get('category', '')
+            
+            # If vertical is not explicitly set or is default 'Lifestyle', auto-detect from description
+            if not vertical_input or vertical_input.lower() == 'lifestyle':
+                # Auto-detect vertical from name and description
+                offer_name = mapped_data.get('name', '')
+                offer_description = mapped_data.get('description', '')
+                vertical_value = detect_vertical_from_text(offer_name, offer_description)
+                print(f"🔍 AUTO-DETECTED VERTICAL: '{vertical_value}' from name='{offer_name[:50]}...'")
             else:
-                vertical_value = vertical_result
+                is_valid_vertical, vertical_result = validate_vertical(vertical_input)
+                if not is_valid_vertical:
+                    # Try mapping from old category
+                    vertical_value = map_category_to_vertical(vertical_input)
+                else:
+                    vertical_value = vertical_result
             
             # Validate and process revenue share percent
             revenue_share_percent = float(offer_data.get('revenue_share_percent', 0) or 0)

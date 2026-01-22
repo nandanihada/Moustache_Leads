@@ -524,6 +524,28 @@ class AdminOfferApi {
 
     return this.handleResponse(response);
   }
+
+  // ============================================
+  // RANDOM IMAGE ASSIGNMENT
+  // ============================================
+
+  async countOffersWithoutImages(): Promise<{ success: boolean; count: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/count-without-images`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async assignRandomImages(): Promise<{ success: boolean; message: string; total_found: number; updated_count: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/assign-random-images`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
 }
 
 export const adminOfferApi = new AdminOfferApi();

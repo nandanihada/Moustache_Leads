@@ -218,8 +218,17 @@ class NetworkFieldMapper:
             
             # ENHANCEMENT 4: Complete field mapping - Extract ALL available fields
             
-            # Category/Vertical - Use real data or leave empty
-            mapped['vertical'] = offer.get('category') or offer.get('vertical') or ''
+            # Category/Vertical - Use real data or auto-detect from name/description
+            api_vertical = offer.get('category') or offer.get('vertical') or ''
+            if api_vertical and api_vertical.lower() not in ['', 'lifestyle', 'general', 'other']:
+                mapped['vertical'] = api_vertical
+            else:
+                # Auto-detect vertical from name and description
+                from models.offer import detect_vertical_from_text
+                offer_name = mapped.get('name', '')
+                offer_description = mapped.get('description', '')
+                mapped['vertical'] = detect_vertical_from_text(offer_name, offer_description)
+                logger.info(f"   Auto-detected vertical: {mapped['vertical']}")
             mapped['category'] = mapped['vertical']
             
             # Traffic and targeting - Use ONLY real data from API

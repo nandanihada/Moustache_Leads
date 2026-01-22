@@ -1576,3 +1576,190 @@ def remove_duplicates():
     except Exception as e:
         logging.error(f"Remove duplicates error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to remove duplicates: {str(e)}'}), 500
+
+
+# ==================== RANDOM IMAGE ASSIGNMENT ====================
+
+# List of placeholder images by category/vertical
+PLACEHOLDER_IMAGES = {
+    'Finance': [
+        'https://images.unsplash.com/photo-1554224155-6726b3ff858f?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1565514020179-026b92b84bb6?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1518458028785-8fbcd101ebb9?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?w=400&h=300&fit=crop',
+    ],
+    'Gaming': [
+        'https://images.unsplash.com/photo-1538481199705-c710c4e965fc?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1493711662062-fa541f7f3d24?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1612287230202-1ff1d85d1bdf?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1542751371-adc38448a05e?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1511512578047-dfb367046420?w=400&h=300&fit=crop',
+    ],
+    'Dating': [
+        'https://images.unsplash.com/photo-1516589178581-6cd7833ae3b2?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1529333166437-7750a6dd5a70?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1522098543979-ffc7f79a56c4?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1518199266791-5375a83190b7?w=400&h=300&fit=crop',
+    ],
+    'Health': [
+        'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?w=400&h=300&fit=crop',
+    ],
+    'E-commerce': [
+        'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1483985988355-763728e1935b?w=400&h=300&fit=crop',
+    ],
+    'Entertainment': [
+        'https://images.unsplash.com/photo-1603190287605-e6ade32fa852?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=400&h=300&fit=crop',
+    ],
+    'Education': [
+        'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1546410531-bb4caa6b424d?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1434030216411-0b793f4b4173?w=400&h=300&fit=crop',
+    ],
+    'Travel': [
+        'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=400&h=300&fit=crop',
+    ],
+    'Utilities': [
+        'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1518770660439-4636190af475?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=400&h=300&fit=crop',
+    ],
+    'Lifestyle': [
+        'https://images.unsplash.com/photo-1511988617509-a57c8a288659?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1490750967868-88aa4486c946?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&h=300&fit=crop',
+    ],
+    'default': [
+        'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1551434678-e076c223a692?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=400&h=300&fit=crop',
+        'https://images.unsplash.com/photo-1553877522-43269d4ea984?w=400&h=300&fit=crop',
+    ]
+}
+
+@admin_offers_bp.route('/offers/assign-random-images', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def assign_random_images():
+    """Assign random placeholder images to offers without images"""
+    import random
+    
+    try:
+        offers_collection = db_instance.get_collection('offers')
+        
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection not available'}), 500
+        
+        # Find offers without images
+        query = {
+            '$and': [
+                {'$or': [
+                    {'deleted': {'$exists': False}},
+                    {'deleted': False}
+                ]},
+                {'$or': [
+                    {'image_url': {'$exists': False}},
+                    {'image_url': None},
+                    {'image_url': ''},
+                    {'thumbnail_url': {'$exists': False}},
+                    {'thumbnail_url': None},
+                    {'thumbnail_url': ''}
+                ]}
+            ]
+        }
+        
+        offers_without_images = list(offers_collection.find(query))
+        total_found = len(offers_without_images)
+        
+        logging.info(f"Found {total_found} offers without images")
+        
+        updated_count = 0
+        
+        for offer in offers_without_images:
+            # Get vertical/category for the offer
+            vertical = offer.get('vertical') or offer.get('category') or 'default'
+            
+            # Get images for this vertical (fallback to default)
+            images = PLACEHOLDER_IMAGES.get(vertical, PLACEHOLDER_IMAGES['default'])
+            
+            # Pick a random image
+            random_image = random.choice(images)
+            
+            # Update the offer
+            result = offers_collection.update_one(
+                {'_id': offer['_id']},
+                {'$set': {
+                    'image_url': random_image,
+                    'thumbnail_url': random_image,
+                    'updated_at': datetime.utcnow()
+                }}
+            )
+            
+            if result.modified_count > 0:
+                updated_count += 1
+                logging.info(f"Assigned image to offer {offer.get('offer_id')}: {random_image}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Assigned random images to {updated_count} offers',
+            'total_found': total_found,
+            'updated_count': updated_count
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Assign random images error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to assign images: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/count-without-images', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def count_offers_without_images():
+    """Count offers that don't have images"""
+    try:
+        offers_collection = db_instance.get_collection('offers')
+        
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection not available'}), 500
+        
+        # Count offers without images
+        query = {
+            '$and': [
+                {'$or': [
+                    {'deleted': {'$exists': False}},
+                    {'deleted': False}
+                ]},
+                {'$or': [
+                    {'image_url': {'$exists': False}},
+                    {'image_url': None},
+                    {'image_url': ''},
+                ]}
+            ]
+        }
+        
+        count = offers_collection.count_documents(query)
+        
+        return jsonify({
+            'success': True,
+            'count': count
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Count offers without images error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to count offers: {str(e)}'}), 500

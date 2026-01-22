@@ -289,7 +289,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
       setError(null);
 
       const response = await fetch(
-        `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=100`
+        `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000`
       );
 
       if (!response.ok) throw new Error('Failed to load offers');

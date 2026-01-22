@@ -470,16 +470,20 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
             result['revenue_share_percent'] = 0
 
     
-    # Handle vertical field - validate and normalize
-    if 'vertical' in result:
+    # Handle vertical field - validate and normalize, or auto-detect from description
+    if 'vertical' in result and result['vertical'] and result['vertical'].lower() != 'lifestyle':
         is_valid, vertical_result = validate_vertical(result['vertical'])
         if is_valid:
             result['vertical'] = vertical_result
         else:
             # Try mapping from old category value
             result['vertical'] = map_category_to_vertical(result['vertical'])
-    elif not result.get('vertical'):
-        result['vertical'] = 'Lifestyle'  # Default vertical
+    else:
+        # Auto-detect vertical from name and description
+        from models.offer import detect_vertical_from_text
+        offer_name = result.get('name', '')
+        offer_description = result.get('description', '')
+        result['vertical'] = detect_vertical_from_text(offer_name, offer_description)
     
     # Auto-calculate incentive_type based on revenue_share_percent
     revenue_share_percent = result.get('revenue_share_percent', 0)

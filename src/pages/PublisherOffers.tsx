@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, Loader2, AlertCircle, Info, UserCheck, Clock, CheckCircle, XCircle } from "lucide-react";
+import { Search, Loader2, AlertCircle, Info, UserCheck, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Globe, LayoutGrid, List, Eye, ExternalLink, Smartphone, Monitor, Laptop } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { publisherOfferApi, type PublisherOffer } from "@/services/publisherOfferApi";
 import { useToast } from "@/hooks/use-toast";
@@ -23,6 +37,7 @@ const PublisherOffers = () => {
   const [searchBy, setSearchBy] = useState("name");
   const [sortBy, setSortBy] = useState("newest");
   const [countryFilter, setCountryFilter] = useState("all");
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [offers, setOffers] = useState<PublisherOffer[]>([]);
   const [myRequests, setMyRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,11 +46,17 @@ const PublisherOffers = () => {
   const [selectedOffer, setSelectedOffer] = useState<PublisherOffer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("offers");
+  const [pagination, setPagination] = useState({
+    page: 1,
+    per_page: 20,
+    total: 0,
+    pages: 0
+  });
   const { toast } = useToast();
 
   useEffect(() => {
     fetchOffers();
-  }, []);
+  }, [pagination.page, pagination.per_page]);
 
   const fetchOffers = async () => {
     console.log('🔍 fetchOffers: Starting...');
@@ -44,15 +65,22 @@ const PublisherOffers = () => {
       setError(null);
       
       console.log('🔍 fetchOffers: Calling API...');
-      // Fetch all active offers
+      // Fetch offers with pagination
       const response = await publisherOfferApi.getAvailableOffers({
         status: 'active',
-        page: 1,
-        per_page: 100
+        page: pagination.page,
+        per_page: pagination.per_page
       });
       
       console.log('✅ fetchOffers: Success!', response);
       setOffers(response.offers || []);
+      if (response.pagination) {
+        setPagination(prev => ({
+          ...prev,
+          total: response.pagination.total || 0,
+          pages: response.pagination.pages || 0
+        }));
+      }
     } catch (err: any) {
       console.error('❌ fetchOffers: Error!', err);
       console.error('Error details:', {
@@ -257,6 +285,24 @@ const PublisherOffers = () => {
                 <Button onClick={fetchOffers} variant="outline">
                   Refresh
                 </Button>
+                <div className="flex items-center border rounded-md">
+                  <Button
+                    variant={viewMode === 'card' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('card')}
+                    className="rounded-r-none"
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant={viewMode === 'table' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setViewMode('table')}
+                    className="rounded-l-none"
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
 
           {/* Loading State */}
@@ -297,24 +343,216 @@ const PublisherOffers = () => {
             </Alert>
           )}
 
-              {/* Offers Grid */}
+              {/* Offers Display - Card or Table View */}
               {!loading && !error && filteredOffers.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredOffers.map((offer) => (
-                    <OfferCardWithApproval
-                      key={offer.offer_id}
-                      offer={offer}
-                      onViewDetails={handleViewDetails}
-                      onAccessGranted={handleAccessGranted}
-                    />
-                  ))}
-                </div>
+                <>
+                  {viewMode === 'card' ? (
+                    /* Card Grid View */
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredOffers.map((offer) => (
+                        <OfferCardWithApproval
+                          key={offer.offer_id}
+                          offer={offer}
+                          onViewDetails={handleViewDetails}
+                          onAccessGranted={handleAccessGranted}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    /* Table View */
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Image</TableHead>
+                            <TableHead>Offer ID</TableHead>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Vertical</TableHead>
+                            <TableHead>Countries</TableHead>
+                            <TableHead>Payout</TableHead>
+                            <TableHead>Device</TableHead>
+                            <TableHead>Network</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredOffers.map((offer) => (
+                            <TableRow key={offer.offer_id}>
+                              <TableCell>
+                                {(offer as any).thumbnail_url || (offer as any).image_url ? (
+                                  <img
+                                    src={(offer as any).thumbnail_url || (offer as any).image_url}
+                                    alt={offer.name}
+                                    className="w-12 h-12 object-cover rounded border"
+                                    onError={(e) => {
+                                      const target = e.target as HTMLImageElement;
+                                      target.style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
+                                    <span className="text-xs text-gray-400">No Img</span>
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell className="font-mono text-sm">{offer.offer_id}</TableCell>
+                              <TableCell>
+                                <div className="max-w-[200px]">
+                                  <div className="font-medium truncate">{offer.name}</div>
+                                  {offer.description && (
+                                    <div className="text-xs text-muted-foreground truncate">{offer.description}</div>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">
+                                  {(offer as any).vertical || offer.category || 'Lifestyle'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-1 flex-wrap max-w-[120px]">
+                                  {((offer as any).countries || []).slice(0, 3).map((country: string) => (
+                                    <Badge key={country} variant="secondary" className="text-xs">
+                                      {country}
+                                    </Badge>
+                                  ))}
+                                  {((offer as any).countries || []).length > 3 && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      +{((offer as any).countries || []).length - 3}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="font-medium text-green-600">
+                                ${offer.payout?.toFixed(2) || '0.00'}
+                              </TableCell>
+                              <TableCell>
+                                {(offer as any).device_targeting === 'mobile' ? (
+                                  <Smartphone className="h-4 w-4 text-blue-500" />
+                                ) : (offer as any).device_targeting === 'desktop' ? (
+                                  <Monitor className="h-4 w-4 text-gray-500" />
+                                ) : (
+                                  <Laptop className="h-4 w-4 text-purple-500" />
+                                )}
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {(offer as any).network || 'N/A'}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleViewDetails(offer)}
+                                  >
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    Details
+                                  </Button>
+                                  {(offer as any).preview_url && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => window.open((offer as any).preview_url, '_blank')}
+                                    >
+                                      <ExternalLink className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </>
               )}
 
-              {/* Results Count */}
+              {/* Results Count & Pagination */}
               {!loading && filteredOffers.length > 0 && (
-                <div className="text-sm text-muted-foreground text-center pt-4 border-t">
-                  Showing {filteredOffers.length} of {offers.length} offers
+                <div className="pt-4 border-t space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="text-sm text-muted-foreground">
+                        Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} offers
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Show:</span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              {pagination.per_page} per page
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 20, page: 1 }))}>
+                              20 per page
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 50, page: 1 }))}>
+                              50 per page
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 100, page: 1 }))}>
+                              100 per page
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 200, page: 1 }))}>
+                              200 per page
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: pagination.total || 1000, page: 1 }))}>
+                              Show All ({pagination.total})
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                    {pagination.pages > 1 && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
+                          disabled={pagination.page === 1 || loading}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                          Previous
+                        </Button>
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
+                            let pageNum;
+                            if (pagination.pages <= 5) {
+                              pageNum = i + 1;
+                            } else if (pagination.page <= 3) {
+                              pageNum = i + 1;
+                            } else if (pagination.page >= pagination.pages - 2) {
+                              pageNum = pagination.pages - 4 + i;
+                            } else {
+                              pageNum = pagination.page - 2 + i;
+                            }
+                            return (
+                              <Button
+                                key={pageNum}
+                                variant={pagination.page === pageNum ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setPagination(prev => ({ ...prev, page: pageNum }))}
+                                disabled={loading}
+                                className="w-10"
+                              >
+                                {pageNum}
+                              </Button>
+                            );
+                          })}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setPagination(prev => ({ ...prev, page: Math.min(prev.pages, prev.page + 1) }))}
+                          disabled={pagination.page === pagination.pages || loading}
+                        >
+                          Next
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>
