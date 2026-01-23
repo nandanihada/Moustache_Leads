@@ -40,6 +40,8 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const [skipDuplicates, setSkipDuplicates] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
   const [autoActivate, setAutoActivate] = useState(true);
+  const [defaultStarRating, setDefaultStarRating] = useState<number>(4);
+  const [defaultTimer, setDefaultTimer] = useState<number>(0); // 0 = no timer
   
   // Import progress
   const [importProgress, setImportProgress] = useState(0);
@@ -274,7 +276,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
             <div>
               <h3 className="text-lg font-semibold mb-2">Preview Offers</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Found {totalAvailable} offers. Showing first 5:
+                <span className="font-semibold text-green-600">{totalAvailable}</span> offers available for import. Showing preview of {previewOffers.length}:
               </p>
               
               <div className="border rounded-md">
@@ -356,6 +358,44 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                 <label htmlFor="auto-activate" className="text-sm cursor-pointer">
                   Auto-activate imported offers
                 </label>
+              </div>
+              
+              <div className="border-t pt-3 mt-3">
+                <h5 className="font-medium text-sm mb-3">Default Values for Imported Offers</h5>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="api-rating" className="text-sm">Star Rating</Label>
+                    <Select 
+                      value={defaultStarRating.toString()} 
+                      onValueChange={(v) => setDefaultStarRating(parseInt(v))}
+                    >
+                      <SelectTrigger id="api-rating">
+                        <SelectValue placeholder="Select rating" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="1">⭐ 1 Star</SelectItem>
+                        <SelectItem value="2">⭐⭐ 2 Stars</SelectItem>
+                        <SelectItem value="3">⭐⭐⭐ 3 Stars</SelectItem>
+                        <SelectItem value="4">⭐⭐⭐⭐ 4 Stars</SelectItem>
+                        <SelectItem value="5">⭐⭐⭐⭐⭐ 5 Stars</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="api-timer" className="text-sm">Timer (minutes)</Label>
+                    <Input
+                      id="api-timer"
+                      type="number"
+                      min="0"
+                      max="999"
+                      placeholder="e.g., 15"
+                      value={defaultTimer || ''}
+                      onChange={(e) => setDefaultTimer(parseInt(e.target.value) || 0)}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-muted-foreground">0 = no timer</p>
+                  </div>
+                </div>
               </div>
             </div>
             

@@ -1238,7 +1238,18 @@ def preview_api_offers():
         from services.network_api_service import network_api_service
         from services.network_field_mapper import network_field_mapper
         
-        # Fetch offers
+        # First, get the actual total count from test_connection
+        success, total_count, test_error = network_api_service.test_connection(
+            network_id, api_key, network_type
+        )
+        
+        if not success:
+            return jsonify({
+                'success': False,
+                'error': test_error or 'Failed to get offer count'
+            }), 400
+        
+        # Fetch preview offers (limited)
         offers, error = network_api_service.fetch_offers(
             network_id, api_key, network_type, filters, limit
         )
@@ -1248,7 +1259,8 @@ def preview_api_offers():
         print(f"🔍 PREVIEW DEBUG:")
         print(f"   Network: {network_id}")
         print(f"   Type: {network_type}")
-        print(f"   Offers fetched: {len(offers)}")
+        print(f"   Total available: {total_count}")
+        print(f"   Preview offers fetched: {len(offers)}")
         print(f"   Error: {error}")
         print("="*80)
         
@@ -1276,12 +1288,12 @@ def preview_api_offers():
                 logging.error(f"   ❌ Error mapping offer: {str(e)}")
                 continue
         
-        logging.info(f"✅ Returning {len(preview_offers)} preview offers")
+        logging.info(f"✅ Returning {len(preview_offers)} preview offers (total available: {total_count})")
         
         return jsonify({
             'success': True,
             'offers': preview_offers,
-            'total_available': len(offers)
+            'total_available': total_count or len(offers)  # Use actual total count
         }), 200
         
     except Exception as e:

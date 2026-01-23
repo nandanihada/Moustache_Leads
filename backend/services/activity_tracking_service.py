@@ -315,13 +315,13 @@ class ActivityTrackingService:
             return 'unknown'
     
     def _get_location(self, ip_address):
-        """Get location and IP intelligence from IP2Location"""
+        """Get location and IP intelligence from IPinfo"""
         try:
-            # Use IP2Location service for comprehensive IP intelligence
-            from services.ip2location_service import get_ip2location_service
+            # Use IPinfo service for comprehensive IP intelligence
+            from services.ipinfo_service import get_ipinfo_service
             
-            ip2location_service = get_ip2location_service()
-            ip_data = ip2location_service.lookup_ip(ip_address)
+            ipinfo_service = get_ipinfo_service()
+            ip_data = ipinfo_service.lookup_ip(ip_address)
             
             if ip_data:
                 # Return location data in expected format
@@ -334,22 +334,22 @@ class ActivityTrackingService:
                     'latitude': ip_data.get('latitude', 0),
                     'longitude': ip_data.get('longitude', 0),
                     'timezone': ip_data.get('time_zone', 'UTC'),
-                    # Additional IP2Location fields
+                    # Additional IPinfo fields
                     'isp': ip_data.get('isp', 'Unknown'),
                     'domain': ip_data.get('domain', ''),
                     'asn': ip_data.get('asn', ''),
-                    'usage_type': ip_data.get('usage_type', 'Unknown')
+                    'org': ip_data.get('org', 'Unknown')
                 }
             else:
                 # Fallback to default
                 return self._get_default_location(ip_address)
             
         except Exception as e:
-            logger.error(f"Error getting location from IP2Location: {str(e)}", exc_info=True)
+            logger.error(f"Error getting location from IPinfo: {str(e)}", exc_info=True)
             return self._get_default_location(ip_address)
     
     def _get_default_location(self, ip_address):
-        """Get default location data when IP2Location is unavailable"""
+        """Get default location data when IPinfo is unavailable"""
         return {
             'ip': ip_address,
             'city': 'Unknown',
@@ -362,7 +362,7 @@ class ActivityTrackingService:
             'isp': 'Unknown',
             'domain': '',
             'asn': '',
-            'usage_type': 'Unknown'
+            'org': 'Unknown'
         }
     
     def _extract_utm_params(self, url):

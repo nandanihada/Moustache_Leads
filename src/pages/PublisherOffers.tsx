@@ -37,6 +37,7 @@ const PublisherOffers = () => {
   const [searchBy, setSearchBy] = useState("name");
   const [sortBy, setSortBy] = useState("newest");
   const [countryFilter, setCountryFilter] = useState("all");
+  const [verticalFilter, setVerticalFilter] = useState("all");
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
   const [offers, setOffers] = useState<PublisherOffer[]>([]);
   const [myRequests, setMyRequests] = useState<any[]>([]);
@@ -130,6 +131,17 @@ const PublisherOffers = () => {
       }
     }
     
+    // Vertical/Category filter
+    if (verticalFilter !== 'all') {
+      const offerVertical = ((offer as any).vertical || offer.category || '').toLowerCase();
+      // Handle E-commerce special case (with hyphen)
+      const filterValue = verticalFilter.toLowerCase();
+      if (offerVertical !== filterValue && 
+          !(filterValue === 'e-commerce' && (offerVertical === 'ecommerce' || offerVertical === 'e-commerce'))) {
+        return false;
+      }
+    }
+    
     return true;
   }).sort((a, b) => {
     switch (sortBy) {
@@ -214,8 +226,8 @@ const PublisherOffers = () => {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Search Controls */}
-              <div className="flex gap-4 items-center">
-                <div className="flex-1 relative">
+              <div className="flex flex-wrap gap-4 items-center">
+                <div className="flex-1 min-w-[200px] relative">
                   <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="Search offers..."
@@ -225,7 +237,7 @@ const PublisherOffers = () => {
                   />
                 </div>
                 <Select value={searchBy} onValueChange={setSearchBy}>
-                  <SelectTrigger className="w-40">
+                  <SelectTrigger className="w-32">
                     <SelectValue placeholder="Search by" />
                   </SelectTrigger>
                   <SelectContent>
@@ -234,8 +246,26 @@ const PublisherOffers = () => {
                     <SelectItem value="vertical">Vertical</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={verticalFilter} onValueChange={setVerticalFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value="all">All Categories</SelectItem>
+                    <SelectItem value="Finance">💰 Finance</SelectItem>
+                    <SelectItem value="Gaming">🎮 Gaming</SelectItem>
+                    <SelectItem value="Dating">❤️ Dating</SelectItem>
+                    <SelectItem value="Health">💊 Health</SelectItem>
+                    <SelectItem value="E-commerce">🛒 E-commerce</SelectItem>
+                    <SelectItem value="Entertainment">🎬 Entertainment</SelectItem>
+                    <SelectItem value="Education">📚 Education</SelectItem>
+                    <SelectItem value="Travel">✈️ Travel</SelectItem>
+                    <SelectItem value="Utilities">🔧 Utilities</SelectItem>
+                    <SelectItem value="Lifestyle">🌟 Lifestyle</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-44">
+                  <SelectTrigger className="w-40">
                     <SelectValue placeholder="Sort by" />
                   </SelectTrigger>
                   <SelectContent>
@@ -250,7 +280,7 @@ const PublisherOffers = () => {
                   </SelectContent>
                 </Select>
                 <Select value={countryFilter} onValueChange={setCountryFilter}>
-                  <SelectTrigger className="w-44">
+                  <SelectTrigger className="w-40">
                     <SelectValue placeholder="Country" />
                   </SelectTrigger>
                   <SelectContent className="max-h-64">
@@ -282,7 +312,7 @@ const PublisherOffers = () => {
                     <SelectItem value="ZA">🇿🇦 South Africa</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button onClick={fetchOffers} variant="outline">
+                <Button onClick={fetchOffers} variant="outline" size="sm">
                   Refresh
                 </Button>
                 <div className="flex items-center border rounded-md">

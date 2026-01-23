@@ -158,6 +158,41 @@ def email_diagnostic():
         logging.error(f"Error in email diagnostic: {str(e)}", exc_info=True)
         return jsonify({'error': f'Diagnostic failed: {str(e)}'}), 500
 
+
+@auth_bp.route('/admin/test-ip-lookup', methods=['GET'])
+@token_required
+def test_ip_lookup():
+    """Test IP lookup service - returns location data for current request IP"""
+    try:
+        from services.ipinfo_service import get_ipinfo_service
+        
+        # Get client IP
+        if request.headers.get('X-Forwarded-For'):
+            ip_address = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+        elif request.headers.get('X-Real-IP'):
+            ip_address = request.headers.get('X-Real-IP')
+        else:
+            ip_address = request.remote_addr
+        
+        # Optional: test with a specific IP
+        test_ip = request.args.get('ip', ip_address)
+        
+        # Lookup IP
+        ipinfo_service = get_ipinfo_service()
+        ip_data = ipinfo_service.lookup_ip(test_ip)
+        
+        return jsonify({
+            'success': True,
+            'tested_ip': test_ip,
+            'service_enabled': ipinfo_service.enabled,
+            'ip_data': ip_data
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error in IP lookup test: {str(e)}", exc_info=True)
+        return jsonify({'error': f'IP lookup test failed: {str(e)}'}), 500
+
+
 @auth_bp.route('/admin/test-email', methods=['POST'])
 @token_required
 def test_email():
@@ -660,24 +695,47 @@ def resend_verification():
         user = request.current_user
         email = user.get('email')
         username = user.get('username')
+        user_id = str(user.get('_id', user.get('id', '')))
         
         # Check if email is already verified
         if user.get('email_verified'):
             return jsonify({'error': 'Email is already verified'}), 400
         
-        # Resend verification email
-        verification_service = get_email_verification_service()
-        success, message = verification_service.resend_verification_email(email, username)
+        # Send verification email asynchronously (non-blocking)
+        # This prevents worker timeout if email service is slow
+        import threading
         
-        if success:
-            logging.info(f"✅ Verification email resent to {email}")
-            return jsonify({
-                'message': message,
-                'email': email
-            }), 200
-        else:
-            logging.warning(f"⚠️ Failed to resend verification email to {email}: {message}")
-            return jsonify({'error': message}), 400
+        def send_email_async():
+            """Send verification email in background thread"""
+            try:
+                verification_service = get_email_verification_service()
+                
+                # Delete old token and generate new one
+                if verification_service.verification_collection:
+                    verification_service.verification_collection.delete_many({'email': email})
+                
+                verification_token = verification_service.generate_verification_token(email, user_id)
+                
+                if verification_token:
+                    email_sent = verification_service.send_verification_email(email, verification_token, username)
+                    if email_sent:
+                        logging.info(f"✅ Verification email resent to {email}")
+                    else:
+                        logging.warning(f"⚠️ Failed to resend verification email to {email}")
+                else:
+                    logging.warning(f"⚠️ Failed to generate verification token for {email}")
+            except Exception as e:
+                logging.error(f"❌ Background email error for {email}: {str(e)}")
+        
+        # Start email sending in background thread
+        email_thread = threading.Thread(target=send_email_async, daemon=True)
+        email_thread.start()
+        
+        logging.info(f"📧 Verification email queued for resend to {email}")
+        return jsonify({
+            'message': 'Verification email has been queued. Please check your inbox.',
+            'email': email
+        }), 200
         
     except Exception as e:
         logging.error(f"Error resending verification email: {str(e)}", exc_info=True)

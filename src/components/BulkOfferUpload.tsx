@@ -13,6 +13,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import {
     Upload,
     FileSpreadsheet,
     Download,
@@ -60,6 +67,10 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
     const [uploadProgress, setUploadProgress] = useState(0);
     const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
     const [isDragging, setIsDragging] = useState(false);
+    
+    // Default values for imported offers
+    const [defaultStarRating, setDefaultStarRating] = useState<number>(4);
+    const [defaultTimer, setDefaultTimer] = useState<number>(0); // 0 = no timer
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -324,6 +335,47 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                             </Alert>
                         </TabsContent>
                     </Tabs>
+
+                    {/* Default Values for Imported Offers */}
+                    <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
+                        <h4 className="font-semibold text-sm flex items-center gap-2">
+                            ⚙️ Default Values for Imported Offers
+                        </h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="default-rating">Star Rating (1-5)</Label>
+                                <Select 
+                                    value={defaultStarRating.toString()} 
+                                    onValueChange={(v) => setDefaultStarRating(parseInt(v))}
+                                >
+                                    <SelectTrigger id="default-rating">
+                                        <SelectValue placeholder="Select rating" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="1">⭐ 1 Star</SelectItem>
+                                        <SelectItem value="2">⭐⭐ 2 Stars</SelectItem>
+                                        <SelectItem value="3">⭐⭐⭐ 3 Stars</SelectItem>
+                                        <SelectItem value="4">⭐⭐⭐⭐ 4 Stars</SelectItem>
+                                        <SelectItem value="5">⭐⭐⭐⭐⭐ 5 Stars</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">Rating shown on offer cards</p>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="default-timer">Timer (minutes)</Label>
+                                <Input
+                                    id="default-timer"
+                                    type="number"
+                                    min="0"
+                                    max="999"
+                                    placeholder="e.g., 15"
+                                    value={defaultTimer || ''}
+                                    onChange={(e) => setDefaultTimer(parseInt(e.target.value) || 0)}
+                                />
+                                <p className="text-xs text-muted-foreground">0 = no timer, enter any value</p>
+                            </div>
+                        </div>
+                    </div>
 
                     {/* Upload Progress */}
                     {isUploading && (

@@ -92,6 +92,7 @@ const AdminOffers = () => {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [sortBy, setSortBy] = useState<string>('newest');
   const [countryFilter, setCountryFilter] = useState<string>('all');
+  const [verticalFilter, setVerticalFilter] = useState<string>('all');
   const [pagination, setPagination] = useState({
     page: 1,
     per_page: 20,
@@ -140,6 +141,17 @@ const AdminOffers = () => {
         filteredOffers = filteredOffers.filter(offer => {
           const offerCountries = offer.countries || [];
           return offerCountries.some(c => c.toUpperCase() === countryFilter.toUpperCase());
+        });
+      }
+      
+      // Apply vertical/category filter
+      if (verticalFilter !== 'all') {
+        filteredOffers = filteredOffers.filter(offer => {
+          const offerVertical = (offer.vertical || offer.category || '').toLowerCase();
+          const filterValue = verticalFilter.toLowerCase();
+          // Handle E-commerce special case
+          return offerVertical === filterValue || 
+                 (filterValue === 'e-commerce' && (offerVertical === 'ecommerce' || offerVertical === 'e-commerce'));
         });
       }
       
@@ -1072,6 +1084,26 @@ const AdminOffers = () => {
                 <DropdownMenuItem onClick={() => setCountryFilter('SG')}>🇸🇬 Singapore</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setCountryFilter('NZ')}>🇳🇿 New Zealand</DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setCountryFilter('ZA')}>🇿🇦 South Africa</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  📁 Category: {verticalFilter === 'all' ? 'All' : verticalFilter}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="max-h-64 overflow-y-auto">
+                <DropdownMenuItem onClick={() => setVerticalFilter('all')}>All Categories</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Finance')}>💰 Finance</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Gaming')}>🎮 Gaming</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Dating')}>❤️ Dating</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Health')}>💊 Health</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('E-commerce')}>🛒 E-commerce</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Entertainment')}>🎬 Entertainment</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Education')}>📚 Education</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Travel')}>✈️ Travel</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Utilities')}>🔧 Utilities</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('Lifestyle')}>🌟 Lifestyle</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             </div>
