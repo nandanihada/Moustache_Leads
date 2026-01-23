@@ -302,7 +302,20 @@ function AdminClickTracking() {
 
   const formatDate = (dateString: string) => {
     try {
-      return new Date(dateString).toLocaleString();
+      // Parse the UTC date and convert to IST (Indian Standard Time)
+      const date = new Date(dateString);
+      
+      // Format with IST timezone
+      return date.toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: true
+      });
     } catch {
       return dateString;
     }
