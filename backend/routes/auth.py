@@ -11,24 +11,75 @@ auth_bp = Blueprint('auth', __name__)
 
 # Collection for tracking signup attempts
 signup_attempts_collection = db_instance.get_collection('signup_attempts')
+login_logs_collection = db_instance.get_collection('login_logs')
 
 def log_signup_attempt(data: dict, status: str, error_message: str = None):
-    """Log signup attempt for admin visibility"""
+    """Log signup attempt for admin visibility - logs to both signup_attempts and login_logs"""
     try:
+        # Get IP address
+        if request.headers.get('X-Forwarded-For'):
+            ip_address = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+        elif request.headers.get('X-Real-IP'):
+            ip_address = request.headers.get('X-Real-IP')
+        else:
+            ip_address = request.remote_addr
+        
+        # Get location from IP
+        location = {'city': 'Unknown', 'region': 'Unknown', 'country': 'Unknown', 'country_code': 'XX'}
+        try:
+            from services.ipinfo_service import get_ipinfo_service
+            ipinfo_service = get_ipinfo_service()
+            ip_data = ipinfo_service.lookup_ip(ip_address)
+            if ip_data:
+                location = {
+                    'city': ip_data.get('city', 'Unknown'),
+                    'region': ip_data.get('region', 'Unknown'),
+                    'country': ip_data.get('country', 'Unknown'),
+                    'country_code': ip_data.get('country_code', 'XX'),
+                    'isp': ip_data.get('isp', 'Unknown')
+                }
+        except Exception as loc_err:
+            logging.warning(f"Could not get location for signup: {loc_err}")
+        
         attempt = {
             'username': data.get('username', ''),
             'email': data.get('email', ''),
             'status': status,  # 'started', 'validation_failed', 'success', 'error'
             'error_message': error_message,
-            'ip_address': request.remote_addr,
+            'ip_address': ip_address,
             'user_agent': request.headers.get('User-Agent', ''),
             'timestamp': datetime.utcnow(),
             'first_name': data.get('first_name', ''),
             'last_name': data.get('last_name', ''),
             'company_name': data.get('company_name', ''),
-            'website': data.get('website', '')
+            'website': data.get('website', ''),
+            'location': location
         }
         signup_attempts_collection.insert_one(attempt)
+        
+        # Also log to login_logs for unified view
+        login_log_entry = {
+            'user_id': None,  # No user ID yet for signup
+            'email': data.get('email', ''),
+            'username': data.get('username', ''),
+            'login_time': datetime.utcnow(),
+            'logout_time': None,
+            'ip_address': ip_address,
+            'device': {
+                'type': 'unknown',
+                'os': 'Unknown',
+                'browser': 'Unknown'
+            },
+            'location': location,
+            'login_method': 'signup',  # Mark as signup attempt
+            'status': 'signup_' + status,  # signup_success, signup_error, etc.
+            'failure_reason': error_message,
+            'session_id': None,
+            'user_agent': request.headers.get('User-Agent', ''),
+            'is_signup_attempt': True  # Flag to identify signup attempts
+        }
+        login_logs_collection.insert_one(login_log_entry)
+        
         logging.info(f"📝 Signup attempt logged: {data.get('email', 'unknown')} - {status}")
     except Exception as e:
         logging.error(f"Failed to log signup attempt: {str(e)}")

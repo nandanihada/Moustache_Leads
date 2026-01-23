@@ -120,7 +120,9 @@ interface ClickDetails extends Click {
 
 function AdminClickTracking() {
   const [activeTab, setActiveTab] = useState('all-clicks');
+  const [trackingSource, setTrackingSource] = useState<'offerwall' | 'dashboard'>('offerwall');
   const [clicks, setClicks] = useState<Click[]>([]);
+  const [dashboardClicks, setDashboardClicks] = useState<Click[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedClick, setSelectedClick] = useState<ClickDetails | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -146,6 +148,24 @@ function AdminClickTracking() {
       setClicks(data.data || []);
     } catch (error) {
       console.error('Error fetching clicks:', error);
+    }
+    setLoading(false);
+  };
+
+  // Fetch dashboard clicks (from offers page)
+  const fetchDashboardClicks = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/api/admin/dashboard/click-history?limit=50`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await response.json();
+      setDashboardClicks(data.data || []);
+    } catch (error) {
+      console.error('Error fetching dashboard clicks:', error);
     }
     setLoading(false);
   };
@@ -244,14 +264,15 @@ function AdminClickTracking() {
   };
 
   // Fetch click details
-  const fetchClickDetails = async (clickId: string) => {
+  const fetchClickDetails = async (clickId: string, source: 'offerwall' | 'dashboard' = 'offerwall') => {
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/api/admin/offerwall/click-details/${clickId}`,
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const endpoint = source === 'dashboard' 
+        ? `${API_BASE_URL}/api/admin/dashboard/click-details/${clickId}`
+        : `${API_BASE_URL}/api/admin/offerwall/click-details/${clickId}`;
+      
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await response.json();
       setSelectedClick(data.data);
       setShowDetailsModal(true);
@@ -263,6 +284,7 @@ function AdminClickTracking() {
   // Load all clicks on mount
   useEffect(() => {
     fetchAllClicks();
+    fetchDashboardClicks();
   }, []);
 
   const getFraudBadgeColor = (status?: string) => {
@@ -290,9 +312,112 @@ function AdminClickTracking() {
     <div className="space-y-6 p-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Click Tracking</h1>
-        <p className="text-gray-500 mt-2">View detailed information about all offerwall clicks</p>
+        <p className="text-gray-500 mt-2">View detailed information about all clicks</p>
       </div>
 
+      {/* Source Selector - Offerwall vs Dashboard */}
+      <div className="flex gap-4 mb-4">
+        <Button
+          variant={trackingSource === 'offerwall' ? 'default' : 'outline'}
+          onClick={() => setTrackingSource('offerwall')}
+          className="flex items-center gap-2"
+        >
+          <Globe className="h-4 w-4" />
+          Offerwall Clicks
+        </Button>
+        <Button
+          variant={trackingSource === 'dashboard' ? 'default' : 'outline'}
+          onClick={() => setTrackingSource('dashboard')}
+          className="flex items-center gap-2"
+        >
+          <Zap className="h-4 w-4" />
+          Dashboard/Offers Page Clicks
+        </Button>
+      </div>
+
+      {/* Dashboard Clicks Section */}
+      {trackingSource === 'dashboard' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5" />
+              Dashboard Offer Clicks
+            </CardTitle>
+            <CardDescription>
+              Clicks from users browsing offers on the dashboard/offers page (not from offerwall iframe)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={fetchDashboardClicks} disabled={loading} className="mb-4">
+              {loading ? 'Loading...' : 'Refresh'}
+            </Button>
+
+            {dashboardClicks.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <AlertCircle className="mx-auto mb-2 h-8 w-8" />
+                <p>No dashboard clicks found</p>
+                <p className="text-sm mt-2">Clicks will appear here when users click offers from the Offers page</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Offer</TableHead>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Device</TableHead>
+                      <TableHead>Country</TableHead>
+                      <TableHead>Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {dashboardClicks.map((click) => (
+                      <TableRow key={click.click_id}>
+                        <TableCell className="font-mono text-sm">{click.user_id || 'Anonymous'}</TableCell>
+                        <TableCell className="text-sm">{(click as any).user_email || 'N/A'}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{(click as any).user_role || 'user'}</Badge>
+                        </TableCell>
+                        <TableCell>{click.offer_name}</TableCell>
+                        <TableCell className="text-sm">
+                          {formatDate(click.timestamp)}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Smartphone className="h-4 w-4" />
+                            {click.device?.type || 'Unknown'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Globe className="h-4 w-4" />
+                            {click.geo?.country || 'Unknown'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => fetchClickDetails(click.click_id, 'dashboard')}
+                          >
+                            Details
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Offerwall Clicks Section */}
+      {trackingSource === 'offerwall' && (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="all-clicks">All Clicks</TabsTrigger>
@@ -710,6 +835,7 @@ function AdminClickTracking() {
           </div>
         </TabsContent>
       </Tabs>
+      )}
 
       {/* Click Details Modal */}
       <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>

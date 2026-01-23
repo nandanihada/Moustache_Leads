@@ -877,6 +877,365 @@ def get_publisher_click_timeline(publisher_id):
         return jsonify({'error': str(e)}), 500
 
 
+# ============================================================================
+# DASHBOARD CLICK TRACKING ENDPOINTS (Offers Page Clicks)
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/dashboard/track-click', methods=['POST'])
+def track_dashboard_click():
+    """Track a click from the dashboard/offers page (not offerwall)"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        # Required fields
+        offer_id = data.get('offer_id')
+        user_id = data.get('user_id')
+        
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+        
+        # Get real client IP from headers (handle proxies/load balancers)
+        ip_address = None
+        # Try multiple headers in order of preference
+        ip_headers = [
+            'HTTP_X_FORWARDED_FOR',
+            'HTTP_X_REAL_IP', 
+            'HTTP_CF_CONNECTING_IP',  # Cloudflare
+            'HTTP_TRUE_CLIENT_IP',    # Akamai
+            'REMOTE_ADDR'
+        ]
+        
+        for header in ip_headers:
+            ip_value = request.environ.get(header)
+            if ip_value:
+                # X-Forwarded-For can contain multiple IPs, take the first (client IP)
+                if ',' in ip_value:
+                    ip_address = ip_value.split(',')[0].strip()
+                else:
+                    ip_address = ip_value.strip()
+                logger.info(f"📍 Got IP from {header}: {ip_address}")
+                break
+        
+        if not ip_address:
+            ip_address = request.remote_addr or '0.0.0.0'
+            logger.warning(f"⚠️ Using fallback IP: {ip_address}")
+        
+        user_agent = request.headers.get('User-Agent', '')
+        
+        # Generate click ID
+        import secrets
+        click_id = f"DASH-{secrets.token_hex(8).upper()}"
+        
+        # Get IP location info using IPinfo service
+        geo_data = {
+            'country': '',
+            'country_code': '',
+            'region': '',
+            'city': '',
+            'postal_code': '',
+            'latitude': None,
+            'longitude': None,
+            'timezone': '',
+        }
+        network_data = {
+            'ip_address': ip_address,
+            'asn': '',
+            'isp': '',
+            'organization': '',
+            'vpn_detected': False,
+            'proxy_detected': False,
+            'tor_detected': False,
+            'datacenter_detected': False,
+        }
+        
+        try:
+            from services.ipinfo_service import get_ipinfo_service
+            ipinfo_service = get_ipinfo_service()
+            ip_info = ipinfo_service.lookup_ip(ip_address)
+            
+            if ip_info:
+                logger.info(f"✅ IPinfo lookup successful for {ip_address}: {ip_info.get('city')}, {ip_info.get('country')}")
+                
+                geo_data = {
+                    'country': ip_info.get('country', ''),
+                    'country_code': ip_info.get('country_code', ''),
+                    'region': ip_info.get('region', ''),
+                    'city': ip_info.get('city', ''),
+                    'postal_code': ip_info.get('zip_code', ''),
+                    'latitude': ip_info.get('latitude'),
+                    'longitude': ip_info.get('longitude'),
+                    'timezone': ip_info.get('time_zone', ''),
+                }
+                
+                vpn_detection = ip_info.get('vpn_detection', {})
+                network_data = {
+                    'ip_address': ip_address,
+                    'asn': ip_info.get('asn', ''),
+                    'isp': ip_info.get('isp', ''),
+                    'organization': ip_info.get('org', ''),
+                    'vpn_detected': vpn_detection.get('is_vpn', False),
+                    'proxy_detected': vpn_detection.get('is_proxy', False),
+                    'tor_detected': vpn_detection.get('is_tor', False),
+                    'datacenter_detected': vpn_detection.get('is_datacenter', False),
+                }
+            else:
+                logger.warning(f"⚠️ IPinfo returned no data for {ip_address}")
+        except Exception as e:
+            logger.error(f"❌ Failed to get IP info: {e}", exc_info=True)
+        
+        # Detect device info from user agent
+        device_data = {
+            'type': 'desktop',
+            'browser': 'unknown',
+            'os': 'unknown',
+        }
+        
+        ua_lower = user_agent.lower()
+        if any(m in ua_lower for m in ['mobile', 'android', 'iphone', 'ipad']):
+            device_data['type'] = 'mobile'
+        elif 'tablet' in ua_lower:
+            device_data['type'] = 'tablet'
+        
+        if 'chrome' in ua_lower and 'edg' not in ua_lower:
+            device_data['browser'] = 'Chrome'
+        elif 'firefox' in ua_lower:
+            device_data['browser'] = 'Firefox'
+        elif 'safari' in ua_lower and 'chrome' not in ua_lower:
+            device_data['browser'] = 'Safari'
+        elif 'edg' in ua_lower:
+            device_data['browser'] = 'Edge'
+        
+        if 'windows' in ua_lower:
+            device_data['os'] = 'Windows'
+        elif 'mac' in ua_lower:
+            device_data['os'] = 'macOS'
+        elif 'linux' in ua_lower and 'android' not in ua_lower:
+            device_data['os'] = 'Linux'
+        elif 'android' in ua_lower:
+            device_data['os'] = 'Android'
+        elif 'iphone' in ua_lower or 'ipad' in ua_lower:
+            device_data['os'] = 'iOS'
+        
+        # Determine fraud status based on VPN/proxy detection
+        fraud_status = 'clean'
+        fraud_score = 0
+        if network_data.get('tor_detected'):
+            fraud_status = 'suspicious'
+            fraud_score = 80
+        elif network_data.get('proxy_detected'):
+            fraud_status = 'suspicious'
+            fraud_score = 60
+        elif network_data.get('vpn_detected'):
+            fraud_status = 'suspicious'
+            fraud_score = 40
+        elif network_data.get('datacenter_detected'):
+            fraud_status = 'suspicious'
+            fraud_score = 30
+        
+        # Create click record
+        click_record = {
+            'click_id': click_id,
+            'source': 'dashboard',  # Key differentiator from offerwall clicks
+            'offer_id': offer_id,
+            'offer_name': data.get('offer_name', ''),
+            'user_id': user_id,
+            'user_email': data.get('user_email', ''),
+            'user_role': data.get('user_role', ''),
+            'timestamp': datetime.utcnow(),
+            'device': device_data,
+            'network': network_data,
+            'geo': geo_data,
+            'user_agent': user_agent,
+            'referrer': request.headers.get('Referer', ''),
+            'fraud_indicators': {
+                'fraud_status': fraud_status,
+                'fraud_score': fraud_score,
+                'vpn_detected': network_data.get('vpn_detected', False),
+                'proxy_detected': network_data.get('proxy_detected', False),
+                'tor_detected': network_data.get('tor_detected', False),
+                'datacenter_detected': network_data.get('datacenter_detected', False),
+                'duplicate_click': False,
+                'fast_click': False,
+                'bot_like': False,
+            },
+        }
+        
+        # Insert into dashboard_clicks collection
+        dashboard_clicks_col = db_instance.get_collection('dashboard_clicks')
+        result = dashboard_clicks_col.insert_one(click_record)
+        
+        logger.info(f"✅ Dashboard click tracked: {click_id} | Offer: {offer_id} | User: {user_id} | IP: {ip_address} | Location: {geo_data.get('city')}, {geo_data.get('country')}")
+        
+        return jsonify({
+            'success': True,
+            'click_id': click_id,
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error tracking dashboard click: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/dashboard/click-history', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('comprehensive-analytics')
+def get_dashboard_click_history():
+    """Get click history from dashboard/offers page (not offerwall)"""
+    try:
+        limit = int(request.args.get('limit', 50))
+        skip = int(request.args.get('skip', 0))
+        user_id = request.args.get('user_id')
+        offer_id = request.args.get('offer_id')
+        
+        filters = {'source': 'dashboard'}
+        if user_id:
+            filters['user_id'] = user_id
+        if offer_id:
+            filters['offer_id'] = offer_id
+        
+        dashboard_clicks_col = db_instance.get_collection('dashboard_clicks')
+        
+        # Get total count
+        total = dashboard_clicks_col.count_documents(filters)
+        
+        # Get clicks
+        clicks = list(dashboard_clicks_col.find(filters)
+                     .sort('timestamp', -1)
+                     .skip(skip)
+                     .limit(limit))
+        
+        # Format response
+        formatted_clicks = []
+        for click in clicks:
+            formatted_clicks.append({
+                'click_id': click.get('click_id'),
+                'user_id': click.get('user_id'),
+                'user_email': click.get('user_email'),
+                'user_role': click.get('user_role'),
+                'offer_id': click.get('offer_id'),
+                'offer_name': click.get('offer_name'),
+                'timestamp': click.get('timestamp').isoformat() if click.get('timestamp') else None,
+                'device': click.get('device', {}),
+                'network': click.get('network', {}),
+                'geo': click.get('geo', {}),
+                'fraud_indicators': click.get('fraud_indicators', {}),
+                'source': 'dashboard',
+            })
+        
+        return jsonify({
+            'success': True,
+            'total': total,
+            'limit': limit,
+            'skip': skip,
+            'data': formatted_clicks
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting dashboard click history: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/dashboard/click-details/<click_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('comprehensive-analytics')
+def get_dashboard_click_details(click_id):
+    """Get detailed information about a specific dashboard click"""
+    try:
+        dashboard_clicks_col = db_instance.get_collection('dashboard_clicks')
+        click = dashboard_clicks_col.find_one({'click_id': click_id})
+        
+        if not click:
+            return jsonify({'error': 'Click not found'}), 404
+        
+        # Format response with all details matching the frontend expectations
+        response = {
+            'click_id': click.get('click_id'),
+            'source': 'dashboard',
+            'user_id': click.get('user_id'),
+            'user_email': click.get('user_email'),
+            'user_role': click.get('user_role'),
+            'publisher_id': click.get('user_id'),  # For dashboard clicks, user is the "publisher"
+            'publisher_name': click.get('user_email', 'Unknown'),
+            'offer_id': click.get('offer_id'),
+            'offer_name': click.get('offer_name'),
+            'placement_id': 'dashboard',
+            'timestamp': click.get('timestamp').isoformat() if click.get('timestamp') else None,
+            
+            'device': {
+                'type': click.get('device', {}).get('type'),
+                'model': click.get('device', {}).get('model'),
+                'os': click.get('device', {}).get('os'),
+                'os_version': click.get('device', {}).get('os_version'),
+                'browser': click.get('device', {}).get('browser'),
+                'browser_version': click.get('device', {}).get('browser_version'),
+                'screen_resolution': click.get('device', {}).get('screen_resolution'),
+                'screen_dpi': click.get('device', {}).get('screen_dpi'),
+                'timezone': click.get('geo', {}).get('timezone'),
+                'language': click.get('device', {}).get('language'),
+            },
+            
+            'fingerprint': {
+                'user_agent_hash': None,
+                'canvas': None,
+                'webgl': None,
+                'fonts': None,
+                'plugins': None,
+            },
+            
+            'network': {
+                'ip_address': click.get('network', {}).get('ip_address'),
+                'ip_version': 'IPv4' if '.' in click.get('network', {}).get('ip_address', '') else 'IPv6',
+                'asn': click.get('network', {}).get('asn'),
+                'isp': click.get('network', {}).get('isp'),
+                'organization': click.get('network', {}).get('organization'),
+                'proxy_detected': click.get('network', {}).get('proxy_detected', False),
+                'vpn_detected': click.get('network', {}).get('vpn_detected', False),
+                'tor_detected': click.get('network', {}).get('tor_detected', False),
+                'datacenter_detected': click.get('network', {}).get('datacenter_detected', False),
+                'connection_type': click.get('network', {}).get('connection_type'),
+            },
+            
+            'geo': {
+                'country': click.get('geo', {}).get('country'),
+                'country_code': click.get('geo', {}).get('country_code'),
+                'region': click.get('geo', {}).get('region'),
+                'city': click.get('geo', {}).get('city'),
+                'postal_code': click.get('geo', {}).get('postal_code'),
+                'latitude': click.get('geo', {}).get('latitude'),
+                'longitude': click.get('geo', {}).get('longitude'),
+                'timezone': click.get('geo', {}).get('timezone'),
+            },
+            
+            'fraud_indicators': {
+                'duplicate_detected': click.get('fraud_indicators', {}).get('duplicate_click', False),
+                'fast_click': click.get('fraud_indicators', {}).get('fast_click', False),
+                'vpn_proxy': click.get('fraud_indicators', {}).get('vpn_detected', False) or click.get('fraud_indicators', {}).get('proxy_detected', False),
+                'bot_like': click.get('fraud_indicators', {}).get('bot_like', False),
+                'fraud_score': click.get('fraud_indicators', {}).get('fraud_score', 0),
+                'fraud_status': click.get('fraud_indicators', {}).get('fraud_status', 'clean'),
+                'vpn_detected': click.get('fraud_indicators', {}).get('vpn_detected', False),
+                'proxy_detected': click.get('fraud_indicators', {}).get('proxy_detected', False),
+                'tor_detected': click.get('fraud_indicators', {}).get('tor_detected', False),
+                'datacenter_detected': click.get('fraud_indicators', {}).get('datacenter_detected', False),
+            },
+            
+            'user_agent': click.get('user_agent', ''),
+            'referrer': click.get('referrer', ''),
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': response
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting dashboard click details: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @comprehensive_analytics_bp.route('/api/admin/offerwall/fraud-signals/<signal_id>', methods=['PUT'])
 @token_required
 @subadmin_or_admin_required('comprehensive-analytics')

@@ -31,6 +31,8 @@ import { publisherOfferApi, type PublisherOffer } from "@/services/publisherOffe
 import { useToast } from "@/hooks/use-toast";
 import OfferDetailsModalNew from "@/components/OfferDetailsModalNew";
 import OfferCardWithApproval from "@/components/OfferCardWithApproval";
+import { API_BASE_URL } from "@/services/apiConfig";
+import { useAuth } from "@/contexts/AuthContext";
 
 const PublisherOffers = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -54,6 +56,31 @@ const PublisherOffers = () => {
     pages: 0
   });
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  // Track dashboard click when user views an offer
+  const trackDashboardClick = async (offer: PublisherOffer) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/dashboard/track-click`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({
+          offer_id: offer.offer_id,
+          offer_name: offer.name,
+          user_id: user?.id || user?._id || 'anonymous',
+          user_email: user?.email || '',
+          user_role: user?.role || 'publisher',
+        }),
+      });
+      console.log('📊 Dashboard click tracked for offer:', offer.offer_id);
+    } catch (error) {
+      console.error('Failed to track dashboard click:', error);
+      // Don't show error to user - tracking failure shouldn't block UX
+    }
+  };
 
   useEffect(() => {
     fetchOffers();
@@ -187,6 +214,8 @@ const PublisherOffers = () => {
   };
 
   const handleViewDetails = (offer: PublisherOffer) => {
+    // Track the click before showing details
+    trackDashboardClick(offer);
     setSelectedOffer(offer);
     setModalOpen(true);
   };
