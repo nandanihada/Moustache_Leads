@@ -341,173 +341,234 @@ PREVIEW_PAGE_TEMPLATE = '''
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #f5f5f5;
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Top banner - clean minimal design */
+        .preview-banner {
+            background: #ffffff;
+            border-bottom: 1px solid #e0e0e0;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+            position: relative;
+            z-index: 1000;
+        }
+        
+        .banner-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .preview-badge {
+            background: #f0f0f0;
+            color: #666;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .offer-name-small {
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .banner-right {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .countdown-text {
+            font-size: 13px;
+            color: #666;
+        }
+        
+        .countdown-number {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            font-family: 'Courier New', monospace;
+            min-width: 24px;
+            text-align: center;
+        }
+        
+        .close-button {
+            background: #f5f5f5;
+            color: #333;
+            border: 1px solid #ddd;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        
+        .close-button:hover {
+            background: #e8e8e8;
+            border-color: #ccc;
+        }
+        
+        /* Progress bar */
+        .progress-container {
+            width: 100%;
+            height: 2px;
+            background: #e0e0e0;
+            position: absolute;
+            bottom: 0;
+            left: 0;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background: #333;
+            width: 100%;
+            animation: progress 8s linear forwards;
+        }
+        
+        @keyframes progress {
+            from { width: 100%; }
+            to { width: 0%; }
+        }
+        
+        /* Preview iframe container */
+        .preview-container {
+            flex: 1;
+            width: 100%;
+            height: calc(100vh - 50px);
+            position: relative;
+            background: #fff;
+        }
+        
+        .preview-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: white;
+        }
+        
+        /* Loading state */
+        .loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #fafafa;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            color: #666;
+            font-size: 14px;
+            z-index: 999;
         }
-        .preview-card {
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            max-width: 500px;
-            width: 100%;
-            overflow: hidden;
+        
+        .loading-overlay.hidden {
+            display: none;
         }
-        .preview-header {
-            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-            color: white;
-            padding: 24px;
-            text-align: center;
+        
+        .spinner {
+            border: 2px solid #e0e0e0;
+            border-top: 2px solid #666;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 0.8s linear infinite;
+            margin-right: 10px;
         }
-        .preview-header h1 {
-            font-size: 1.5rem;
-            margin-bottom: 8px;
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
-        .preview-header p {
-            opacity: 0.9;
-            font-size: 0.9rem;
-        }
-        .preview-body {
-            padding: 32px 24px;
-            text-align: center;
-        }
-        .offer-image {
-            width: 120px;
-            height: 120px;
-            border-radius: 12px;
-            object-fit: cover;
-            margin-bottom: 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-        .offer-name {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: #1f2937;
-            margin-bottom: 8px;
-        }
-        .offer-description {
-            color: #6b7280;
-            font-size: 0.95rem;
-            line-height: 1.5;
-            margin-bottom: 20px;
-        }
-        .payout-badge {
-            display: inline-block;
-            background: #ecfdf5;
-            color: #059669;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-weight: 600;
-            font-size: 1.1rem;
-            margin-bottom: 24px;
-        }
-        .countdown-section {
-            background: #f9fafb;
-            border-radius: 12px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .countdown-text {
-            color: #6b7280;
-            font-size: 0.9rem;
-            margin-bottom: 8px;
-        }
-        .countdown-number {
-            font-size: 2.5rem;
-            font-weight: 700;
-            color: #4f46e5;
-        }
-        .progress-bar {
-            width: 100%;
-            height: 6px;
-            background: #e5e7eb;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 12px;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #4f46e5, #7c3aed);
-            border-radius: 3px;
-            transition: width 1s linear;
-        }
-        .skip-btn {
-            background: #4f46e5;
-            color: white;
-            border: none;
-            padding: 14px 32px;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            width: 100%;
-        }
-        .skip-btn:hover {
-            background: #4338ca;
-            transform: translateY(-1px);
-        }
-        .skip-btn:disabled {
-            background: #9ca3af;
-            cursor: not-allowed;
-            transform: none;
+        
+        /* Mobile responsive */
+        @media (max-width: 600px) {
+            .preview-banner {
+                flex-direction: column;
+                gap: 8px;
+                padding: 8px 12px;
+            }
+            .banner-right {
+                width: 100%;
+                justify-content: space-between;
+            }
+            .offer-name-small {
+                max-width: 200px;
+                font-size: 13px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="preview-card">
-        <div class="preview-header">
-            <h1>Offer Preview</h1>
-            <p>Please wait while we prepare your offer</p>
+    <!-- Top banner - minimal design -->
+    <div class="preview-banner">
+        <div class="banner-left">
+            <span class="preview-badge">Preview</span>
+            <span class="offer-name-small">{{ offer_name }}</span>
         </div>
-        <div class="preview-body">
-            {% if image_url %}
-            <img src="{{ image_url }}" alt="{{ offer_name }}" class="offer-image" onerror="this.style.display='none'">
-            {% endif %}
-            <div class="offer-name">{{ offer_name }}</div>
-            <div class="offer-description">{{ description }}</div>
-            {% if payout %}
-            <div class="payout-badge">Earn {{ payout }} {{ currency }}</div>
-            {% endif %}
-            <div class="countdown-section">
-                <div class="countdown-text">Redirecting in</div>
-                <div class="countdown-number" id="countdown">8</div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress" style="width: 0%"></div>
-                </div>
-            </div>
-            <button class="skip-btn" id="skipBtn" onclick="skipToOffer()">Skip & Continue</button>
+        
+        <div class="banner-right">
+            <span class="countdown-text">Closing in <span class="countdown-number" id="countdown">8</span>s</span>
+            <a href="{{ redirect_url }}" class="close-button" id="closeButton">Close</a>
+        </div>
+        
+        <div class="progress-container">
+            <div class="progress-bar" id="progressBar"></div>
         </div>
     </div>
-
+    
+    <!-- Preview content -->
+    <div class="preview-container">
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="spinner"></div>
+            <span>Loading preview...</span>
+        </div>
+        <iframe 
+            id="previewFrame"
+            class="preview-iframe" 
+            src="{{ preview_url }}"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
+            onload="document.getElementById('loadingOverlay').classList.add('hidden')"
+        ></iframe>
+    </div>
+    
     <script>
+        let timeLeft = 8;
+        const countdownElement = document.getElementById('countdown');
         const redirectUrl = "{{ redirect_url }}";
-        let countdown = 8;
-        const countdownEl = document.getElementById('countdown');
-        const progressEl = document.getElementById('progress');
-        const skipBtn = document.getElementById('skipBtn');
         
-        function updateCountdown() {
-            countdown--;
-            countdownEl.textContent = countdown;
-            progressEl.style.width = ((8 - countdown) / 8 * 100) + '%';
+        const countdownInterval = setInterval(() => {
+            timeLeft--;
+            countdownElement.textContent = timeLeft;
             
-            if (countdown <= 0) {
-                skipToOffer();
+            if (timeLeft <= 0) {
+                clearInterval(countdownInterval);
+                window.location.href = redirectUrl;
             }
-        }
+        }, 1000);
         
-        function skipToOffer() {
-            skipBtn.disabled = true;
-            skipBtn.textContent = 'Redirecting...';
-            window.location.href = redirectUrl;
-        }
+        document.getElementById('closeButton').addEventListener('click', (e) => {
+            clearInterval(countdownInterval);
+        });
         
-        // Start countdown
-        setInterval(updateCountdown, 1000);
+        setTimeout(() => {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+        }, 5000);
     </script>
 </body>
 </html>
@@ -518,7 +579,8 @@ PREVIEW_PAGE_TEMPLATE = '''
 def preview_offer(offer_id):
     """
     Show preview page for an offer with 8-second countdown before redirect.
-    Redirects to target_url after countdown.
+    Uses preview_url if set, otherwise defaults to google.com.
+    After countdown, redirects to google.com (not the actual offer).
     """
     try:
         logger.info(f"📄 Preview page requested for offer: {offer_id}")
@@ -542,13 +604,15 @@ def preview_offer(offer_id):
             # Return a simple error page
             return jsonify({'error': 'Offer not found'}), 404
         
-        # Get redirect URL - use target_url (the actual offer URL)
-        redirect_url = offer.get('target_url', '').strip()
-        if not redirect_url:
-            # Fallback to preview_url if target_url is empty
-            redirect_url = offer.get('preview_url', '').strip()
-        if not redirect_url:
-            redirect_url = 'https://google.com'  # Last resort fallback
+        # Get preview URL - use preview_url if set, otherwise default to google.com
+        # This is for showing the landing page preview in the iframe
+        preview_url = offer.get('preview_url', '').strip()
+        if not preview_url:
+            preview_url = 'https://www.google.com'  # Default preview
+        
+        # After countdown, always redirect to google.com (not the actual offer)
+        # This is a preview, not an actual click
+        redirect_url = 'https://www.google.com'
         
         # Prepare template data
         template_data = {
@@ -557,10 +621,11 @@ def preview_offer(offer_id):
             'image_url': offer.get('image_url', ''),
             'payout': offer.get('payout', ''),
             'currency': offer.get('currency', 'USD'),
-            'redirect_url': redirect_url
+            'redirect_url': redirect_url,
+            'preview_url': preview_url
         }
         
-        logger.info(f"✅ Rendering preview page, redirect to: {redirect_url}")
+        logger.info(f"✅ Rendering preview page, showing: {preview_url}, redirect to: {redirect_url}")
         
         return render_template_string(PREVIEW_PAGE_TEMPLATE, **template_data)
         
