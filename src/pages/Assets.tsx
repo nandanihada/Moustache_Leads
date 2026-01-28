@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import PlacementRequired from "@/components/PlacementRequired";
 
 const assets = [
   {
@@ -59,7 +60,7 @@ const assets = [
   }
 ];
 
-const Assets = () => {
+const AssetsContent = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -187,6 +188,14 @@ const Assets = () => {
         </CardContent>
       </Card>
     </div>
+  );
+};
+
+const Assets = () => {
+  return (
+    <PlacementRequired>
+      <AssetsContent />
+    </PlacementRequired>
   );
 };
 

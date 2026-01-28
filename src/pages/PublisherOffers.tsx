@@ -33,8 +33,9 @@ import OfferDetailsModalNew from "@/components/OfferDetailsModalNew";
 import OfferCardWithApproval from "@/components/OfferCardWithApproval";
 import { API_BASE_URL } from "@/services/apiConfig";
 import { useAuth } from "@/contexts/AuthContext";
+import PlacementRequired from "@/components/PlacementRequired";
 
-const PublisherOffers = () => {
+const PublisherOffersContent = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchBy, setSearchBy] = useState("name");
   const [sortBy, setSortBy] = useState("newest");
@@ -707,6 +708,14 @@ const PublisherOffers = () => {
         offer={selectedOffer}
       />
     </div>
+  );
+};
+
+const PublisherOffers = () => {
+  return (
+    <PlacementRequired>
+      <PublisherOffersContent />
+    </PlacementRequired>
   );
 };
 

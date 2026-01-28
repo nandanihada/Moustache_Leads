@@ -10,11 +10,89 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import { useState, useEffect } from "react";
+import { API_BASE_URL } from "@/services/apiConfig";
 
 export function TopBar() {
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
+  const [notificationCount, setNotificationCount] = useState(0);
+  const [earnings, setEarnings] = useState<{ monthly: number; nextPayout: string } | null>(null);
+  const [hasApprovedPlacement, setHasApprovedPlacement] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      checkPlacementAndFetchData();
+    }
+  }, [user]);
+
+  const checkPlacementAndFetchData = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // Check placement status
+      const placementResponse = await fetch(`${API_BASE_URL}/api/placements`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (placementResponse.ok) {
+        const placementData = await placementResponse.json();
+        const placements = placementData.placements || [];
+        const approved = placements.some((p: any) => p.approvalStatus === 'APPROVED');
+        setHasApprovedPlacement(approved);
+
+        if (approved) {
+          fetchNotificationCount();
+          fetchEarnings();
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check placement status:', error);
+    }
+  };
+
+  const fetchNotificationCount = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/notifications`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setNotificationCount(data.total || 0);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notification count:', error);
+    }
+  };
+
+  const fetchEarnings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.stats) {
+          setEarnings({
+            monthly: data.stats.total_revenue || 0,
+            nextPayout: data.stats.next_payout || 'N/A'
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch earnings:', error);
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -25,16 +103,24 @@ export function TopBar() {
     <header className="h-16 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex items-center justify-between h-full px-6">
         <div className="flex items-center gap-8">
-          <div className="flex items-center gap-6">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Monthly Earnings:</span>
-              <span className="ml-2 font-semibold text-primary">$45,234.67</span>
+          {/* Only show earnings for users with approved placement */}
+          {hasApprovedPlacement && earnings && (
+            <div className="flex items-center gap-6">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Monthly Earnings:</span>
+                <span className="ml-2 font-semibold text-primary">${earnings.monthly.toFixed(2)}</span>
+              </div>
+              <div className="text-sm">
+                <span className="text-muted-foreground">Next Payout:</span>
+                <span className="ml-2 font-semibold">{earnings.nextPayout}</span>
+              </div>
             </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">Next Payout:</span>
-              <span className="ml-2 font-semibold">Dec 15, 2024</span>
+          )}
+          {!hasApprovedPlacement && user && (
+            <div className="text-sm text-muted-foreground">
+              Create a placement to start earning
             </div>
-          </div>
+          )}
         </div>
 
         <div className="flex items-center gap-4">
@@ -49,9 +135,11 @@ export function TopBar() {
 
           <Button variant="ghost" size="icon" className="relative">
             <Bell className="h-5 w-5" />
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">
-              3
-            </Badge>
+            {notificationCount > 0 && (
+              <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">
+                {notificationCount > 9 ? '9+' : notificationCount}
+              </Badge>
+            )}
           </Button>
 
           <DropdownMenu>

@@ -17,7 +17,8 @@ import {
   XCircle,
   Trophy,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  LucideIcon
 } from "lucide-react";
 import { NavLink, useNavigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -37,28 +38,46 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useState } from "react";
 
+// Type definitions for menu structure
+interface SubTab {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  alwaysAccessible?: boolean;
+  requiresPlacement?: boolean;
+}
+
+interface MenuItem {
+  title: string;
+  icon: LucideIcon;
+  type: "single" | "group";
+  url?: string;
+  requiresPlacement?: boolean;
+  subtabs?: SubTab[];
+}
+
 // Hierarchical menu structure
-const menuStructure = [
+const menuStructure: MenuItem[] = [
   {
     title: "Dashboard",
     url: "/dashboard",
     icon: LayoutDashboard,
-    type: "single" as const
+    type: "single"
   },
   {
     title: "Offers",
     icon: Gift,
-    type: "group" as const,
+    type: "group",
     subtabs: [
-      { title: "Placements", url: "/dashboard/placements", icon: Target },
-      { title: "Offers", url: "/dashboard/offers", icon: Gift },
-      { title: "Assets", url: "/dashboard/assets", icon: FileImage },
+      { title: "Placements", url: "/dashboard/placements", icon: Target, alwaysAccessible: true },
+      { title: "Offers", url: "/dashboard/offers", icon: Gift, requiresPlacement: true },
+      { title: "Assets", url: "/dashboard/assets", icon: FileImage, requiresPlacement: true },
     ]
   },
   {
     title: "Reports",
     icon: BarChart3,
-    type: "group" as const,
+    type: "group",
     requiresPlacement: true,
     subtabs: [
       { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
@@ -68,7 +87,8 @@ const menuStructure = [
   {
     title: "Rewards",
     icon: Trophy,
-    type: "group" as const,
+    type: "group",
+    requiresPlacement: true,
     subtabs: [
       { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
       { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
@@ -78,9 +98,9 @@ const menuStructure = [
   {
     title: "Account",
     icon: Users,
-    type: "group" as const,
+    type: "group",
     subtabs: [
-      { title: "Payments", url: "/dashboard/payments", icon: CreditCard },
+      { title: "Payments", url: "/dashboard/payments", icon: CreditCard, requiresPlacement: true },
       { title: "Users", url: "/dashboard/users", icon: Users },
       { title: "Settings", url: "/dashboard/settings", icon: Settings },
     ]
@@ -209,8 +229,12 @@ export function AppSidebar() {
                 } else {
                   // Grouped menu item with subtabs
                   const isExpanded = expandedTabs.includes(item.title);
-                  const isDisabled = item.requiresPlacement && !canAccessPlatform;
+                  const isGroupDisabled = item.requiresPlacement && !canAccessPlatform;
                   const isActive = item.subtabs?.some(sub => location.pathname.startsWith(sub.url));
+                  
+                  // Check if all subtabs require placement (for showing group as disabled)
+                  const allSubtabsRequirePlacement = item.subtabs?.every(sub => sub.requiresPlacement && !sub.alwaysAccessible);
+                  const isDisabled = isGroupDisabled || (allSubtabsRequirePlacement && !canAccessPlatform);
 
                   return (
                     <Collapsible
@@ -247,32 +271,40 @@ export function AppSidebar() {
                         </CollapsibleTrigger>
                         <CollapsibleContent className="mt-1">
                           <SidebarMenu className="ml-6 border-l-2 border-muted pl-2">
-                            {item.subtabs?.map((subtab) => (
-                              <SidebarMenuItem key={subtab.title}>
-                                <SidebarMenuButton asChild>
-                                  <NavLink
-                                    to={isDisabled ? '#' : subtab.url}
-                                    onClick={(e) => {
-                                      if (isDisabled) {
-                                        e.preventDefault();
-                                        navigate('/dashboard/placements');
+                            {item.subtabs?.map((subtab) => {
+                              // Check if this specific subtab is disabled
+                              const isSubtabDisabled = !subtab.alwaysAccessible && (isGroupDisabled || (subtab.requiresPlacement && !canAccessPlatform));
+                              
+                              return (
+                                <SidebarMenuItem key={subtab.title}>
+                                  <SidebarMenuButton asChild>
+                                    <NavLink
+                                      to={isSubtabDisabled ? '#' : subtab.url}
+                                      onClick={(e) => {
+                                        if (isSubtabDisabled) {
+                                          e.preventDefault();
+                                          navigate('/dashboard/placements');
+                                        }
+                                      }}
+                                      className={({ isActive }) =>
+                                        `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${isSubtabDisabled
+                                          ? "text-muted-foreground/50 cursor-not-allowed opacity-50"
+                                          : isActive
+                                            ? "bg-primary/10 text-primary font-medium"
+                                            : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                                        }`
                                       }
-                                    }}
-                                    className={({ isActive }) =>
-                                      `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${isDisabled
-                                        ? "text-muted-foreground/50 cursor-not-allowed"
-                                        : isActive
-                                          ? "bg-primary/10 text-primary font-medium"
-                                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                                      }`
-                                    }
-                                  >
-                                    <subtab.icon className="h-4 w-4" />
-                                    <span>{subtab.title}</span>
-                                  </NavLink>
-                                </SidebarMenuButton>
-                              </SidebarMenuItem>
-                            ))}
+                                    >
+                                      <subtab.icon className="h-4 w-4" />
+                                      <span>{subtab.title}</span>
+                                      {isSubtabDisabled && (
+                                        <Clock className="h-3 w-3 ml-auto text-yellow-600" />
+                                      )}
+                                    </NavLink>
+                                  </SidebarMenuButton>
+                                </SidebarMenuItem>
+                              );
+                            })}
                           </SidebarMenu>
                         </CollapsibleContent>
                       </SidebarMenuItem>

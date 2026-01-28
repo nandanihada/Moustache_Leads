@@ -26,6 +26,9 @@ def get_performance_report():
     try:
         user = request.current_user
         user_id = str(user['_id'])
+        username = user.get('username', 'Unknown')
+        
+        logger.info(f"📊 Performance Report request from user: {username} ({user_id})")
         
         # Parse date range
         start_date_str = request.args.get('start_date')
@@ -50,9 +53,11 @@ def get_performance_report():
             except ValueError:
                 return jsonify({'error': 'Invalid date format. Use ISO format'}), 400
         
-        # Limit date range to 90 days for performance
-        if (end_date - start_date).days > 90:
-            return jsonify({'error': 'Date range cannot exceed 90 days'}), 400
+        # Limit date range to 365 days for performance
+        if (end_date - start_date).days > 365:
+            return jsonify({'error': 'Date range cannot exceed 365 days'}), 400
+        
+        logger.info(f"📅 Date range: {start_date} to {end_date} ({(end_date - start_date).days} days)")
         
         # Parse filters
         filters = {}
@@ -144,9 +149,9 @@ def get_conversion_report():
             except ValueError:
                 return jsonify({'error': 'Invalid date format. Use ISO format'}), 400
         
-        # Limit date range to 31 days
-        if (end_date - start_date).days > 31:
-            return jsonify({'error': 'Date range cannot exceed 31 days'}), 400
+        # Limit date range to 365 days
+        if (end_date - start_date).days > 365:
+            return jsonify({'error': 'Date range cannot exceed 365 days'}), 400
         
         # Parse filters
         filters = {}

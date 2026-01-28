@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
+import ssl
 from database import db_instance
 from typing import Tuple, Optional, Dict
 
@@ -32,6 +33,8 @@ class EmailVerificationService:
         
         if not self.is_configured:
             logger.warning("⚠️ Email verification service not fully configured. Check SMTP settings in .env")
+        else:
+            logger.info(f"📧 Email service configured: server={self.smtp_server}, port={self.smtp_port}, from={self.from_email}")
         
         self.verification_collection = db_instance.get_collection('email_verifications')
     
@@ -158,18 +161,64 @@ class EmailVerificationService:
                 logger.info(f"📧 Verification link: {verification_link}")
                 return True
             
-            # Send email
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
+            # Send email with multiple fallback methods
+            email_sent = self._send_with_fallback(msg, email)
             
-            logger.info(f"✅ Verification email sent successfully to: {email}")
-            return True
+            if email_sent:
+                logger.info(f"✅ Verification email sent successfully to: {email}")
+                return True
+            else:
+                logger.error(f"❌ All email sending methods failed for: {email}")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Failed to send verification email to {email}: {str(e)}")
             return False
+    
+    def _send_with_fallback(self, msg, recipient_email: str) -> bool:
+        """Try multiple methods to send email with fallbacks"""
+        
+        # Method 1: Standard TLS on port 587
+        try:
+            logger.info(f"📧 Attempting Method 1: TLS on port 587...")
+            with smtplib.SMTP(self.smtp_server, 587, timeout=30) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            logger.info(f"✅ Method 1 succeeded!")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Method 1 failed: {str(e)}")
+        
+        # Method 2: SSL on port 465
+        try:
+            logger.info(f"📧 Attempting Method 2: SSL on port 465...")
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(self.smtp_server, 465, context=context, timeout=30) as server:
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            logger.info(f"✅ Method 2 succeeded!")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Method 2 failed: {str(e)}")
+        
+        # Method 3: Try with less strict SSL context
+        try:
+            logger.info(f"📧 Attempting Method 3: Relaxed SSL...")
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            with smtplib.SMTP_SSL(self.smtp_server, 465, context=context, timeout=30) as server:
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            logger.info(f"✅ Method 3 succeeded!")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Method 3 failed: {str(e)}")
+        
+        return False
     
     def _create_verification_email_html(self, username: str, verification_link: str) -> str:
         """Create HTML email template for email verification"""
@@ -503,14 +552,15 @@ class EmailVerificationService:
                 logger.info(f"📧 Reset link: {reset_link}")
                 return True
             
-            # Send email
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
+            # Send email with multiple fallback methods
+            email_sent = self._send_with_fallback(msg, email)
             
-            logger.info(f"✅ Password reset email sent successfully to: {email}")
-            return True
+            if email_sent:
+                logger.info(f"✅ Password reset email sent successfully to: {email}")
+                return True
+            else:
+                logger.error(f"❌ All email sending methods failed for: {email}")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Failed to send password reset email to {email}: {str(e)}")

@@ -21,8 +21,9 @@ import {
 } from "@/components/ui/select";
 import { payoutSettingsApi } from "@/services/payoutSettingsApi";
 import { useNavigate } from "react-router-dom";
+import PlacementRequired from "@/components/PlacementRequired";
 
-const Payments = () => {
+const PaymentsContent = () => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -272,6 +273,14 @@ const Payments = () => {
         </CardContent>
       </Card>
     </div>
+  );
+};
+
+const Payments = () => {
+  return (
+    <PlacementRequired>
+      <PaymentsContent />
+    </PlacementRequired>
   );
 };
 

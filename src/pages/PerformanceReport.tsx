@@ -9,6 +9,7 @@ import { DatePresets } from '../components/reports/DatePresets';
 import { ReportFilters } from '../components/reports/ReportFilters';
 import { ReportOptions, ReportColumnOptions } from '../components/reports/ReportOptions';
 import { ColumnSelector, ColumnDefinition } from '../components/reports/ColumnSelector';
+import PlacementRequired from '../components/PlacementRequired';
 
 // Column definitions for Performance Report - ALL PHASES COMPLETE
 const PERFORMANCE_COLUMNS: ColumnDefinition[] = [
@@ -51,19 +52,22 @@ const PERFORMANCE_COLUMNS: ColumnDefinition[] = [
   { id: 'avg_time_spent_seconds', label: 'Time Spent', defaultVisible: false },
 ];
 
-export default function PerformanceReport() {
+function PerformanceReportContent() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<PerformanceRow[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [pagination, setPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
   const [chartData, setChartData] = useState<any[]>([]);
   
-  // Date range state (default: includes test data from 2025)
+  // Date range state (default: last 30 days)
   const [dateRange, setDateRange] = useState(() => {
-    // Use a date range that includes our test data (2025-11-04 to 2025-11-12)
+    const today = new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    
     return {
-      start: '2025-11-01',
-      end: '2025-11-15'
+      start: thirtyDaysAgo.toISOString().split('T')[0],
+      end: today.toISOString().split('T')[0]
     };
   });
 
@@ -453,5 +457,13 @@ export default function PerformanceReport() {
         )}
       </Card>
     </div>
+  );
+}
+
+export default function PerformanceReport() {
+  return (
+    <PlacementRequired>
+      <PerformanceReportContent />
+    </PlacementRequired>
   );
 }

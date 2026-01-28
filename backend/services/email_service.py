@@ -1,4 +1,5 @@
 import smtplib
+import ssl
 import os
 import logging
 from email.mime.text import MIMEText
@@ -30,6 +31,53 @@ class EmailService:
         
         if not self.is_configured:
             logger.warning("⚠️ Email service not fully configured. Check SMTP settings in .env")
+        else:
+            logger.info(f"📧 Email service configured: server={self.smtp_server}, port={self.smtp_port}, from={self.from_email}")
+    
+    def _send_with_fallback(self, msg, recipient_email: str) -> bool:
+        """Try multiple methods to send email with fallbacks"""
+        
+        # Method 1: Standard TLS on port 587
+        try:
+            logger.info(f"📧 Attempting Method 1: TLS on port 587...")
+            with smtplib.SMTP(self.smtp_server, 587, timeout=30) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            logger.info(f"✅ Method 1 succeeded!")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Method 1 failed: {str(e)}")
+        
+        # Method 2: SSL on port 465
+        try:
+            logger.info(f"📧 Attempting Method 2: SSL on port 465...")
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(self.smtp_server, 465, context=context, timeout=30) as server:
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            logger.info(f"✅ Method 2 succeeded!")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Method 2 failed: {str(e)}")
+        
+        # Method 3: Try with less strict SSL context
+        try:
+            logger.info(f"📧 Attempting Method 3: Relaxed SSL...")
+            context = ssl.create_default_context()
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            with smtplib.SMTP_SSL(self.smtp_server, 465, context=context, timeout=30) as server:
+                server.login(self.smtp_username, self.smtp_password)
+                server.send_message(msg)
+            logger.info(f"✅ Method 3 succeeded!")
+            return True
+        except Exception as e:
+            logger.warning(f"⚠️ Method 3 failed: {str(e)}")
+        
+        return False
     
     def _create_offer_update_email_html(self, offer_data: Dict, update_type: str = 'promo_code') -> str:
         """Create HTML email template for offer update notification (promo codes, etc)"""
@@ -289,7 +337,7 @@ class EmailService:
         return html
     
     def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
-        """Send email using SMTP"""
+        """Send email using SMTP with fallback methods"""
         try:
             # Create message
             msg = MIMEMultipart('alternative')
@@ -307,14 +355,13 @@ class EmailService:
                 logger.info(f"📧 Subject: {subject}")
                 return True
             
-            # Send email
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
-            
-            logger.info(f"✅ Email sent successfully to: {to_email}")
-            return True
+            # Send email with fallback methods
+            if self._send_with_fallback(msg, to_email):
+                logger.info(f"✅ Email sent successfully to: {to_email}")
+                return True
+            else:
+                logger.error(f"❌ All email sending methods failed for: {to_email}")
+                return False
             
         except Exception as e:
             logger.error(f"❌ Failed to send email to {to_email}: {str(e)}")

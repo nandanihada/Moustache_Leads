@@ -15,8 +15,11 @@ logger = logging.getLogger(__name__)
 
 class UserReports:
     def __init__(self):
-        # Use correct collections for user reports
-        self.clicks_collection = db_instance.get_collection('offerwall_clicks_detailed')  # User's placement clicks
+        # Use ALL click collections for user reports
+        self.clicks_collection = db_instance.get_collection('offerwall_clicks_detailed')  # Comprehensive offerwall clicks
+        self.offerwall_clicks_collection = db_instance.get_collection('offerwall_clicks')  # Regular offerwall clicks
+        self.simple_clicks_collection = db_instance.get_collection('clicks')  # Simple tracking clicks
+        self.dashboard_clicks_collection = db_instance.get_collection('dashboard_clicks')  # Dashboard/Offers page clicks
         self.conversions_collection = db_instance.get_collection('forwarded_postbacks')  # User's forwarded postbacks
         self.placements_collection = db_instance.get_collection('placements')  # To get user's placements
         self.offers_collection = db_instance.get_collection('offers')
@@ -96,12 +99,10 @@ class UserReports:
                             {'placement_id': {'$in': [ObjectId(pid) for pid in placement_ids if ObjectId.is_valid(pid)]}}
                         ]
                     else:
-                        # User has no placements, return empty report
-                        return {
-                            'data': [],
-                            'summary': self._calculate_summary([]),
-                            'pagination': {'page': 1, 'per_page': pagination['per_page'], 'total': 0, 'pages': 0}
-                        }
+                        # User has no placements - set empty match for offerwall clicks
+                        # but dashboard clicks will still be queried by user_id
+                        match_query['placement_id'] = {'$in': []}  # Will match nothing
+                        logger.info(f"⚠️ User {username} has no placements, will only show dashboard clicks")
             
             # Apply filters
             if filters.get('offer_id'):
@@ -163,15 +164,89 @@ class UserReports:
                 }
             ]
             
-            # Get aggregated click data
-            click_results = list(self.clicks_collection.aggregate(pipeline))
+            # Get aggregated click data from offerwall_clicks_detailed
+            click_results = list(self.clicks_collection.aggregate(pipeline)) if self.clicks_collection is not None else []
+            logger.info(f"📊 offerwall_clicks_detailed: {len(click_results)} groups")
+            
+            # Also get clicks from offerwall_clicks (regular collection)
+            offerwall_click_results = []
+            if self.offerwall_clicks_collection is not None:
+                offerwall_click_results = list(self.offerwall_clicks_collection.aggregate(pipeline))
+                logger.info(f"📊 offerwall_clicks: {len(offerwall_click_results)} groups")
+            
+            # Also get clicks from simple 'clicks' collection
+            simple_click_results = []
+            if self.simple_clicks_collection is not None:
+                # Simple clicks use different field names, adjust query
+                simple_match_query = {
+                    'timestamp': {
+                        '$gte': start_date,
+                        '$lte': end_date
+                    }
+                }
+                if not is_admin:
+                    simple_match_query['user_id'] = user_id
+                if filters.get('offer_id'):
+                    simple_match_query['offer_id'] = match_query.get('offer_id')
+                
+                simple_pipeline = [
+                    {'$match': simple_match_query},
+                    {
+                        '$group': {
+                            '_id': group_id,
+                            'clicks': {'$sum': 1},
+                            'gross_clicks': {'$sum': 1},
+                            'unique_clicks': {'$sum': 0},
+                            'suspicious_clicks': {'$sum': 0},
+                            'rejected_clicks': {'$sum': 0}
+                        }
+                    }
+                ]
+                simple_click_results = list(self.simple_clicks_collection.aggregate(simple_pipeline))
+                logger.info(f"📊 clicks (simple): {len(simple_click_results)} groups")
+            
+            # Also get clicks from dashboard_clicks collection (Offers page clicks)
+            dashboard_click_results = []
+            if self.dashboard_clicks_collection is not None:
+                dashboard_match_query = {
+                    'timestamp': {
+                        '$gte': start_date,
+                        '$lte': end_date
+                    }
+                }
+                
+                # Filter by user_id for dashboard clicks
+                if not is_admin:
+                    dashboard_match_query['user_id'] = user_id
+                
+                if filters.get('offer_id'):
+                    dashboard_match_query['offer_id'] = match_query.get('offer_id')
+                
+                dashboard_pipeline = [
+                    {'$match': dashboard_match_query},
+                    {
+                        '$group': {
+                            '_id': group_id,
+                            'clicks': {'$sum': 1},
+                            'gross_clicks': {'$sum': 1},
+                            'unique_clicks': {'$sum': 0},
+                            'suspicious_clicks': {'$sum': 0},
+                            'rejected_clicks': {'$sum': 0}
+                        }
+                    }
+                ]
+                
+                dashboard_click_results = list(self.dashboard_clicks_collection.aggregate(dashboard_pipeline))
             
             logger.info(f"🔍 Performance Report Debug:")
             logger.info(f"   User ID: {user_id}")
             logger.info(f"   Match Query: {match_query}")
-            logger.info(f"   Click Results: {len(click_results)} groups")
+            logger.info(f"   Offerwall Click Results: {len(click_results)} groups")
+            logger.info(f"   Dashboard Click Results: {len(dashboard_click_results)} groups")
             if click_results:
-                logger.info(f"   First result: {click_results[0]}")
+                logger.info(f"   First offerwall result: {click_results[0]}")
+            if dashboard_click_results:
+                logger.info(f"   First dashboard result: {dashboard_click_results[0]}")
             
             # Now get conversion data from forwarded_postbacks for the same groups
             conversion_match = {
@@ -237,6 +312,7 @@ class UserReports:
             # Merge click and conversion data
             merged_data = {}
             
+            # First, add offerwall_clicks_detailed
             for click_row in click_results:
                 key = str(click_row['_id'])
                 merged_data[key] = {
@@ -253,6 +329,40 @@ class UserReports:
                     'total_payout': 0.0,
                     'total_revenue': 0.0
                 }
+            
+            # Helper function to merge click data
+            def merge_clicks(click_row, merged_data):
+                key = str(click_row['_id'])
+                if key in merged_data:
+                    merged_data[key]['clicks'] += click_row['clicks']
+                    merged_data[key]['gross_clicks'] += click_row.get('gross_clicks', click_row['clicks'])
+                else:
+                    merged_data[key] = {
+                        **click_row['_id'],
+                        'clicks': click_row['clicks'],
+                        'gross_clicks': click_row.get('gross_clicks', click_row['clicks']),
+                        'unique_clicks': 0,
+                        'suspicious_clicks': 0,
+                        'rejected_clicks': 0,
+                        'conversions': 0,
+                        'approved_conversions': 0,
+                        'pending_conversions': 0,
+                        'rejected_conversions': 0,
+                        'total_payout': 0.0,
+                        'total_revenue': 0.0
+                    }
+            
+            # Merge offerwall_clicks (regular)
+            for click_row in offerwall_click_results:
+                merge_clicks(click_row, merged_data)
+            
+            # Merge simple clicks
+            for click_row in simple_click_results:
+                merge_clicks(click_row, merged_data)
+            
+            # Merge dashboard clicks
+            for click_row in dashboard_click_results:
+                merge_clicks(click_row, merged_data)
             
             for conv_row in conversion_results:
                 key = str(conv_row['_id'])
@@ -295,7 +405,9 @@ class UserReports:
                 if 'offer_id' in row:
                     offer = self.offers_collection.find_one({'offer_id': row['offer_id']})
                     if offer:
-                        row['offer_name'] = offer.get('name', 'Unknown')
+                        # Clean offer name to remove country codes
+                        raw_name = offer.get('name', 'Unknown')
+                        row['offer_name'] = self._clean_offer_name(raw_name)
                         row['network'] = offer.get('network', 'Unknown')
                         row['offer_url'] = offer.get('url', '')
                         row['category'] = offer.get('category', 'Uncategorized')
@@ -332,6 +444,8 @@ class UserReports:
             
             # Calculate summary
             summary = self._calculate_summary(report_data)
+            
+            logger.info(f"📊 Performance Report Summary: {len(report_data)} rows, {summary['total_clicks']} clicks, {summary['total_conversions']} conversions, ${summary['total_payout']} payout")
             
             # Paginate
             page = pagination['page']
@@ -401,6 +515,8 @@ class UserReports:
             if not is_admin:
                 query['publisher_id'] = user_id
             
+            logger.info(f"📊 Conversion Report Query: {query}")
+            
             # Apply filters
             if filters.get('offer_id'):
                 query['offer_id'] = filters['offer_id']
@@ -410,7 +526,8 @@ class UserReports:
                 query['username'] = filters['transaction_id']  # forwarded_postbacks uses 'username' field
             
             # Count total
-            total = self.conversions_collection.count_documents(query)
+            total = self.conversions_collection.count_documents(query) if self.conversions_collection is not None else 0
+            logger.info(f"📊 Conversion Report: Found {total} conversions")
             
             # Pagination
             page = pagination['page']
@@ -426,7 +543,9 @@ class UserReports:
                 # Get offer details
                 offer = self.offers_collection.find_one({'offer_id': conv.get('offer_id')})
                 if offer:
-                    conv['offer_name'] = offer.get('name', 'Unknown')
+                    # Clean offer name to remove country codes
+                    raw_name = offer.get('name', 'Unknown')
+                    conv['offer_name'] = self._clean_offer_name(raw_name)
                 else:
                     conv['offer_name'] = 'Unknown Offer'
                 
@@ -489,6 +608,42 @@ class UserReports:
             logger.error(f"Error generating conversion report: {str(e)}", exc_info=True)
             return {'error': str(e)}
     
+    def _clean_offer_name(self, name: str) -> str:
+        """
+        Remove country codes from offer names for cleaner display.
+        Examples:
+            "Survey Junkie - US" -> "Survey Junkie"
+            "Swagbucks (US, CA, UK)" -> "Swagbucks"
+            "InboxDollars [US]" -> "InboxDollars"
+            "MyPoints - United States" -> "MyPoints"
+        """
+        import re
+        if not name:
+            return name
+        
+        # Common patterns to remove:
+        # - " - US", " - CA", " - UK", etc.
+        # - " (US)", " (US, CA)", " (US/CA/UK)", etc.
+        # - " [US]", " [US, CA]", etc.
+        # - " - United States", " - Canada", etc.
+        
+        # Pattern 1: " - XX" or " - XX, YY" at end (country codes)
+        name = re.sub(r'\s*[-–]\s*([A-Z]{2}(?:\s*[,/]\s*[A-Z]{2})*)\s*$', '', name)
+        
+        # Pattern 2: " (XX)" or " (XX, YY, ZZ)" at end
+        name = re.sub(r'\s*\(\s*[A-Z]{2}(?:\s*[,/]\s*[A-Z]{2})*\s*\)\s*$', '', name)
+        
+        # Pattern 3: " [XX]" or " [XX, YY]" at end
+        name = re.sub(r'\s*\[\s*[A-Z]{2}(?:\s*[,/]\s*[A-Z]{2})*\s*\]\s*$', '', name)
+        
+        # Pattern 4: Full country names at end
+        country_names = ['United States', 'Canada', 'United Kingdom', 'Australia', 'Germany', 'France', 'Spain', 'Italy', 'Brazil', 'Mexico', 'India']
+        for country in country_names:
+            name = re.sub(rf'\s*[-–]\s*{country}\s*$', '', name, flags=re.IGNORECASE)
+            name = re.sub(rf'\s*\(\s*{country}\s*\)\s*$', '', name, flags=re.IGNORECASE)
+        
+        return name.strip()
+    
     def get_chart_data(
         self,
         user_id: str,
@@ -518,6 +673,8 @@ class UserReports:
             end_date = date_range['end']
             filters = filters or {}
             
+            logger.info(f"📊 Chart Data Request: metric={metric}, user={user_id}, range={start_date} to {end_date}")
+            
             # Get user info to check if admin
             user = self.users_collection.find_one({'_id': ObjectId(user_id)})
             is_admin = user and user.get('role') == 'admin'
@@ -545,9 +702,13 @@ class UserReports:
                                 {'placement_id': {'$in': placement_ids}},
                                 {'placement_id': {'$in': [ObjectId(pid) for pid in placement_ids if ObjectId.is_valid(pid)]}}
                             ]
-                        else:
-                            # No placements, return empty chart
-                            return {'chart_data': []}
+                
+                # Also prepare dashboard clicks query
+                dashboard_match_query = {
+                    'timestamp': {'$gte': start_date, '$lte': end_date}
+                }
+                if not is_admin:
+                    dashboard_match_query['user_id'] = user_id
                             
             else:  # conversions or revenue
                 collection = self.conversions_collection  # forwarded_postbacks
@@ -590,6 +751,102 @@ class UserReports:
             ]
             
             results = list(collection.aggregate(pipeline))
+            
+            # For clicks metric, also get clicks from ALL other collections and merge
+            if metric in ['clicks', 'unique_clicks']:
+                merged = {}
+                
+                # Start with offerwall_clicks_detailed results
+                for row in results:
+                    merged[row['_id']] = row['value']
+                logger.info(f"📊 Chart: offerwall_clicks_detailed = {len(results)} data points")
+                
+                # Add offerwall_clicks (regular)
+                if self.offerwall_clicks_collection is not None:
+                    offerwall_match = {
+                        'timestamp': {'$gte': start_date, '$lte': end_date}
+                    }
+                    if not is_admin:
+                        username = user.get('username') if user else None
+                        if username:
+                            user_placements = list(self.placements_collection.find(
+                                {'created_by': username},
+                                {'_id': 1}
+                            ))
+                            placement_ids = [str(p['_id']) for p in user_placements]
+                            if placement_ids:
+                                offerwall_match['$or'] = [
+                                    {'placement_id': {'$in': placement_ids}},
+                                    {'placement_id': {'$in': [ObjectId(pid) for pid in placement_ids if ObjectId.is_valid(pid)]}}
+                                ]
+                    
+                    offerwall_pipeline = [
+                        {'$match': offerwall_match},
+                        {
+                            '$group': {
+                                '_id': {'$dateToString': {'format': date_format, 'date': '$timestamp'}},
+                                'value': {'$sum': 1}
+                            }
+                        },
+                        {'$sort': {'_id': 1}}
+                    ]
+                    offerwall_results = list(self.offerwall_clicks_collection.aggregate(offerwall_pipeline))
+                    logger.info(f"📊 Chart: offerwall_clicks = {len(offerwall_results)} data points")
+                    for row in offerwall_results:
+                        if row['_id'] in merged:
+                            merged[row['_id']] += row['value']
+                        else:
+                            merged[row['_id']] = row['value']
+                
+                # Add simple clicks collection
+                if self.simple_clicks_collection is not None:
+                    simple_match = {
+                        'timestamp': {'$gte': start_date, '$lte': end_date}
+                    }
+                    if not is_admin:
+                        simple_match['user_id'] = user_id
+                    
+                    simple_pipeline = [
+                        {'$match': simple_match},
+                        {
+                            '$group': {
+                                '_id': {'$dateToString': {'format': date_format, 'date': '$timestamp'}},
+                                'value': {'$sum': 1}
+                            }
+                        },
+                        {'$sort': {'_id': 1}}
+                    ]
+                    simple_results = list(self.simple_clicks_collection.aggregate(simple_pipeline))
+                    logger.info(f"📊 Chart: clicks (simple) = {len(simple_results)} data points")
+                    for row in simple_results:
+                        if row['_id'] in merged:
+                            merged[row['_id']] += row['value']
+                        else:
+                            merged[row['_id']] = row['value']
+                
+                # Add dashboard clicks
+                if self.dashboard_clicks_collection is not None:
+                    dashboard_pipeline = [
+                        {'$match': dashboard_match_query},
+                        {
+                            '$group': {
+                                '_id': {'$dateToString': {'format': date_format, 'date': '$timestamp'}},
+                                'value': {'$sum': 1}
+                            }
+                        },
+                        {'$sort': {'_id': 1}}
+                    ]
+                    dashboard_results = list(self.dashboard_clicks_collection.aggregate(dashboard_pipeline))
+                    logger.info(f"📊 Chart: dashboard_clicks = {len(dashboard_results)} data points")
+                    for row in dashboard_results:
+                        if row['_id'] in merged:
+                            merged[row['_id']] += row['value']
+                        else:
+                            merged[row['_id']] = row['value']
+                
+                # Convert back to list and sort
+                results = [{'_id': k, 'value': v} for k, v in sorted(merged.items())]
+                logger.info(f"📊 Chart: TOTAL merged = {len(results)} data points, total clicks = {sum(r['value'] for r in results)}")
             
             # Format for chart
             chart_data = [

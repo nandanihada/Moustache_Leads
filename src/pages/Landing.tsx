@@ -60,19 +60,13 @@ const floatAnimation: Variants = {
   },
 };
 
-/* ✅ Pulse glow animation */
+/* ✅ Pulse glow animation - subtle version */
 const glowAnimation: Variants = {
-  hidden: { boxShadow: "0 0 0 0 rgba(139, 92, 246, 0.4)" },
+  hidden: { opacity: 1 },
   visible: {
-    boxShadow: [
-      "0 0 0 0 rgba(139, 92, 246, 0.4)",
-      "0 0 20px 10px rgba(139, 92, 246, 0.2)",
-      "0 0 0 0 rgba(139, 92, 246, 0.4)",
-    ],
+    opacity: 1,
     transition: {
-      duration: 2,
-      repeat: Infinity,
-      ease: "easeInOut",
+      duration: 0.3,
     },
   },
 };
@@ -103,56 +97,55 @@ const glassEffect: Variants = {
   },
 };
 
-/* ✅ Card separation animation variants */
+/* ✅ Card separation animation variants - smoother */
 const combinedCard: Variants = {
   initial: {
     scale: 1,
     borderRadius: "1.5rem",
-    transition: {
-      duration: 0.8,
-      ease: "easeInOut",
-    }
+    opacity: 0,
+    y: 30,
   },
   separated: (i: number) => ({
     scale: 1,
-    x: i % 2 === 0 ? -120 : 120,
-    y: i < 2 ? -100 : 100,
+    x: 0,
+    y: 0,
+    opacity: 1,
     borderRadius: "1.5rem",
     transition: {
       type: "spring",
-      stiffness: 150,
-      damping: 20,
-      delay: i * 0.1,
+      stiffness: 100,
+      damping: 15,
+      delay: i * 0.15,
     }
   }),
   hover: {
-    scale: 1.05,
-    y: -10,
+    scale: 1.02,
+    y: -5,
     transition: {
       duration: 0.3,
       ease: "easeOut"
     }
   },
   tap: {
-    scale: 0.95,
+    scale: 0.98,
     transition: {
       duration: 0.2
     }
   }
 };
 
-/* ✅ Combined card container animation */
+/* ✅ Combined card container animation - smoother fade */
 const combinedContainer: Variants = {
   initial: {
     scale: 1,
     opacity: 1,
   },
   separated: {
-    scale: 1,
+    scale: 0.95,
     opacity: 0,
     transition: {
-      duration: 0.3,
-      ease: "easeInOut"
+      duration: 0.4,
+      ease: "easeOut"
     }
   }
 };
@@ -357,11 +350,12 @@ export default function Landing() {
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
-            className="relative"
+            className="relative max-w-6xl mx-auto px-4"
           >
-            <motion.h1 className="text-5xl sm:text-7xl md:text-8xl font-bold text-gray-900 mt-6 leading-tight">
+            <motion.h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 mt-6 leading-tight">
               {splitTextToLetters("Turn Visitors Into ")}
-              <motion.span className="relative">
+              <br className="hidden sm:block" />
+              <motion.span className="relative inline-block">
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 via-purple-500 to-purple-800">
                   {splitTextToLetters("Paying Customers")}
                 </span>
@@ -381,10 +375,10 @@ export default function Landing() {
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
-            className="mt-8 max-w-2xl mx-auto"
+            className="mt-8 max-w-2xl mx-auto px-4"
           >
-            <p className="text-xl text-gray-600">
-              {" grow with Mustache Leads.".split(
+            <p className="text-lg sm:text-xl text-gray-600">
+              {"Capture, nurture, and convert leads effortlessly. Grow your business with Mustache Leads.".split(
                 " "
               ).map((word, i) => (
                 <motion.span
@@ -417,7 +411,7 @@ export default function Landing() {
             >
               <Link
                 to="/register"
-                className="inline-flex items-center bg-gradient-to-r from-purple-600 to-purple-700 text-white px-12 py-5 rounded-full text-lg font-semibold hover:from-purple-700 hover:to-purple-800 shadow-2xl backdrop-blur-md bg-white/20 border border-white/20 hover:shadow-3xl transition-all duration-300 group"
+                className="inline-flex items-center bg-gradient-to-r from-purple-600 to-purple-700 text-white px-12 py-5 rounded-full text-lg font-semibold hover:from-purple-700 hover:to-purple-800 shadow-xl hover:shadow-2xl transition-all duration-300 group"
               >
                 <span className="mr-2">Get Leads Now</span>
                 <motion.span

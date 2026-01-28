@@ -10,6 +10,7 @@ import { ReportFilters } from '../components/reports/ReportFilters';
 import { ReportOptions, ReportColumnOptions } from '../components/reports/ReportOptions';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../components/ui/dialog';
 import { ColumnSelector, ColumnDefinition } from '../components/reports/ColumnSelector';
+import PlacementRequired from '../components/PlacementRequired';
 
 // Column definitions for Conversion Report - ALL FIELDS SAME AS PERFORMANCE REPORT
 const CONVERSION_COLUMNS: ColumnDefinition[] = [
@@ -43,7 +44,7 @@ const CONVERSION_COLUMNS: ColumnDefinition[] = [
   { id: 'actions', label: 'Actions', defaultVisible: true, alwaysVisible: true },
 ];
 
-export default function ConversionReport() {
+export function ConversionReportContent() {
   const [loading, setLoading] = useState(false);
   const [conversions, setConversions] = useState<Conversion[]>([]);
   const [summary, setSummary] = useState<any>(null);
@@ -99,12 +100,15 @@ export default function ConversionReport() {
     toast.success('Columns cleared');
   };
   
-  // Date range state (default: includes test data from 2025)
+  // Date range state (default: last 30 days)
   const [dateRange, setDateRange] = useState(() => {
-    // Use a date range that includes our test data (2025-11-04 to 2025-11-12)
+    const today = new Date();
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    
     return {
-      start: '2025-11-01',
-      end: '2025-11-15'
+      start: thirtyDaysAgo.toISOString().split('T')[0],
+      end: today.toISOString().split('T')[0]
     };
   });
 
@@ -596,5 +600,14 @@ export default function ConversionReport() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+
+export default function ConversionReport() {
+  return (
+    <PlacementRequired>
+      <ConversionReportContent />
+    </PlacementRequired>
   );
 }
