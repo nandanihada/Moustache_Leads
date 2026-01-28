@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { placementApi } from '../services/placementApi';
 
 interface PlacementApprovalStatus {
@@ -13,73 +13,100 @@ interface PlacementApprovalStatus {
   refetch: () => void;
 }
 
+// Cache placement status in memory to avoid repeated API calls
+let cachedStatus: PlacementApprovalStatus | null = null;
+let lastFetchTime: number = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes cache
+
 export const usePlacementApproval = (): PlacementApprovalStatus => {
-  const [status, setStatus] = useState<PlacementApprovalStatus>({
-    hasApprovedPlacement: false,
-    hasPendingPlacement: false,
-    hasRejectedPlacement: false,
-    approvedPlacement: null,
-    pendingPlacements: [],
-    rejectedPlacements: [],
-    loading: true,
-    error: null,
-    refetch: () => { }
+  const [status, setStatus] = useState<PlacementApprovalStatus>(() => {
+    // Return cached status if available and not expired
+    if (cachedStatus && (Date.now() - lastFetchTime) < CACHE_DURATION) {
+      return { ...cachedStatus, loading: false };
+    }
+    return {
+      hasApprovedPlacement: false,
+      hasPendingPlacement: false,
+      hasRejectedPlacement: false,
+      approvedPlacement: null,
+      pendingPlacements: [],
+      rejectedPlacements: [],
+      loading: true,
+      error: null,
+      refetch: () => { }
+    };
   });
 
-  const checkPlacementStatus = async () => {
+  const isMounted = useRef(true);
+  const hasFetched = useRef(false);
+
+  const checkPlacementStatus = async (forceRefresh = false) => {
+    // Skip if we have valid cached data and not forcing refresh
+    if (!forceRefresh && cachedStatus && (Date.now() - lastFetchTime) < CACHE_DURATION) {
+      if (isMounted.current) {
+        setStatus(prev => ({ ...cachedStatus!, loading: false, refetch: prev.refetch }));
+      }
+      return;
+    }
+
     try {
-      setStatus(prev => ({ ...prev, loading: true, error: null }));
+      if (isMounted.current) {
+        setStatus(prev => ({ ...prev, loading: true, error: null }));
+      }
 
       const token = localStorage.getItem('token');
       if (!token) {
-        setStatus(prev => ({
-          ...prev,
+        const noTokenStatus = {
+          hasApprovedPlacement: false,
+          hasPendingPlacement: false,
+          hasRejectedPlacement: false,
+          approvedPlacement: null,
+          pendingPlacements: [],
+          rejectedPlacements: [],
           loading: false,
-          error: 'No authentication token found'
-        }));
+          error: null,
+          refetch: () => checkPlacementStatus(true)
+        };
+        cachedStatus = noTokenStatus;
+        if (isMounted.current) {
+          setStatus(noTokenStatus);
+        }
         return;
       }
 
-      //  Check if user is admin or subadmin - they should have full access
+      // Check if user is admin or subadmin - they should have full access
       const user = JSON.parse(localStorage.getItem('user') || '{}');
-      console.log('🔍 Checking placement status for user:', user.username, 'Role:', user.role);
       
       if (user.role === 'admin' || user.role === 'subadmin') {
-        console.log('✅ Admin/subadmin detected, granting full access');
-        setStatus(prev => ({
-          ...prev,
-          hasApprovedPlacement: true, // Give admin/subadmin full access
+        const adminStatus = {
+          hasApprovedPlacement: true,
           hasPendingPlacement: false,
           hasRejectedPlacement: false,
           approvedPlacement: { id: 'admin', offerwallTitle: 'Admin Access' },
           pendingPlacements: [],
           rejectedPlacements: [],
           loading: false,
-          error: null
-        }));
+          error: null,
+          refetch: () => checkPlacementStatus(true)
+        };
+        cachedStatus = adminStatus;
+        lastFetchTime = Date.now();
+        if (isMounted.current) {
+          setStatus(adminStatus);
+        }
         return;
       }
 
       // Get all placements for the current publisher
-      console.log('📡 Fetching placements from API...');
       const placementResponse = await placementApi.getPlacements();
-      console.log('✅ Placements fetched successfully:', placementResponse);
-      
       const placements = placementResponse.placements || [];
-      console.log('📊 Total placements:', placements.length);
 
       // Categorize placements by approval status
       const approved = placements.filter(p => p.approvalStatus === 'APPROVED');
       const pending = placements.filter(p => p.approvalStatus === 'PENDING_APPROVAL');
       const rejected = placements.filter(p => p.approvalStatus === 'REJECTED');
 
-      console.log('📊 Placement breakdown:');
-      console.log('  - Approved:', approved.length);
-      console.log('  - Pending:', pending.length);
-      console.log('  - Rejected:', rejected.length);
-
-      setStatus(prev => ({
-        ...prev,
+      const newStatus = {
         hasApprovedPlacement: approved.length > 0,
         hasPendingPlacement: pending.length > 0,
         hasRejectedPlacement: rejected.length > 0,
@@ -87,38 +114,50 @@ export const usePlacementApproval = (): PlacementApprovalStatus => {
         pendingPlacements: pending,
         rejectedPlacements: rejected,
         loading: false,
-        error: null
-      }));
+        error: null,
+        refetch: () => checkPlacementStatus(true)
+      };
+
+      // Update cache
+      cachedStatus = newStatus;
+      lastFetchTime = Date.now();
+
+      if (isMounted.current) {
+        setStatus(newStatus);
+      }
 
     } catch (error) {
-      console.error('❌ Error checking placement status:', error);
-      console.error('Error details:', {
-        message: error instanceof Error ? error.message : 'Unknown error',
-        stack: error instanceof Error ? error.stack : undefined
-      });
+      console.error('Error checking placement status:', error);
       
-      setStatus(prev => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch'
-      }));
+      if (isMounted.current) {
+        setStatus(prev => ({
+          ...prev,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Failed to fetch'
+        }));
+      }
     }
   };
 
   useEffect(() => {
-    checkPlacementStatus();
+    isMounted.current = true;
+    
+    // Only fetch if we haven't fetched yet or cache is expired
+    if (!hasFetched.current || !cachedStatus || (Date.now() - lastFetchTime) >= CACHE_DURATION) {
+      hasFetched.current = true;
+      checkPlacementStatus();
+    }
 
-    // Set up periodic refresh every 30 seconds to catch approval updates
-    const interval = setInterval(checkPlacementStatus, 30000);
-
-    return () => clearInterval(interval);
+    return () => {
+      isMounted.current = false;
+    };
   }, []);
 
-  // Add refetch function to the status
+  // Update refetch function
   useEffect(() => {
     setStatus(prev => ({
       ...prev,
-      refetch: checkPlacementStatus
+      refetch: () => checkPlacementStatus(true)
     }));
   }, []);
 
@@ -135,4 +174,10 @@ export const useRequireApprovedPlacement = () => {
     shouldShowPlacementRequired: !placementStatus.hasApprovedPlacement && !placementStatus.loading,
     shouldShowPendingMessage: placementStatus.hasPendingPlacement && !placementStatus.hasApprovedPlacement
   };
+};
+
+// Function to clear cache (call this on logout or when placement is created/updated)
+export const clearPlacementCache = () => {
+  cachedStatus = null;
+  lastFetchTime = 0;
 };

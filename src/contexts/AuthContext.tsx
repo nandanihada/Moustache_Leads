@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { getAuthToken, getAuthUser, setAuthToken, setAuthUser, clearAuth } from '../utils/cookies';
+import { clearPlacementCache } from '../hooks/usePlacementApproval';
 
 interface User {
   id: string;
@@ -81,6 +82,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setToken(null);
     setUser(null);
     clearAuth();
+    clearPlacementCache(); // Clear placement cache on logout
     localStorage.removeItem('session_id');
   };
 

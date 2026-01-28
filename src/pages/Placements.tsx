@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
 import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus, CheckCircle, AlertCircle, Loader2, Package, Code, Copy } from "lucide-react";
 import { placementApi } from "../services/placementApi";
+import { clearPlacementCache } from "../hooks/usePlacementApproval";
 import { OfferwallIframeEnhanced } from "../components/OfferwallIframeEnhanced";
 import { OfferwallProfessional } from "../components/OfferwallProfessional";
 
@@ -1077,6 +1078,9 @@ export const Placements = () => {
         // Create new placement via API
         const newPlacement = await placementApi.createPlacement(placementData);
         
+        // Clear placement cache so the new placement is recognized
+        clearPlacementCache();
+        
         // Add to placements list and select it
         setPlacements(prev => [...prev, newPlacement]);
         setSelectedPlacementIndex(placements.length); // Select the new placement
@@ -1087,6 +1091,9 @@ export const Placements = () => {
       } else {
         // Update existing placement via API
         const updatedPlacement = await placementApi.updatePlacement(placementData.id, placementData);
+        
+        // Clear placement cache so the updated placement is recognized
+        clearPlacementCache();
         
         // Update in placements list
         setPlacements(prev => prev.map((p, index) => 
