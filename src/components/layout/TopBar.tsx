@@ -1,4 +1,4 @@
-import { Bell, Moon, Sun, User } from "lucide-react";
+import { Bell, Moon, Sun, User, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import { useNavigate } from "react-router-dom";
@@ -10,16 +10,46 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { API_BASE_URL } from "@/services/apiConfig";
+import { 
+  Notification, 
+  filterNotifications, 
+  markNotificationAsSeen, 
+  getNotificationIcon 
+} from "@/components/NotificationBar";
 
 export function TopBar() {
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const { logout, user } = useAuth();
-  const [notificationCount, setNotificationCount] = useState(0);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [earnings, setEarnings] = useState<{ monthly: number; nextPayout: string } | null>(null);
   const [hasApprovedPlacement, setHasApprovedPlacement] = useState(false);
+
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/notifications`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const allNotifications = data.notifications || [];
+        console.log('📬 Raw notifications from API:', allNotifications);
+        // Apply filtering rules (unseen, not expired, max 3)
+        const filtered = filterNotifications(allNotifications);
+        console.log('📬 Filtered notifications:', filtered);
+        setNotifications(filtered);
+      }
+    } catch (error) {
+      console.error('Failed to fetch notifications:', error);
+    }
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -43,31 +73,15 @@ export function TopBar() {
         const approved = placements.some((p: any) => p.approvalStatus === 'APPROVED');
         setHasApprovedPlacement(approved);
 
+        // Always fetch notifications (they include placement-related ones)
+        fetchNotifications();
+        
         if (approved) {
-          fetchNotificationCount();
           fetchEarnings();
         }
       }
     } catch (error) {
       console.error('Failed to check placement status:', error);
-    }
-  };
-
-  const fetchNotificationCount = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/notifications`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setNotificationCount(data.total || 0);
-      }
-    } catch (error) {
-      console.error('Failed to fetch notification count:', error);
     }
   };
 
@@ -92,6 +106,17 @@ export function TopBar() {
     } catch (error) {
       console.error('Failed to fetch earnings:', error);
     }
+  };
+
+  const handleDismissNotification = (notificationId: string) => {
+    markNotificationAsSeen(notificationId);
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+  };
+
+  const handleDismissAll = () => {
+    notifications.forEach(n => markNotificationAsSeen(n.id));
+    setNotifications([]);
+    setIsNotificationOpen(false);
   };
 
   const handleLogout = () => {
@@ -133,14 +158,73 @@ export function TopBar() {
             <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           </Button>
 
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            {notificationCount > 0 && (
-              <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs">
-                {notificationCount > 9 ? '9+' : notificationCount}
-              </Badge>
-            )}
-          </Button>
+          <DropdownMenu open={isNotificationOpen} onOpenChange={(open) => {
+            setIsNotificationOpen(open);
+            // Refresh notifications when dropdown is opened
+            if (open) {
+              fetchNotifications();
+            }
+          }}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="relative">
+                <Bell className="h-5 w-5" />
+                {notifications.length > 0 && (
+                  <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs flex items-center justify-center">
+                    {notifications.length}
+                  </Badge>
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-80 p-0">
+              <div className="flex items-center justify-between px-4 py-3 border-b">
+                <span className="font-semibold text-sm">Notifications</span>
+                {notifications.length > 0 && (
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-xs h-auto py-1 px-2"
+                    onClick={handleDismissAll}
+                  >
+                    Clear all
+                  </Button>
+                )}
+              </div>
+              {notifications.length === 0 ? (
+                <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                  No new notifications
+                </div>
+              ) : (
+                <div className="max-h-80 overflow-y-auto">
+                  {notifications.map((notification) => (
+                    <div 
+                      key={notification.id} 
+                      className="flex items-start gap-3 px-4 py-3 hover:bg-muted/50 border-b last:border-b-0"
+                    >
+                      <div className="mt-0.5">
+                        {getNotificationIcon(notification.icon, notification.color)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{notification.title}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{notification.message}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{notification.time_ago}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDismissNotification(notification.id);
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

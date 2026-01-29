@@ -14,3 +14,6 @@ class Config:
     
     # JWT token expiration (in seconds)
     JWT_EXPIRATION_DELTA = 86400  # 24 hours
+    
+    # Tracking URL base - uses offers subdomain in production
+    TRACKING_BASE_URL = os.getenv('TRACKING_BASE_URL', 'https://offers.moustacheleads.com')

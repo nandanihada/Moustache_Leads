@@ -112,10 +112,8 @@ def get_dashboard_stats():
         
         logger.info(f"🎁 Active offers: {active_offers_count}")
         
-        # 4. Get Recent Activity - Include all activity types like notification bar
-        # Get additional collections for recent activity
-        user_promo_codes_col = get_collection('user_promo_codes')
-        promo_codes_col = get_collection('promo_codes')
+        # 4. Get Recent Activity - Only show offer-related activities
+        # Get collections for recent activity
         offer_requests_col = get_collection('offer_access_requests')
         
         # Try to convert user_id to ObjectId
@@ -126,38 +124,23 @@ def get_dashboard_stats():
         
         all_activities = []
         
-        # 4a. Promo codes applied by user
-        if user_promo_codes_col is not None:
-            user_promo_query = {'$or': [{'user_id': user_id}]}
+        # 4a. Offer access requests (pending) - shows user requested access
+        if offer_requests_col is not None:
+            pending_query = {'$or': [{'publisher_id': user_id}, {'user_id': user_id}], 'status': 'pending'}
             if user_obj_id:
-                user_promo_query['$or'].append({'user_id': user_obj_id})
+                pending_query['$or'].extend([{'publisher_id': user_obj_id}, {'user_id': user_obj_id}])
             
-            applied_promos = list(user_promo_codes_col.find(user_promo_query).sort('applied_at', -1).limit(5))
+            pending_requests = list(offer_requests_col.find(pending_query).sort('requested_at', -1).limit(5))
             
-            for applied in applied_promos:
-                promo_code_id = applied.get('promo_code_id')
-                promo_details = None
-                if promo_codes_col is not None and promo_code_id:
-                    try:
-                        if isinstance(promo_code_id, str):
-                            promo_details = promo_codes_col.find_one({'_id': ObjectId(promo_code_id)})
-                        else:
-                            promo_details = promo_codes_col.find_one({'_id': promo_code_id})
-                    except:
-                        pass
-                
-                code_name = applied.get('code', 'N/A')
-                bonus_amount = promo_details.get('bonus_amount', 0) if promo_details else 0
-                bonus_type = promo_details.get('bonus_type', 'percentage') if promo_details else 'percentage'
-                bonus_text = f"+{bonus_amount}%" if bonus_type == 'percentage' else f"+${bonus_amount}"
-                
+            for req in pending_requests:
+                offer_name = req.get('offer_details', {}).get('name', req.get('offer_name', req.get('offer_id', 'Unknown')))
                 all_activities.append({
-                    'id': str(applied['_id']),
-                    'action': '🎉 Promo Code Applied',
-                    'offer': f"Code: {code_name}",
-                    'amount': bonus_text,
-                    'time': _format_time_ago(applied.get('applied_at')),
-                    'timestamp': applied.get('applied_at')
+                    'id': str(req['_id']),
+                    'action': '⏳ Offer Request Pending',
+                    'offer': offer_name,
+                    'amount': 'Awaiting Review',
+                    'time': _format_time_ago(req.get('requested_at')),
+                    'timestamp': req.get('requested_at')
                 })
         
         # 4b. Offer access approvals
@@ -196,69 +179,6 @@ def get_dashboard_stats():
                     'amount': 'Access Denied',
                     'time': _format_time_ago(req.get('updated_at') or req.get('requested_at')),
                     'timestamp': req.get('updated_at') or req.get('requested_at')
-                })
-        
-        # 4d. Successful conversions/payments (from forwarded_postbacks - same as Conversion Report)
-        if forwarded_postbacks is not None:
-            conversion_query = {'publisher_id': user_id, 'forward_status': 'success'}
-            
-            successful_conversions = list(forwarded_postbacks.find(conversion_query).sort('timestamp', -1).limit(5))
-            
-            logger.info(f"📋 Found {len(successful_conversions)} successful conversions for user {user_id}")
-            
-            for conv in successful_conversions:
-                points = conv.get('points', 0)
-                offer_id = conv.get('offer_id', 'Unknown')
-                
-                # Get offer name from offers collection (same as Conversion Report)
-                offer_name = 'Unknown Offer'
-                if offers_collection is not None and offer_id:
-                    offer = offers_collection.find_one({'offer_id': offer_id})
-                    if offer:
-                        offer_name = offer.get('name', 'Unknown Offer')
-                
-                all_activities.append({
-                    'id': str(conv['_id']),
-                    'action': '💰 Payment Received',
-                    'offer': offer_name,
-                    'amount': f"${points:.2f}",
-                    'time': _format_time_ago(conv.get('timestamp')),
-                    'timestamp': conv.get('timestamp')
-                })
-        
-        # 4e. Reversals
-        if forwarded_postbacks is not None:
-            reversal_query = {
-                'publisher_id': user_id,
-                '$or': [
-                    {'forward_status': 'reversed'},
-                    {'status': 'reversed'},
-                    {'is_reversal': True}
-                ]
-            }
-            
-            reversals = list(forwarded_postbacks.find(reversal_query).sort('timestamp', -1).limit(5))
-            
-            logger.info(f"📋 Found {len(reversals)} reversals for user {user_id}")
-            
-            for rev in reversals:
-                points = rev.get('points', 0)
-                offer_id = rev.get('offer_id', 'Unknown')
-                
-                # Get offer name from offers collection
-                offer_name = 'Unknown Offer'
-                if offers_collection is not None and offer_id:
-                    offer = offers_collection.find_one({'offer_id': offer_id})
-                    if offer:
-                        offer_name = offer.get('name', 'Unknown Offer')
-                
-                all_activities.append({
-                    'id': str(rev['_id']),
-                    'action': '⚠️ Reversal',
-                    'offer': offer_name,
-                    'amount': f"-${points:.2f}",
-                    'time': _format_time_ago(rev.get('timestamp')),
-                    'timestamp': rev.get('timestamp')
                 })
         
         # Sort all activities by timestamp (newest first) and take top 5

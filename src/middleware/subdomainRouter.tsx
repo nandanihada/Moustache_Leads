@@ -5,8 +5,8 @@ import { getCurrentSubdomain } from '../config/subdomains';
 // Map subdomains to their default routes
 const SUBDOMAIN_ROUTES: Record<string, string> = {
   dashboard: '/admin',
+  offers: '/dashboard/offers',
   offerwall: '/offerwall'
-  // Note: offers subdomain removed due to Render limits
 };
 
 export const SubdomainRouter: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -28,6 +28,12 @@ export const SubdomainRouter: React.FC<{ children: React.ReactNode }> = ({ child
     
     if (currentPath.startsWith('/offerwall') && subdomain !== 'offerwall') {
       window.location.href = `https://offerwall.moustacheleads.com${currentPath}${currentSearch}`;
+      return;
+    }
+    
+    // Redirect offers subdomain to offers page
+    if (subdomain === 'offers' && currentPath === '/') {
+      window.location.href = `https://offers.moustacheleads.com/dashboard/offers`;
       return;
     }
 

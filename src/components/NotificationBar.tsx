@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { 
   Bell, 
   Gift, 
@@ -7,14 +7,10 @@ import {
   XCircle, 
   DollarSign, 
   AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
-  X,
   Clock
 } from 'lucide-react';
-import { API_BASE_URL } from '@/services/apiConfig';
 
-interface Notification {
+export interface Notification {
   id: string;
   type: string;
   icon: string;
@@ -25,181 +21,128 @@ interface Notification {
   color: string;
 }
 
-const NotificationBar: React.FC = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [isVisible, setIsVisible] = useState(true);
-  const [isPaused, setIsPaused] = useState(false);
-  const [hasApprovedPlacement, setHasApprovedPlacement] = useState(true);
+// Storage key for seen notifications
+const SEEN_NOTIFICATIONS_KEY = 'seen_notifications';
+const NOTIFICATION_EXPIRY_HOURS = 24;
 
-  useEffect(() => {
-    fetchNotifications();
-    // Refresh notifications every 5 minutes
-    const interval = setInterval(fetchNotifications, 5 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Auto-rotate notifications every 5 seconds
-  useEffect(() => {
-    if (notifications.length <= 1 || isPaused) return;
-    
-    const rotateInterval = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % notifications.length);
-    }, 5000);
-    
-    return () => clearInterval(rotateInterval);
-  }, [notifications.length, isPaused]);
-
-  const fetchNotifications = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/notifications`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setNotifications(data.notifications || []);
-        setHasApprovedPlacement(data.has_approved_placement !== false);
-      }
-    } catch (error) {
-      console.error('Failed to fetch notifications:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getIcon = (iconName: string, color: string) => {
-    const colorClass = {
-      green: 'text-green-500',
-      red: 'text-red-500',
-      orange: 'text-orange-500',
-      purple: 'text-purple-500',
-      blue: 'text-blue-500',
-    }[color] || 'text-gray-500';
-
-    const iconProps = { className: `h-4 w-4 ${colorClass}` };
-
-    switch (iconName) {
-      case 'gift':
-        return <Gift {...iconProps} />;
-      case 'tag':
-        return <Tag {...iconProps} />;
-      case 'check-circle':
-        return <CheckCircle {...iconProps} />;
-      case 'x-circle':
-        return <XCircle {...iconProps} />;
-      case 'dollar-sign':
-        return <DollarSign {...iconProps} />;
-      case 'alert-triangle':
-        return <AlertTriangle {...iconProps} />;
-      case 'clock':
-        return <Clock {...iconProps} />;
-      default:
-        return <Bell {...iconProps} />;
-    }
-  };
-
-  const goToPrevious = () => {
-    setCurrentIndex((prev) => (prev - 1 + notifications.length) % notifications.length);
-  };
-
-  const goToNext = () => {
-    setCurrentIndex((prev) => (prev + 1) % notifications.length);
-  };
-
-  // Don't show notification bar if loading or no notifications
-  if (!isVisible || loading || notifications.length === 0) {
-    return null;
+// Get seen notifications from localStorage
+const getSeenNotifications = (): Record<string, number> => {
+  try {
+    const stored = localStorage.getItem(SEEN_NOTIFICATIONS_KEY);
+    return stored ? JSON.parse(stored) : {};
+  } catch {
+    return {};
   }
+};
 
-  const currentNotification = notifications[currentIndex];
+// Save seen notifications to localStorage
+const saveSeenNotifications = (seen: Record<string, number>) => {
+  localStorage.setItem(SEEN_NOTIFICATIONS_KEY, JSON.stringify(seen));
+};
 
-  return (
-    <div 
-      className="bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100"
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
-    >
-      <div className="max-w-full mx-auto px-4 py-2">
-        <div className="flex items-center justify-between gap-3">
-          {/* Left: Navigation */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={goToPrevious}
-              className="p-1 hover:bg-purple-100 rounded transition-colors"
-              title="Previous"
-            >
-              <ChevronLeft className="h-4 w-4 text-purple-600" />
-            </button>
-          </div>
+// Mark a notification as seen
+export const markNotificationAsSeen = (notificationId: string) => {
+  const seen = getSeenNotifications();
+  seen[notificationId] = Date.now();
+  saveSeenNotifications(seen);
+};
 
-          {/* Center: Notification Content */}
-          <div className="flex-1 flex items-center justify-center gap-3 min-w-0">
-            <div className="flex items-center gap-2 flex-shrink-0">
-              {getIcon(currentNotification.icon, currentNotification.color)}
-              <span className="font-medium text-sm text-gray-800 hidden sm:inline">
-                {currentNotification.title}
-              </span>
-            </div>
-            <span className="text-sm text-gray-600 truncate">
-              {currentNotification.message}
-            </span>
-            <span className="text-xs text-gray-400 flex-shrink-0 hidden md:inline">
-              {currentNotification.time_ago}
-            </span>
-          </div>
+// Clear all seen notifications (useful for testing/debugging)
+export const clearSeenNotifications = () => {
+  localStorage.removeItem(SEEN_NOTIFICATIONS_KEY);
+  console.log('📬 Cleared all seen notifications from localStorage');
+};
 
-          {/* Right: Navigation & Close */}
-          <div className="flex items-center gap-1">
-            <button
-              onClick={goToNext}
-              className="p-1 hover:bg-purple-100 rounded transition-colors"
-              title="Next"
-            >
-              <ChevronRight className="h-4 w-4 text-purple-600" />
-            </button>
-            
-            {/* Notification counter */}
-            <span className="text-xs text-purple-600 font-medium px-2">
-              {currentIndex + 1}/{notifications.length}
-            </span>
-            
-            <button
-              onClick={() => setIsVisible(false)}
-              className="p-1 hover:bg-purple-100 rounded transition-colors ml-1"
-              title="Dismiss"
-            >
-              <X className="h-4 w-4 text-gray-400 hover:text-gray-600" />
-            </button>
-          </div>
-        </div>
+// Check if notification is seen or expired
+const isNotificationVisible = (notificationId: string, timestamp?: string): boolean => {
+  const seen = getSeenNotifications();
+  
+  // If already seen, don't show
+  if (seen[notificationId]) {
+    return false;
+  }
+  
+  // If older than 24 hours, don't show
+  if (timestamp) {
+    const notificationTime = new Date(timestamp).getTime();
+    const now = Date.now();
+    const hoursDiff = (now - notificationTime) / (1000 * 60 * 60);
+    if (hoursDiff > NOTIFICATION_EXPIRY_HOURS) {
+      return false;
+    }
+  }
+  
+  return true;
+};
 
-        {/* Progress dots */}
-        {notifications.length > 1 && (
-          <div className="flex justify-center gap-1 mt-1">
-            {notifications.slice(0, 10).map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => setCurrentIndex(idx)}
-                className={`w-1.5 h-1.5 rounded-full transition-colors ${
-                  idx === currentIndex ? 'bg-purple-500' : 'bg-purple-200'
-                }`}
-              />
-            ))}
-            {notifications.length > 10 && (
-              <span className="text-xs text-purple-400">+{notifications.length - 10}</span>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+// Filter notifications based on rules
+export const filterNotifications = (notifications: Notification[]): Notification[] => {
+  // Clean up old seen notifications (older than 7 days)
+  const seen = getSeenNotifications();
+  console.log('📬 Seen notifications in localStorage:', seen);
+  
+  const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+  const cleanedSeen: Record<string, number> = {};
+  
+  Object.entries(seen).forEach(([id, time]) => {
+    if (time > sevenDaysAgo) {
+      cleanedSeen[id] = time;
+    }
+  });
+  saveSeenNotifications(cleanedSeen);
+  
+  // Filter to only unseen and not expired notifications
+  const visible = notifications.filter(n => {
+    const isVisible = isNotificationVisible(n.id, n.timestamp);
+    if (!isVisible) {
+      console.log(`📬 Notification ${n.id} (${n.title}) filtered out - seen: ${!!seen[n.id]}, timestamp: ${n.timestamp}`);
+    }
+    return isVisible;
+  });
+  
+  console.log(`📬 Visible notifications: ${visible.length} out of ${notifications.length}`);
+  
+  // Limit to max 3
+  return visible.slice(0, 3);
+};
+
+// Get icon component
+export const getNotificationIcon = (iconName: string, color: string) => {
+  const colorClass = {
+    green: 'text-green-500',
+    red: 'text-red-500',
+    orange: 'text-orange-500',
+    purple: 'text-purple-500',
+    blue: 'text-blue-500',
+  }[color] || 'text-gray-500';
+
+  const iconProps = { className: `h-4 w-4 ${colorClass}` };
+
+  switch (iconName) {
+    case 'gift':
+      return <Gift {...iconProps} />;
+    case 'tag':
+      return <Tag {...iconProps} />;
+    case 'check-circle':
+      return <CheckCircle {...iconProps} />;
+    case 'x-circle':
+      return <XCircle {...iconProps} />;
+    case 'dollar-sign':
+      return <DollarSign {...iconProps} />;
+    case 'alert-triangle':
+      return <AlertTriangle {...iconProps} />;
+    case 'clock':
+      return <Clock {...iconProps} />;
+    default:
+      return <Bell {...iconProps} />;
+  }
+};
+
+// The NotificationBar component is now deprecated - notifications are shown in the bell icon dropdown
+// This component is kept for backward compatibility but returns null
+const NotificationBar: React.FC = () => {
+  // Notifications are now shown in the TopBar bell icon dropdown
+  return null;
 };
 
 export default NotificationBar;
