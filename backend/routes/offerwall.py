@@ -2163,11 +2163,15 @@ def get_offers():
                 elif 'desktop' in text or 'web' in text:
                     device_targeting = 'web'
             
+            # Calculate publisher payout (80% of original - 20% platform cut)
+            original_payout = float(offer.get('payout', 0))
+            publisher_payout = round(original_payout * 0.8, 2)
+            
             transformed_offer = {
                 'id': offer.get('offer_id', str(offer.get('_id'))),
                 'title': offer.get('name', 'Untitled Offer'),
                 'description': offer.get('description', 'No description available'),
-                'reward_amount': offer.get('payout', 0),
+                'reward_amount': publisher_payout,
                 'reward_currency': offer.get('currency', 'USD'),
                 'category': detect_category(
                     offer.get('name', ''), 
@@ -2183,7 +2187,7 @@ def get_offers():
                 'device_targeting': device_targeting,
                 'estimated_time': offer.get('estimated_time', ''),
                 'created_at': offer.get('created_at', datetime.utcnow()).isoformat() if isinstance(offer.get('created_at'), datetime) else str(offer.get('created_at', '')),
-                'payout': offer.get('payout', 0),
+                'payout': publisher_payout,
                 'star_rating': offer.get('star_rating', 5),
                 'urgency_type': offer.get('urgency_type'),
                 'timer_enabled': offer.get('timer_enabled', False),

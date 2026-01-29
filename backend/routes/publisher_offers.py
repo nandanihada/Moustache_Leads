@@ -132,13 +132,17 @@ def get_available_offers():
             # Check if user has pending request (from cache)
             existing_request = requests_by_offer.get(offer['offer_id'])
             
+            # Calculate publisher payout (80% of original - 20% platform cut)
+            original_payout = float(offer.get('payout', 0))
+            publisher_payout = round(original_payout * 0.8, 2)
+            
             # Prepare offer data for publisher
             offer_data = {
                 'offer_id': offer['offer_id'],
                 'name': offer['name'],
                 'description': offer.get('description', ''),
                 'category': offer.get('category', 'general'),
-                'payout': offer['payout'],
+                'payout': publisher_payout,
                 'currency': offer.get('currency', 'USD'),
                 'network': offer['network'],
                 'countries': offer.get('countries', []),
@@ -289,6 +293,10 @@ def get_offer_details(offer_id):
         # Convert ObjectId to string
         if '_id' in offer:
             offer['_id'] = str(offer['_id'])
+        
+        # Calculate publisher payout (80% of original - 20% platform cut)
+        original_payout = float(offer.get('payout', 0))
+        offer['payout'] = round(original_payout * 0.8, 2)
         
         logger.info(f"✅ Returning offer details: {offer.get('name')}")
         
