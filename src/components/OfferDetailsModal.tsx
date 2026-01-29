@@ -37,8 +37,21 @@ const getFlagUrl = (countryCode: string) => {
   return `https://flagcdn.com/24x18/${countryCode.toLowerCase()}.png`;
 };
 
+// Tracking URL base - uses offers subdomain for cleaner links
+const getTrackingBaseUrl = () => {
+  // In production, use offers.moustacheleads.com
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname.includes('moustacheleads.com') || hostname.includes('vercel.app') || hostname.includes('onrender.com')) {
+      return 'https://offers.moustacheleads.com';
+    }
+  }
+  // Development - use localhost
+  return 'http://localhost:5000';
+};
+
 const generateTrackingLink = (offer: Offer, userId?: string) => {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const baseUrl = getTrackingBaseUrl();
   if (!userId) {
     try {
       const userStr = localStorage.getItem('user');

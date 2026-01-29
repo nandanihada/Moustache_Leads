@@ -42,11 +42,22 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
   const [stats, setStats] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(false);
 
+  // Get tracking base URL - uses offers subdomain in production
+  const getTrackingBaseUrl = () => {
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      if (hostname.includes('moustacheleads.com') || hostname.includes('vercel.app') || hostname.includes('onrender.com')) {
+        return 'https://offers.moustacheleads.com';
+      }
+    }
+    return 'http://localhost:5000';
+  };
+
   // Generate tracking link when offer changes
   useEffect(() => {
     if (offer) {
       try {
-        const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+        const baseUrl = getTrackingBaseUrl();
 
         // Get user from localStorage
         let userId = '';
@@ -129,7 +140,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
 
   const updateTrackingLink = () => {
     // Regenerate link with custom sub ID
-    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    const baseUrl = getTrackingBaseUrl();
     let userId = '';
     try {
       const userStr = localStorage.getItem('user');
