@@ -1410,11 +1410,25 @@ const AdminOffers = () => {
                             Clone
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => {
-                            const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-                            window.open(`${baseUrl}/preview/${offer.offer_id}`, '_blank');
+                            // Open tracking link
+                            const hostname = window.location.hostname;
+                            let baseUrl = 'http://localhost:5000';
+                            if (hostname.includes('moustacheleads.com') || hostname.includes('vercel.app') || hostname.includes('onrender.com')) {
+                              baseUrl = 'https://offers.moustacheleads.com';
+                            }
+                            let userId = '';
+                            try {
+                              const userStr = localStorage.getItem('user');
+                              if (userStr) {
+                                const user = JSON.parse(userStr);
+                                userId = user._id || user.id || '';
+                              }
+                            } catch (e) {}
+                            const trackingUrl = `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1=default`;
+                            window.open(trackingUrl, '_blank');
                           }}>
                             <ExternalLink className="h-4 w-4 mr-2" />
-                            Preview
+                            Open Offer
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-red-600"

@@ -508,15 +508,31 @@ const PublisherOffersContent = () => {
                                     <Eye className="h-4 w-4 mr-1" />
                                     Details
                                   </Button>
-                                  {(offer as any).preview_url && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => window.open((offer as any).preview_url, '_blank')}
-                                    >
-                                      <ExternalLink className="h-4 w-4" />
-                                    </Button>
-                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      // Open tracking link instead of preview URL
+                                      const hostname = window.location.hostname;
+                                      let baseUrl = 'http://localhost:5000';
+                                      if (hostname.includes('moustacheleads.com') || hostname.includes('vercel.app') || hostname.includes('onrender.com')) {
+                                        baseUrl = 'https://offers.moustacheleads.com';
+                                      }
+                                      let userId = '';
+                                      try {
+                                        const userStr = localStorage.getItem('user');
+                                        if (userStr) {
+                                          const user = JSON.parse(userStr);
+                                          userId = user._id || user.id || '';
+                                        }
+                                      } catch (e) {}
+                                      const trackingUrl = `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1=default`;
+                                      window.open(trackingUrl, '_blank');
+                                    }}
+                                    title="Open tracking link"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </Button>
                                 </div>
                               </TableCell>
                             </TableRow>
