@@ -321,7 +321,7 @@ class CapMonitoringService:
         """
     
     def _send_email(self, recipients, subject, body):
-        """Send email notification using Hostinger SMTP with SSL"""
+        """Send email notification using Hostinger SMTP - tries STARTTLS 587 first, then SSL 465"""
         if not EMAIL_AVAILABLE:
             self.logger.warning("Email functionality not available, skipping email")
             return False
@@ -353,14 +353,31 @@ class CapMonitoringService:
             html_part = MIMEText(body, 'html')
             msg.attach(html_part)
             
-            # Send email using SSL on port 465
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, context=context, timeout=30) as server:
-                server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
+            ctx = ssl.create_default_context()
             
-            self.logger.info(f"✅ Cap alert email sent to {recipients}")
-            return True
+            # Try port 587 with STARTTLS first (works on more hosting platforms like Render)
+            try:
+                self.logger.info(f"📧 Trying SMTP STARTTLS on port 587...")
+                with smtplib.SMTP(self.smtp_server, 587, timeout=30) as server:
+                    server.starttls(context=ctx)
+                    server.login(self.smtp_username, self.smtp_password)
+                    server.send_message(msg)
+                self.logger.info(f"✅ Cap alert email sent via STARTTLS to {recipients}")
+                return True
+            except Exception as e1:
+                self.logger.warning(f"⚠️ STARTTLS 587 failed: {e1}")
+                
+                # Fallback to port 465 with SSL
+                try:
+                    self.logger.info(f"📧 Trying SMTP SSL on port 465...")
+                    with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, context=ctx, timeout=30) as server:
+                        server.login(self.smtp_username, self.smtp_password)
+                        server.send_message(msg)
+                    self.logger.info(f"✅ Cap alert email sent via SSL to {recipients}")
+                    return True
+                except Exception as e2:
+                    self.logger.error(f"❌ Both SMTP methods failed. STARTTLS: {e1}, SSL: {e2}")
+                    return False
             
         except Exception as e:
             self.logger.error(f"Error sending email: {str(e)}")

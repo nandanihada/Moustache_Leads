@@ -48,19 +48,35 @@ class EmailService:
     
     def _send_email_smtp(self, msg) -> bool:
         """
-        Send email using Hostinger SMTP with SSL on port 465.
-        Creates connection at send time and closes immediately after.
-        No persistent connections, no retry loops, no pooling.
+        Send email using Hostinger SMTP.
+        Tries STARTTLS on port 587 first (works on more hosting platforms),
+        then falls back to SSL on port 465.
         """
+        ctx = ssl.create_default_context()
+        
+        # Try port 587 with STARTTLS first (works on more hosting platforms like Render)
         try:
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, context=context, timeout=30) as server:
+            logger.info(f"📧 Trying SMTP STARTTLS on port 587...")
+            with smtplib.SMTP(self.smtp_host, 587, timeout=30) as server:
+                server.starttls(context=ctx)
                 server.login(self.smtp_user, self.smtp_pass)
                 server.send_message(msg)
+            logger.info(f"✅ Email sent via STARTTLS port 587")
             return True
-        except Exception as e:
-            logger.error(f"❌ SMTP send failed: {str(e)}")
-            return False
+        except Exception as e1:
+            logger.warning(f"⚠️ STARTTLS 587 failed: {e1}")
+            
+            # Fallback to port 465 with SSL
+            try:
+                logger.info(f"📧 Trying SMTP SSL on port 465...")
+                with smtplib.SMTP_SSL(self.smtp_host, 465, context=ctx, timeout=30) as server:
+                    server.login(self.smtp_user, self.smtp_pass)
+                    server.send_message(msg)
+                logger.info(f"✅ Email sent via SSL port 465")
+                return True
+            except Exception as e2:
+                logger.error(f"❌ Both SMTP methods failed. STARTTLS: {e1}, SSL: {e2}")
+                return False
     
     def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
         """Send email using SMTP - creates connection, sends, closes immediately"""
