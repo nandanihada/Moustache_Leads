@@ -23,6 +23,10 @@ class EmailService:
         self.from_email = os.getenv('FROM_EMAIL', self.smtp_user)
         self.email_debug = os.getenv('EMAIL_DEBUG', 'false').lower() == 'true'
         
+        # Debug: Log what we found
+        logger.info(f"📧 EmailService Config - Host: {self.smtp_host}, Port: {self.smtp_port}")
+        logger.info(f"📧 EmailService Config - User set: {bool(self.smtp_user)}, Pass set: {bool(self.smtp_pass)}, From: {self.from_email}")
+        
         # Check if email is configured
         self.is_configured = all([
             self.smtp_host,
@@ -32,9 +36,9 @@ class EmailService:
         ])
         
         if not self.is_configured:
-            logger.warning("⚠️ Email service not fully configured. Check SMTP settings in .env")
+            logger.warning(f"⚠️ Email service not configured. Missing: host={bool(self.smtp_host)}, user={bool(self.smtp_user)}, pass={bool(self.smtp_pass)}, from={bool(self.from_email)}")
         else:
-            logger.info(f"📧 Email service configured: host={self.smtp_host}, port={self.smtp_port}, from={self.from_email}")
+            logger.info(f"✅ Email service ready: {self.smtp_host}:{self.smtp_port} from {self.from_email}")
     
     def _send_email_smtp(self, msg) -> bool:
         """
