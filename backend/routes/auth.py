@@ -163,37 +163,38 @@ def email_diagnostic():
             return jsonify({'error': 'Admin access required'}), 403
         
         import os
+        import ssl
         
-        # Get email configuration
-        smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-        smtp_port = os.getenv('SMTP_PORT', '587')
-        smtp_username = os.getenv('SMTP_USERNAME')
-        smtp_password = os.getenv('SMTP_PASSWORD')
+        # Get email configuration - using new Hostinger SMTP variables
+        smtp_host = os.getenv('SMTP_HOST', 'smtp.hostinger.com')
+        smtp_port = os.getenv('SMTP_PORT', '465')
+        smtp_user = os.getenv('SMTP_USER')
+        smtp_pass = os.getenv('SMTP_PASS')
         from_email = os.getenv('FROM_EMAIL')
         email_debug = os.getenv('EMAIL_DEBUG', 'false')
-        frontend_url = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
         
         # Check configuration status
         config_status = {
-            'smtp_server': smtp_server,
+            'smtp_host': smtp_host,
             'smtp_port': smtp_port,
-            'smtp_username_set': bool(smtp_username),
-            'smtp_password_set': bool(smtp_password),
+            'smtp_user_set': bool(smtp_user),
+            'smtp_pass_set': bool(smtp_pass),
             'from_email': from_email,
             'email_debug_mode': email_debug,
             'frontend_url': frontend_url,
-            'is_fully_configured': all([smtp_username, smtp_password, from_email])
+            'is_fully_configured': all([smtp_host, smtp_user, smtp_pass, from_email])
         }
         
-        # Test SMTP connection (without sending)
+        # Test SMTP connection (without sending) - using SSL on port 465
         connection_test = {'status': 'not_tested', 'message': ''}
         try:
             import smtplib
-            with smtplib.SMTP(smtp_server, int(smtp_port), timeout=10) as server:
-                server.starttls()
-                if smtp_username and smtp_password:
-                    server.login(smtp_username, smtp_password)
-                    connection_test = {'status': 'success', 'message': 'SMTP connection and authentication successful'}
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(smtp_host, int(smtp_port), context=context, timeout=10) as server:
+                if smtp_user and smtp_pass:
+                    server.login(smtp_user, smtp_pass)
+                    connection_test = {'status': 'success', 'message': 'SMTP SSL connection and authentication successful'}
                 else:
                     connection_test = {'status': 'partial', 'message': 'SMTP connection successful but credentials not set'}
         except Exception as e:
@@ -673,7 +674,7 @@ def create_admin():
 
 @auth_bp.route('/verify-email', methods=['POST'])
 def verify_email():
-    """Verify email using verification token"""
+    """Verify email using verification token and auto-login user"""
     try:
         data = request.get_json()
         
@@ -704,23 +705,38 @@ def verify_email():
             import threading
             def send_review_email_async():
                 try:
+                    logging.info(f"📧 Attempting to send Application Under Review email to {email}")
+                    logging.info(f"📧 Email service configured: {verification_service.is_configured}")
                     name = user_data.get('first_name') or user_data.get('username', 'User')
-                    verification_service.send_application_under_review_email(email, name)
-                    logging.info(f"📧 Application under review email sent to {email}")
+                    result = verification_service.send_application_under_review_email(email, name)
+                    if result:
+                        logging.info(f"✅ Application under review email SENT to {email}")
+                    else:
+                        logging.warning(f"⚠️ Application under review email FAILED for {email} - service may not be configured")
                 except Exception as e:
-                    logging.error(f"Failed to send application review email: {str(e)}")
+                    logging.error(f"❌ Failed to send application review email: {str(e)}", exc_info=True)
             
             email_thread = threading.Thread(target=send_review_email_async, daemon=True)
             email_thread.start()
+            logging.info(f"📧 Email 2 (Application Under Review) thread started for {email}")
+            
+            # Generate auth token for auto-login
+            auth_token = generate_token(user_data)
             
             return jsonify({
                 'message': 'Email verified successfully',
+                'token': auth_token,  # Auth token for auto-login
+                'auto_login': True,
                 'user': {
                     'id': str(user_data['_id']),
                     'username': user_data['username'],
                     'email': user_data['email'],
                     'email_verified': user_data.get('email_verified', False),
-                    'role': user_data.get('role', 'user')
+                    'role': user_data.get('role', 'user'),
+                    'first_name': user_data.get('first_name'),
+                    'last_name': user_data.get('last_name'),
+                    'company_name': user_data.get('company_name'),
+                    'website': user_data.get('website')
                 }
             }), 200
         else:

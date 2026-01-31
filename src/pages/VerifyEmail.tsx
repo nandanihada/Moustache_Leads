@@ -3,10 +3,12 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Mail, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { API_BASE_URL } from '../services/apiConfig';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const token = searchParams.get('token');
@@ -32,11 +34,30 @@ export default function VerifyEmail() {
 
         if (response.ok) {
           setStatus('success');
-          setMessage('Email verified successfully! Redirecting...');
-          // Redirect to login after 2 seconds
-          setTimeout(() => {
-            navigate('/login');
-          }, 2000);
+          
+          // Auto-login if token is provided
+          if (data.token && data.user && data.auto_login) {
+            setMessage('Email verified! Signing you in...');
+            
+            // Login the user
+            login(data.token, {
+              id: data.user.id,
+              username: data.user.username,
+              email: data.user.email,
+              role: data.user.role || 'user'
+            });
+            
+            // Redirect to dashboard after brief delay
+            setTimeout(() => {
+              navigate('/dashboard');
+            }, 1500);
+          } else {
+            setMessage('Email verified successfully! Redirecting to login...');
+            // Fallback: redirect to login
+            setTimeout(() => {
+              navigate('/login');
+            }, 2000);
+          }
         } else {
           setStatus('error');
           setMessage(data.error || 'Failed to verify email');
@@ -48,7 +69,7 @@ export default function VerifyEmail() {
     };
 
     verifyEmail();
-  }, [token, navigate]);
+  }, [token, navigate, login]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">

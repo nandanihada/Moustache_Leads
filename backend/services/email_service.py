@@ -7,6 +7,12 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from typing import List, Dict
 import threading
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from the backend/.env file
+env_path = Path(__file__).resolve().parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 logger = logging.getLogger(__name__)
 

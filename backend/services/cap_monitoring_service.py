@@ -1,11 +1,18 @@
 from datetime import datetime, timedelta
 from database import db_instance
 import logging
-# Email imports - optional for now
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+env_path = Path(__file__).resolve().parent.parent / '.env'
+load_dotenv(dotenv_path=env_path)
+
+# Email imports
 try:
     import smtplib
-    from email.mime.text import MimeText
-    from email.mime.multipart import MimeMultipart
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
     EMAIL_AVAILABLE = True
 except ImportError:
     EMAIL_AVAILABLE = False
@@ -23,11 +30,11 @@ class CapMonitoringService:
         self.conversions_collection = db_instance.get_collection('conversions')
         self.alerts_collection = db_instance.get_collection('cap_alerts')
         
-        # Email configuration
-        self.smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-        self.smtp_port = int(os.getenv('SMTP_PORT', '587'))
-        self.smtp_username = os.getenv('SMTP_USERNAME', '')
-        self.smtp_password = os.getenv('SMTP_PASSWORD', '')
+        # Email configuration - using new Hostinger SMTP variables
+        self.smtp_server = os.getenv('SMTP_HOST', 'smtp.hostinger.com')
+        self.smtp_port = int(os.getenv('SMTP_PORT', '465'))
+        self.smtp_username = os.getenv('SMTP_USER', '')
+        self.smtp_password = os.getenv('SMTP_PASS', '')
         self.from_email = os.getenv('FROM_EMAIL', 'noreply@pepeleads.com')
     
     def check_offer_caps(self, offer_id):
@@ -314,7 +321,7 @@ class CapMonitoringService:
         """
     
     def _send_email(self, recipients, subject, body):
-        """Send email notification"""
+        """Send email notification using Hostinger SMTP with SSL"""
         if not EMAIL_AVAILABLE:
             self.logger.warning("Email functionality not available, skipping email")
             return False
@@ -324,6 +331,8 @@ class CapMonitoringService:
             return False
         
         try:
+            import ssl
+            
             # Debug mode - log email content
             if os.getenv('EMAIL_DEBUG', '').lower() == 'true':
                 self.logger.info("=" * 50)
@@ -332,20 +341,21 @@ class CapMonitoringService:
                 self.logger.info(f"Subject: {subject}")
                 self.logger.info(f"Body: {body}")
                 self.logger.info("=" * 50)
+                return True
             
             # Create message
-            msg = MimeMultipart('alternative')
+            msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
             msg['From'] = self.from_email
             msg['To'] = ', '.join(recipients)
             
             # Add HTML body
-            html_part = MimeText(body, 'html')
+            html_part = MIMEText(body, 'html')
             msg.attach(html_part)
             
-            # Send email
-            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
-                server.starttls()
+            # Send email using SSL on port 465
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(self.smtp_server, self.smtp_port, context=context, timeout=30) as server:
                 server.login(self.smtp_username, self.smtp_password)
                 server.send_message(msg)
             
