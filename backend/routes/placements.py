@@ -61,6 +61,24 @@ def create_placement():
             'createdAt': placement['createdAt'].isoformat()
         }
         
+        # Send placement created email (Email 3)
+        import threading
+        def send_placement_email_async():
+            try:
+                from services.email_verification_service import get_email_verification_service
+                verification_service = get_email_verification_service()
+                user_email = current_user.get('email')
+                user_name = current_user.get('first_name') or current_user.get('username', 'User')
+                placement_name = placement.get('offerwallTitle', 'New Placement')
+                placement_id = placement.get('placementIdentifier', str(placement['_id']))
+                verification_service.send_placement_created_email(user_email, user_name, placement_name, placement_id)
+                logger.info(f"📧 Placement created email sent to {user_email}")
+            except Exception as e:
+                logger.error(f"Failed to send placement created email: {str(e)}")
+        
+        email_thread = threading.Thread(target=send_placement_email_async, daemon=True)
+        email_thread.start()
+        
         return jsonify(response_data), 201
         
     except Exception as e:

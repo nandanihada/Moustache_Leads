@@ -69,6 +69,22 @@ SPREADSHEET_TO_DB_MAPPING = {
     'payout_model': 'payout_model',
     'payout model': 'payout_model',
     'model': 'payout_model',
+    # NEW: Approval workflow fields
+    'approval_type': 'approval_type',
+    'approval type': 'approval_type',
+    'auto_approve_delay': 'auto_approve_delay',
+    'auto approve delay': 'auto_approve_delay',
+    'approval_delay': 'auto_approve_delay',
+    'approval delay': 'auto_approve_delay',
+    'require_approval': 'require_approval',
+    'require approval': 'require_approval',
+    'approval_required': 'require_approval',
+    # NEW: Offerwall visibility
+    'show_in_offerwall': 'show_in_offerwall',
+    'show in offerwall': 'show_in_offerwall',
+    'offerwall': 'show_in_offerwall',
+    'visible': 'show_in_offerwall',
+    'visible_in_offerwall': 'show_in_offerwall',
 }
 
 # Required fields that must be present in spreadsheet
@@ -107,6 +123,12 @@ DEFAULT_VALUES = {
     'non_access_url': '',  # Empty = use system default
     'revenue_share_percent': 0,  # 0 = fixed payout
     'incentive_type': 'Incent',  # Default for fixed payout
+    # NEW: Approval workflow defaults
+    'approval_type': 'auto_approve',  # auto_approve, time_based, manual
+    'auto_approve_delay': 0,  # Minutes delay for time_based approval
+    'require_approval': False,  # Whether approval is required
+    # NEW: Offerwall visibility
+    'show_in_offerwall': True,  # Whether to show in offerwall (default: yes)
 }
 
 # List of real offer images to use as defaults
@@ -494,6 +516,67 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
         allowed_countries = result['allowed_countries']
         if isinstance(allowed_countries, str):
             result['allowed_countries'] = [c.strip().upper() for c in allowed_countries.split(',') if c.strip()]
+    
+    # Handle approval workflow settings
+    approval_type = result.get('approval_type', 'auto_approve')
+    auto_approve_delay = result.get('auto_approve_delay', 0)
+    require_approval = result.get('require_approval', False)
+    
+    # Normalize approval_type values
+    if isinstance(approval_type, str):
+        approval_type = approval_type.lower().strip()
+        if approval_type in ['direct', 'instant', 'immediate', 'auto', 'auto_approve']:
+            approval_type = 'auto_approve'
+        elif approval_type in ['time', 'time_based', 'timed', 'delay', 'delayed']:
+            approval_type = 'time_based'
+        elif approval_type in ['manual', 'admin', 'approval']:
+            approval_type = 'manual'
+        else:
+            approval_type = 'auto_approve'  # Default
+    
+    # Parse auto_approve_delay (convert to minutes)
+    if auto_approve_delay:
+        try:
+            delay_str = str(auto_approve_delay).lower().strip()
+            # Handle formats like "60", "60m", "1h", "1 hour"
+            if 'h' in delay_str or 'hour' in delay_str:
+                hours = float(re.sub(r'[^\d.]', '', delay_str))
+                auto_approve_delay = int(hours * 60)
+            elif 'd' in delay_str or 'day' in delay_str:
+                days = float(re.sub(r'[^\d.]', '', delay_str))
+                auto_approve_delay = int(days * 24 * 60)
+            else:
+                auto_approve_delay = int(float(re.sub(r'[^\d.]', '', delay_str)))
+        except (ValueError, TypeError):
+            auto_approve_delay = 0
+    
+    # Parse require_approval (convert to boolean)
+    if isinstance(require_approval, str):
+        require_approval = require_approval.lower().strip() in ['true', 'yes', '1', 'on']
+    else:
+        require_approval = bool(require_approval)
+    
+    # Auto-set require_approval based on approval_type
+    if approval_type in ['time_based', 'manual']:
+        require_approval = True
+    
+    # Build approval_settings object
+    result['approval_settings'] = {
+        'type': approval_type,
+        'require_approval': require_approval,
+        'auto_approve_delay': auto_approve_delay,
+        'approval_message': '',
+        'max_inactive_days': 0
+    }
+    
+    # Set affiliates to 'request' if approval is required
+    if require_approval or approval_type in ['time_based', 'manual']:
+        result['affiliates'] = 'request'
+    
+    # Store individual fields for backward compatibility
+    result['approval_type'] = approval_type
+    result['auto_approve_delay'] = auto_approve_delay
+    result['require_approval'] = require_approval
     
     # Apply other defaults
     for field, default_value in DEFAULT_VALUES.items():

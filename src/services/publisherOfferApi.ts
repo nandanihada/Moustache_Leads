@@ -81,6 +81,9 @@ export interface PublisherOffer {
   request_status?: 'pending' | 'approved' | 'rejected';
   requested_at?: string;
   approved_at?: string;
+  // Lock/visibility fields
+  is_locked?: boolean;
+  lock_reason?: string;
 }
 
 export interface GetOffersParams {

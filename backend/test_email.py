@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Email Configuration Test Script
+Email Configuration Test Script - Hostinger SMTP
 Run this to test if your SMTP settings are working correctly.
 
 Usage:
@@ -21,108 +21,79 @@ from dotenv import load_dotenv
 load_dotenv()
 
 def test_email_config():
-    """Test email configuration"""
+    """Test Hostinger SMTP configuration"""
     
-    smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-    smtp_port = int(os.getenv('SMTP_PORT', '587'))
-    smtp_username = os.getenv('SMTP_USERNAME')
-    smtp_password = os.getenv('SMTP_PASSWORD')
-    from_email = os.getenv('FROM_EMAIL')
+    smtp_host = os.getenv('SMTP_HOST', 'smtp.hostinger.com')
+    smtp_port = int(os.getenv('SMTP_PORT', '465'))
+    smtp_user = os.getenv('SMTP_USER')
+    smtp_pass = os.getenv('SMTP_PASS')
+    from_email = os.getenv('FROM_EMAIL', smtp_user)
     
     print("=" * 60)
-    print("EMAIL CONFIGURATION TEST")
+    print("HOSTINGER EMAIL CONFIGURATION TEST")
     print("=" * 60)
-    print(f"\nSMTP Server: {smtp_server}")
+    print(f"\nSMTP Host: {smtp_host}")
     print(f"SMTP Port: {smtp_port}")
-    print(f"Username: {smtp_username}")
-    print(f"Password: {'*' * len(smtp_password) if smtp_password else 'NOT SET'}")
+    print(f"SMTP User: {smtp_user}")
+    print(f"SMTP Pass: {'*' * len(smtp_pass) if smtp_pass else 'NOT SET'}")
     print(f"From Email: {from_email}")
     print()
     
-    if not all([smtp_username, smtp_password, from_email]):
-        print("❌ ERROR: Missing required email configuration!")
+    if not all([smtp_host, smtp_user, smtp_pass, from_email]):
+        print("ERROR: Missing required email configuration!")
         print("   Please check your .env file has:")
-        print("   - SMTP_USERNAME")
-        print("   - SMTP_PASSWORD")
+        print("   - SMTP_HOST")
+        print("   - SMTP_PORT")
+        print("   - SMTP_USER")
+        print("   - SMTP_PASS")
         print("   - FROM_EMAIL")
         return False
     
-    # Test Method 1: TLS on port 587
-    print("\n📧 Testing Method 1: TLS on port 587...")
-    try:
-        with smtplib.SMTP(smtp_server, 587, timeout=30) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(smtp_username, smtp_password)
-            print("✅ Method 1 SUCCESS! TLS connection works.")
-            return True
-    except Exception as e:
-        print(f"❌ Method 1 FAILED: {str(e)}")
-    
-    # Test Method 2: SSL on port 465
-    print("\n📧 Testing Method 2: SSL on port 465...")
+    # Test SSL connection on port 465 (Hostinger standard)
+    print("\nTesting Hostinger SMTP SSL connection on port 465...")
     try:
         context = ssl.create_default_context()
-        with smtplib.SMTP_SSL(smtp_server, 465, context=context, timeout=30) as server:
-            server.login(smtp_username, smtp_password)
-            print("✅ Method 2 SUCCESS! SSL connection works.")
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context, timeout=30) as server:
+            server.login(smtp_user, smtp_pass)
+            print("SUCCESS! SSL connection to Hostinger SMTP works.")
             return True
     except Exception as e:
-        print(f"❌ Method 2 FAILED: {str(e)}")
-    
-    # Test Method 3: Relaxed SSL
-    print("\n📧 Testing Method 3: Relaxed SSL...")
-    try:
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        with smtplib.SMTP_SSL(smtp_server, 465, context=context, timeout=30) as server:
-            server.login(smtp_username, smtp_password)
-            print("✅ Method 3 SUCCESS! Relaxed SSL connection works.")
-            return True
-    except Exception as e:
-        print(f"❌ Method 3 FAILED: {str(e)}")
+        print(f"FAILED: {str(e)}")
     
     print("\n" + "=" * 60)
-    print("❌ ALL METHODS FAILED!")
+    print("CONNECTION FAILED!")
     print("=" * 60)
     print("\nPossible solutions:")
-    print("1. For Gmail:")
-    print("   - Enable 2-Factor Authentication")
-    print("   - Generate a NEW App Password at:")
-    print("     https://myaccount.google.com/apppasswords")
-    print("   - Use the 16-character password (no spaces)")
-    print()
-    print("2. Try an alternative SMTP provider:")
-    print("   - Brevo (free): smtp-relay.brevo.com")
-    print("   - SendGrid (free tier): smtp.sendgrid.net")
-    print("   - Mailgun (free tier): smtp.mailgun.org")
+    print("1. Verify your Hostinger email credentials")
+    print("2. Check that the email account exists in Hostinger")
+    print("3. Ensure DNS (MX, SPF, DKIM) is properly configured")
+    print("4. Try logging into webmail at mail.hostinger.com")
     print()
     return False
 
 
 def send_test_email(recipient):
-    """Send a test email"""
+    """Send a test email via Hostinger SMTP"""
     
-    smtp_server = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-    smtp_username = os.getenv('SMTP_USERNAME')
-    smtp_password = os.getenv('SMTP_PASSWORD')
-    from_email = os.getenv('FROM_EMAIL')
+    smtp_host = os.getenv('SMTP_HOST', 'smtp.hostinger.com')
+    smtp_port = int(os.getenv('SMTP_PORT', '465'))
+    smtp_user = os.getenv('SMTP_USER')
+    smtp_pass = os.getenv('SMTP_PASS')
+    from_email = os.getenv('FROM_EMAIL', smtp_user)
     
-    print(f"\n📧 Sending test email to: {recipient}")
+    print(f"\nSending test email to: {recipient}")
     
     # Create message
     msg = MIMEMultipart('alternative')
-    msg['Subject'] = "🧪 MustacheLeads Email Test"
+    msg['Subject'] = "MustacheLeads Email Test"
     msg['From'] = from_email
     msg['To'] = recipient
     
     html_content = """
     <html>
     <body style="font-family: Arial, sans-serif; padding: 20px;">
-        <h1 style="color: #6366f1;">✅ Email Test Successful!</h1>
-        <p>If you're reading this, your email configuration is working correctly.</p>
+        <h1 style="color: #6366f1;">Email Test Successful!</h1>
+        <p>If you're reading this, your Hostinger email configuration is working correctly.</p>
         <p style="color: #666;">This is a test email from MustacheLeads.</p>
     </body>
     </html>
@@ -131,30 +102,17 @@ def send_test_email(recipient):
     html_part = MIMEText(html_content, 'html')
     msg.attach(html_part)
     
-    # Try to send
+    # Send via SSL on port 465
     try:
-        with smtplib.SMTP(smtp_server, 587, timeout=30) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(smtp_username, smtp_password)
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context, timeout=30) as server:
+            server.login(smtp_user, smtp_pass)
             server.send_message(msg)
-        print(f"✅ Test email sent successfully to {recipient}!")
+        print(f"Test email sent successfully to {recipient}!")
         return True
     except Exception as e:
-        print(f"❌ Failed to send test email: {str(e)}")
-        
-        # Try SSL method
-        try:
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(smtp_server, 465, context=context, timeout=30) as server:
-                server.login(smtp_username, smtp_password)
-                server.send_message(msg)
-            print(f"✅ Test email sent successfully via SSL to {recipient}!")
-            return True
-        except Exception as e2:
-            print(f"❌ SSL method also failed: {str(e2)}")
-            return False
+        print(f"Failed to send test email: {str(e)}")
+        return False
 
 
 if __name__ == "__main__":
@@ -166,7 +124,7 @@ if __name__ == "__main__":
         recipient = sys.argv[1]
         send_test_email(recipient)
     elif len(sys.argv) > 1:
-        print("\n⚠️ Cannot send test email - configuration test failed first.")
+        print("\nCannot send test email - configuration test failed first.")
     else:
-        print("\n💡 Tip: Run with an email address to send a test email:")
+        print("\nTip: Run with an email address to send a test email:")
         print("   python test_email.py your@email.com")

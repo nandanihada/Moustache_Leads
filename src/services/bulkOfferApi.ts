@@ -16,13 +16,26 @@ export interface BulkUploadResult {
   }>;
 }
 
+export interface BulkUploadOptions {
+  approval_type?: string;
+  auto_approve_delay?: number;
+  require_approval?: boolean;
+  default_star_rating?: number;
+  default_timer?: number;
+}
+
 export const bulkOfferApi = {
   /**
    * Upload file (Excel or CSV) for bulk offer creation
    */
-  uploadFile: async (file: File): Promise<BulkUploadResult> => {
+  uploadFile: async (file: File, options?: BulkUploadOptions): Promise<BulkUploadResult> => {
     const formData = new FormData();
     formData.append('file', file);
+    
+    // Add options as JSON string
+    if (options) {
+      formData.append('options', JSON.stringify(options));
+    }
 
     const token = localStorage.getItem('token');
 
@@ -63,7 +76,7 @@ export const bulkOfferApi = {
   /**
    * Upload offers from Google Sheets URL
    */
-  uploadFromGoogleSheets: async (url: string): Promise<BulkUploadResult> => {
+  uploadFromGoogleSheets: async (url: string, options?: BulkUploadOptions): Promise<BulkUploadResult> => {
     const token = localStorage.getItem('token');
 
     const response = await fetch(`${API_BASE_URL}/api/admin/offers/bulk-upload`, {
@@ -72,7 +85,7 @@ export const bulkOfferApi = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`,
       },
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, options }),
     });
 
     const data = await response.json();

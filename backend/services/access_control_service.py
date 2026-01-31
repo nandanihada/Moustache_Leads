@@ -13,6 +13,37 @@ class AccessControlService:
         self.users_collection = db_instance.get_collection('users')
         self.affiliate_requests_collection = db_instance.get_collection('affiliate_requests')
         self.affiliate_stats_collection = db_instance.get_collection('affiliate_stats')
+        self.recent_activity_collection = db_instance.get_collection('recent_activity')
+    
+    def _log_activity(self, activity_type, user_id, offer_id, details=None):
+        """Log activity to recent_activity collection"""
+        try:
+            if not self.recent_activity_collection:
+                return
+            
+            # Get user info
+            user = self.users_collection.find_one({'_id': user_id}) if user_id else None
+            
+            # Get offer info
+            offer = self.offers_collection.find_one({'offer_id': offer_id}) if offer_id else None
+            
+            activity_doc = {
+                'type': activity_type,
+                'user_id': str(user_id) if user_id else None,
+                'username': user.get('username') if user else None,
+                'email': user.get('email') if user else None,
+                'offer_id': offer_id,
+                'offer_name': offer.get('name') if offer else None,
+                'details': details or {},
+                'created_at': datetime.utcnow(),
+                'timestamp': datetime.utcnow()
+            }
+            
+            self.recent_activity_collection.insert_one(activity_doc)
+            self.logger.info(f"📝 Activity logged: {activity_type} for user {user.get('username') if user else 'unknown'}")
+            
+        except Exception as e:
+            self.logger.error(f"Error logging activity: {str(e)}")
     
     def check_offer_access(self, offer_id, user_id):
         """
@@ -116,29 +147,77 @@ class AccessControlService:
             if not offer:
                 return {'error': 'Offer not found'}
             
-            # Check offer approval status
-            if offer.get('approval_status') != 'active':
-                return {'error': f'Offer is currently {offer.get("approval_status", "inactive")}'}
+            # Check offer status - allow if status is 'active' or approval_status is 'active' or not set
+            offer_status = offer.get('status', 'active')
+            approval_status = offer.get('approval_status', 'active')
+            
+            # Only block if explicitly set to something other than 'active'
+            if offer_status not in ['active', None, ''] and approval_status not in ['active', None, '']:
+                return {'error': f'Offer is currently {offer_status}'}
             
             # Check if offer requires approval
             approval_settings = offer.get('approval_settings', {})
-            approval_type = approval_settings.get('type', 'auto_approve')
+            approval_type = approval_settings.get('type', 'manual')  # Default to manual approval
             
-            if approval_type == 'auto_approve' and not approval_settings.get('require_approval', False):
+            # Check the affiliates field - if it's 'request', it means manual approval is required
+            affiliates_setting = offer.get('affiliates', 'all')
+            
+            # Only auto-approve if:
+            # 1. approval_type is explicitly set to 'auto_approve' AND
+            # 2. affiliates is NOT 'request' (which means manual approval)
+            if approval_type == 'auto_approve' and affiliates_setting != 'request':
                 # Auto-approve immediately
                 return self._auto_approve_request(offer_id, user_id, message, offer)
             
-            # Check if request already exists
-            existing_request = self.affiliate_requests_collection.find_one({
+            # Check if request already exists - check both string and ObjectId formats
+            user_id_str = str(user_id)
+            existing_query = {
                 'offer_id': offer_id,
-                'user_id': user_id
-            })
+                '$or': [
+                    {'user_id': user_id_str},
+                    {'user_id': user_id},
+                    {'publisher_id': user_id_str},
+                    {'publisher_id': user_id}
+                ]
+            }
+            try:
+                from bson import ObjectId
+                if ObjectId.is_valid(user_id_str):
+                    user_obj_id = ObjectId(user_id_str)
+                    existing_query['$or'].extend([
+                        {'user_id': user_obj_id},
+                        {'publisher_id': user_obj_id}
+                    ])
+            except:
+                pass
+            
+            existing_request = self.affiliate_requests_collection.find_one(existing_query)
             
             if existing_request:
-                return {
-                    'error': 'Request already exists',
-                    'status': existing_request.get('status', 'pending')
-                }
+                existing_status = existing_request.get('status', 'pending')
+                # If already approved, return success with the status
+                if existing_status == 'approved':
+                    return {
+                        'message': 'Access already granted',
+                        'status': 'approved',
+                        'request': existing_request
+                    }
+                # If pending, inform user
+                elif existing_status == 'pending':
+                    return {
+                        'error': 'Request already pending',
+                        'status': 'pending'
+                    }
+                # If rejected, allow re-request
+                elif existing_status == 'rejected':
+                    # Delete old rejected request and allow new one
+                    self.affiliate_requests_collection.delete_one({'_id': existing_request['_id']})
+                    self.logger.info(f"Deleted rejected request, allowing new request for offer {offer_id}")
+                else:
+                    return {
+                        'error': 'Request already exists',
+                        'status': existing_status
+                    }
             
             # Get user info
             user = self.users_collection.find_one({'_id': user_id})
@@ -162,6 +241,19 @@ class AccessControlService:
             
             result = self.affiliate_requests_collection.insert_one(request_doc)
             request_doc['_id'] = str(result.inserted_id)
+            
+            # Log activity for offer access request
+            self._log_activity(
+                'offer_access_request',
+                user_id,
+                offer_id,
+                {
+                    'request_id': request_doc['request_id'],
+                    'approval_type': approval_type,
+                    'message': message or '',
+                    'status': 'pending'
+                }
+            )
             
             # Handle time-based approval
             if approval_type == 'time_based':
@@ -205,6 +297,19 @@ class AccessControlService:
             result = self.affiliate_requests_collection.insert_one(request_doc)
             request_doc['_id'] = str(result.inserted_id)
             
+            # Log activity for auto-approved request
+            self._log_activity(
+                'offer_access_approved',
+                user_id,
+                offer_id,
+                {
+                    'request_id': request_doc['request_id'],
+                    'approval_type': 'auto_approve',
+                    'approved_by': 'system',
+                    'status': 'approved'
+                }
+            )
+            
             return {
                 'request': request_doc,
                 'message': 'Access granted immediately',
@@ -240,6 +345,20 @@ class AccessControlService:
                         }
                     )
                     self.logger.info(f"Auto-approved request {request_id} after {delay_minutes} minutes")
+                    
+                    # Log activity for time-based auto-approval
+                    self._log_activity(
+                        'offer_access_approved',
+                        request.get('user_id'),
+                        request.get('offer_id'),
+                        {
+                            'request_id': request_id,
+                            'approved_by': 'system_auto',
+                            'approval_type': 'time_based',
+                            'delay_minutes': delay_minutes,
+                            'status': 'approved'
+                        }
+                    )
                 
             except Exception as e:
                 self.logger.error(f"Error in auto-approval: {str(e)}")
@@ -297,6 +416,19 @@ class AccessControlService:
             self.affiliate_requests_collection.update_one(
                 {'request_id': request_id},
                 {'$set': update_data}
+            )
+            
+            # Log activity for approval
+            self._log_activity(
+                'offer_access_approved',
+                request.get('user_id'),
+                request.get('offer_id'),
+                {
+                    'request_id': request_id,
+                    'approved_by': approved_by,
+                    'notes': notes or '',
+                    'status': 'approved'
+                }
             )
             
             return {
@@ -536,47 +668,133 @@ class AccessControlService:
             self.logger.error(f"Error getting access requests: {str(e)}")
             return []
     
-    def approve_access_request(self, request_id, offer_id):
-        """Approve an access request"""
+    def approve_access_request_by_id(self, request_id, offer_id):
+        """Approve an access request by request_id and offer_id"""
         try:
+            self.logger.info(f"🔍 Approving request: request_id={request_id}, offer_id={offer_id}")
+            
+            # Build flexible query to find the request
+            query_conditions = []
+            
+            # Try request_id if provided
+            if request_id:
+                query_conditions.append({'request_id': request_id, 'offer_id': offer_id})
+                query_conditions.append({'request_id': request_id})
+            
+            # Try by ObjectId if request_id looks like one
+            try:
+                from bson import ObjectId
+                if request_id and ObjectId.is_valid(str(request_id)):
+                    query_conditions.append({'_id': ObjectId(str(request_id))})
+            except:
+                pass
+            
+            # Find the request using any matching condition
+            request = None
+            for query in query_conditions:
+                request = self.affiliate_requests_collection.find_one(query)
+                if request:
+                    self.logger.info(f"✅ Found request with query: {query}")
+                    break
+            
+            if not request:
+                self.logger.error(f"❌ Request not found: request_id={request_id}, offer_id={offer_id}")
+                return {'error': 'Access request not found'}
+            
+            # Update using the _id which is guaranteed to be unique
             result = self.affiliate_requests_collection.update_one(
-                {'request_id': request_id, 'offer_id': offer_id},
+                {'_id': request['_id']},
                 {
                     '$set': {
                         'status': 'approved',
-                        'approved_at': datetime.utcnow()
+                        'approved_at': datetime.utcnow(),
+                        'updated_at': datetime.utcnow()
                     }
                 }
             )
             
-            if result.matched_count == 0:
-                return {'error': 'Access request not found'}
+            self.logger.info(f"📝 Update result: matched={result.matched_count}, modified={result.modified_count}")
             
-            return {'success': True, 'request_id': request_id}
+            if result.matched_count == 0:
+                return {'error': 'Failed to update access request'}
+            
+            # Log activity for approval
+            self._log_activity(
+                'offer_access_approved',
+                request.get('user_id'),
+                request.get('offer_id') or offer_id,
+                {
+                    'request_id': request.get('request_id') or str(request['_id']),
+                    'approved_by': 'admin',
+                    'status': 'approved'
+                }
+            )
+            
+            return {'success': True, 'request_id': request.get('request_id') or str(request['_id'])}
             
         except Exception as e:
-            self.logger.error(f"Error approving access request: {str(e)}")
+            self.logger.error(f"Error approving access request: {str(e)}", exc_info=True)
             return {'error': f'Failed to approve request: {str(e)}'}
     
-    def reject_access_request(self, request_id, offer_id, reason=''):
-        """Reject an access request"""
+    def reject_access_request_by_id(self, request_id, offer_id, reason=''):
+        """Reject an access request by request_id and offer_id"""
         try:
+            self.logger.info(f"🔍 Rejecting request: request_id={request_id}, offer_id={offer_id}")
+            
+            # Build flexible query to find the request
+            query_conditions = []
+            
+            if request_id:
+                query_conditions.append({'request_id': request_id, 'offer_id': offer_id})
+                query_conditions.append({'request_id': request_id})
+            
+            try:
+                from bson import ObjectId
+                if request_id and ObjectId.is_valid(str(request_id)):
+                    query_conditions.append({'_id': ObjectId(str(request_id))})
+            except:
+                pass
+            
+            # Find the request
+            request = None
+            for query in query_conditions:
+                request = self.affiliate_requests_collection.find_one(query)
+                if request:
+                    break
+            
+            if not request:
+                return {'error': 'Access request not found'}
+            
             result = self.affiliate_requests_collection.update_one(
-                {'request_id': request_id, 'offer_id': offer_id},
+                {'_id': request['_id']},
                 {
                     '$set': {
                         'status': 'rejected',
                         'rejected_at': datetime.utcnow(),
-                        'rejection_reason': reason
+                        'rejection_reason': reason,
+                        'updated_at': datetime.utcnow()
                     }
                 }
             )
             
             if result.matched_count == 0:
-                return {'error': 'Access request not found'}
+                return {'error': 'Failed to update access request'}
             
-            return {'success': True, 'request_id': request_id}
+            # Log activity for rejection
+            self._log_activity(
+                'offer_access_rejected',
+                request.get('user_id'),
+                request.get('offer_id') or offer_id,
+                {
+                    'request_id': request.get('request_id') or str(request['_id']),
+                    'rejected_by': 'admin',
+                    'reason': reason,
+                    'status': 'rejected'
+                }
+            )
+            
+            return {'success': True, 'request_id': request.get('request_id') or str(request['_id'])}
             
         except Exception as e:
-            self.logger.error(f"Error rejecting access request: {str(e)}")
+            self.logger.error(f"Error rejecting access request: {str(e)}", exc_info=True)
             return {'error': f'Failed to reject request: {str(e)}'}

@@ -114,7 +114,7 @@ def get_dashboard_stats():
         
         # 4. Get Recent Activity - Only show offer-related activities
         # Get collections for recent activity
-        offer_requests_col = get_collection('offer_access_requests')
+        offer_requests_col = get_collection('affiliate_requests')
         
         # Try to convert user_id to ObjectId
         try:
@@ -338,7 +338,7 @@ def get_user_notifications():
         # Get collections
         promo_codes_col = get_collection('promo_codes')
         user_promo_codes_col = get_collection('user_promo_codes')
-        offer_requests_col = get_collection('offer_access_requests')
+        offer_requests_col = get_collection('affiliate_requests')
         forwarded_postbacks_col = get_collection('forwarded_postbacks')
         conversions_col = get_collection('offerwall_conversions')
         placements_col = get_collection('placements')

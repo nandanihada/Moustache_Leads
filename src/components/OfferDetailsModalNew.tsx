@@ -17,23 +17,29 @@ import {
   Calendar,
   Target,
   Monitor,
-  Smartphone
+  Smartphone,
+  Lock,
+  Clock,
+  Send
 } from 'lucide-react';
 import { Offer } from '@/services/adminOfferApi';
 import { PublisherOffer } from '@/services/publisherOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { userReportsApi } from '@/services/userReportsApi';
+import { publisherOfferApi } from '@/services/publisherOfferApi';
 
 interface OfferDetailsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   offer: Offer | PublisherOffer | null;
+  onAccessGranted?: () => void;
 }
 
 const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
   open,
   onOpenChange,
   offer,
+  onAccessGranted,
 }) => {
   const { toast } = useToast();
   const [trackingLink, setTrackingLink] = useState<string>('');
@@ -41,6 +47,16 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
   const [showQRCode, setShowQRCode] = useState<boolean>(false);
   const [stats, setStats] = useState<any>(null);
   const [loadingStats, setLoadingStats] = useState(false);
+  const [requestingAccess, setRequestingAccess] = useState(false);
+  const [requestMessage, setRequestMessage] = useState('');
+
+  // Check if offer is locked
+  const isLocked = offer && (
+    (offer as PublisherOffer).is_locked || 
+    ((offer as PublisherOffer).requires_approval && !(offer as PublisherOffer).has_access)
+  );
+  const hasAccess = offer && (offer as PublisherOffer).has_access !== false;
+  const requestStatus = offer && (offer as PublisherOffer).request_status;
 
   // Get tracking base URL - uses offers subdomain in production
   const getTrackingBaseUrl = () => {
@@ -55,7 +71,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
 
   // Generate tracking link when offer changes
   useEffect(() => {
-    if (offer) {
+    if (offer && hasAccess && !isLocked) {
       try {
         const baseUrl = getTrackingBaseUrl();
 
@@ -90,7 +106,33 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
     } else {
       setTrackingLink('');
     }
-  }, [offer, customSubId]);
+  }, [offer, customSubId, hasAccess, isLocked]);
+
+  // Handle request access
+  const handleRequestAccess = async () => {
+    if (!offer) return;
+    
+    try {
+      setRequestingAccess(true);
+      await publisherOfferApi.requestOfferAccess(offer.offer_id, requestMessage);
+      
+      toast({
+        title: "✅ Request Submitted",
+        description: `Your access request for "${offer.name}" has been submitted.`,
+      });
+      
+      setRequestMessage('');
+      onAccessGranted?.();
+    } catch (error: any) {
+      toast({
+        title: "Request Failed",
+        description: error.response?.data?.error || error.message || "Failed to submit access request",
+        variant: "destructive",
+      });
+    } finally {
+      setRequestingAccess(false);
+    }
+  };
 
   const fetchOfferStats = async (offerId: string) => {
     try {
@@ -221,97 +263,173 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
         </DialogHeader>
 
         {/* Tracking Link Section - Most Prominent */}
-        <Card className="border-2 border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Link className="h-5 w-5 text-blue-600" />
-              📍 Your Tracking Link
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Main Tracking Link Display */}
-            <div className="flex items-center gap-2">
-              <div className="flex-1 p-4 bg-white rounded-lg border-2 border-blue-300 font-mono text-sm break-all shadow-sm">
-                {trackingLink || 'Generating link...'}
-              </div>
-              <Button
-                onClick={() => copyToClipboard(trackingLink, 'Tracking Link')}
-                className="bg-blue-600 hover:bg-blue-700"
-                size="lg"
-              >
-                <Copy className="h-4 w-4 mr-2" />
-                Copy
-              </Button>
-            </div>
-
-            {/* Customize Tracking Link */}
-            <div className="bg-white p-4 rounded-lg border">
-              <div className="font-medium mb-2 text-sm">🎯 Customize Tracking Link</div>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Input
-                    placeholder="Add Custom Sub ID (e.g., twitter, campaign1)"
-                    value={customSubId}
-                    onChange={(e) => setCustomSubId(e.target.value)}
-                    className="font-mono text-sm"
-                  />
-                  <div className="text-xs text-muted-foreground mt-1">
-                    Use Sub IDs to track different traffic sources
+        {isLocked ? (
+          /* 🔒 LOCKED OFFER - Show request access instead of tracking link */
+          <Card className="border-2 border-yellow-500 bg-gradient-to-r from-yellow-50 to-orange-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Lock className="h-5 w-5 text-yellow-600" />
+                🔒 Offer Locked
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-center py-6">
+                <Lock className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
+                <h3 className="text-xl font-bold text-gray-800 mb-2">Access Required</h3>
+                <p className="text-gray-600 mb-4">
+                  {(offer as PublisherOffer).lock_reason || 'This offer requires approval before you can access it.'}
+                </p>
+                
+                {(offer as PublisherOffer).estimated_approval_time && (
+                  <div className="flex items-center justify-center gap-2 text-yellow-700 mb-4">
+                    <Clock className="h-4 w-4" />
+                    <span>Estimated approval: {(offer as PublisherOffer).estimated_approval_time}</span>
                   </div>
+                )}
+
+                {requestStatus === 'pending' ? (
+                  <div className="bg-yellow-100 border border-yellow-300 rounded-lg p-4">
+                    <div className="flex items-center justify-center gap-2 text-yellow-800">
+                      <Clock className="h-5 w-5 animate-pulse" />
+                      <span className="font-semibold">Request Pending</span>
+                    </div>
+                    <p className="text-sm text-yellow-700 mt-2">
+                      Your access request is being reviewed. You'll be notified once approved.
+                    </p>
+                  </div>
+                ) : requestStatus === 'rejected' ? (
+                  <div className="bg-red-100 border border-red-300 rounded-lg p-4">
+                    <p className="text-red-800 font-semibold">Request Rejected</p>
+                    <p className="text-sm text-red-700 mt-1">
+                      Your previous request was rejected. Contact support for more information.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <Input
+                      placeholder="Add a message (optional)..."
+                      value={requestMessage}
+                      onChange={(e) => setRequestMessage(e.target.value)}
+                      className="max-w-md mx-auto"
+                    />
+                    <Button
+                      onClick={handleRequestAccess}
+                      disabled={requestingAccess}
+                      className="bg-yellow-600 hover:bg-yellow-700"
+                      size="lg"
+                    >
+                      {requestingAccess ? (
+                        <>
+                          <Clock className="h-4 w-4 mr-2 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 mr-2" />
+                          Request Access
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          /* ✅ UNLOCKED OFFER - Show tracking link */
+          <Card className="border-2 border-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Link className="h-5 w-5 text-blue-600" />
+                📍 Your Tracking Link
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Main Tracking Link Display */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1 p-4 bg-white rounded-lg border-2 border-blue-300 font-mono text-sm break-all shadow-sm">
+                  {trackingLink || 'Generating link...'}
                 </div>
                 <Button
-                  onClick={updateTrackingLink}
-                  variant="outline"
-                  disabled={!customSubId}
+                  onClick={() => copyToClipboard(trackingLink, 'Tracking Link')}
+                  className="bg-blue-600 hover:bg-blue-700"
+                  size="lg"
                 >
-                  Update Link
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy
                 </Button>
               </div>
-            </div>
 
-            {/* Tracking Link Options */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-muted-foreground font-medium">Tracking Link Options:</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowQRCode(!showQRCode)}
-              >
-                <QrCode className="h-4 w-4 mr-1" />
-                {showQRCode ? 'Hide' : 'Show'} QR Code
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-                  window.open(`${baseUrl}/preview/${offer.offer_id}`, '_blank');
-                }}
-              >
-                <Eye className="h-4 w-4 mr-1" />
-                Preview Landing Page
-              </Button>
-            </div>
-
-            {/* QR Code */}
-            {showQRCode && trackingLink && (
-              <div className="flex justify-center p-4 bg-white rounded-lg border">
-                <div className="text-center">
-                  <img
-                    src={generateQRCode(trackingLink)}
-                    alt="QR Code"
-                    className="w-48 h-48 border-2 border-gray-300 rounded"
-                  />
-                  <div className="text-xs text-muted-foreground mt-2">
-                    Scan to open tracking link
+              {/* Customize Tracking Link */}
+              <div className="bg-white p-4 rounded-lg border">
+                <div className="font-medium mb-2 text-sm">🎯 Customize Tracking Link</div>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="Add Custom Sub ID (e.g., twitter, campaign1)"
+                      value={customSubId}
+                      onChange={(e) => setCustomSubId(e.target.value)}
+                      className="font-mono text-sm"
+                    />
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Use Sub IDs to track different traffic sources
+                    </div>
                   </div>
+                  <Button
+                    onClick={updateTrackingLink}
+                    variant="outline"
+                    disabled={!customSubId}
+                  >
+                    Update Link
+                  </Button>
                 </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* Stats Section */}
+              {/* Tracking Link Options */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground font-medium">Tracking Link Options:</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowQRCode(!showQRCode)}
+                >
+                  <QrCode className="h-4 w-4 mr-1" />
+                  {showQRCode ? 'Hide' : 'Show'} QR Code
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+                    window.open(`${baseUrl}/preview/${offer.offer_id}`, '_blank');
+                  }}
+                >
+                  <Eye className="h-4 w-4 mr-1" />
+                  Preview Landing Page
+                </Button>
+              </div>
+
+              {/* QR Code */}
+              {showQRCode && trackingLink && (
+                <div className="flex justify-center p-4 bg-white rounded-lg border">
+                  <div className="text-center">
+                    <img
+                      src={generateQRCode(trackingLink)}
+                      alt="QR Code"
+                      className="w-48 h-48 border-2 border-gray-300 rounded"
+                    />
+                    <div className="text-xs text-muted-foreground mt-2">
+                      Scan to open tracking link
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Stats Section - Only show for unlocked offers */}
+        {!isLocked && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="pt-6">
@@ -377,8 +495,10 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
             </CardContent>
           </Card>
         </div>
+        )}
 
-        {/* Offer Details Grid */}
+        {/* Offer Details Grid - Only show for unlocked offers */}
+        {!isLocked ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Left Column */}
           <div className="space-y-4">
@@ -528,6 +648,51 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
             </Card>
           </div>
         </div>
+        ) : (
+          /* 🔒 LOCKED OFFER - Show only basic info */
+          <Card className="border border-gray-200">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">📋 About This Offer</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {offer.description && (
+                <div>
+                  <div className="text-sm text-muted-foreground mb-1">Description</div>
+                  <p className="text-sm">{offer.description}</p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-muted-foreground mb-1">Payout</div>
+                  <div className="font-bold text-green-600 text-lg">
+                    ${offer.payout.toFixed(2)} {offer.currency || 'USD'}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-muted-foreground mb-1">Countries</div>
+                  <div className="flex flex-wrap gap-1">
+                    {offer.countries.slice(0, 5).map((country) => (
+                      <Badge key={country} variant="outline" className="text-xs">
+                        {country}
+                      </Badge>
+                    ))}
+                    {offer.countries.length > 5 && (
+                      <Badge variant="outline" className="text-xs">
+                        +{offer.countries.length - 5}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-sm text-yellow-800">
+                  <Lock className="h-4 w-4 inline mr-1" />
+                  Request access above to see full offer details, tracking link, and stats.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </DialogContent>
     </Dialog>
   );

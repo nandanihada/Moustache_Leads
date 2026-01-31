@@ -1180,8 +1180,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
               {/* Approval Workflow Settings */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Approval Workflow</CardTitle>
-                  <CardDescription>Configure how publishers get access to this offer</CardDescription>
+                  <CardTitle>🔒 Offer Visibility & Approval</CardTitle>
+                  <CardDescription>Control how and when publishers can access this offer</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div>
@@ -1194,31 +1194,138 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="auto_approve">Auto Approve (Immediate)</SelectItem>
-                        <SelectItem value="time_based">Time-based Approval</SelectItem>
-                        <SelectItem value="manual">Manual Approval</SelectItem>
+                        <SelectItem value="auto_approve">
+                          <div className="flex items-center gap-2">
+                            <span>🟢</span>
+                            <span>Direct Access (Immediate)</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="time_based">
+                          <div className="flex items-center gap-2">
+                            <span>⏰</span>
+                            <span>Time-based Auto-Approval</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="manual">
+                          <div className="flex items-center gap-2">
+                            <span>🔐</span>
+                            <span>Manual Approval Required</span>
+                          </div>
+                        </SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Choose how publisher access requests are handled
-                    </p>
+                    
+                    {/* Approval Type Description */}
+                    <div className="mt-2 p-3 rounded-lg bg-gray-50 border">
+                      {formData.approval_type === 'auto_approve' && (
+                        <p className="text-sm text-green-700">
+                          <strong>🟢 Direct Access:</strong> Offer will be immediately visible and accessible to all publishers in the iframe and offers section.
+                        </p>
+                      )}
+                      {formData.approval_type === 'time_based' && (
+                        <p className="text-sm text-yellow-700">
+                          <strong>⏰ Time-based:</strong> Offer will be visible but LOCKED until the specified time passes. Publishers will see a lock icon and countdown timer.
+                        </p>
+                      )}
+                      {formData.approval_type === 'manual' && (
+                        <p className="text-sm text-red-700">
+                          <strong>🔐 Manual Approval:</strong> Offer will be visible but LOCKED. Publishers must request access and you must manually approve each request from the Offer Requests section.
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   {formData.approval_type === 'time_based' && (
-                    <div>
-                      <Label htmlFor="auto_approve_delay">Auto-approve Delay (minutes)</Label>
-                      <Input
-                        id="auto_approve_delay"
-                        type="number"
-                        min="1"
-                        max="10080"
-                        value={formData.auto_approve_delay || 60}
-                        onChange={(e) => handleInputChange('auto_approve_delay', parseInt(e.target.value))}
-                        placeholder="60"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Requests will be auto-approved after this delay (1-10080 minutes)
-                      </p>
+                    <div className="p-4 border border-yellow-200 bg-yellow-50 rounded-lg space-y-3">
+                      <Label htmlFor="auto_approve_delay" className="text-yellow-800 font-semibold">
+                        ⏰ Auto-approve Delay
+                      </Label>
+                      
+                      {/* Quick preset buttons */}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          variant={formData.auto_approve_delay === 30 ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleInputChange('auto_approve_delay', 30)}
+                        >
+                          30 min
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={formData.auto_approve_delay === 60 ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleInputChange('auto_approve_delay', 60)}
+                        >
+                          1 hour
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={formData.auto_approve_delay === 360 ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleInputChange('auto_approve_delay', 360)}
+                        >
+                          6 hours
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={formData.auto_approve_delay === 720 ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleInputChange('auto_approve_delay', 720)}
+                        >
+                          12 hours
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={formData.auto_approve_delay === 1440 ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleInputChange('auto_approve_delay', 1440)}
+                        >
+                          1 day
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={formData.auto_approve_delay === 4320 ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleInputChange('auto_approve_delay', 4320)}
+                        >
+                          3 days
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={formData.auto_approve_delay === 10080 ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => handleInputChange('auto_approve_delay', 10080)}
+                        >
+                          7 days
+                        </Button>
+                      </div>
+                      
+                      {/* Custom input */}
+                      <div className="flex gap-2 items-center">
+                        <span className="text-sm text-yellow-700">Or custom:</span>
+                        <Input
+                          id="auto_approve_delay"
+                          type="number"
+                          min="1"
+                          max="10080"
+                          value={formData.auto_approve_delay || 60}
+                          onChange={(e) => handleInputChange('auto_approve_delay', parseInt(e.target.value))}
+                          placeholder="60"
+                          className="w-24"
+                        />
+                        <span className="text-sm text-yellow-700">minutes</span>
+                      </div>
+                      
+                      <div className="bg-yellow-100 p-2 rounded text-sm text-yellow-800">
+                        <strong>Current setting:</strong> Offer will auto-unlock after{' '}
+                        {formData.auto_approve_delay >= 1440 
+                          ? `${Math.floor(formData.auto_approve_delay / 1440)} day(s) ${formData.auto_approve_delay % 1440 > 0 ? `${Math.floor((formData.auto_approve_delay % 1440) / 60)} hour(s)` : ''}`
+                          : formData.auto_approve_delay >= 60
+                            ? `${Math.floor(formData.auto_approve_delay / 60)} hour(s) ${formData.auto_approve_delay % 60 > 0 ? `${formData.auto_approve_delay % 60} min` : ''}`
+                            : `${formData.auto_approve_delay} minutes`
+                        }
+                      </div>
                     </div>
                   )}
 
@@ -1228,23 +1335,23 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       checked={formData.require_approval || false}
                       onCheckedChange={(checked) => handleInputChange('require_approval', checked)}
                     />
-                    <Label htmlFor="require_approval">Always require approval</Label>
+                    <Label htmlFor="require_approval">Always require manual approval (override)</Label>
                   </div>
                   <p className="text-xs text-gray-500">
-                    Override auto-approval and always require manual approval
+                    When enabled, this overrides the approval type and always requires manual admin approval
                   </p>
 
                   <div>
-                    <Label htmlFor="approval_message">Custom Approval Message</Label>
+                    <Label htmlFor="approval_message">Custom Lock Message (Optional)</Label>
                     <Textarea
                       id="approval_message"
                       value={formData.approval_message || ''}
                       onChange={(e) => handleInputChange('approval_message', e.target.value)}
-                      placeholder="Enter a custom message for publishers requesting access..."
+                      placeholder="Enter a custom message shown to publishers when the offer is locked..."
                       rows={3}
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      This message will be shown to publishers when they request access
+                      This message will be displayed on the lock overlay when publishers view this offer
                     </p>
                   </div>
 

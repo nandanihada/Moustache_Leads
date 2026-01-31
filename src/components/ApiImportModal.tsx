@@ -43,6 +43,11 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const [defaultStarRating, setDefaultStarRating] = useState<number>(4);
   const [defaultTimer, setDefaultTimer] = useState<number>(0); // 0 = no timer
   
+  // Approval workflow options
+  const [approvalType, setApprovalType] = useState<string>('auto_approve');
+  const [autoApproveDelay, setAutoApproveDelay] = useState<number>(0);
+  const [showInOfferwall, setShowInOfferwall] = useState<boolean>(true);
+  
   // Import progress
   const [importProgress, setImportProgress] = useState(0);
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
@@ -143,6 +148,10 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
           skip_duplicates: skipDuplicates,
           update_existing: updateExisting,
           auto_activate: autoActivate,
+          show_in_offerwall: showInOfferwall,
+          approval_type: approvalType,
+          auto_approve_delay: autoApproveDelay,
+          require_approval: approvalType !== 'auto_approve',
         },
       });
       
@@ -358,6 +367,66 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                 <label htmlFor="auto-activate" className="text-sm cursor-pointer">
                   Auto-activate imported offers
                 </label>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="show-in-offerwall"
+                  checked={showInOfferwall}
+                  onCheckedChange={(checked) => setShowInOfferwall(checked as boolean)}
+                />
+                <label htmlFor="show-in-offerwall" className="text-sm cursor-pointer">
+                  🖼️ Show offers in Offerwall (visible to users)
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                If unchecked, offers will be imported but hidden from the offerwall until manually enabled
+              </p>
+              
+              <div className="border-t pt-3 mt-3">
+                <h5 className="font-medium text-sm mb-3">Approval Workflow</h5>
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="approval-type" className="text-sm">Approval Type</Label>
+                    <Select 
+                      value={approvalType} 
+                      onValueChange={setApprovalType}
+                    >
+                      <SelectTrigger id="approval-type">
+                        <SelectValue placeholder="Select approval type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="auto_approve">🟢 Direct Access (Instant)</SelectItem>
+                        <SelectItem value="time_based">⏰ Time-Based Auto-Approval</SelectItem>
+                        <SelectItem value="manual">🔐 Manual Admin Approval</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {approvalType === 'auto_approve' && 'Offers will be immediately accessible to all users'}
+                      {approvalType === 'time_based' && 'Offers will be locked until the delay period passes'}
+                      {approvalType === 'manual' && 'Offers will require manual admin approval for each user'}
+                    </p>
+                  </div>
+                  
+                  {approvalType === 'time_based' && (
+                    <div className="space-y-2">
+                      <Label htmlFor="approval-delay" className="text-sm">Auto-Approve Delay (minutes)</Label>
+                      <Input
+                        id="approval-delay"
+                        type="number"
+                        min="1"
+                        max="10080"
+                        placeholder="e.g., 60"
+                        value={autoApproveDelay || ''}
+                        onChange={(e) => setAutoApproveDelay(parseInt(e.target.value) || 0)}
+                        className="w-full"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Users will get auto-approved after this delay (1-10080 minutes / up to 7 days)
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="border-t pt-3 mt-3">

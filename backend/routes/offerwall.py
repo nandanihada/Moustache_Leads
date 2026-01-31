@@ -1919,6 +1919,7 @@ def get_offers():
     try:
         from models.offer import Offer
         from database import db_instance
+        from services.offer_visibility_service import offer_visibility_service
         
         # Get query parameters (placement_id and user_id are optional for publisher view)
         placement_id = request.args.get('placement_id')
@@ -1942,6 +1943,11 @@ def get_offers():
                 {'$or': [
                     {'is_active': True},
                     {'is_active': {'$exists': False}}
+                ]},
+                # Show in offerwall (default to true if not set)
+                {'$or': [
+                    {'show_in_offerwall': True},
+                    {'show_in_offerwall': {'$exists': False}}
                 ]}
             ]
         }
@@ -2198,6 +2204,16 @@ def get_offers():
                 'conversion_flow': offer.get('conversion_flow', 'single_opt_in'),
                 'payout_type': offer.get('payout_type', 'cpa'),
             }
+            
+            # 🔒 ADD VISIBILITY/APPROVAL INFORMATION
+            visibility = offer_visibility_service.get_offer_visibility_status(offer, user_id)
+            transformed_offer['is_locked'] = visibility.get('is_locked', False)
+            transformed_offer['has_access'] = visibility.get('has_access', True)
+            transformed_offer['lock_reason'] = visibility.get('lock_reason')
+            transformed_offer['approval_type'] = visibility.get('approval_type', 'auto_approve')
+            transformed_offer['request_status'] = visibility.get('request_status', 'approved')
+            transformed_offer['estimated_approval_time'] = visibility.get('estimated_approval_time', 'Immediate')
+            transformed_offer['requires_approval'] = visibility.get('approval_type') in ['time_based', 'manual']
             transformed_offers.append(transformed_offer)
             
             logger.info(f"✅ Offer: {transformed_offer['title']}, Tracking URL: {tracking_url}")

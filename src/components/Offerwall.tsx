@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Sparkles, AlertCircle, Gift, Zap, Globe, Smartphone, Monitor, Timer, Flame, Clock as ClockIcon, Search, X } from 'lucide-react';
+import { ChevronRight, Sparkles, AlertCircle, Gift, Zap, Globe, Smartphone, Monitor, Timer, Flame, Clock as ClockIcon, Search, X, Lock } from 'lucide-react';
 import { OfferModal } from './OfferModal';
 
 interface Offer {
@@ -26,6 +26,14 @@ interface Offer {
   urgency_message?: string;
   timer_enabled?: boolean;
   timer_end_date?: string;
+  // Approval/Lock fields
+  is_locked?: boolean;
+  has_access?: boolean;
+  lock_reason?: string;
+  approval_type?: string;
+  request_status?: string;
+  estimated_approval_time?: string;
+  requires_approval?: boolean;
 }
 
 // Category definitions
@@ -578,21 +586,50 @@ const Offerwall: React.FC<OfferwallProps> = ({
           {filteredOffers.map((offer, index) => {
             // Calculate points from payout ($1 = 100 points)
             const points = payoutToPoints(offer.payout || offer.reward_amount || 0);
+            const isLocked = offer.is_locked || (offer.requires_approval && !offer.has_access);
             
             return (
               <div
                 key={offer.id}
-                className="group bg-white/10 backdrop-blur-lg rounded-2xl overflow-hidden hover:bg-white/15 transition-all duration-300 hover:scale-105 hover:shadow-2xl cursor-pointer border border-white/10 animate-slide-up"
+                className={`group bg-white/10 backdrop-blur-lg rounded-2xl overflow-hidden transition-all duration-300 border border-white/10 animate-slide-up relative ${
+                  isLocked 
+                    ? 'cursor-not-allowed opacity-90' 
+                    : 'hover:bg-white/15 hover:scale-105 hover:shadow-2xl cursor-pointer'
+                }`}
                 style={{ animationDelay: `${index * 50}ms` }}
-                onClick={() => handleOfferClick(offer)}
+                onClick={() => !isLocked && handleOfferClick(offer)}
               >
+                {/* 🔒 LOCK OVERLAY for locked offers */}
+                {isLocked && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
+                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-center border border-white/20 mx-4">
+                      <Lock className="h-12 w-12 text-yellow-400 mx-auto mb-3" />
+                      <h4 className="text-white font-bold text-lg mb-2">Offer Locked</h4>
+                      <p className="text-gray-300 text-sm mb-3">
+                        {offer.lock_reason || 'This offer requires approval'}
+                      </p>
+                      {offer.estimated_approval_time && (
+                        <div className="flex items-center justify-center gap-2 text-yellow-400 text-sm">
+                          <ClockIcon className="h-4 w-4" />
+                          <span>{offer.estimated_approval_time}</span>
+                        </div>
+                      )}
+                      {offer.request_status === 'pending' && (
+                        <div className="mt-3 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-full text-xs font-semibold">
+                          Request Pending
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Offer Image */}
                 <div className="relative h-48 overflow-hidden">
                   {offer.image_url && offer.image_url.trim() !== '' ? (
                     <img 
                       src={offer.image_url} 
                       alt={offer.title}
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                      className={`w-full h-full object-cover transition-transform duration-300 ${isLocked ? 'blur-sm' : 'group-hover:scale-110'}`}
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
                         target.style.display = 'none';
@@ -600,28 +637,36 @@ const Offerwall: React.FC<OfferwallProps> = ({
                       }}
                     />
                   ) : null}
-                  <div className={`${offer.image_url && offer.image_url.trim() !== '' ? 'hidden' : ''} absolute inset-0 bg-gradient-to-br ${getCategoryColor(offer.category)} flex items-center justify-center`}>
+                  <div className={`${offer.image_url && offer.image_url.trim() !== '' ? 'hidden' : ''} absolute inset-0 bg-gradient-to-br ${getCategoryColor(offer.category)} flex items-center justify-center ${isLocked ? 'blur-sm' : ''}`}>
                     <span className="text-6xl">{getCategoryIcon(offer.category)}</span>
                   </div>
                   
                   {/* Category Badge - Top Left */}
-                  <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full flex items-center gap-2">
+                  <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full flex items-center gap-2 z-10">
                     <span className="text-lg">{getCategoryIcon(offer.category)}</span>
                     <span className="text-white text-xs font-bold uppercase">{offer.category}</span>
                   </div>
                   
-                  {/* Urgency Badge OR Timer - Top Right */}
-                  {offer.timer_enabled && offer.timer_end_date ? (
-                    <div className="absolute top-3 right-3">
-                      <CountdownTimer endDate={offer.timer_end_date} />
+                  {/* Lock Badge - Top Right (for locked offers) */}
+                  {isLocked ? (
+                    <div className="absolute top-3 right-3 bg-yellow-500/90 backdrop-blur-sm px-3 py-1 rounded-full flex items-center gap-1 z-10">
+                      <Lock className="h-3 w-3 text-white" />
+                      <span className="text-white text-xs font-bold">LOCKED</span>
                     </div>
                   ) : (
-                    getUrgencyBadge(offer.urgency_type)
+                    /* Urgency Badge OR Timer - Top Right */
+                    offer.timer_enabled && offer.timer_end_date ? (
+                      <div className="absolute top-3 right-3">
+                        <CountdownTimer endDate={offer.timer_end_date} />
+                      </div>
+                    ) : (
+                      getUrgencyBadge(offer.urgency_type)
+                    )
                   )}
                 </div>
 
                 {/* Content */}
-                <div className="p-5">
+                <div className={`p-5 ${isLocked ? 'blur-[2px]' : ''}`}>
                   {/* Star Rating */}
                   <div className="mb-2">
                     {renderStarRating(offer.star_rating || 5)}
@@ -660,16 +705,33 @@ const Offerwall: React.FC<OfferwallProps> = ({
                     <Sparkles className="h-5 w-5 text-yellow-400 animate-pulse" />
                   </div>
 
-                  {/* Action Button - "Click to Earn" */}
-                  <button className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 px-4 rounded-xl transition-all duration-200 transform group-hover:scale-105 shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
-                    <span>Click to Earn</span>
-                    <ChevronRight className="h-4 w-4" />
+                  {/* Action Button - "Click to Earn" or "Locked" */}
+                  <button 
+                    className={`w-full font-bold py-3 px-4 rounded-xl transition-all duration-200 shadow-lg flex items-center justify-center gap-2 ${
+                      isLocked 
+                        ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' 
+                        : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white transform group-hover:scale-105 hover:shadow-xl'
+                    }`}
+                    disabled={isLocked}
+                  >
+                    {isLocked ? (
+                      <>
+                        <Lock className="h-4 w-4" />
+                        <span>Locked</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Click to Earn</span>
+                        <ChevronRight className="h-4 w-4" />
+                      </>
+                    )}
                   </button>
                 </div>
               </div>
             );
           })}
         </div>
+
         )}
 
         {/* Footer */}

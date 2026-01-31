@@ -489,7 +489,7 @@ def approve_access_request():
         offer_id = request.view_args.get('offer_id')
         request_id = request.view_args.get('request_id')
         
-        result = access_service.approve_access_request(request_id, offer_id)
+        result = access_service.approve_access_request_by_id(request_id, offer_id)
         
         if 'error' in result:
             return jsonify(result), 400
@@ -517,7 +517,7 @@ def reject_access_request():
         data = request.get_json() or {}
         reason = data.get('reason', '')
         
-        result = access_service.reject_access_request(request_id, offer_id, reason)
+        result = access_service.reject_access_request_by_id(request_id, offer_id, reason)
         
         if 'error' in result:
             return jsonify(result), 400
@@ -995,12 +995,14 @@ def bulk_upload_offers():
     
     try:
         user = request.current_user
+        options = {}
         
         # Check if it's a Google Sheets URL or file upload
         if request.content_type and 'application/json' in request.content_type:
             # Google Sheets URL
             data = request.get_json()
             sheet_url = data.get('url')
+            options = data.get('options', {})
             
             if not sheet_url:
                 return jsonify({'error': 'Google Sheets URL is required'}), 400
@@ -1020,6 +1022,14 @@ def bulk_upload_offers():
             
             if file.filename == '':
                 return jsonify({'error': 'No file selected'}), 400
+            
+            # Get options from form data if present
+            options_str = request.form.get('options', '{}')
+            try:
+                import json
+                options = json.loads(options_str)
+            except:
+                options = {}
             
             # Get file extension
             filename = secure_filename(file.filename)
@@ -1052,11 +1062,56 @@ def bulk_upload_offers():
                 except:
                     pass
         
+        # Extract approval settings from options
+        approval_type = options.get('approval_type', 'auto_approve')
+        auto_approve_delay = options.get('auto_approve_delay', 0)
+        require_approval = options.get('require_approval', False)
+        show_in_offerwall = options.get('show_in_offerwall', True)  # Default: show in offerwall
+        
+        # Normalize approval_type
+        if approval_type in ['direct', 'instant', 'immediate', 'auto']:
+            approval_type = 'auto_approve'
+        elif approval_type in ['time', 'timed', 'delay', 'delayed']:
+            approval_type = 'time_based'
+        elif approval_type in ['admin', 'approval']:
+            approval_type = 'manual'
+        
+        # Auto-set require_approval based on approval_type
+        if approval_type in ['time_based', 'manual']:
+            require_approval = True
+        
+        # Build approval_settings object
+        approval_settings = {
+            'type': approval_type,
+            'require_approval': require_approval,
+            'auto_approve_delay': int(auto_approve_delay) if auto_approve_delay else 0,
+            'approval_message': '',
+            'max_inactive_days': 0
+        }
+        
+        logging.info(f"🔐 Approval settings from options: {approval_settings}")
+        
         # Validate spreadsheet data
         logging.info(f"✅ Parsed {len(rows)} rows from spreadsheet")
         valid_rows, error_rows = validate_spreadsheet_data(rows)
         
         logging.info(f"✅ Validated: {len(valid_rows)} valid, {len(error_rows)} errors")
+        
+        # Apply approval settings to all valid rows (override spreadsheet values if options provided)
+        if options.get('approval_type'):
+            for row in valid_rows:
+                row['approval_settings'] = approval_settings
+                row['approval_type'] = approval_type
+                row['auto_approve_delay'] = approval_settings['auto_approve_delay']
+                row['require_approval'] = require_approval
+                
+                # Set affiliates to 'request' if approval is required
+                if require_approval or approval_type in ['time_based', 'manual']:
+                    row['affiliates'] = 'request'
+        
+        # Apply show_in_offerwall setting to all rows
+        for row in valid_rows:
+            row['show_in_offerwall'] = show_in_offerwall
         
         # If there are validation errors, return them
         if error_rows:
@@ -1361,6 +1416,32 @@ def import_api_offers():
         update_existing = options.get('update_existing', False)
         auto_activate = options.get('auto_activate', True)
         
+        # Get approval workflow settings from options
+        approval_type = options.get('approval_type', 'auto_approve')
+        auto_approve_delay = options.get('auto_approve_delay', 0)
+        require_approval = options.get('require_approval', False)
+        
+        # Normalize approval_type
+        if approval_type in ['direct', 'instant', 'immediate', 'auto']:
+            approval_type = 'auto_approve'
+        elif approval_type in ['time', 'timed', 'delay', 'delayed']:
+            approval_type = 'time_based'
+        elif approval_type in ['admin', 'approval']:
+            approval_type = 'manual'
+        
+        # Auto-set require_approval based on approval_type
+        if approval_type in ['time_based', 'manual']:
+            require_approval = True
+        
+        # Build approval_settings object
+        approval_settings = {
+            'type': approval_type,
+            'require_approval': require_approval,
+            'auto_approve_delay': int(auto_approve_delay) if auto_approve_delay else 0,
+            'approval_message': options.get('approval_message', ''),
+            'max_inactive_days': options.get('max_inactive_days', 0)
+        }
+        
         duplicate_strategy = 'skip' if skip_duplicates else ('update' if update_existing else 'create_new')
         
         # Create duplicate detector
@@ -1406,6 +1487,16 @@ def import_api_offers():
                 # Set status based on auto_activate option
                 if not auto_activate:
                     mapped_offer['status'] = 'inactive'
+                
+                # Apply approval workflow settings
+                mapped_offer['approval_settings'] = approval_settings
+                mapped_offer['approval_type'] = approval_type
+                mapped_offer['auto_approve_delay'] = approval_settings['auto_approve_delay']
+                mapped_offer['require_approval'] = require_approval
+                
+                # Set affiliates to 'request' if approval is required
+                if require_approval or approval_type in ['time_based', 'manual']:
+                    mapped_offer['affiliates'] = 'request'
                 
                 # Create or update offer
                 if is_duplicate and duplicate_strategy == 'update':

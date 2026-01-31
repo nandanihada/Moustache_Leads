@@ -171,8 +171,8 @@ def approve_access_request(request_id):
             return jsonify({'error': 'Access request not found'}), 404
         
         # Approve the request using the correct request_id from database
-        actual_request_id = access_request.get('request_id')
-        result = access_service.approve_access_request(
+        actual_request_id = access_request.get('request_id') or str(access_request['_id'])
+        result = access_service.approve_access_request_by_id(
             actual_request_id, 
             access_request['offer_id']
         )
@@ -263,8 +263,8 @@ def reject_access_request(request_id):
             return jsonify({'error': 'Access request not found'}), 404
         
         # Reject the request using the correct request_id from database
-        actual_request_id = access_request.get('request_id')
-        result = access_service.reject_access_request(
+        actual_request_id = access_request.get('request_id') or str(access_request['_id'])
+        result = access_service.reject_access_request_by_id(
             actual_request_id,
             access_request['offer_id'],
             reason

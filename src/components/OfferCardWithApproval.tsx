@@ -227,24 +227,27 @@ const OfferCardWithApproval: React.FC<OfferCardWithApprovalProps> = ({
 
   // Determine if card should be blurred
   const isBlurred = offer.is_preview && !offer.has_access;
+  const isLocked = offer.is_locked || (offer.requires_approval && !offer.has_access);
 
   return (
     <>
       <Card 
         className={cn(
           "hover:shadow-lg transition-all cursor-pointer border-2 hover:border-blue-500",
-          isBlurred && "relative overflow-hidden"
+          (isBlurred || isLocked) && "relative overflow-hidden"
         )}
         onClick={() => onViewDetails(offer)}
       >
-        {/* Blur overlay for restricted offers */}
-        {isBlurred && (
+        {/* Blur overlay for restricted/locked offers */}
+        {(isBlurred || isLocked) && (
           <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-10 flex items-center justify-center">
             <div className="text-center p-4">
               <Lock className="w-8 h-8 mx-auto mb-2 text-gray-500" />
-              <p className="text-sm font-medium text-gray-700 mb-2">Access Required</p>
+              <p className="font-medium text-gray-700 mb-2">
+                {isLocked ? 'Offer Locked' : 'Access Required'}
+              </p>
               <p className="text-xs text-gray-500 mb-3">
-                {offer.estimated_approval_time && `Approval time: ${offer.estimated_approval_time}`}
+                {offer.lock_reason || offer.estimated_approval_time && `Approval time: ${offer.estimated_approval_time}`}
               </p>
               <Button
                 size="sm"

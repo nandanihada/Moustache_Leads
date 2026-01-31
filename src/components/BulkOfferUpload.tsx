@@ -71,6 +71,11 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
     // Default values for imported offers
     const [defaultStarRating, setDefaultStarRating] = useState<number>(4);
     const [defaultTimer, setDefaultTimer] = useState<number>(0); // 0 = no timer
+    
+    // Approval workflow options
+    const [approvalType, setApprovalType] = useState<string>('auto_approve');
+    const [autoApproveDelay, setAutoApproveDelay] = useState<number>(0);
+    const [showInOfferwall, setShowInOfferwall] = useState<boolean>(true);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -162,13 +167,23 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
         try {
             let result: UploadResult;
 
+            // Build options object with approval settings
+            const uploadOptions = {
+                approval_type: approvalType,
+                auto_approve_delay: autoApproveDelay,
+                require_approval: approvalType !== 'auto_approve',
+                show_in_offerwall: showInOfferwall,
+                default_star_rating: defaultStarRating,
+                default_timer: defaultTimer,
+            };
+
             if (uploadMode === 'file' && selectedFile) {
                 // Simulate progress
                 setUploadProgress(30);
-                result = await bulkOfferApi.uploadFile(selectedFile);
+                result = await bulkOfferApi.uploadFile(selectedFile, uploadOptions);
             } else {
                 setUploadProgress(30);
-                result = await bulkOfferApi.uploadFromGoogleSheets(googleSheetUrl);
+                result = await bulkOfferApi.uploadFromGoogleSheets(googleSheetUrl, uploadOptions);
             }
 
             setUploadProgress(100);
@@ -374,6 +389,71 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                 />
                                 <p className="text-xs text-muted-foreground">0 = no timer, enter any value</p>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* Approval Workflow Settings */}
+                    <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                        <h4 className="font-semibold text-sm flex items-center gap-2">
+                            🔐 Approval Workflow
+                        </h4>
+                        <div className="space-y-3">
+                            {/* Show in Offerwall Option */}
+                            <div className="flex items-center space-x-2 p-2 bg-white rounded border">
+                                <input
+                                    type="checkbox"
+                                    id="show-in-offerwall-bulk"
+                                    checked={showInOfferwall}
+                                    onChange={(e) => setShowInOfferwall(e.target.checked)}
+                                    className="h-4 w-4 rounded border-gray-300"
+                                />
+                                <label htmlFor="show-in-offerwall-bulk" className="text-sm cursor-pointer">
+                                    🖼️ Show offers in Offerwall (visible to users)
+                                </label>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                If unchecked, offers will be imported but hidden from the offerwall until manually enabled
+                            </p>
+                            
+                            <div className="space-y-2">
+                                <Label htmlFor="bulk-approval-type">Approval Type</Label>
+                                <Select 
+                                    value={approvalType} 
+                                    onValueChange={setApprovalType}
+                                >
+                                    <SelectTrigger id="bulk-approval-type">
+                                        <SelectValue placeholder="Select approval type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="auto_approve">🟢 Direct Access (Instant)</SelectItem>
+                                        <SelectItem value="time_based">⏰ Time-Based Auto-Approval</SelectItem>
+                                        <SelectItem value="manual">🔐 Manual Admin Approval</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-xs text-muted-foreground">
+                                    {approvalType === 'auto_approve' && 'Offers will be immediately accessible to all users'}
+                                    {approvalType === 'time_based' && 'Offers will be locked until the delay period passes'}
+                                    {approvalType === 'manual' && 'Offers will require manual admin approval for each user'}
+                                </p>
+                            </div>
+                            
+                            {approvalType === 'time_based' && (
+                                <div className="space-y-2">
+                                    <Label htmlFor="bulk-approval-delay">Auto-Approve Delay (minutes)</Label>
+                                    <Input
+                                        id="bulk-approval-delay"
+                                        type="number"
+                                        min="1"
+                                        max="10080"
+                                        placeholder="e.g., 60"
+                                        value={autoApproveDelay || ''}
+                                        onChange={(e) => setAutoApproveDelay(parseInt(e.target.value) || 0)}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Users will get auto-approved after this delay (1-10080 minutes / up to 7 days)
+                                    </p>
+                                </div>
+                            )}
                         </div>
                     </div>
 

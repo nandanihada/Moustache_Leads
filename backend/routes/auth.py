@@ -700,6 +700,19 @@ def verify_email():
             # Get updated user data
             user_data = user_model.find_by_id(user_id)
             
+            # Send "Application Under Review" email (Email 2)
+            import threading
+            def send_review_email_async():
+                try:
+                    name = user_data.get('first_name') or user_data.get('username', 'User')
+                    verification_service.send_application_under_review_email(email, name)
+                    logging.info(f"📧 Application under review email sent to {email}")
+                except Exception as e:
+                    logging.error(f"Failed to send application review email: {str(e)}")
+            
+            email_thread = threading.Thread(target=send_review_email_async, daemon=True)
+            email_thread.start()
+            
             return jsonify({
                 'message': 'Email verified successfully',
                 'user': {
