@@ -46,6 +46,7 @@ interface SubTab {
   alwaysAccessible?: boolean;
   requiresPlacement?: boolean;
   requiresAccountApproval?: boolean;  // New: requires account to be approved
+  adminOnly?: boolean;  // Only visible to admin
 }
 
 interface MenuItem {
@@ -55,6 +56,7 @@ interface MenuItem {
   url?: string;
   requiresPlacement?: boolean;
   requiresAccountApproval?: boolean;  // New: requires account to be approved
+  adminOnly?: boolean;  // Only visible to admin
   subtabs?: SubTab[];
 }
 
@@ -73,7 +75,7 @@ const menuStructure: MenuItem[] = [
     subtabs: [
       { title: "Placements", url: "/dashboard/placements", icon: Target, alwaysAccessible: true, requiresAccountApproval: true },
       { title: "Offers", url: "/dashboard/offers", icon: Gift, requiresPlacement: true },
-      { title: "Assets", url: "/dashboard/assets", icon: FileImage, requiresPlacement: true },
+      { title: "Assets", url: "/dashboard/assets", icon: FileImage, adminOnly: true },
     ]
   },
   {
@@ -86,24 +88,13 @@ const menuStructure: MenuItem[] = [
       { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },
     ]
   },
-  {
-    title: "Rewards",
-    icon: Trophy,
-    type: "group",
-    requiresPlacement: true,
-    subtabs: [
-      { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
-      { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
-      { title: "Rewards", url: "/dashboard/rewards", icon: Trophy },
-    ]
-  },
+
   {
     title: "Account",
     icon: Users,
     type: "group",
     subtabs: [
       { title: "Payments", url: "/dashboard/payments", icon: CreditCard, requiresPlacement: true },
-      { title: "Users", url: "/dashboard/users", icon: Users },
       { title: "Settings", url: "/dashboard/settings", icon: Settings },
     ]
   },
@@ -201,10 +192,8 @@ export function AppSidebar() {
     <Sidebar className="w-64 border-r border-border/60">
       <SidebarHeader className="p-6">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-gradient-primary rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">L</span>
-          </div>
-          <span className="font-bold text-lg text-foreground">Lovable</span>
+          <img src="/logo.png" alt="MoustacheLeads" className="w-8 h-8 rounded-lg" />
+          <span className="font-bold text-lg text-foreground">MoustacheLeads</span>
         </div>
       </SidebarHeader>
 
@@ -314,7 +303,7 @@ export function AppSidebar() {
                         </CollapsibleTrigger>
                         <CollapsibleContent className="mt-1">
                           <SidebarMenu className="ml-6 border-l-2 border-muted pl-2">
-                            {item.subtabs?.map((subtab) => {
+                            {item.subtabs?.filter(subtab => !subtab.adminOnly || isAdminOrSubadmin).map((subtab) => {
                               // Check if this specific subtab is disabled
                               // Account approval check: if subtab requires account approval and account is not approved
                               const needsAccountApproval = subtab.requiresAccountApproval && !isAccountApproved;
