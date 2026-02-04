@@ -709,8 +709,17 @@ def verify_email():
             # Get updated user data
             user_data = user_model.find_by_id(user_id)
             
-            # NOTE: Email 2 (Application Under Review) is now sent when ADMIN APPROVES
-            # Not automatically after email verification
+            # Send Email 2a - "Application Under Review" after email verification
+            try:
+                name = user_data.get('first_name') or user_data.get('username', 'User')
+                logging.info(f"📧 Sending 'Application Under Review' email to {email}")
+                email_sent = verification_service.send_application_under_review_email(email, name)
+                if email_sent:
+                    logging.info(f"✅ 'Application Under Review' email sent to {email}")
+                else:
+                    logging.warning(f"⚠️ Failed to send 'Application Under Review' email to {email}")
+            except Exception as e:
+                logging.error(f"❌ Error sending 'Application Under Review' email: {str(e)}")
             
             # Return success with account_status - NO auto-login
             # User must wait for admin approval
@@ -724,7 +733,6 @@ def verify_email():
                     'username': user_data['username'],
                     'email': user_data['email'],
                     'email_verified': True,
-                    'account_status': user_data.get('account_status', 'pending_approval'),
                     'account_status': user_data.get('account_status', 'pending_approval'),
                     'role': user_data.get('role', 'user'),
                     'first_name': user_data.get('first_name'),
@@ -829,7 +837,7 @@ def approve_user(user_id):
         if success:
             logging.info(f"✅ User {user_id} approved by admin {admin_user['_id']}")
             
-            # Send activation email - try synchronously first for reliability
+            # Send ACCOUNT ACTIVATED email (Email 2b) - NOT the "under review" email
             email_sent = False
             email_error = None
             try:
@@ -837,21 +845,22 @@ def approve_user(user_id):
                 email = user_data.get('email')
                 name = user_data.get('first_name') or user_data.get('username', 'User')
                 
-                logging.info(f"📧 Attempting to send activation email to {email}")
+                logging.info(f"📧 Attempting to send Account Activated email to {email}")
                 logging.info(f"📧 Email service configured: {verification_service.is_configured}")
                 
                 if verification_service.is_configured:
-                    email_sent = verification_service.send_application_under_review_email(email, name)
+                    # Use send_account_activated_email - the correct function for admin approval
+                    email_sent = verification_service.send_account_activated_email(email, name)
                     if email_sent:
-                        logging.info(f"✅ Activation email SENT to {email}")
+                        logging.info(f"✅ Account Activated email SENT to {email}")
                     else:
-                        logging.warning(f"⚠️ Failed to send activation email to {email}")
+                        logging.warning(f"⚠️ Failed to send Account Activated email to {email}")
                         email_error = "Email service returned false"
                 else:
-                    logging.warning(f"⚠️ Email service not configured - cannot send activation email")
+                    logging.warning(f"⚠️ Email service not configured - cannot send Account Activated email")
                     email_error = "Email service not configured"
             except Exception as e:
-                logging.error(f"❌ Error sending activation email: {str(e)}", exc_info=True)
+                logging.error(f"❌ Error sending Account Activated email: {str(e)}", exc_info=True)
                 email_error = str(e)
             
             return jsonify({
