@@ -125,6 +125,7 @@ const App = () => (
                 }
               >
                 <Route index element={<AdminDashboard />} />
+                <Route path="users" element={<Users />} />
                 <Route path="offers" element={<AdminOffers />} />
                 <Route path="promo-codes" element={<AdminPromoCodeManagement />} />
                 <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />

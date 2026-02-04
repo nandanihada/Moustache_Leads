@@ -69,6 +69,7 @@ payout_settings_bp = safe_import_blueprint('routes.payout_settings', 'payout_set
 admin_geo_restriction_bp = safe_import_blueprint('routes.admin_geo_restrictions', 'admin_geo_restriction_bp')
 preview_bp = safe_import_blueprint('routes.preview_handler', 'preview_bp')
 fix_incentives_bp = safe_import_blueprint('routes.fix_incentives', 'fix_incentives_bp')
+traffic_sources_bp = safe_import_blueprint('routes.traffic_sources', 'traffic_sources_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -125,7 +126,8 @@ blueprints = [
     (admin_geo_restriction_bp, '/api'),
     (preview_bp, ''),
     (fix_incentives_bp, '/api'),
-    (test_postback_bp, '/api/admin')
+    (test_postback_bp, '/api/admin'),
+    (traffic_sources_bp, '/api')
 ]
 
 def create_app():
@@ -437,6 +439,15 @@ if db_instance.is_connected():
             logging.info("✅ Schedule activation service started")
         except Exception as e:
             logging.warning(f"⚠️ Schedule activation service failed to start: {str(e)}")
+        
+        # Try to import and start placement auto-approval service
+        try:
+            from services.placement_auto_approval_service import get_placement_auto_approval_service
+            auto_approval_service = get_placement_auto_approval_service()
+            auto_approval_service.start_service()
+            logging.info("✅ Placement auto-approval service started (3 days)")
+        except Exception as e:
+            logging.warning(f"⚠️ Placement auto-approval service failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:

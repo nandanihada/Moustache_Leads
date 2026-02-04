@@ -511,6 +511,12 @@ def login():
         # Generate token
         token = generate_token(user_data)
         
+        # Handle legacy users without account_status - default to pending_approval
+        account_status = user_data.get('account_status', 'pending_approval')
+        # Admins are always approved
+        if user_data.get('role') == 'admin':
+            account_status = 'approved'
+        
         return jsonify({
             'message': 'Login successful',
             'token': token,
@@ -519,7 +525,9 @@ def login():
                 'id': str(user_data['_id']),
                 'username': user_data['username'],
                 'email': user_data['email'],
-                'role': user_data.get('role', 'user')
+                'role': user_data.get('role', 'user'),
+                'account_status': account_status,
+                'email_verified': user_data.get('email_verified', False)
             }
         }), 200
         
@@ -674,7 +682,7 @@ def create_admin():
 
 @auth_bp.route('/verify-email', methods=['POST'])
 def verify_email():
-    """Verify email using verification token and auto-login user"""
+    """Verify email using verification token - shows account under review message"""
     try:
         data = request.get_json()
         
@@ -701,37 +709,23 @@ def verify_email():
             # Get updated user data
             user_data = user_model.find_by_id(user_id)
             
-            # Send "Application Under Review" email (Email 2)
-            import threading
-            def send_review_email_async():
-                try:
-                    logging.info(f"📧 Attempting to send Application Under Review email to {email}")
-                    logging.info(f"📧 Email service configured: {verification_service.is_configured}")
-                    name = user_data.get('first_name') or user_data.get('username', 'User')
-                    result = verification_service.send_application_under_review_email(email, name)
-                    if result:
-                        logging.info(f"✅ Application under review email SENT to {email}")
-                    else:
-                        logging.warning(f"⚠️ Application under review email FAILED for {email} - service may not be configured")
-                except Exception as e:
-                    logging.error(f"❌ Failed to send application review email: {str(e)}", exc_info=True)
+            # NOTE: Email 2 (Application Under Review) is now sent when ADMIN APPROVES
+            # Not automatically after email verification
             
-            email_thread = threading.Thread(target=send_review_email_async, daemon=True)
-            email_thread.start()
-            logging.info(f"📧 Email 2 (Application Under Review) thread started for {email}")
-            
-            # Generate auth token for auto-login
-            auth_token = generate_token(user_data)
-            
+            # Return success with account_status - NO auto-login
+            # User must wait for admin approval
             return jsonify({
-                'message': 'Email verified successfully',
-                'token': auth_token,  # Auth token for auto-login
-                'auto_login': True,
+                'message': 'Email verified successfully. Your account is under review.',
+                'email_verified': True,
+                'account_status': user_data.get('account_status', 'pending_approval'),
+                'auto_login': False,  # Don't auto-login - account needs approval
                 'user': {
                     'id': str(user_data['_id']),
                     'username': user_data['username'],
                     'email': user_data['email'],
-                    'email_verified': user_data.get('email_verified', False),
+                    'email_verified': True,
+                    'account_status': user_data.get('account_status', 'pending_approval'),
+                    'account_status': user_data.get('account_status', 'pending_approval'),
                     'role': user_data.get('role', 'user'),
                     'first_name': user_data.get('first_name'),
                     'last_name': user_data.get('last_name'),
@@ -745,6 +739,210 @@ def verify_email():
     except Exception as e:
         logging.error(f"Email verification error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Email verification failed: {str(e)}'}), 500
+
+
+# ============ Admin User Approval Endpoints ============
+
+@auth_bp.route('/admin/pending-users', methods=['GET'])
+@token_required
+def get_pending_users():
+    """Get all users pending approval (admin only)"""
+    try:
+        user = request.current_user
+        
+        # Check if user is admin
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        user_model = User()
+        pending_users = user_model.get_pending_users()
+        
+        return jsonify({
+            'users': pending_users,
+            'total': len(pending_users)
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error getting pending users: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get pending users: {str(e)}'}), 500
+
+
+@auth_bp.route('/admin/users', methods=['GET'])
+@token_required
+def get_all_users():
+    """Get all users with optional status filter (admin only)"""
+    try:
+        user = request.current_user
+        
+        # Check if user is admin
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        status_filter = request.args.get('status')  # pending_approval, approved, rejected
+        
+        user_model = User()
+        users = user_model.get_all_users_with_status(status_filter)
+        
+        # Get counts for each status - need to handle legacy users without account_status
+        all_users = user_model.get_all_users_with_status()
+        pending_count = len([u for u in all_users if u.get('account_status', 'pending_approval') == 'pending_approval'])
+        approved_count = len([u for u in all_users if u.get('account_status') == 'approved'])
+        rejected_count = len([u for u in all_users if u.get('account_status') == 'rejected'])
+        
+        return jsonify({
+            'users': users,
+            'total': len(users),
+            'counts': {
+                'pending': pending_count,
+                'approved': approved_count,
+                'rejected': rejected_count,
+                'total': len(all_users)
+            }
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error getting users: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get users: {str(e)}'}), 500
+
+
+@auth_bp.route('/admin/users/<user_id>/approve', methods=['POST'])
+@token_required
+def approve_user(user_id):
+    """Approve a user account and send activation email (admin only)"""
+    try:
+        admin_user = request.current_user
+        
+        # Check if user is admin
+        if admin_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        user_model = User()
+        
+        # Get user data before approval
+        user_data = user_model.find_by_id(user_id)
+        if not user_data:
+            return jsonify({'error': 'User not found'}), 404
+        
+        # Approve user
+        success, message = user_model.approve_user(user_id, str(admin_user['_id']))
+        
+        if success:
+            logging.info(f"✅ User {user_id} approved by admin {admin_user['_id']}")
+            
+            # Send activation email - try synchronously first for reliability
+            email_sent = False
+            email_error = None
+            try:
+                verification_service = get_email_verification_service()
+                email = user_data.get('email')
+                name = user_data.get('first_name') or user_data.get('username', 'User')
+                
+                logging.info(f"📧 Attempting to send activation email to {email}")
+                logging.info(f"📧 Email service configured: {verification_service.is_configured}")
+                
+                if verification_service.is_configured:
+                    email_sent = verification_service.send_application_under_review_email(email, name)
+                    if email_sent:
+                        logging.info(f"✅ Activation email SENT to {email}")
+                    else:
+                        logging.warning(f"⚠️ Failed to send activation email to {email}")
+                        email_error = "Email service returned false"
+                else:
+                    logging.warning(f"⚠️ Email service not configured - cannot send activation email")
+                    email_error = "Email service not configured"
+            except Exception as e:
+                logging.error(f"❌ Error sending activation email: {str(e)}", exc_info=True)
+                email_error = str(e)
+            
+            return jsonify({
+                'message': 'User approved successfully.',
+                'user_id': user_id,
+                'email_sent': email_sent,
+                'email_error': email_error
+            }), 200
+        else:
+            return jsonify({'error': message}), 400
+        
+    except Exception as e:
+        logging.error(f"Error approving user: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to approve user: {str(e)}'}), 500
+
+
+@auth_bp.route('/admin/users/<user_id>/reject', methods=['POST'])
+@token_required
+def reject_user(user_id):
+    """Reject a user account (admin only)"""
+    try:
+        admin_user = request.current_user
+        
+        # Check if user is admin
+        if admin_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        data = request.get_json() or {}
+        reason = data.get('reason', 'No reason provided')
+        
+        user_model = User()
+        success, message = user_model.reject_user(user_id, str(admin_user['_id']), reason)
+        
+        if success:
+            logging.info(f"❌ User {user_id} rejected by admin {admin_user['_id']} - Reason: {reason}")
+            return jsonify({
+                'message': 'User rejected',
+                'user_id': user_id
+            }), 200
+        else:
+            return jsonify({'error': message}), 400
+        
+    except Exception as e:
+        logging.error(f"Error rejecting user: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to reject user: {str(e)}'}), 500
+
+
+@auth_bp.route('/admin/auto-approve-check', methods=['POST'])
+@token_required
+def run_auto_approval():
+    """Manually trigger auto-approval check for users pending > 3 days (admin only)"""
+    try:
+        admin_user = request.current_user
+        
+        # Check if user is admin
+        if admin_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        user_model = User()
+        users_to_approve = user_model.get_users_for_auto_approval(days=3)
+        
+        approved_count = 0
+        verification_service = get_email_verification_service()
+        
+        for user_data in users_to_approve:
+            user_id = user_data['_id']
+            if user_model.auto_approve_user(user_id):
+                approved_count += 1
+                logging.info(f"✅ Auto-approved user {user_id}")
+                
+                # Send approval email
+                import threading
+                def send_email(email, name):
+                    try:
+                        verification_service.send_application_under_review_email(email, name)
+                    except Exception as e:
+                        logging.error(f"Failed to send auto-approval email: {e}")
+                
+                email = user_data.get('email')
+                name = user_data.get('first_name') or user_data.get('username', 'User')
+                threading.Thread(target=send_email, args=(email, name), daemon=True).start()
+        
+        return jsonify({
+            'message': f'Auto-approval check complete. {approved_count} users approved.',
+            'approved_count': approved_count,
+            'checked_count': len(users_to_approve)
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Error in auto-approval: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Auto-approval failed: {str(e)}'}), 500
 
 @auth_bp.route('/verification-status', methods=['GET'])
 @token_required

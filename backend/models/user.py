@@ -1,7 +1,12 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 import bcrypt
 from database import db_instance
+
+# Account status constants
+ACCOUNT_STATUS_PENDING = 'pending_approval'
+ACCOUNT_STATUS_APPROVED = 'approved'
+ACCOUNT_STATUS_REJECTED = 'rejected'
 
 class User:
     def __init__(self):
@@ -45,6 +50,11 @@ class User:
             'is_active': True,
             'email_verified': False,  # Email verification status
             'email_verified_at': None,  # When email was verified
+            # Account approval status - new users start as pending
+            'account_status': ACCOUNT_STATUS_PENDING,  # pending_approval, approved, rejected
+            'account_status_updated_at': datetime.utcnow(),  # For auto-approval tracking
+            'account_approved_by': None,  # Admin who approved
+            'account_rejection_reason': None,  # Reason if rejected
             # Email notification preferences
             'email_preferences': {
                 'new_offers': True,  # Receive emails for new offers
@@ -348,3 +358,177 @@ class User:
             return users
         except Exception as e:
             return []
+    
+    # ============ Account Approval Methods ============
+    
+    def get_pending_users(self):
+        """Get all users pending approval"""
+        if not self._check_db_connection():
+            return []
+        
+        try:
+            # Get users with pending_approval status OR users without account_status field (legacy users)
+            users = list(self.collection.find(
+                {
+                    '$or': [
+                        {'account_status': ACCOUNT_STATUS_PENDING},
+                        {'account_status': {'$exists': False}}  # Legacy users without status
+                    ],
+                    'role': {'$ne': 'admin'}  # Exclude admins
+                },
+                {'password': 0}  # Exclude password
+            ).sort('created_at', -1))
+            
+            for user in users:
+                user['_id'] = str(user['_id'])
+                # Set default account_status for legacy users
+                if 'account_status' not in user:
+                    user['account_status'] = ACCOUNT_STATUS_PENDING
+            
+            return users
+        except Exception as e:
+            return []
+    
+    def get_all_users_with_status(self, status_filter=None):
+        """Get all users with optional status filter"""
+        if not self._check_db_connection():
+            return []
+        
+        try:
+            query = {'role': {'$ne': 'admin'}}  # Exclude admins
+            
+            if status_filter:
+                if status_filter == ACCOUNT_STATUS_PENDING:
+                    # Include users without account_status (legacy users)
+                    query['$or'] = [
+                        {'account_status': status_filter},
+                        {'account_status': {'$exists': False}}
+                    ]
+                else:
+                    query['account_status'] = status_filter
+            
+            users = list(self.collection.find(
+                query,
+                {'password': 0}  # Exclude password
+            ).sort('created_at', -1))
+            
+            for user in users:
+                user['_id'] = str(user['_id'])
+                # Set default account_status for legacy users
+                if 'account_status' not in user:
+                    user['account_status'] = ACCOUNT_STATUS_PENDING
+            
+            return users
+        except Exception as e:
+            return []
+    
+    def approve_user(self, user_id, admin_id):
+        """Approve a user account"""
+        if not self._check_db_connection():
+            return False, "Database connection not available"
+        
+        try:
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'account_status': ACCOUNT_STATUS_APPROVED,
+                        'account_status_updated_at': datetime.utcnow(),
+                        'account_approved_by': admin_id,
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            
+            if result.modified_count > 0:
+                return True, "User approved successfully"
+            return False, "User not found or already approved"
+        except Exception as e:
+            return False, f"Error approving user: {str(e)}"
+    
+    def reject_user(self, user_id, admin_id, reason=None):
+        """Reject a user account"""
+        if not self._check_db_connection():
+            return False, "Database connection not available"
+        
+        try:
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'account_status': ACCOUNT_STATUS_REJECTED,
+                        'account_status_updated_at': datetime.utcnow(),
+                        'account_approved_by': admin_id,
+                        'account_rejection_reason': reason,
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            
+            if result.modified_count > 0:
+                return True, "User rejected"
+            return False, "User not found"
+        except Exception as e:
+            return False, f"Error rejecting user: {str(e)}"
+    
+    def get_users_for_auto_approval(self, days=3):
+        """Get users pending approval for more than X days (for auto-approval)"""
+        if not self._check_db_connection():
+            return []
+        
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            
+            users = list(self.collection.find(
+                {
+                    'account_status': ACCOUNT_STATUS_PENDING,
+                    'email_verified': True,  # Only auto-approve verified emails
+                    'account_status_updated_at': {'$lt': cutoff_date},
+                    'role': {'$ne': 'admin'}
+                },
+                {'password': 0}
+            ))
+            
+            for user in users:
+                user['_id'] = str(user['_id'])
+            
+            return users
+        except Exception as e:
+            return []
+    
+    def auto_approve_user(self, user_id):
+        """Auto-approve a user (system action)"""
+        if not self._check_db_connection():
+            return False
+        
+        try:
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'account_status': ACCOUNT_STATUS_APPROVED,
+                        'account_status_updated_at': datetime.utcnow(),
+                        'account_approved_by': 'system_auto_approval',
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            return False
+    
+    def is_account_approved(self, user_id):
+        """Check if user's account is approved"""
+        if not self._check_db_connection():
+            return False
+        
+        try:
+            user = self.find_by_id(user_id)
+            if not user:
+                return False
+            # Admins are always approved
+            if user.get('role') == 'admin':
+                return True
+            return user.get('account_status') == ACCOUNT_STATUS_APPROVED
+        except Exception:
+            return False

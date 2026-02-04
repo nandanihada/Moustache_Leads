@@ -1979,40 +1979,48 @@ def get_offers():
         # Helper function to auto-detect category from offer name/description
         def detect_category(name, description='', existing_category=None):
             """Auto-detect category based on offer name and description"""
-            # If already has a valid category (not 'general' or empty), use it
-            if existing_category and existing_category.lower() not in ['general', '', 'unknown', 'other']:
-                return existing_category.lower()
+            # If already has a valid category (not 'general' or empty), use it as-is
+            if existing_category and existing_category.upper() not in ['GENERAL', '', 'UNKNOWN']:
+                # Return the existing category in uppercase (new standard format)
+                return existing_category.upper()
             
             text = f"{name} {description}".lower()
             
             # Category detection rules (order matters - more specific first)
+            # Return uppercase categories to match new standard
             if any(word in text for word in ['survey', 'questionnaire', 'poll', 'opinion', 'feedback']):
-                return 'survey'
+                return 'SURVEY'
             if any(word in text for word in ['game', 'gaming', 'play', 'level', 'casino', 'slots', 'poker', 'puzzle', 'match']):
-                return 'game'
+                return 'GAMES_INSTALL'
             if any(word in text for word in ['video', 'watch', 'stream', 'youtube', 'tiktok', 'movie']):
-                return 'video'
+                return 'OTHER'
             if any(word in text for word in ['shop', 'shopping', 'buy', 'purchase', 'store', 'deal', 'discount', 'coupon', 'sale']):
-                return 'shopping'
+                return 'OTHER'
             if any(word in text for word in ['app', 'download', 'install', 'mobile', 'android', 'ios', 'iphone']):
-                return 'app'
+                return 'INSTALLS'
             if any(word in text for word in ['signup', 'sign up', 'register', 'create account', 'join', 'subscribe', 'newsletter', 'email']):
-                return 'signup'
-            if any(word in text for word in ['loan', 'credit', 'bank', 'finance', 'invest', 'insurance', 'mortgage', 'trading', 'crypto', 'bitcoin']):
-                return 'finance'
+                return 'OTHER'
+            if any(word in text for word in ['loan', 'credit', 'mortgage']):
+                return 'LOAN'
+            if any(word in text for word in ['insurance']):
+                return 'INSURANCE'
+            if any(word in text for word in ['bank', 'finance', 'invest', 'trading', 'crypto', 'bitcoin']):
+                return 'FINANCE'
             if any(word in text for word in ['health', 'fitness', 'diet', 'weight', 'medical', 'doctor', 'pharmacy', 'vitamin', 'supplement']):
-                return 'health'
+                return 'HEALTH'
             if any(word in text for word in ['travel', 'hotel', 'flight', 'vacation', 'trip', 'booking', 'airbnb']):
-                return 'travel'
+                return 'OTHER'
             if any(word in text for word in ['education', 'course', 'learn', 'study', 'school', 'university', 'training', 'tutorial']):
-                return 'education'
+                return 'EDUCATION'
             if any(word in text for word in ['entertainment', 'music', 'spotify', 'netflix', 'streaming', 'tv', 'show']):
-                return 'entertainment'
-            if any(word in text for word in ['lifestyle', 'dating', 'social', 'fashion', 'beauty', 'food', 'recipe']):
-                return 'lifestyle'
+                return 'OTHER'
+            if any(word in text for word in ['dating', 'social', 'relationship']):
+                return 'DATING'
+            if any(word in text for word in ['trial', 'free trial', 'freetrial']):
+                return 'FREE_TRIAL'
             
-            # Default to 'app' for most offers (common category)
-            return 'app'
+            # Default to 'OTHER' for unmatched offers
+            return 'OTHER'
         
         # Transform offers to frontend format
         transformed_offers = []

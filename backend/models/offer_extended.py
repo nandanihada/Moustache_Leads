@@ -7,7 +7,16 @@ from datetime import datetime, timedelta
 from bson import ObjectId
 from database import db_instance
 import re
+import sys
+import os
 from typing import List, Dict, Optional, Any
+
+# Import traffic source rules service
+try:
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services'))
+    from traffic_source_rules_service import TrafficSourceRulesService
+except ImportError:
+    TrafficSourceRulesService = None
 
 class OfferExtended:
     def __init__(self):
@@ -57,6 +66,59 @@ class OfferExtended:
                     return "ML-00001"
             except:
                 return "ML-00001"
+    
+    def _generate_traffic_source_fields(self, vertical, allowed_countries, offer_data):
+        """
+        Generate traffic source fields based on category/vertical.
+        
+        Uses the TrafficSourceRulesService for deterministic rule-based generation.
+        Supports manual overrides from offer_data.
+        """
+        # Check if TrafficSourceRulesService is available
+        if TrafficSourceRulesService is None:
+            # Fallback to basic defaults if service not available
+            return {
+                'allowed_traffic_sources': offer_data.get('allowed_traffic_sources', ['Email', 'Search', 'Display']),
+                'risky_traffic_sources': offer_data.get('risky_traffic_sources', ['Social', 'Push']),
+                'disallowed_traffic_sources': offer_data.get('disallowed_traffic_sources', ['Adult', 'Fraud', 'Spam']),
+                'blocked_traffic_sources': offer_data.get('blocked_traffic_sources', []),
+                'traffic_source_overrides': None
+            }
+        
+        # Get primary country for country-specific adjustments
+        country = None
+        if allowed_countries and len(allowed_countries) == 1:
+            country = allowed_countries[0]
+        
+        # Check for manual overrides in offer_data
+        overrides = None
+        if (offer_data.get('allowed_traffic_sources') or 
+            offer_data.get('risky_traffic_sources') or 
+            offer_data.get('disallowed_traffic_sources')):
+            overrides = {
+                'allowed': offer_data.get('allowed_traffic_sources'),
+                'risky': offer_data.get('risky_traffic_sources'),
+                'disallowed': offer_data.get('disallowed_traffic_sources')
+            }
+            # Filter out None values
+            overrides = {k: v for k, v in overrides.items() if v is not None}
+            if not overrides:
+                overrides = None
+        
+        # Generate traffic sources using the rules service
+        rules = TrafficSourceRulesService.generate_traffic_sources(
+            category=vertical,
+            country=country,
+            overrides=overrides
+        )
+        
+        return {
+            'allowed_traffic_sources': rules['allowed'],
+            'risky_traffic_sources': rules['risky'],
+            'disallowed_traffic_sources': rules['disallowed'],
+            'blocked_traffic_sources': offer_data.get('blocked_traffic_sources', rules['disallowed']),
+            'traffic_source_overrides': overrides
+        }
     
     def _validate_schedule(self, schedule_data: Dict) -> tuple[bool, str]:
         """Validate schedule data"""
@@ -239,8 +301,14 @@ class OfferExtended:
                 'hash_code': offer_data.get('hash_code', '').strip(),
                 'click_expiration': offer_data.get('click_expiration', 7),
                 'conversion_window': offer_data.get('conversion_window', 30),
-                'allowed_traffic_sources': offer_data.get('allowed_traffic_sources', []),
-                'blocked_traffic_sources': offer_data.get('blocked_traffic_sources', []),
+                
+                # SECTION 4.1: TRAFFIC SOURCE RULES (Auto-generated based on category)
+                **self._generate_traffic_source_fields(
+                    offer_data.get('vertical', 'Lifestyle'),
+                    offer_data.get('allowed_countries', []),
+                    offer_data
+                ),
+                
                 'duplicate_conversion_rule': offer_data.get('duplicate_conversion_rule', 'allow'),
                 
                 # SECTION 5: ACCESS & AFFILIATES

@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Mail, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+import { Mail, CheckCircle, AlertCircle, Loader, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { API_BASE_URL } from '../services/apiConfig';
-import { useAuth } from '../contexts/AuthContext';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { login } = useAuth();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
+  const [accountStatus, setAccountStatus] = useState<string>('');
   const token = searchParams.get('token');
 
   useEffect(() => {
@@ -34,30 +33,8 @@ export default function VerifyEmail() {
 
         if (response.ok) {
           setStatus('success');
-          
-          // Auto-login if token is provided
-          if (data.token && data.user && data.auto_login) {
-            setMessage('Email verified! Signing you in...');
-            
-            // Login the user
-            login(data.token, {
-              id: data.user.id,
-              username: data.user.username,
-              email: data.user.email,
-              role: data.user.role || 'user'
-            });
-            
-            // Redirect to dashboard after brief delay
-            setTimeout(() => {
-              navigate('/dashboard');
-            }, 1500);
-          } else {
-            setMessage('Email verified successfully! Redirecting to login...');
-            // Fallback: redirect to login
-            setTimeout(() => {
-              navigate('/login');
-            }, 2000);
-          }
+          setAccountStatus(data.account_status || 'pending_approval');
+          setMessage(data.message || 'Email verified successfully!');
         } else {
           setStatus('error');
           setMessage(data.error || 'Failed to verify email');
@@ -69,7 +46,7 @@ export default function VerifyEmail() {
     };
 
     verifyEmail();
-  }, [token, navigate, login]);
+  }, [token]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
@@ -95,7 +72,7 @@ export default function VerifyEmail() {
             )}
 
             {status === 'success' && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="flex justify-center">
                   <CheckCircle className="w-12 h-12 text-green-500" />
                 </div>
@@ -103,8 +80,54 @@ export default function VerifyEmail() {
                   <p className="text-lg font-semibold text-gray-900 mb-2">
                     Email Verified!
                   </p>
-                  <p className="text-gray-600">{message}</p>
                 </div>
+                
+                {/* Account Under Review Message */}
+                {accountStatus === 'pending_approval' && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 text-left">
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold text-amber-800 mb-2">
+                          Your Account is Under Review
+                        </h3>
+                        <p className="text-amber-700 text-sm mb-3">
+                          Thank you for verifying your email! Your application is now being reviewed by our team.
+                        </p>
+                        <p className="text-amber-700 text-sm">
+                          You will receive an email once your account has been approved. This usually takes 1-3 business days.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* What happens next */}
+                <div className="bg-gray-50 rounded-lg p-4 text-left">
+                  <h4 className="font-medium text-gray-900 mb-2">What happens next?</h4>
+                  <ul className="text-sm text-gray-600 space-y-2">
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-600 font-bold">1.</span>
+                      <span>Our team will review your application</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-600 font-bold">2.</span>
+                      <span>You'll receive an approval email</span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="text-indigo-600 font-bold">3.</span>
+                      <span>Then you can log in and create your placement</span>
+                    </li>
+                  </ul>
+                </div>
+
+                <Button
+                  onClick={() => navigate('/login')}
+                  variant="outline"
+                  className="w-full"
+                >
+                  Go to Login
+                </Button>
               </div>
             )}
 
@@ -132,7 +155,7 @@ export default function VerifyEmail() {
           {/* Info Box */}
           <div className="mt-8 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <p className="text-sm text-blue-800">
-              <strong>💡 Tip:</strong> Verification links expire after 24 hours. If your link has expired, you can request a new one from your account settings.
+              <strong>💡 Tip:</strong> Make sure to add <strong>moustacheleads.com</strong> to your email whitelist so you don't miss our approval notification.
             </p>
           </div>
         </div>

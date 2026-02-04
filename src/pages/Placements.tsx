@@ -1,9 +1,10 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus, CheckCircle, AlertCircle, Loader2, Package, Code, Copy } from "lucide-react";
+import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus, CheckCircle, AlertCircle, Loader2, Package, Code, Copy, Clock } from "lucide-react";
 import { placementApi } from "../services/placementApi";
 import { clearPlacementCache } from "../hooks/usePlacementApproval";
 import { OfferwallIframeEnhanced } from "../components/OfferwallIframeEnhanced";
 import { OfferwallProfessional } from "../components/OfferwallProfessional";
+import { useAuth } from "../contexts/AuthContext";
 
 // --- Data Structures ---
 
@@ -973,6 +974,7 @@ const TestingPostback = ({ data, onChange, onSubmit, loading = false }) => {
 // --- Main Component ---
 
 export const Placements = () => {
+  const { isAccountApproved, user } = useAuth();
   const [activeTab, setActiveTab] = useState('placement');
   const [isNewPlacement, setIsNewPlacement] = useState(false); 
   const [loading, setLoading] = useState(false);
@@ -1189,6 +1191,29 @@ export const Placements = () => {
   // --- Rendering Logic ---
 
   const renderActiveTab = () => {
+    // Show account pending message if account is not approved
+    if (!isAccountApproved) {
+      return (
+        <Card title="Account Under Review" description="Your account is being reviewed by our team">
+          <div className="flex flex-col items-center justify-center py-12 px-4">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+              <Clock className="h-8 w-8 text-amber-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Account Pending Approval</h3>
+            <p className="text-gray-500 text-center mb-4 max-w-md">
+              Your account is currently under review. Once approved, you'll be able to create placements and start earning.
+            </p>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 max-w-md">
+              <p className="text-sm text-amber-800">
+                <strong>What happens next?</strong><br/>
+                Our team will review your application and you'll receive an email once your account is approved. This usually takes 1-3 business days.
+              </p>
+            </div>
+          </div>
+        </Card>
+      );
+    }
+
     // Show empty state if user is authenticated but has no placements and isn't creating a new one
     if (!isNewPlacement && placements.length === 0 && localStorage.getItem('token') && !loading) {
       return (

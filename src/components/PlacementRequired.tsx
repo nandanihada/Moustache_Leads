@@ -11,9 +11,11 @@ import {
   ArrowRight,
   FileText,
   Shield,
-  RefreshCw
+  RefreshCw,
+  UserCheck
 } from 'lucide-react';
 import { useRequireApprovedPlacement } from '../hooks/usePlacementApproval';
+import { useAuth } from '../contexts/AuthContext';
 
 interface PlacementRequiredProps {
   children: React.ReactNode;
@@ -25,6 +27,7 @@ const PlacementRequired: React.FC<PlacementRequiredProps> = ({
   showMessage = true 
 }) => {
   const navigate = useNavigate();
+  const { isAccountApproved, user } = useAuth();
   const {
     canAccessPlatform,
     shouldShowPlacementRequired,
@@ -68,6 +71,62 @@ const PlacementRequired: React.FC<PlacementRequiredProps> = ({
           </Button>
         </CardContent>
       </Card>
+    );
+  }
+
+  // FIRST CHECK: If account is not approved, show account pending message
+  if (!isAccountApproved) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 space-y-6">
+        <Card className="border-l-4 border-l-amber-500">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <UserCheck className="h-6 w-6 mr-2 text-amber-600" />
+              Account Under Review
+            </CardTitle>
+            <CardDescription>
+              Your account is being reviewed by our team. Please wait for approval.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-center mb-3">
+                <Clock className="h-5 w-5 text-amber-600 mr-3" />
+                <div>
+                  <p className="font-medium text-amber-800">Account Pending Approval</p>
+                  <p className="text-sm text-amber-700">
+                    Thank you for registering! Your account is currently under review. You will receive an email once your account has been approved.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="font-medium text-gray-900 mb-2">What happens next?</h4>
+              <ul className="text-sm text-gray-600 space-y-2">
+                <li className="flex items-start gap-2">
+                  <span className="text-amber-600 font-bold">1.</span>
+                  <span>Our team will review your application</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-amber-600 font-bold">2.</span>
+                  <span>You'll receive an approval email</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-amber-600 font-bold">3.</span>
+                  <span>Then you can create your placement and start earning</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <p className="text-sm text-blue-800">
+                <strong>💡 Tip:</strong> Make sure to add <strong>moustacheleads.com</strong> to your email whitelist so you don't miss our approval notification.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 

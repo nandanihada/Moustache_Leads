@@ -236,9 +236,28 @@ export const OfferwallIframeEnhanced: React.FC<OfferwallIframeProps> = ({
       );
     }
 
+    // Map category names for backward compatibility (all uppercase)
+    const categoryMappings: Record<string, string[]> = {
+      'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
+      'SURVEY': ['SURVEY', 'SURVEYS'],
+      'EDUCATION': ['EDUCATION', 'LEARNING'],
+      'INSURANCE': ['INSURANCE'],
+      'LOAN': ['LOAN', 'LOANS', 'LENDING'],
+      'FINANCE': ['FINANCE', 'FINANCIAL'],
+      'DATING': ['DATING', 'RELATIONSHIPS'],
+      'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
+      'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
+      'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
+      'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
+    };
+
     // Category filter
     if (selectedCategory) {
-      filtered = filtered.filter(offer => offer.category === selectedCategory);
+      const catUpper = selectedCategory.toUpperCase();
+      const matchingCategories = categoryMappings[catUpper] || [catUpper];
+      filtered = filtered.filter(offer => 
+        matchingCategories.includes((offer.category || '').toUpperCase())
+      );
     }
 
     // Sort

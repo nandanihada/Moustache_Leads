@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { publisherOfferApi, type PublisherOffer } from "@/services/publisherOfferApi";
 import { useToast } from "@/hooks/use-toast";
 import OfferDetailsModalNew from "@/components/OfferDetailsModalNew";
@@ -161,11 +162,28 @@ const PublisherOffersContent = () => {
     
     // Vertical/Category filter
     if (verticalFilter !== 'all') {
-      const offerVertical = ((offer as any).vertical || offer.category || '').toLowerCase();
-      // Handle E-commerce special case (with hyphen)
-      const filterValue = verticalFilter.toLowerCase();
-      if (offerVertical !== filterValue && 
-          !(filterValue === 'e-commerce' && (offerVertical === 'ecommerce' || offerVertical === 'e-commerce'))) {
+      const offerVertical = ((offer as any).vertical || offer.category || '').toUpperCase();
+      const filterValue = verticalFilter.toUpperCase();
+      
+      // Map old category names to new ones for backward compatibility
+      const categoryMappings: Record<string, string[]> = {
+        'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
+        'SURVEY': ['SURVEY', 'SURVEYS'],
+        'EDUCATION': ['EDUCATION', 'LEARNING'],
+        'INSURANCE': ['INSURANCE'],
+        'LOAN': ['LOAN', 'LOANS', 'LENDING'],
+        'FINANCE': ['FINANCE', 'FINANCIAL'],
+        'DATING': ['DATING', 'RELATIONSHIPS'],
+        'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
+        'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
+        'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
+        'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
+      };
+      
+      // Check if offer category matches filter (including mappings)
+      const matchingCategories = categoryMappings[filterValue] || [filterValue];
+      
+      if (!matchingCategories.includes(offerVertical)) {
         return false;
       }
     }
@@ -282,16 +300,17 @@ const PublisherOffersContent = () => {
                   </SelectTrigger>
                   <SelectContent className="max-h-64">
                     <SelectItem value="all">All Categories</SelectItem>
-                    <SelectItem value="Finance">💰 Finance</SelectItem>
-                    <SelectItem value="Gaming">🎮 Gaming</SelectItem>
-                    <SelectItem value="Dating">❤️ Dating</SelectItem>
-                    <SelectItem value="Health">💊 Health</SelectItem>
-                    <SelectItem value="E-commerce">🛒 E-commerce</SelectItem>
-                    <SelectItem value="Entertainment">🎬 Entertainment</SelectItem>
-                    <SelectItem value="Education">📚 Education</SelectItem>
-                    <SelectItem value="Travel">✈️ Travel</SelectItem>
-                    <SelectItem value="Utilities">🔧 Utilities</SelectItem>
-                    <SelectItem value="Lifestyle">🌟 Lifestyle</SelectItem>
+                    <SelectItem value="HEALTH">💊 Health</SelectItem>
+                    <SelectItem value="SURVEY">📋 Survey</SelectItem>
+                    <SelectItem value="EDUCATION">📚 Education</SelectItem>
+                    <SelectItem value="INSURANCE">🛡️ Insurance</SelectItem>
+                    <SelectItem value="LOAN">💳 Loan</SelectItem>
+                    <SelectItem value="FINANCE">💰 Finance</SelectItem>
+                    <SelectItem value="DATING">❤️ Dating</SelectItem>
+                    <SelectItem value="FREE_TRIAL">🎁 Free Trial</SelectItem>
+                    <SelectItem value="INSTALLS">📲 Installs</SelectItem>
+                    <SelectItem value="GAMES_INSTALL">🎮 Games Install</SelectItem>
+                    <SelectItem value="OTHER">📦 Other</SelectItem>
                   </SelectContent>
                 </Select>
                 <Select value={sortBy} onValueChange={setSortBy}>
@@ -430,6 +449,7 @@ const PublisherOffersContent = () => {
                             <TableHead>Vertical</TableHead>
                             <TableHead>Countries</TableHead>
                             <TableHead>Payout</TableHead>
+                            <TableHead>Traffic Sources</TableHead>
                             <TableHead>Device</TableHead>
                             <TableHead>Network</TableHead>
                             <TableHead>Actions</TableHead>
@@ -485,6 +505,43 @@ const PublisherOffersContent = () => {
                               </TableCell>
                               <TableCell className="font-medium text-green-600">
                                 ${offer.payout?.toFixed(2) || '0.00'}
+                              </TableCell>
+                              <TableCell>
+                                <TooltipProvider>
+                                  <div className="flex flex-wrap gap-1 max-w-[150px]">
+                                    {((offer as any).allowed_traffic_sources || []).slice(0, 2).map((source: string) => (
+                                      <Tooltip key={source}>
+                                        <TooltipTrigger>
+                                          <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">
+                                            {source}
+                                          </Badge>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Allowed</TooltipContent>
+                                      </Tooltip>
+                                    ))}
+                                    {((offer as any).allowed_traffic_sources || []).length > 2 && (
+                                      <Tooltip>
+                                        <TooltipTrigger>
+                                          <Badge variant="outline" className="text-xs">
+                                            +{((offer as any).allowed_traffic_sources || []).length - 2}
+                                          </Badge>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                          <div className="text-xs">
+                                            <div className="font-semibold mb-1">Allowed:</div>
+                                            {((offer as any).allowed_traffic_sources || []).join(', ')}
+                                            {((offer as any).disallowed_traffic_sources || []).length > 0 && (
+                                              <>
+                                                <div className="font-semibold mt-2 mb-1 text-red-400">Disallowed:</div>
+                                                {((offer as any).disallowed_traffic_sources || []).join(', ')}
+                                              </>
+                                            )}
+                                          </div>
+                                        </TooltipContent>
+                                      </Tooltip>
+                                    )}
+                                  </div>
+                                </TooltipProvider>
                               </TableCell>
                               <TableCell>
                                 {(offer as any).device_targeting === 'mobile' ? (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,8 @@ import { fileUploadApi } from '@/services/accessControlApi';
 import { partnerApi } from '@/services/partnerApi';
 import { useToast } from '@/hooks/use-toast';
 import { API_BASE_URL } from '../services/apiConfig';
+import { TrafficSourceDisplay } from './TrafficSourceDisplay';
+import { TrafficSourceRules, getDefaultRulesForCategory } from '@/services/trafficSourceApi';
 
 interface EditOfferModalProps {
   open: boolean;
@@ -94,9 +96,9 @@ const getFlagUrl = (countryCode: string) => {
 const NETWORK_PARTNERS = ['PepperAds', 'PepeLeads', 'MaxBounty', 'ClickDealer', 'CPAlead'];
 
 // 10 Predefined Verticals (replaces category)
-const VALID_VERTICALS = [
-  'Finance', 'Gaming', 'Dating', 'Health', 'E-commerce',
-  'Entertainment', 'Education', 'Travel', 'Utilities', 'Lifestyle'
+const VALID_CATEGORIES = [
+  'HEALTH', 'SURVEY', 'EDUCATION', 'INSURANCE', 'LOAN',
+  'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL', 'OTHER'
 ];
 
 // Schedule + Smart Rules constants
@@ -157,6 +159,18 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   // Promo code state
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
   const [selectedPromoCode, setSelectedPromoCode] = useState('');
+
+  // Traffic source rules state (auto-generated based on category)
+  const [trafficSourceRules, setTrafficSourceRules] = useState<TrafficSourceRules>(
+    getDefaultRulesForCategory('OTHER')
+  );
+  const [hasTrafficSourceOverrides, setHasTrafficSourceOverrides] = useState(false);
+
+  // Handle traffic source rules change
+  const handleTrafficSourceRulesChange = useCallback((rules: TrafficSourceRules, hasOverrides: boolean) => {
+    setTrafficSourceRules(rules);
+    setHasTrafficSourceOverrides(hasOverrides);
+  }, []);
 
   const [formData, setFormData] = useState<any>({
     campaign_id: '',
@@ -235,7 +249,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         name: offer.name,
         description: offer.description || '',
         status: offer.status,
-        vertical: (offer as any).vertical || (offer as any).category || 'Lifestyle',  // NEW: Vertical (replaces category)
+        vertical: (offer as any).vertical || (offer as any).category || 'OTHER',  // Category
         countries: offer.countries,
         allowed_countries: (offer as any).allowed_countries || [],  // NEW: Geo-restriction
         non_access_url: (offer as any).non_access_url || '',  // NEW: Fallback URL
@@ -307,6 +321,24 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
       // Set selected promo code if offer has one
       if ((offer as any).promo_code_id) {
         setSelectedPromoCode((offer as any).promo_code_id);
+      }
+
+      // Load traffic source rules from offer or generate defaults
+      const offerTrafficRules = {
+        allowed: (offer as any).allowed_traffic_sources || [],
+        risky: (offer as any).risky_traffic_sources || [],
+        disallowed: (offer as any).disallowed_traffic_sources || []
+      };
+      
+      // Check if offer has custom traffic source rules
+      if (offerTrafficRules.allowed.length > 0 || offerTrafficRules.risky.length > 0 || offerTrafficRules.disallowed.length > 0) {
+        setTrafficSourceRules(offerTrafficRules);
+        setHasTrafficSourceOverrides(!!(offer as any).traffic_source_overrides);
+      } else {
+        // Generate defaults based on category
+        const vertical = (offer as any).vertical || (offer as any).category || 'OTHER';
+        setTrafficSourceRules(getDefaultRulesForCategory(vertical));
+        setHasTrafficSourceOverrides(false);
       }
 
       setSelectedCountries(offer.countries);
@@ -519,6 +551,14 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         monthly_cap: formData.monthly_cap ? Number(formData.monthly_cap) : undefined,
         click_expiration: Number(formData.click_expiration) || 7,
         conversion_window: Number(formData.conversion_window) || 30,
+        // Traffic source rules (auto-generated based on vertical)
+        allowed_traffic_sources: trafficSourceRules.allowed,
+        risky_traffic_sources: trafficSourceRules.risky,
+        disallowed_traffic_sources: trafficSourceRules.disallowed,
+        traffic_source_overrides: hasTrafficSourceOverrides ? trafficSourceRules : null,
+        // Backward compatibility
+        allowed_traffic_types: trafficSourceRules.allowed,
+        disallowed_traffic_types: trafficSourceRules.disallowed,
         // 🔥 CRITICAL FIX: Include Schedule + Smart Rules data
         schedule: {
           startDate: startDate ? format(startDate, 'yyyy-MM-dd') : null,
@@ -660,14 +700,14 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="vertical">Vertical</Label>
-                      <Select value={formData.vertical || 'Lifestyle'} onValueChange={(value) => handleInputChange('vertical', value)}>
+                      <Label htmlFor="vertical">Category</Label>
+                      <Select value={formData.vertical || 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select vertical" />
+                          <SelectValue placeholder="Select category" />
                         </SelectTrigger>
                         <SelectContent>
-                          {VALID_VERTICALS.map(vertical => (
-                            <SelectItem key={vertical} value={vertical}>{vertical}</SelectItem>
+                          {VALID_CATEGORIES.map(category => (
+                            <SelectItem key={category} value={category}>{category}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -2136,6 +2176,15 @@ Your Team"
                   <CardDescription>Traffic quality and compliance settings</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* Traffic Source Rules - Auto-generated based on category */}
+                  <TrafficSourceDisplay
+                    category={formData.vertical || 'OTHER'}
+                    country={selectedAllowedCountries.length === 1 ? selectedAllowedCountries[0] : undefined}
+                    initialRules={trafficSourceRules}
+                    editable={true}
+                    onRulesChange={handleTrafficSourceRulesChange}
+                  />
+
                   <div className="flex items-center space-x-2">
                     <Switch
                       id="creative_approval_required"

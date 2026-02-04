@@ -36,21 +36,20 @@ interface Offer {
   requires_approval?: boolean;
 }
 
-// Category definitions
+// Category definitions (11 predefined categories)
 const CATEGORIES = [
   { id: 'all', name: 'All Offers', icon: '🎯' },
-  { id: 'survey', name: 'Surveys', icon: '📋' },
-  { id: 'app', name: 'Apps', icon: '📱' },
-  { id: 'game', name: 'Games', icon: '🎮' },
-  { id: 'video', name: 'Videos', icon: '🎬' },
-  { id: 'shopping', name: 'Shopping', icon: '🛍️' },
-  { id: 'signup', name: 'Sign Ups', icon: '✍️' },
-  { id: 'finance', name: 'Finance', icon: '💰' },
-  { id: 'lifestyle', name: 'Lifestyle', icon: '🌟' },
-  { id: 'health', name: 'Health', icon: '💪' },
-  { id: 'education', name: 'Education', icon: '📚' },
-  { id: 'entertainment', name: 'Entertainment', icon: '🎭' },
-  { id: 'travel', name: 'Travel', icon: '✈️' },
+  { id: 'HEALTH', name: 'Health', icon: '💊' },
+  { id: 'SURVEY', name: 'Surveys', icon: '📋' },
+  { id: 'EDUCATION', name: 'Education', icon: '📚' },
+  { id: 'INSURANCE', name: 'Insurance', icon: '🛡️' },
+  { id: 'LOAN', name: 'Loans', icon: '💳' },
+  { id: 'FINANCE', name: 'Finance', icon: '💰' },
+  { id: 'DATING', name: 'Dating', icon: '❤️' },
+  { id: 'FREE_TRIAL', name: 'Free Trials', icon: '🎁' },
+  { id: 'INSTALLS', name: 'Installs', icon: '📲' },
+  { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
+  { id: 'OTHER', name: 'Other', icon: '📦' },
 ];
 
 // Helper: Convert payout to points ($1 = 100 points)
@@ -270,13 +269,31 @@ const Offerwall: React.FC<OfferwallProps> = ({
   useEffect(() => {
     let result = [...offers];
 
+    // Map category names for backward compatibility (all uppercase)
+    const categoryMappings: Record<string, string[]> = {
+      'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
+      'SURVEY': ['SURVEY', 'SURVEYS'],
+      'EDUCATION': ['EDUCATION', 'LEARNING'],
+      'INSURANCE': ['INSURANCE'],
+      'LOAN': ['LOAN', 'LOANS', 'LENDING'],
+      'FINANCE': ['FINANCE', 'FINANCIAL'],
+      'DATING': ['DATING', 'RELATIONSHIPS'],
+      'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
+      'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
+      'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
+      'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
+    };
+
     // Category filter (multi-select)
     if (!selectedCategories.includes('all')) {
-      result = result.filter(offer => 
-        selectedCategories.some(cat => 
-          offer.category?.toLowerCase() === cat.toLowerCase()
-        )
-      );
+      result = result.filter(offer => {
+        const offerCategory = (offer.category || '').toUpperCase();
+        return selectedCategories.some(cat => {
+          const catUpper = cat.toUpperCase();
+          const matchingCategories = categoryMappings[catUpper] || [catUpper];
+          return matchingCategories.includes(offerCategory);
+        });
+      });
     }
 
     // Search filter

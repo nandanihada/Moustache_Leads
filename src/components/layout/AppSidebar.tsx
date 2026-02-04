@@ -45,6 +45,7 @@ interface SubTab {
   icon: LucideIcon;
   alwaysAccessible?: boolean;
   requiresPlacement?: boolean;
+  requiresAccountApproval?: boolean;  // New: requires account to be approved
 }
 
 interface MenuItem {
@@ -53,6 +54,7 @@ interface MenuItem {
   type: "single" | "group";
   url?: string;
   requiresPlacement?: boolean;
+  requiresAccountApproval?: boolean;  // New: requires account to be approved
   subtabs?: SubTab[];
 }
 
@@ -69,7 +71,7 @@ const menuStructure: MenuItem[] = [
     icon: Gift,
     type: "group",
     subtabs: [
-      { title: "Placements", url: "/dashboard/placements", icon: Target, alwaysAccessible: true },
+      { title: "Placements", url: "/dashboard/placements", icon: Target, alwaysAccessible: true, requiresAccountApproval: true },
       { title: "Offers", url: "/dashboard/offers", icon: Gift, requiresPlacement: true },
       { title: "Assets", url: "/dashboard/assets", icon: FileImage, requiresPlacement: true },
     ]
@@ -110,7 +112,7 @@ const menuStructure: MenuItem[] = [
 export function AppSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout, isAdminOrSubadmin } = useAuth();
+  const { logout, isAdminOrSubadmin, isAccountApproved, user } = useAuth();
   const {
     hasApprovedPlacement,
     hasPendingPlacement,
@@ -139,6 +141,30 @@ export function AppSidebar() {
         ? prev.filter(t => t !== tabTitle)
         : [...prev, tabTitle]
     );
+  };
+
+  // Account status badge
+  const getAccountStatusBadge = () => {
+    if (isAccountApproved) {
+      return null; // Don't show badge if approved
+    }
+    const status = user?.account_status || 'pending_approval';
+    if (status === 'pending_approval') {
+      return (
+        <Badge variant="outline" className="bg-amber-100 text-amber-800 border-amber-300 text-xs">
+          <Clock className="h-3 w-3 mr-1" />
+          Under Review
+        </Badge>
+      );
+    } else if (status === 'rejected') {
+      return (
+        <Badge variant="outline" className="bg-red-100 text-red-800 border-red-300 text-xs">
+          <XCircle className="h-3 w-3 mr-1" />
+          Rejected
+        </Badge>
+      );
+    }
+    return null;
   };
 
   const getPlacementStatusBadge = () => {
@@ -183,23 +209,40 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {/* Placement Status Section */}
-        <SidebarGroup>
-          <div className="px-3 py-2">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-muted-foreground">Placement Status</span>
-              {getPlacementStatusBadge()}
-            </div>
-            {!canAccessPlatform && (
-              <p className="text-xs text-muted-foreground">
-                {hasPendingPlacement
-                  ? "Your placement is under review"
-                  : "Create a placement to access offers"
-                }
+        {/* Account Status Section - Show if not approved */}
+        {!isAccountApproved && (
+          <SidebarGroup>
+            <div className="px-3 py-2 bg-amber-50 rounded-lg mx-2 border border-amber-200">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-amber-800">Account Status</span>
+                {getAccountStatusBadge()}
+              </div>
+              <p className="text-xs text-amber-700">
+                Your account is under review. You'll receive an email once approved.
               </p>
-            )}
-          </div>
-        </SidebarGroup>
+            </div>
+          </SidebarGroup>
+        )}
+
+        {/* Placement Status Section - Only show if account is approved */}
+        {isAccountApproved && (
+          <SidebarGroup>
+            <div className="px-3 py-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-muted-foreground">Placement Status</span>
+                {getPlacementStatusBadge()}
+              </div>
+              {!canAccessPlatform && (
+                <p className="text-xs text-muted-foreground">
+                  {hasPendingPlacement
+                    ? "Your placement is under review"
+                    : "Create a placement to access offers"
+                  }
+                </p>
+              )}
+            </div>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupContent>
@@ -273,7 +316,9 @@ export function AppSidebar() {
                           <SidebarMenu className="ml-6 border-l-2 border-muted pl-2">
                             {item.subtabs?.map((subtab) => {
                               // Check if this specific subtab is disabled
-                              const isSubtabDisabled = !subtab.alwaysAccessible && (isGroupDisabled || (subtab.requiresPlacement && !canAccessPlatform));
+                              // Account approval check: if subtab requires account approval and account is not approved
+                              const needsAccountApproval = subtab.requiresAccountApproval && !isAccountApproved;
+                              const isSubtabDisabled = needsAccountApproval || (!subtab.alwaysAccessible && (isGroupDisabled || (subtab.requiresPlacement && !canAccessPlatform)));
                               
                               return (
                                 <SidebarMenuItem key={subtab.title}>
@@ -283,7 +328,10 @@ export function AppSidebar() {
                                       onClick={(e) => {
                                         if (isSubtabDisabled) {
                                           e.preventDefault();
-                                          navigate('/dashboard/placements');
+                                          // Don't navigate anywhere if account not approved
+                                          if (!needsAccountApproval) {
+                                            navigate('/dashboard/placements');
+                                          }
                                         }
                                       }}
                                       className={({ isActive }) =>

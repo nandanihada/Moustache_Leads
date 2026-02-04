@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { Offer } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
+import { TrafficSourceDisplay } from './TrafficSourceDisplay';
+import { getDefaultRulesForCategory } from '@/services/trafficSourceApi';
 
 interface OfferDetailsModalProps {
   open: boolean;
@@ -177,7 +179,7 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
     if (selectedFields.has('tracking_link') && trackingLink) fields.push(`Tracking Link: ${trackingLink}`);
     if (selectedFields.has('target_url') && offer.target_url) fields.push(`Target URL: ${offer.target_url}`);
     if (selectedFields.has('network') && offer.network) fields.push(`Network: ${offer.network}`);
-    if (selectedFields.has('vertical')) fields.push(`Vertical: ${(offer as any).vertical || 'Lifestyle'}`);
+    if (selectedFields.has('vertical')) fields.push(`Category: ${(offer as any).vertical || 'OTHER'}`);
     if (selectedFields.has('device') && offer.device_targeting) fields.push(`Device: ${offer.device_targeting}`);
     if (selectedFields.has('description') && offer.description) fields.push(`Description: ${offer.description}`);
     
@@ -317,8 +319,8 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                 </div>
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <span className="text-muted-foreground">Vertical:</span>
-                    <Badge variant="outline">{(offer as any).vertical || 'Lifestyle'}</Badge>
+                    <span className="text-muted-foreground">Category:</span>
+                    <Badge variant="outline">{(offer as any).vertical || 'OTHER'}</Badge>
                   </div>
                   <div>
                     <span className="text-muted-foreground">Incentive:</span>
@@ -382,24 +384,17 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-base">Traffic Sources</CardTitle></CardHeader>
               <CardContent className="space-y-2">
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">✅ Allowed:</div>
-                  <div className="flex flex-wrap gap-1">
-                    {(offer.tracking?.allowed_sources?.length || 0) > 0 
-                      ? offer.tracking?.allowed_sources?.map((s, i) => <Badge key={i} className="bg-green-100 text-green-800 text-xs">{s}</Badge>)
-                      : <Badge className="bg-gray-100 text-gray-600 text-xs">All Traffic</Badge>
-                    }
-                  </div>
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground mb-1">🚫 Prohibited:</div>
-                  <div className="flex flex-wrap gap-1">
-                    {(offer.tracking?.blocked_sources?.length || 0) > 0 
-                      ? offer.tracking?.blocked_sources?.map((s, i) => <Badge key={i} className="bg-red-100 text-red-800 text-xs">{s}</Badge>)
-                      : <Badge className="bg-gray-100 text-gray-600 text-xs">None</Badge>
-                    }
-                  </div>
-                </div>
+                {/* Use compact TrafficSourceDisplay for read-only view */}
+                <TrafficSourceDisplay
+                  category={(offer as any).vertical || (offer as any).category || 'OTHER'}
+                  initialRules={{
+                    allowed: (offer as any).allowed_traffic_sources || offer.tracking?.allowed_sources || [],
+                    risky: (offer as any).risky_traffic_sources || [],
+                    disallowed: (offer as any).disallowed_traffic_sources || offer.tracking?.blocked_sources || []
+                  }}
+                  editable={false}
+                  compact={true}
+                />
               </CardContent>
             </Card>
 

@@ -598,6 +598,65 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                 </div>
               </CardContent>
             </Card>
+
+            {/* Traffic Sources */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">🚦 Traffic Sources</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {/* Allowed */}
+                <div>
+                  <div className="text-muted-foreground mb-2 flex items-center gap-1">
+                    <CheckCircle className="h-3 w-3 text-green-600" />
+                    Allowed
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {((offer as any).allowed_traffic_sources || []).length > 0 ? (
+                      ((offer as any).allowed_traffic_sources || []).map((source: string) => (
+                        <Badge key={source} variant="outline" className="bg-green-50 text-green-700 text-xs">
+                          {source}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-muted-foreground text-xs">Not specified</span>
+                    )}
+                  </div>
+                </div>
+                {/* Risky */}
+                {((offer as any).risky_traffic_sources || []).length > 0 && (
+                  <div>
+                    <div className="text-muted-foreground mb-2 flex items-center gap-1">
+                      <Clock className="h-3 w-3 text-yellow-600" />
+                      Risky (Use with caution)
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {((offer as any).risky_traffic_sources || []).map((source: string) => (
+                        <Badge key={source} variant="outline" className="bg-yellow-50 text-yellow-700 text-xs">
+                          {source}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Disallowed */}
+                {((offer as any).disallowed_traffic_sources || []).length > 0 && (
+                  <div>
+                    <div className="text-muted-foreground mb-2 flex items-center gap-1">
+                      <Lock className="h-3 w-3 text-red-600" />
+                      Disallowed
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {((offer as any).disallowed_traffic_sources || []).map((source: string) => (
+                        <Badge key={source} variant="outline" className="bg-red-50 text-red-700 text-xs">
+                          {source}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Right Column */}

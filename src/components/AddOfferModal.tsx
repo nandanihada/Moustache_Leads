@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -30,6 +30,8 @@ import { CreateOfferData, adminOfferApi } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { partnerApi } from '@/services/partnerApi';
 import { API_BASE_URL } from '../services/apiConfig';
+import { TrafficSourceDisplay } from './TrafficSourceDisplay';
+import { TrafficSourceRules, getDefaultRulesForCategory } from '@/services/trafficSourceApi';
 
 interface AddOfferModalProps {
   open: boolean;
@@ -98,10 +100,10 @@ const DISALLOWED_TRAFFIC = ['Adult', 'Fraud', 'Brand Bidding', 'Spam', 'Incentiv
 
 const NETWORK_PARTNERS = ['PepperAds', 'PepeLeads', 'MaxBounty', 'ClickDealer', 'CPAlead'];
 
-// 10 Predefined Verticals (replaces category)
-const VALID_VERTICALS = [
-  'Finance', 'Gaming', 'Dating', 'Health', 'E-commerce',
-  'Entertainment', 'Education', 'Travel', 'Utilities', 'Lifestyle'
+// 11 Predefined Categories (new categorization system)
+const VALID_CATEGORIES = [
+  'HEALTH', 'SURVEY', 'EDUCATION', 'INSURANCE', 'LOAN', 
+  'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL', 'OTHER'
 ];
 
 // Schedule + Smart Rules constants
@@ -170,6 +172,12 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
   const [selectedPromoCode, setSelectedPromoCode] = useState('');
 
+  // Traffic source rules state (auto-generated based on vertical)
+  const [trafficSourceRules, setTrafficSourceRules] = useState<TrafficSourceRules>(
+    getDefaultRulesForCategory('OTHER')
+  );
+  const [hasTrafficSourceOverrides, setHasTrafficSourceOverrides] = useState(false);
+
   // Fetch partners and promo codes on mount
   useEffect(() => {
     const fetchData = async () => {
@@ -205,7 +213,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     name: '',
     description: '',
     status: 'pending',
-    vertical: 'Lifestyle',  // NEW: Replaces category - one of 10 predefined values
+    vertical: 'OTHER',  // Category - one of 7 predefined values
     countries: [],
     allowed_countries: [],  // NEW: Geo-restriction - allowed country codes
     non_access_url: '',  // NEW: Fallback URL for geo-blocked users
@@ -242,6 +250,23 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     timer_enabled: false,
     timer_end_date: ''
   });
+
+  // Update traffic source rules when vertical changes
+  useEffect(() => {
+    const vertical = formData.vertical || 'OTHER';
+    if (!hasTrafficSourceOverrides) {
+      setTrafficSourceRules(getDefaultRulesForCategory(vertical));
+    }
+  }, [formData.vertical, hasTrafficSourceOverrides]);
+
+  // Handle traffic source rules change
+  const handleTrafficSourceRulesChange = useCallback((rules: TrafficSourceRules, hasOverrides: boolean) => {
+    setTrafficSourceRules(rules);
+    setHasTrafficSourceOverrides(hasOverrides);
+    // Update the selected traffic arrays for backward compatibility
+    setSelectedAllowedTraffic(rules.allowed);
+    setSelectedDisallowedTraffic(rules.disallowed);
+  }, []);
 
   // Update image preview when image_url changes
   useEffect(() => {
@@ -376,9 +401,14 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         selected_users: formData.affiliates === 'selected' ? selectedUsers : [],
         payout: Number(formData.payout),
         limit: formData.limit ? Number(formData.limit) : undefined,
-        // Compliance data
-        allowed_traffic_types: selectedAllowedTraffic,
-        disallowed_traffic_types: selectedDisallowedTraffic,
+        // Traffic source rules (auto-generated based on vertical)
+        allowed_traffic_sources: trafficSourceRules.allowed,
+        risky_traffic_sources: trafficSourceRules.risky,
+        disallowed_traffic_sources: trafficSourceRules.disallowed,
+        traffic_source_overrides: hasTrafficSourceOverrides ? trafficSourceRules : null,
+        // Compliance data (backward compatibility)
+        allowed_traffic_types: trafficSourceRules.allowed,
+        disallowed_traffic_types: trafficSourceRules.disallowed,
         // Other targeting data
         os_targeting: selectedOS,
         browser_targeting: selectedBrowsers,
@@ -593,14 +623,14 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="vertical">Vertical</Label>
-                      <Select value={formData.vertical || 'Lifestyle'} onValueChange={(value) => handleInputChange('vertical', value)}>
+                      <Label htmlFor="vertical">Category</Label>
+                      <Select value={formData.vertical || 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select vertical" />
+                          <SelectValue placeholder="Select category" />
                         </SelectTrigger>
                         <SelectContent>
-                          {VALID_VERTICALS.map(vertical => (
-                            <SelectItem key={vertical} value={vertical}>{vertical}</SelectItem>
+                          {VALID_CATEGORIES.map(category => (
+                            <SelectItem key={category} value={category}>{category}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -1972,45 +2002,14 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                   <CardDescription>Traffic restrictions and compliance settings</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Allowed Traffic Types */}
-                  <div>
-                    <Label>Allowed Traffic Types</Label>
-                    <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-gray-50">
-                      {TRAFFIC_TYPES.map(type => (
-                        <Badge
-                          key={type}
-                          variant={selectedAllowedTraffic.includes(type) ? "default" : "outline"}
-                          className="cursor-pointer hover:bg-blue-100"
-                          onClick={() => toggleArrayItem(selectedAllowedTraffic, setSelectedAllowedTraffic, type, 'allowed_traffic_types')}
-                        >
-                          {type}
-                        </Badge>
-                      ))}
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Selected: {selectedAllowedTraffic.length} traffic types
-                    </p>
-                  </div>
-
-                  {/* Disallowed Traffic Types */}
-                  <div>
-                    <Label>Disallowed Traffic Types</Label>
-                    <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-red-50">
-                      {DISALLOWED_TRAFFIC.map(type => (
-                        <Badge
-                          key={type}
-                          variant={selectedDisallowedTraffic.includes(type) ? "destructive" : "outline"}
-                          className="cursor-pointer hover:bg-red-100"
-                          onClick={() => toggleArrayItem(selectedDisallowedTraffic, setSelectedDisallowedTraffic, type, 'disallowed_traffic_types')}
-                        >
-                          {type}
-                        </Badge>
-                      ))}
-                    </div>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Selected: {selectedDisallowedTraffic.length} restricted types
-                    </p>
-                  </div>
+                  {/* Traffic Source Rules - Auto-generated based on category */}
+                  <TrafficSourceDisplay
+                    category={formData.vertical || 'OTHER'}
+                    country={selectedAllowedCountries.length === 1 ? selectedAllowedCountries[0] : undefined}
+                    initialRules={trafficSourceRules}
+                    editable={true}
+                    onRulesChange={handleTrafficSourceRulesChange}
+                  />
 
                   <div className="flex items-center space-x-2">
                     <Switch

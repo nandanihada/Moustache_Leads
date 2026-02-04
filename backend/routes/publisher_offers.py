@@ -175,6 +175,7 @@ def get_available_offers():
                 'name': offer['name'],
                 'description': offer.get('description', ''),
                 'category': offer.get('category', 'general'),
+                'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
                 'payout': publisher_payout,
                 'currency': offer.get('currency', 'USD'),
                 'network': offer['network'],
@@ -191,7 +192,11 @@ def get_available_offers():
                 'promo_code': offer.get('promo_code'),
                 'promo_code_id': offer.get('promo_code_id'),
                 'bonus_amount': offer.get('bonus_amount'),
-                'bonus_type': offer.get('bonus_type')
+                'bonus_type': offer.get('bonus_type'),
+                # Traffic source rules
+                'allowed_traffic_sources': offer.get('allowed_traffic_sources', []),
+                'risky_traffic_sources': offer.get('risky_traffic_sources', []),
+                'disallowed_traffic_sources': offer.get('disallowed_traffic_sources', [])
             }
             
             # 🔒 ADD VISIBILITY/LOCK INFORMATION using visibility service

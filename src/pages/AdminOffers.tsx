@@ -147,11 +147,27 @@ const AdminOffers = () => {
       // Apply vertical/category filter
       if (verticalFilter !== 'all') {
         filteredOffers = filteredOffers.filter(offer => {
-          const offerVertical = (offer.vertical || offer.category || '').toLowerCase();
-          const filterValue = verticalFilter.toLowerCase();
-          // Handle E-commerce special case
-          return offerVertical === filterValue || 
-                 (filterValue === 'e-commerce' && (offerVertical === 'ecommerce' || offerVertical === 'e-commerce'));
+          const offerVertical = (offer.vertical || offer.category || '').toUpperCase();
+          const filterValue = verticalFilter.toUpperCase();
+          
+          // Map category names for backward compatibility (all uppercase)
+          const categoryMappings: Record<string, string[]> = {
+            'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
+            'SURVEY': ['SURVEY', 'SURVEYS'],
+            'EDUCATION': ['EDUCATION', 'LEARNING'],
+            'INSURANCE': ['INSURANCE'],
+            'LOAN': ['LOAN', 'LOANS', 'LENDING'],
+            'FINANCE': ['FINANCE', 'FINANCIAL'],
+            'DATING': ['DATING', 'RELATIONSHIPS'],
+            'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
+            'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
+            'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
+            'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
+          };
+          
+          // Check if offer category matches filter (including mappings)
+          const matchingCategories = categoryMappings[filterValue] || [filterValue];
+          return matchingCategories.includes(offerVertical);
         });
       }
       
@@ -1105,16 +1121,17 @@ const AdminOffers = () => {
               </DropdownMenuTrigger>
               <DropdownMenuContent className="max-h-64 overflow-y-auto">
                 <DropdownMenuItem onClick={() => setVerticalFilter('all')}>All Categories</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Finance')}>💰 Finance</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Gaming')}>🎮 Gaming</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Dating')}>❤️ Dating</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Health')}>💊 Health</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('E-commerce')}>🛒 E-commerce</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Entertainment')}>🎬 Entertainment</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Education')}>📚 Education</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Travel')}>✈️ Travel</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Utilities')}>🔧 Utilities</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('Lifestyle')}>🌟 Lifestyle</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('HEALTH')}>💊 Health</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('SURVEY')}>📋 Survey</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('EDUCATION')}>📚 Education</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('INSURANCE')}>🛡️ Insurance</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('LOAN')}>💳 Loan</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('FINANCE')}>💰 Finance</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('DATING')}>❤️ Dating</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('FREE_TRIAL')}>🎁 Free Trial</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('INSTALLS')}>📲 Installs</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('GAMES_INSTALL')}>🎮 Games Install</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setVerticalFilter('OTHER')}>📦 Other</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
             </div>

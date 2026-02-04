@@ -241,20 +241,20 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   const [modalOpen, setModalOpen] = useState(false);
   const [todayEarnings, setTodayEarnings] = useState(0);
 
+  // 11 predefined categories
   const categories = [
     { id: 'all', name: 'All Tasks', icon: '🎯' },
-    { id: 'survey', name: 'Surveys', icon: '📋' },
-    { id: 'app', name: 'Apps', icon: '📱' },
-    { id: 'game', name: 'Games', icon: '🎮' },
-    { id: 'video', name: 'Videos', icon: '🎬' },
-    { id: 'shopping', name: 'Shopping', icon: '🛍️' },
-    { id: 'signup', name: 'Sign Ups', icon: '✍️' },
-    { id: 'finance', name: 'Finance', icon: '💰' },
-    { id: 'lifestyle', name: 'Lifestyle', icon: '🌟' },
-    { id: 'health', name: 'Health', icon: '💪' },
-    { id: 'education', name: 'Education', icon: '📚' },
-    { id: 'entertainment', name: 'Entertainment', icon: '🎭' },
-    { id: 'travel', name: 'Travel', icon: '✈️' },
+    { id: 'HEALTH', name: 'Health', icon: '💊' },
+    { id: 'SURVEY', name: 'Surveys', icon: '📋' },
+    { id: 'EDUCATION', name: 'Education', icon: '📚' },
+    { id: 'INSURANCE', name: 'Insurance', icon: '🛡️' },
+    { id: 'LOAN', name: 'Loans', icon: '💳' },
+    { id: 'FINANCE', name: 'Finance', icon: '💰' },
+    { id: 'DATING', name: 'Dating', icon: '❤️' },
+    { id: 'FREE_TRIAL', name: 'Free Trials', icon: '🎁' },
+    { id: 'INSTALLS', name: 'Installs', icon: '📲' },
+    { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
+    { id: 'OTHER', name: 'Other', icon: '📦' },
   ];
 
   useEffect(() => {
@@ -309,9 +309,26 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   const filterOffers = () => {
     let filtered = offers;
 
+    // Map category names for backward compatibility (all uppercase)
+    const categoryMappings: Record<string, string[]> = {
+      'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
+      'SURVEY': ['SURVEY', 'SURVEYS'],
+      'EDUCATION': ['EDUCATION', 'LEARNING'],
+      'INSURANCE': ['INSURANCE'],
+      'LOAN': ['LOAN', 'LOANS', 'LENDING'],
+      'FINANCE': ['FINANCE', 'FINANCIAL'],
+      'DATING': ['DATING', 'RELATIONSHIPS'],
+      'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
+      'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
+      'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
+      'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
+    };
+
     if (selectedCategory !== 'all') {
+      const catUpper = selectedCategory.toUpperCase();
+      const matchingCategories = categoryMappings[catUpper] || [catUpper];
       filtered = filtered.filter(offer => 
-        offer.category.toLowerCase() === selectedCategory.toLowerCase()
+        matchingCategories.includes((offer.category || '').toUpperCase())
       );
     }
 

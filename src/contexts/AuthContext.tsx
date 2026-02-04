@@ -7,6 +7,8 @@ interface User {
   username: string;
   email: string;
   role?: string;
+  account_status?: string;  // pending_approval, approved, rejected
+  email_verified?: boolean;
 }
 
 interface AuthContextType {
@@ -18,6 +20,7 @@ interface AuthContextType {
   loading: boolean;
   isAdmin: boolean;
   isAdminOrSubadmin: boolean;
+  isAccountApproved: boolean;  // New: check if account is approved
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -86,6 +89,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.removeItem('session_id');
   };
 
+  // Check if account is approved (admins are always approved)
+  // Legacy users without account_status are treated as pending
+  const isAccountApproved = user?.role === 'admin' || user?.role === 'subadmin' || user?.account_status === 'approved';
+
   const value = {
     user,
     token,
@@ -95,6 +102,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     loading,
     isAdmin: user?.role === 'admin',
     isAdminOrSubadmin: user?.role === 'admin' || user?.role === 'subadmin',
+    isAccountApproved,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -9,32 +9,240 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
 from frontend_mapping import frontend_to_database, validate_frontend_data
 
-# ==================== OFFER ENHANCEMENT CONSTANTS ====================
+# Import traffic source rules service
+try:
+    sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services'))
+    from traffic_source_rules_service import TrafficSourceRulesService
+except ImportError:
+    TrafficSourceRulesService = None
 
-# 10 Predefined Verticals (replaces category)
-VALID_VERTICALS = [
-    'Finance', 'Gaming', 'Dating', 'Health', 'E-commerce',
-    'Entertainment', 'Education', 'Travel', 'Utilities', 'Lifestyle'
+# ==================== OFFER CATEGORIZATION RULES ====================
+
+# 11 Predefined Categories (priority order matters!)
+VALID_CATEGORIES = [
+    'HEALTH',
+    'SURVEY', 
+    'EDUCATION',
+    'INSURANCE',
+    'LOAN',
+    'FINANCE',
+    'DATING',
+    'FREE_TRIAL',
+    'INSTALLS',
+    'GAMES_INSTALL',
+    'OTHER'
 ]
 
-# Mapping from old category values to new verticals (for migration)
-CATEGORY_TO_VERTICAL_MAP = {
-    'finance': 'Finance',
-    'gaming': 'Gaming',
-    'dating': 'Dating',
-    'health': 'Health',
-    'education': 'Education',
-    'general': 'Lifestyle',
-    'ecommerce': 'E-commerce',
-    'e-commerce': 'E-commerce',
-    'entertainment': 'Entertainment',
-    'travel': 'Travel',
-    'utilities': 'Utilities',
-    'lifestyle': 'Lifestyle',
+# Category keywords - ORDER MATTERS for priority!
+# Each offer can belong to ONLY ONE category
+CATEGORY_KEYWORDS = {
+    'HEALTH': [
+        'health', 'medical', 'healthcare', 'doctor', 'hospital', 'clinic', 'fitness',
+        'wellness', 'diagnosis', 'symptoms', 'medicine', 'pharmacy', 'lab test',
+        'telemedicine', 'mental health', 'diet', 'weight loss', 'yoga'
+    ],
+    'SURVEY': [
+        'survey', 'poll', 'questionnaire', 'feedback', 'opinion',
+        'answer questions', 'complete survey', 'take survey',
+        'market research', 'user feedback',
+        'earn rewards', 'earn money', 'payout', 'cash reward'
+    ],
+    'EDUCATION': [
+        'education', 'course', 'learning', 'training', 'class', 'study',
+        'online course', 'certification', 'diploma', 'degree',
+        'exam prep', 'mock test', 'coaching', 'tutoring',
+        'skill development', 'upskill', 'reskill'
+    ],
+    'INSURANCE': [
+        'insurance', 'policy', 'coverage', 'premium',
+        'life insurance', 'health insurance',
+        'car insurance', 'bike insurance', 'travel insurance',
+        'claim', 'renewal', 'insured amount', 'sum insured'
+    ],
+    'LOAN': [
+        'loan', 'credit', 'borrowing', 'finance',
+        'personal loan', 'home loan', 'business loan',
+        'instant loan', 'payday loan',
+        'interest rate', 'emi', 'repayment',
+        'credit score', 'eligibility', 'approval'
+    ],
+    'FINANCE': [
+        'bank', 'banking', 'savings', 'investment', 'invest', 'trading',
+        'stock', 'stocks', 'forex', 'crypto', 'cryptocurrency', 'bitcoin',
+        'wallet', 'money transfer', 'payment', 'fintech', 'neobank',
+        'debit card', 'credit card', 'account opening', 'savings account',
+        'mutual fund', 'portfolio', 'wealth', 'financial planning',
+        'retirement', '401k', 'ira', 'pension', 'tax', 'budget'
+    ],
+    'DATING': [
+        'dating', 'date', 'match', 'matchmaking', 'singles', 'single',
+        'relationship', 'romance', 'romantic', 'love', 'partner',
+        'meet singles', 'find love', 'soulmate', 'hookup', 'flirt',
+        'tinder', 'bumble', 'hinge', 'okcupid', 'plenty of fish',
+        'chat', 'swipe', 'profile', 'compatible', 'connection'
+    ],
+    'FREE_TRIAL': [
+        'free trial', 'trial', 'try free', 'free for', 'days free',
+        'trial period', 'trial offer', 'free access', 'free membership',
+        'no commitment', 'cancel anytime', 'risk free', 'money back',
+        'sample', 'demo', 'test drive', 'preview', 'starter',
+        'introductory offer', 'limited time free', 'complimentary'
+    ],
+    'INSTALLS': [
+        'install', 'download', 'app install', 'get app', 'download app',
+        'mobile app', 'android app', 'ios app', 'application',
+        'app store', 'play store', 'google play', 'apple store',
+        'install now', 'download now', 'get it now', 'free download',
+        'software', 'extension', 'browser extension', 'plugin'
+    ],
+    'GAMES_INSTALL': [
+        'game', 'games', 'gaming', 'play game',
+        'online game', 'mobile game', 'pc game',
+        'download game', 'install game',
+        'play now', 'start game', 'multiplayer',
+        'level up', 'in-game rewards'
+    ]
+}
+
+# Mapping from old category/vertical values to new categories
+LEGACY_CATEGORY_MAP = {
+    'finance': 'FINANCE',
+    'gaming': 'GAMES_INSTALL',
+    'dating': 'DATING',
+    'health': 'HEALTH',
+    'education': 'EDUCATION',
+    'general': 'OTHER',
+    'ecommerce': 'OTHER',
+    'e-commerce': 'OTHER',
+    'entertainment': 'OTHER',
+    'travel': 'OTHER',
+    'utilities': 'OTHER',
+    'lifestyle': 'OTHER',
+    'survey': 'SURVEY',
+    'insurance': 'INSURANCE',
+    'loan': 'LOAN',
+    'games_install': 'GAMES_INSTALL',
+    'free_trial': 'FREE_TRIAL',
+    'installs': 'INSTALLS',
+    'other': 'OTHER'
 }
 
 # Default fallback URL for geo-restricted users
 DEFAULT_NON_ACCESS_URL = 'https://example.com/not-available'
+
+
+def detect_category_from_text(name, description=''):
+    """
+    Auto-detect category from offer name and description.
+    Uses keyword matching with priority order and global override rules.
+    
+    Args:
+        name: Offer name/title
+        description: Offer description
+        
+    Returns:
+        Detected category string (one of VALID_CATEGORIES)
+    """
+    # Combine name and description for analysis
+    text = f"{name} {description}".lower()
+    
+    # ==================== GLOBAL OVERRIDE RULES ====================
+    # These take absolute precedence over keyword matching
+    
+    # Rule 1: If offer contains "survey" AND "install app" → SURVEY
+    if 'survey' in text and 'install app' in text:
+        return 'SURVEY'
+    
+    # Rule 2: If offer contains any LOAN keyword → LOAN (no other category allowed)
+    for keyword in CATEGORY_KEYWORDS['LOAN']:
+        if keyword.lower() in text:
+            return 'LOAN'
+    
+    # Rule 3: If offer contains any INSURANCE keyword → INSURANCE (no other category allowed)
+    for keyword in CATEGORY_KEYWORDS['INSURANCE']:
+        if keyword.lower() in text:
+            return 'INSURANCE'
+    
+    # Rule 4: If offer contains "play" AND "download" AND "game" → GAMES_INSTALL
+    if 'play' in text and 'download' in text and 'game' in text:
+        return 'GAMES_INSTALL'
+    
+    # ==================== PRIORITY-BASED KEYWORD MATCHING ====================
+    # Check categories in priority order
+    
+    priority_order = ['HEALTH', 'SURVEY', 'EDUCATION', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL']
+    
+    for category in priority_order:
+        keywords = CATEGORY_KEYWORDS.get(category, [])
+        for keyword in keywords:
+            # Check for keyword match (case-insensitive)
+            if keyword.lower() in text:
+                return category
+    
+    # Rule 5: If no rule matches → OTHER
+    return 'OTHER'
+
+
+def map_category_to_new_system(category_value):
+    """
+    Map old category/vertical value to new category system.
+    
+    Args:
+        category_value: Old category string
+        
+    Returns:
+        Mapped category string or 'OTHER' as default
+    """
+    if not category_value:
+        return 'OTHER'
+    
+    category_lower = str(category_value).lower().strip()
+    return LEGACY_CATEGORY_MAP.get(category_lower, 'OTHER')
+
+
+def validate_category(category_value):
+    """
+    Validate that category is one of the predefined values.
+    
+    Args:
+        category_value: Category string to validate
+        
+    Returns:
+        Tuple of (is_valid, normalized_value or error_message)
+    """
+    if not category_value:
+        return True, 'OTHER'  # Default
+    
+    # Check exact match (case-insensitive)
+    category_upper = str(category_value).upper().strip()
+    if category_upper in VALID_CATEGORIES:
+        return True, category_upper
+    
+    # Try mapping from legacy values
+    mapped = map_category_to_new_system(category_value)
+    if mapped in VALID_CATEGORIES:
+        return True, mapped
+    
+    return False, f"Invalid category '{category_value}'. Must be one of: {', '.join(VALID_CATEGORIES)}"
+
+
+# ==================== BACKWARD COMPATIBILITY ====================
+# Keep old names as aliases for backward compatibility
+
+VALID_VERTICALS = VALID_CATEGORIES  # Alias for backward compatibility
+VERTICAL_KEYWORDS = CATEGORY_KEYWORDS  # Alias for backward compatibility
+
+def map_category_to_vertical(category_value):
+    """Backward compatibility alias for map_category_to_new_system"""
+    return map_category_to_new_system(category_value)
+
+def validate_vertical(vertical_value):
+    """Backward compatibility alias for validate_category"""
+    return validate_category(vertical_value)
+
+def detect_vertical_from_text(name, description=''):
+    """Backward compatibility alias for detect_category_from_text"""
+    return detect_category_from_text(name, description)
 
 
 def calculate_incentive_type(payout_type='fixed', revenue_share_percent=None):
@@ -48,182 +256,14 @@ def calculate_incentive_type(payout_type='fixed', revenue_share_percent=None):
     Returns:
         'Non-Incent' if percentage-based payout
         'Incent' if fixed amount payout
-    
-    Logic:
-        - percentage payout → Non-Incent (user doesn't get direct incentive)
-        - fixed/tiered payout → Incent (user gets fixed incentive)
     """
-    # Primary logic: Based on payout_type
     if payout_type == 'percentage':
         return 'Non-Incent'
     
-    # Legacy logic: Based on revenue_share_percent (for backward compatibility)
     if revenue_share_percent and float(revenue_share_percent) > 0:
         return 'Non-Incent'
     
-    # Default: Fixed or tiered payout = Incent
     return 'Incent'
-
-
-def map_category_to_vertical(category_value):
-    """
-    Map old category value to new vertical.
-    
-    Args:
-        category_value: Old category string
-        
-    Returns:
-        Mapped vertical string or 'Lifestyle' as default
-    """
-    if not category_value:
-        return 'Lifestyle'
-    
-    category_lower = str(category_value).lower().strip()
-    return CATEGORY_TO_VERTICAL_MAP.get(category_lower, 'Lifestyle')
-
-
-def validate_vertical(vertical_value):
-    """
-    Validate that vertical is one of the 10 predefined values.
-    
-    Args:
-        vertical_value: Vertical string to validate
-        
-    Returns:
-        Tuple of (is_valid, normalized_value or error_message)
-    """
-    if not vertical_value:
-        return True, 'Lifestyle'  # Default
-    
-    # Check exact match (case-insensitive)
-    for valid_vertical in VALID_VERTICALS:
-        if str(vertical_value).lower().strip() == valid_vertical.lower():
-            return True, valid_vertical
-    
-    return False, f"Invalid vertical '{vertical_value}'. Must be one of: {', '.join(VALID_VERTICALS)}"
-
-
-# Keywords for auto-detecting vertical from description/name
-VERTICAL_KEYWORDS = {
-    'Finance': [
-        'bank', 'banking', 'loan', 'credit', 'debit', 'card', 'money', 'cash', 'invest', 
-        'investment', 'trading', 'forex', 'crypto', 'bitcoin', 'stock', 'insurance', 
-        'mortgage', 'finance', 'financial', 'payment', 'pay', 'wallet', 'savings',
-        'account', 'transfer', 'deposit', 'withdraw', 'interest', 'apr', 'fico',
-        'debt', 'budget', 'tax', 'ira', '401k', 'retirement', 'pension', 'fintech',
-        'neobank', 'paypal', 'venmo', 'zelle', 'cashback', 'rewards', 'bonus'
-    ],
-    'Gaming': [
-        'game', 'gaming', 'play', 'player', 'casino', 'bet', 'betting', 'poker', 
-        'slots', 'spin', 'jackpot', 'win', 'winner', 'esports', 'mobile game',
-        'puzzle', 'rpg', 'mmorpg', 'fps', 'strategy', 'arcade', 'console', 'pc game',
-        'playstation', 'xbox', 'nintendo', 'steam', 'epic games', 'roblox', 'fortnite',
-        'minecraft', 'league', 'dota', 'valorant', 'cod', 'gta', 'fifa', 'nba',
-        'fantasy', 'sports betting', 'sportsbook', 'gambling', 'wager', 'odds'
-    ],
-    'Dating': [
-        'date', 'dating', 'match', 'love', 'relationship', 'single', 'singles',
-        'meet', 'hookup', 'romance', 'romantic', 'partner', 'soulmate', 'tinder',
-        'bumble', 'hinge', 'okcupid', 'plenty of fish', 'pof', 'eharmony', 'zoosk',
-        'chat', 'flirt', 'connection', 'compatible', 'swipe', 'profile', 'matchmaking'
-    ],
-    'Health': [
-        'health', 'healthy', 'medical', 'medicine', 'doctor', 'hospital', 'clinic',
-        'pharmacy', 'drug', 'prescription', 'vitamin', 'supplement', 'fitness',
-        'workout', 'exercise', 'gym', 'weight', 'diet', 'nutrition', 'wellness',
-        'mental health', 'therapy', 'counseling', 'insurance', 'medicare', 'medicaid',
-        'dental', 'vision', 'hearing', 'sleep', 'cbd', 'hemp', 'organic', 'natural',
-        'skincare', 'beauty', 'cosmetic', 'anti-aging', 'hair', 'teeth', 'whitening'
-    ],
-    'E-commerce': [
-        'shop', 'shopping', 'store', 'buy', 'purchase', 'order', 'cart', 'checkout',
-        'amazon', 'ebay', 'walmart', 'target', 'aliexpress', 'shopify', 'etsy',
-        'product', 'deal', 'discount', 'coupon', 'promo', 'sale', 'offer', 'free shipping',
-        'delivery', 'retail', 'wholesale', 'marketplace', 'vendor', 'seller', 'buyer',
-        'fashion', 'clothing', 'shoes', 'accessories', 'electronics', 'gadget', 'tech',
-        'home', 'furniture', 'decor', 'kitchen', 'appliance', 'grocery', 'food'
-    ],
-    'Entertainment': [
-        'movie', 'film', 'tv', 'television', 'show', 'series', 'stream', 'streaming',
-        'netflix', 'hulu', 'disney', 'hbo', 'amazon prime', 'youtube', 'spotify',
-        'music', 'song', 'album', 'artist', 'concert', 'ticket', 'event', 'live',
-        'podcast', 'radio', 'news', 'magazine', 'book', 'ebook', 'audiobook',
-        'celebrity', 'gossip', 'viral', 'trending', 'meme', 'funny', 'comedy',
-        'drama', 'action', 'horror', 'thriller', 'documentary', 'anime', 'cartoon'
-    ],
-    'Education': [
-        'learn', 'learning', 'course', 'class', 'school', 'college', 'university',
-        'degree', 'diploma', 'certificate', 'certification', 'training', 'tutorial',
-        'study', 'student', 'teacher', 'tutor', 'education', 'educational', 'academic',
-        'online course', 'e-learning', 'udemy', 'coursera', 'skillshare', 'masterclass',
-        'language', 'english', 'spanish', 'coding', 'programming', 'development',
-        'skill', 'career', 'job', 'resume', 'interview', 'professional', 'mba', 'phd'
-    ],
-    'Travel': [
-        'travel', 'trip', 'vacation', 'holiday', 'flight', 'airline', 'airport',
-        'hotel', 'resort', 'booking', 'reservation', 'airbnb', 'vrbo', 'expedia',
-        'kayak', 'priceline', 'tripadvisor', 'cruise', 'tour', 'destination',
-        'beach', 'mountain', 'city', 'country', 'international', 'domestic',
-        'passport', 'visa', 'luggage', 'rental car', 'uber', 'lyft', 'taxi',
-        'adventure', 'explore', 'backpack', 'tourism', 'tourist', 'sightseeing'
-    ],
-    'Utilities': [
-        'utility', 'utilities', 'electric', 'electricity', 'power', 'energy', 'gas',
-        'water', 'internet', 'wifi', 'broadband', 'cable', 'phone', 'mobile',
-        'cellular', 'carrier', 'verizon', 'at&t', 'tmobile', 't-mobile', 'sprint',
-        'vpn', 'security', 'antivirus', 'software', 'app', 'tool', 'service',
-        'subscription', 'plan', 'bill', 'payment', 'solar', 'renewable', 'smart home',
-        'iot', 'device', 'gadget', 'storage', 'cloud', 'backup', 'cleaner', 'optimizer'
-    ],
-    'Lifestyle': [
-        'lifestyle', 'life', 'living', 'home', 'family', 'pet', 'dog', 'cat',
-        'garden', 'outdoor', 'hobby', 'craft', 'diy', 'art', 'photography',
-        'cooking', 'recipe', 'food', 'restaurant', 'wine', 'beer', 'coffee',
-        'fashion', 'style', 'trend', 'luxury', 'premium', 'vip', 'exclusive',
-        'membership', 'club', 'community', 'social', 'network', 'influencer'
-    ]
-}
-
-
-def detect_vertical_from_text(name, description=''):
-    """
-    Auto-detect vertical/category from offer name and description.
-    
-    Args:
-        name: Offer name/title
-        description: Offer description
-        
-    Returns:
-        Detected vertical string (one of VALID_VERTICALS)
-    """
-    # Combine name and description for analysis
-    text = f"{name} {description}".lower()
-    
-    # Count keyword matches for each vertical
-    scores = {}
-    for vertical, keywords in VERTICAL_KEYWORDS.items():
-        score = 0
-        for keyword in keywords:
-            # Check for whole word match (with word boundaries)
-            if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', text):
-                # Give higher weight to matches in the name
-                if re.search(r'\b' + re.escape(keyword.lower()) + r'\b', name.lower()):
-                    score += 3  # Name match = 3 points
-                else:
-                    score += 1  # Description match = 1 point
-        scores[vertical] = score
-    
-    # Find the vertical with highest score
-    if scores:
-        best_vertical = max(scores, key=scores.get)
-        best_score = scores[best_vertical]
-        
-        # Only return detected vertical if score is meaningful (at least 1 match)
-        if best_score > 0:
-            return best_vertical
-    
-    # Default to Lifestyle if no matches found
-    return 'Lifestyle'
 
 
 class Offer:
@@ -274,6 +314,67 @@ class Offer:
                     return "ML-00001"
             except:
                 return "ML-00001"
+    
+    def _generate_traffic_source_fields(self, vertical, allowed_countries, offer_data):
+        """
+        Generate traffic source fields based on category/vertical.
+        
+        Uses the TrafficSourceRulesService for deterministic rule-based generation.
+        Supports manual overrides from offer_data.
+        
+        Args:
+            vertical: Offer vertical/category
+            allowed_countries: List of allowed country codes
+            offer_data: Original offer data (may contain overrides)
+            
+        Returns:
+            Dict with traffic source fields
+        """
+        # Check if TrafficSourceRulesService is available
+        if TrafficSourceRulesService is None:
+            # Fallback to basic defaults if service not available
+            return {
+                'allowed_traffic_sources': offer_data.get('allowed_traffic_sources', ['Email', 'Search', 'Display']),
+                'risky_traffic_sources': offer_data.get('risky_traffic_sources', ['Social', 'Push']),
+                'disallowed_traffic_sources': offer_data.get('disallowed_traffic_sources', ['Adult', 'Fraud', 'Spam']),
+                'blocked_traffic_sources': offer_data.get('blocked_traffic_sources', []),
+                'traffic_source_overrides': None
+            }
+        
+        # Get primary country for country-specific adjustments
+        country = None
+        if allowed_countries and len(allowed_countries) == 1:
+            country = allowed_countries[0]
+        
+        # Check for manual overrides in offer_data
+        overrides = None
+        if (offer_data.get('allowed_traffic_sources') or 
+            offer_data.get('risky_traffic_sources') or 
+            offer_data.get('disallowed_traffic_sources')):
+            overrides = {
+                'allowed': offer_data.get('allowed_traffic_sources'),
+                'risky': offer_data.get('risky_traffic_sources'),
+                'disallowed': offer_data.get('disallowed_traffic_sources')
+            }
+            # Filter out None values
+            overrides = {k: v for k, v in overrides.items() if v is not None}
+            if not overrides:
+                overrides = None
+        
+        # Generate traffic sources using the rules service
+        rules = TrafficSourceRulesService.generate_traffic_sources(
+            category=vertical,
+            country=country,
+            overrides=overrides
+        )
+        
+        return {
+            'allowed_traffic_sources': rules['allowed'],
+            'risky_traffic_sources': rules['risky'],
+            'disallowed_traffic_sources': rules['disallowed'],
+            'blocked_traffic_sources': offer_data.get('blocked_traffic_sources', rules['disallowed']),
+            'traffic_source_overrides': overrides  # Store overrides for reference
+        }
     
     def create_offer(self, offer_data, created_by):
         """Create a new offer with frontend field mapping support"""
@@ -422,8 +523,11 @@ class Offer:
                 'hash_code': offer_data.get('hash_code', '').strip(),
                 'click_expiration': offer_data.get('click_expiration', 7),  # Days
                 'conversion_window': offer_data.get('conversion_window', 30),  # Days
-                'allowed_traffic_sources': offer_data.get('allowed_traffic_sources', []),  # Allowed sources
-                'blocked_traffic_sources': offer_data.get('blocked_traffic_sources', []),  # Blocked sources
+                
+                # SECTION 4.1: TRAFFIC SOURCE RULES (Auto-generated based on category)
+                # Generate traffic sources based on vertical/category
+                **self._generate_traffic_source_fields(vertical_value, allowed_countries, offer_data),
+                
                 'duplicate_conversion_rule': offer_data.get('duplicate_conversion_rule', 'allow'),  # allow/deny/unique
                 
                 # SECTION 5: ACCESS & AFFILIATES
