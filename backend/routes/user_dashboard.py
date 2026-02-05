@@ -79,7 +79,7 @@ def get_dashboard_stats():
         
         logger.info(f"💰 Total revenue: {total_revenue}, Conversions: {total_conversions}")
         
-        # 2. Calculate Total Clicks from user's placements
+        # 2. Calculate Total Clicks from user's placements AND dashboard clicks
         # First get all user's placement IDs
         user_placements = list(placements_collection.find(
             {'created_by': username},
@@ -89,8 +89,8 @@ def get_dashboard_stats():
         
         logger.info(f"🎯 User has {len(placement_ids)} placements")
         
-        # Count clicks from these placements
-        total_clicks = 0
+        # Count clicks from offerwall (placement-based clicks)
+        offerwall_clicks = 0
         if placement_ids:
             # Try both string and ObjectId formats for placement_id
             clicks_query = {
@@ -99,18 +99,39 @@ def get_dashboard_stats():
                     {'placement_id': {'$in': [ObjectId(pid) for pid in placement_ids if ObjectId.is_valid(pid)]}}
                 ]
             }
-            total_clicks = clicks_collection.count_documents(clicks_query)
+            offerwall_clicks = clicks_collection.count_documents(clicks_query)
         
-        logger.info(f"👆 Total clicks: {total_clicks}")
+        # Count clicks from dashboard/offers page
+        dashboard_clicks_col = get_collection('dashboard_clicks')
+        dashboard_clicks = 0
+        if dashboard_clicks_col is not None:
+            # Count clicks where user_id matches current user
+            dashboard_clicks_query = {
+                '$or': [
+                    {'user_id': user_id},
+                    {'user_id': str(user_id)}
+                ]
+            }
+            dashboard_clicks = dashboard_clicks_col.count_documents(dashboard_clicks_query)
         
-        # 3. Get Active Offers Count
-        # Count offers that are active and available
-        active_offers_count = offers_collection.count_documents({
-            'status': 'active',
-            'is_active': True
-        })
+        # Total clicks = offerwall clicks + dashboard clicks
+        total_clicks = offerwall_clicks + dashboard_clicks
         
-        logger.info(f"🎁 Active offers: {active_offers_count}")
+        logger.info(f"👆 Total clicks: {total_clicks} (offerwall: {offerwall_clicks}, dashboard: {dashboard_clicks})")
+        
+        # 3. Get Active Offers Count - Count total active offers available in the system
+        active_offers_count = 0
+        if offers_collection is not None:
+            # Count all active offers in the system
+            active_offers_count = offers_collection.count_documents({
+                '$or': [
+                    {'status': 'active'},
+                    {'status': 'Active'},
+                    {'is_active': True}
+                ]
+            })
+        
+        logger.info(f"🎁 Total active offers in system: {active_offers_count}")
         
         # 4. Get Recent Activity - Only show offer-related activities
         # Get collections for recent activity
@@ -707,3 +728,242 @@ def mark_notifications_read():
     except Exception as e:
         logger.error(f"❌ Error marking notifications read: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+
+@user_dashboard_bp.route('/dashboard/chart-data', methods=['GET'])
+@token_required
+def get_chart_data():
+    """
+    Get performance chart data for the last 6 months
+    Returns monthly aggregated clicks, conversions, and revenue
+    """
+    try:
+        user = request.current_user
+        user_id = str(user['_id'])
+        username = user.get('username', 'Unknown')
+        
+        logger.info(f"📊 Getting chart data for user: {username} ({user_id})")
+        
+        # Get collections
+        forwarded_postbacks = get_collection('forwarded_postbacks')
+        clicks_collection = get_collection('offerwall_clicks_detailed')
+        placements_collection = get_collection('placements')
+        
+        if forwarded_postbacks is None or clicks_collection is None or placements_collection is None:
+            return jsonify({'error': 'Database collections not available'}), 503
+        
+        # Get user's placement IDs
+        user_placements = list(placements_collection.find(
+            {'created_by': username},
+            {'_id': 1}
+        ))
+        placement_ids = [str(p['_id']) for p in user_placements]
+        
+        # Generate last 6 months
+        chart_data = []
+        now = datetime.utcnow()
+        
+        for i in range(5, -1, -1):  # 5 months ago to current month
+            # Calculate month boundaries
+            if i == 0:
+                month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                month_end = now
+            else:
+                # Go back i months
+                year = now.year
+                month = now.month - i
+                while month <= 0:
+                    month += 12
+                    year -= 1
+                month_start = datetime(year, month, 1)
+                # Get end of month
+                if month == 12:
+                    month_end = datetime(year + 1, 1, 1)
+                else:
+                    month_end = datetime(year, month + 1, 1)
+            
+            month_name = month_start.strftime('%b')
+            
+            # Get conversions and revenue for this month
+            revenue_pipeline = [
+                {
+                    '$match': {
+                        'publisher_id': user_id,
+                        'forward_status': 'success',
+                        'timestamp': {'$gte': month_start, '$lt': month_end}
+                    }
+                },
+                {
+                    '$group': {
+                        '_id': None,
+                        'revenue': {'$sum': '$points'},
+                        'conversions': {'$sum': 1}
+                    }
+                }
+            ]
+            
+            revenue_result = list(forwarded_postbacks.aggregate(revenue_pipeline))
+            month_revenue = revenue_result[0]['revenue'] if revenue_result else 0
+            month_conversions = revenue_result[0]['conversions'] if revenue_result else 0
+            
+            # Get clicks for this month (offerwall + dashboard)
+            month_clicks = 0
+            if placement_ids:
+                clicks_query = {
+                    '$or': [
+                        {'placement_id': {'$in': placement_ids}},
+                        {'placement_id': {'$in': [ObjectId(pid) for pid in placement_ids if ObjectId.is_valid(pid)]}}
+                    ],
+                    'timestamp': {'$gte': month_start, '$lt': month_end}
+                }
+                month_clicks = clicks_collection.count_documents(clicks_query)
+            
+            # Also count dashboard clicks for this month
+            dashboard_clicks_col = get_collection('dashboard_clicks')
+            if dashboard_clicks_col is not None:
+                dashboard_clicks_query = {
+                    '$or': [
+                        {'user_id': user_id},
+                        {'user_id': str(user_id)}
+                    ],
+                    'timestamp': {'$gte': month_start, '$lt': month_end}
+                }
+                month_clicks += dashboard_clicks_col.count_documents(dashboard_clicks_query)
+            
+            chart_data.append({
+                'name': month_name,
+                'clicks': month_clicks,
+                'conversions': month_conversions,
+                'revenue': round(month_revenue, 2)
+            })
+        
+        logger.info(f"📈 Chart data generated: {len(chart_data)} months")
+        
+        return jsonify({
+            'success': True,
+            'chart_data': chart_data
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting chart data: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+
+@user_dashboard_bp.route('/dashboard/top-offers', methods=['GET'])
+@token_required
+def get_top_offers():
+    """
+    Get top performing offers for the current user
+    Returns offers sorted by revenue with click and conversion stats
+    """
+    try:
+        user = request.current_user
+        user_id = str(user['_id'])
+        username = user.get('username', 'Unknown')
+        
+        logger.info(f"🏆 Getting top offers for user: {username} ({user_id})")
+        
+        # Get collections
+        forwarded_postbacks = get_collection('forwarded_postbacks')
+        clicks_collection = get_collection('offerwall_clicks_detailed')
+        offers_collection = get_collection('offers')
+        
+        if forwarded_postbacks is None or clicks_collection is None or offers_collection is None:
+            return jsonify({'error': 'Database collections not available'}), 503
+        
+        # Aggregate conversions and revenue by offer
+        offer_stats_pipeline = [
+            {
+                '$match': {
+                    'publisher_id': user_id,
+                    'forward_status': 'success'
+                }
+            },
+            {
+                '$group': {
+                    '_id': '$offer_id',
+                    'revenue': {'$sum': '$points'},
+                    'conversions': {'$sum': 1},
+                    'offer_name': {'$first': '$offer_name'}
+                }
+            },
+            {
+                '$sort': {'revenue': -1}
+            },
+            {
+                '$limit': 10
+            }
+        ]
+        
+        offer_stats = list(forwarded_postbacks.aggregate(offer_stats_pipeline))
+        
+        # Get click counts for each offer (from both offerwall and dashboard)
+        top_offers = []
+        for idx, stat in enumerate(offer_stats):
+            offer_id = stat['_id']
+            
+            # Get clicks for this offer from offerwall
+            clicks_query = {
+                '$or': [
+                    {'offer_id': offer_id},
+                    {'offer_id': str(offer_id)}
+                ]
+            }
+            offerwall_clicks = clicks_collection.count_documents(clicks_query)
+            
+            # Get clicks for this offer from dashboard
+            dashboard_clicks_col = get_collection('dashboard_clicks')
+            dashboard_clicks = 0
+            if dashboard_clicks_col is not None:
+                dashboard_clicks_query = {
+                    '$and': [
+                        {'$or': [
+                            {'user_id': user_id},
+                            {'user_id': str(user_id)}
+                        ]},
+                        {'$or': [
+                            {'offer_id': offer_id},
+                            {'offer_id': str(offer_id)}
+                        ]}
+                    ]
+                }
+                dashboard_clicks = dashboard_clicks_col.count_documents(dashboard_clicks_query)
+            
+            clicks = offerwall_clicks + dashboard_clicks
+            
+            # Calculate conversion rate
+            conv_rate = (stat['conversions'] / clicks * 100) if clicks > 0 else 0
+            
+            # Get offer name from offers collection if not in postback
+            offer_name = stat.get('offer_name')
+            if not offer_name and offer_id:
+                try:
+                    offer_doc = offers_collection.find_one({'_id': ObjectId(offer_id)})
+                    if offer_doc:
+                        offer_name = offer_doc.get('name', offer_doc.get('title', f'Offer {offer_id}'))
+                except:
+                    pass
+            
+            if not offer_name:
+                offer_name = f'Offer #{idx + 1}'
+            
+            top_offers.append({
+                'id': idx + 1,
+                'offer_id': str(offer_id) if offer_id else None,
+                'name': offer_name,
+                'clicks': clicks,
+                'conversions': stat['conversions'],
+                'revenue': f"${stat['revenue']:.2f}",
+                'conversionRate': f"{conv_rate:.1f}%"
+            })
+        
+        logger.info(f"🏆 Top offers generated: {len(top_offers)} offers")
+        
+        return jsonify({
+            'success': True,
+            'top_offers': top_offers
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting top offers: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500

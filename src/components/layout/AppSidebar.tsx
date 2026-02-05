@@ -88,7 +88,16 @@ const menuStructure: MenuItem[] = [
       { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },
     ]
   },
-
+  {
+    title: "Rewards",
+    icon: Trophy,
+    type: "group",
+    requiresPlacement: true,
+    subtabs: [
+      { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
+      { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
+    ]
+  },
   {
     title: "Account",
     icon: Users,

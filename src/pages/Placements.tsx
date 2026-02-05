@@ -974,7 +974,7 @@ const TestingPostback = ({ data, onChange, onSubmit, loading = false }) => {
 // --- Main Component ---
 
 export const Placements = () => {
-  const { isAccountApproved, user } = useAuth();
+  const { isAccountApproved, user, isAdminOrSubadmin } = useAuth();
   const [activeTab, setActiveTab] = useState('placement');
   const [isNewPlacement, setIsNewPlacement] = useState(false); 
   const [loading, setLoading] = useState(false);
@@ -1244,6 +1244,18 @@ export const Placements = () => {
           />
         );
       case 'events':
+        // Lock event management for non-admin users
+        if (!isAdminOrSubadmin) {
+          return (
+            <Card title="Event Management" description="This feature is restricted.">
+              <EmptyState
+                icon={Calendar}
+                title="Admin Access Required"
+                description="Event management is only available to administrators. Contact your admin to manage events and multipliers."
+              />
+            </Card>
+          );
+        }
         // Disable event management if no placement is active (i.e., creating a new one)
         return isNewPlacement 
           ? <Card title="Events" description="Events can only be managed after a placement is created.">
@@ -1285,20 +1297,28 @@ export const Placements = () => {
   };
 
   // Tab Button Helper
-  const TabButton = ({ tabKey, Icon, label }) => (
-    <button
-      onClick={() => setActiveTab(tabKey)}
-      className={`flex items-center justify-center space-x-2 py-3 px-6 rounded-t-xl transition-all duration-200 text-base font-semibold ${
-        activeTab === tabKey
-          ? 'bg-white text-violet-700 border-b-2 border-violet-600 shadow-t'
-          : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-      }`}
-      disabled={isNewPlacement && tabKey !== 'placement'}
-    >
-      <Icon className="h-5 w-5" />
-      <span>{label}</span>
-    </button>
-  );
+  const TabButton = ({ tabKey, Icon, label, locked = false }) => {
+    const isLocked = locked || (tabKey === 'events' && !isAdminOrSubadmin);
+    const isDisabled = (isNewPlacement && tabKey !== 'placement') || isLocked;
+    
+    return (
+      <button
+        onClick={() => !isDisabled && setActiveTab(tabKey)}
+        className={`flex items-center justify-center space-x-2 py-3 px-6 rounded-t-xl transition-all duration-200 text-base font-semibold ${
+          activeTab === tabKey
+            ? 'bg-white text-violet-700 border-b-2 border-violet-600 shadow-t'
+            : isDisabled
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+        }`}
+        disabled={isDisabled}
+      >
+        <Icon className="h-5 w-5" />
+        <span>{label}</span>
+        {isLocked && <Clock className="h-4 w-4 ml-1 text-yellow-500" />}
+      </button>
+    );
+  };
   
   // Navigation Button Helper for top bar
   const NavButton = ({ label, secondaryLabel, isActive, onClick }) => (
@@ -1342,47 +1362,67 @@ export const Placements = () => {
           )}
         </div>
 
-        {/* Top Navigation Buttons */}
-        <div className="flex space-x-4 mb-10 items-center flex-wrap">
-            <NavButton 
-                label="Add New Placement" 
-                isActive={isNewPlacement} 
-                onClick={() => setIsNewPlacement(true)} 
-            />
+        {/* Top Navigation - Placements Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Placements</h1>
+            <p className="text-gray-500 mt-1">Manage and monitor your offerwall placements</p>
+          </div>
+          <button
+            onClick={() => setIsNewPlacement(true)}
+            className={`inline-flex items-center px-4 py-2.5 rounded-lg font-medium transition-all duration-200 ${
+              isNewPlacement 
+                ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' 
+                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-sm'
+            }`}
+          >
+            <Plus className="h-5 w-5 mr-2" />
+            Add New Placement
+          </button>
+        </div>
+
+        {/* Placement Tabs - Symmetric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-8">
             {loading ? (
-              <LoadingSpinner size="sm" text="Loading placements..." />
+              <div className="col-span-full flex justify-center py-4">
+                <LoadingSpinner size="sm" text="Loading placements..." />
+              </div>
             ) : placements.length > 0 ? (
               placements.map((placement, index) => (
-                <NavButton 
+                <button 
                   key={placement.id || index}
-                  label={placement.platformName || placement.offerwallTitle} 
-                  secondaryLabel={placement.platformLink ? placement.platformLink.split('//')[1] : placement.placementIdentifier?.substring(0, 8) + '...'}
-                  isActive={!isNewPlacement && selectedPlacementIndex === index} 
                   onClick={() => {
                     setIsNewPlacement(false);
                     setSelectedPlacementIndex(index);
-                  }} 
-                />
+                  }}
+                  className={`p-4 rounded-xl transition-all duration-200 border text-center ${
+                    !isNewPlacement && selectedPlacementIndex === index 
+                      ? 'bg-violet-600 border-violet-700 text-white shadow-lg shadow-violet-500/30' 
+                      : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-violet-300 hover:shadow-md'
+                  }`}
+                >
+                  <p className="font-bold text-sm truncate">{placement.platformName || placement.offerwallTitle}</p>
+                  <p className={`text-xs mt-1 font-mono truncate ${!isNewPlacement && selectedPlacementIndex === index ? 'text-violet-200' : 'text-gray-400'}`}>
+                    {placement.placementIdentifier?.substring(0, 10)}...
+                  </p>
+                </button>
               ))
             ) : !error && localStorage.getItem('token') ? (
-              <div className="px-4 py-2 text-gray-500 text-sm italic">
+              <div className="col-span-full text-center py-4 text-gray-500 text-sm italic">
                 No placements yet. Create your first one!
               </div>
             ) : null}
             {error && (
-              <div className="px-4 py-2 text-red-500 text-sm">Error: {error}</div>
+              <div className="col-span-full text-center py-4 text-red-500 text-sm">Error: {error}</div>
             )}
         </div>
 
-        {/* Header (Changed dynamically) */}
-        <header className="mb-8">
-          <h1 className="text-5xl font-extrabold text-gray-900 tracking-tight">
-            {isNewPlacement ? 'New Ad Placement Setup' : placementData.platformName}
-          </h1>
-          <p className="text-gray-600 mt-2 text-lg">
-            {isNewPlacement ? 'Define the platform type and core settings for your new offerwall.' : `Manage and monitor the configuration for your existing ${placementData.platformName} placement.`}
+        {/* Section Header */}
+        <div className="mb-6">
+          <p className="text-gray-600">
+            {isNewPlacement ? 'Define the platform type and core settings for your new offerwall.' : `Manage and monitor the configuration for your existing placement.`}
           </p>
-        </header>
+        </div>
 
         {/* Tab Navigation */}
         <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl shadow-inner border border-gray-300">

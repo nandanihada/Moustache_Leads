@@ -30,6 +30,23 @@ export interface DashboardStats {
   }>;
 }
 
+export interface ChartDataPoint {
+  name: string;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+}
+
+export interface TopOffer {
+  id: number;
+  offer_id: string | null;
+  name: string;
+  clicks: number;
+  conversions: number;
+  revenue: string;
+  conversionRate: string;
+}
+
 export const dashboardApi = {
   /**
    * Get dashboard statistics for current user
@@ -43,6 +60,40 @@ export const dashboardApi = {
 
     if (!response.ok) {
       throw new Error('Failed to fetch dashboard stats');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get chart data for performance overview (last 6 months)
+   */
+  async getChartData(): Promise<{ success: boolean; chart_data: ChartDataPoint[] }> {
+    const response = await fetch(`${API_BASE_URL}/dashboard/chart-data`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch chart data');
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get top performing offers for current user
+   */
+  async getTopOffers(): Promise<{ success: boolean; top_offers: TopOffer[] }> {
+    const response = await fetch(`${API_BASE_URL}/dashboard/top-offers`, {
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch top offers');
     }
 
     return response.json();

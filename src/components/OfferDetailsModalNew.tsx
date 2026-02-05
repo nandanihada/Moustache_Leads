@@ -150,8 +150,14 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
         per_page: 1
       });
 
-      if (response.summary) {
-        setStats(response.summary);
+      if (response.report?.summary) {
+        // Map the backend field names to what the UI expects
+        setStats({
+          total_clicks: response.report.summary.total_clicks || 0,
+          total_conversions: response.report.summary.total_conversions || 0,
+          total_payout: response.report.summary.total_payout || 0,
+          conversion_rate: response.report.summary.avg_cr || 0  // Backend uses avg_cr
+        });
       }
     } catch (error) {
       console.error('Error fetching stats:', error);
