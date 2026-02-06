@@ -4,11 +4,15 @@ import { clearPlacementCache } from '../hooks/usePlacementApproval';
 
 interface User {
   id: string;
-  username: string;
+  username?: string;
   email: string;
   role?: string;
   account_status?: string;  // pending_approval, approved, rejected
   email_verified?: boolean;
+  user_type?: 'publisher' | 'advertiser';
+  first_name?: string;
+  last_name?: string;
+  company_name?: string;
 }
 
 interface AuthContextType {
@@ -21,6 +25,8 @@ interface AuthContextType {
   isAdmin: boolean;
   isAdminOrSubadmin: boolean;
   isAccountApproved: boolean;  // New: check if account is approved
+  isPublisher: boolean;
+  isAdvertiser: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -92,6 +98,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Check if account is approved (admins are always approved)
   // Legacy users without account_status are treated as pending
   const isAccountApproved = user?.role === 'admin' || user?.role === 'subadmin' || user?.account_status === 'approved';
+  
+  // User type checks
+  const isPublisher = user?.user_type === 'publisher' || !user?.user_type; // Default to publisher for legacy users
+  const isAdvertiser = user?.user_type === 'advertiser';
 
   const value = {
     user,
@@ -103,6 +113,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAdmin: user?.role === 'admin',
     isAdminOrSubadmin: user?.role === 'admin' || user?.role === 'subadmin',
     isAccountApproved,
+    isPublisher,
+    isAdvertiser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

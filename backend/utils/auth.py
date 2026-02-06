@@ -6,11 +6,13 @@ from flask import request, jsonify, current_app
 from config import Config
 from models.user import User
 
-def generate_token(user_data):
-    """Generate JWT token for user"""
+def generate_token(user_data, user_type='publisher'):
+    """Generate JWT token for user with user_type support"""
     payload = {
         'user_id': str(user_data['_id']),
-        'username': user_data['username'],
+        'username': user_data.get('username', user_data.get('email', '')),
+        'email': user_data.get('email', ''),
+        'user_type': user_type,  # 'publisher' or 'advertiser'
         'exp': datetime.utcnow() + timedelta(seconds=Config.JWT_EXPIRATION_DELTA),
         'iat': datetime.utcnow()
     }
@@ -65,9 +67,21 @@ def token_required(f):
         
         logging.info(f"✅ token_required: Token valid for user {payload.get('username')}")
         
-        # Get user data
-        user_model = User()
-        current_user = user_model.find_by_id(payload['user_id'])
+        # Get user data based on user_type
+        user_type = payload.get('user_type', 'publisher')
+        current_user = None
+        
+        if user_type == 'advertiser':
+            from models.advertiser import Advertiser
+            advertiser_model = Advertiser()
+            current_user = advertiser_model.find_by_id(payload['user_id'])
+            if current_user:
+                current_user['user_type'] = 'advertiser'
+        else:
+            user_model = User()
+            current_user = user_model.find_by_id(payload['user_id'])
+            if current_user:
+                current_user['user_type'] = 'publisher'
         
         # If user not found in database but token is valid, create a temporary user object
         if not current_user:

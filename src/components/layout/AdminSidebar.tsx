@@ -17,7 +17,8 @@ import {
   LogIn,
   UserCog,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  Building2
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -51,6 +52,7 @@ const adminMenuStructure = [
     type: "group" as const,
     subtabs: [
       { title: "Users", url: "/admin/users", icon: Users, tab: "publishers" },
+      { title: "Advertisers", url: "/admin/advertisers", icon: Building2, tab: "advertisers" },
       { title: "Subadmin Management", url: "/admin/subadmin-management", icon: Shield, tab: "subadmin-management" },
       { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
       { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare, tab: "placement-approval" },

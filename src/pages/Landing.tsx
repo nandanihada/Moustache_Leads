@@ -279,7 +279,7 @@ export default function Landing() {
           >
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Link
-                to="/login"
+                to="/publisher/signin"
                 className="text-gray-700 hover:text-purple-600 transition-colors duration-300"
               >
                 Sign in
@@ -293,7 +293,7 @@ export default function Landing() {
               whileTap={{ scale: 0.95 }}
             >
               <Link
-                to="/register"
+                to="/advertiser/register"
                 className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-8 py-3 rounded-full hover:from-purple-700 hover:to-purple-800 shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2"
               >
                 <span>Get Leads</span>
@@ -309,7 +309,7 @@ export default function Landing() {
               whileTap={{ scale: 0.95 }}
             >
               <Link
-                to="/register"
+                to="/publisher/register"
                 className="bg-gradient-to-r from-purple-600 to-purple-700 text-white px-8 py-3 rounded-full hover:from-purple-700 hover:to-purple-800 shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2"
               >
                 <span>Get Offers</span>
@@ -410,7 +410,7 @@ export default function Landing() {
               whileTap={{ scale: 0.95 }}
             >
               <Link
-                to="/register"
+                to="/advertiser/register"
                 className="inline-flex items-center bg-gradient-to-r from-purple-600 to-purple-700 text-white px-12 py-5 rounded-full text-lg font-semibold hover:from-purple-700 hover:to-purple-800 shadow-xl hover:shadow-2xl transition-all duration-300 group"
               >
                 <span className="mr-2">Get Leads Now</span>
@@ -421,7 +421,28 @@ export default function Landing() {
                   <ArrowRight className="h-6 w-6" />
                 </motion.span>
               </Link>
-              
+            </motion.div>
+
+            {/* Get Offers Now button for Publishers */}
+            <motion.div
+              variants={glowAnimation}
+              initial="hidden"
+              animate="visible"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Link
+                to="/publisher/register"
+                className="inline-flex items-center bg-white/20 backdrop-blur-xl text-purple-700 border-2 border-purple-600 px-12 py-4 rounded-full text-lg font-semibold hover:bg-purple-50 shadow-lg hover:shadow-xl transition-all duration-300 group"
+              >
+                <span className="mr-2">Get Offers Now</span>
+                <motion.span
+                  animate={{ x: [0, 5, 0] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  <ArrowRight className="h-5 w-5" />
+                </motion.span>
+              </Link>
             </motion.div>
 
             {/* Floating sparks animation */}

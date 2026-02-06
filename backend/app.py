@@ -70,6 +70,9 @@ admin_geo_restriction_bp = safe_import_blueprint('routes.admin_geo_restrictions'
 preview_bp = safe_import_blueprint('routes.preview_handler', 'preview_bp')
 fix_incentives_bp = safe_import_blueprint('routes.fix_incentives', 'fix_incentives_bp')
 traffic_sources_bp = safe_import_blueprint('routes.traffic_sources', 'traffic_sources_bp')
+advertiser_auth_bp = safe_import_blueprint('routes.advertiser_auth', 'advertiser_auth_bp')
+publisher_auth_bp = safe_import_blueprint('routes.publisher_auth', 'publisher_auth_bp')
+admin_advertisers_bp = safe_import_blueprint('routes.admin_advertisers', 'admin_advertisers_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -127,7 +130,10 @@ blueprints = [
     (preview_bp, ''),
     (fix_incentives_bp, '/api'),
     (test_postback_bp, '/api/admin'),
-    (traffic_sources_bp, '/api')
+    (traffic_sources_bp, '/api'),
+    (advertiser_auth_bp, '/api/auth/advertiser'),
+    (publisher_auth_bp, '/api/auth/publisher'),
+    (admin_advertisers_bp, '/api/admin')
 ]
 
 def create_app():

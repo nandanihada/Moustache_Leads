@@ -48,9 +48,13 @@ import AdminSubadminManagement from "./pages/AdminSubadminManagement";
 import GiftCardRedemption from "./pages/GiftCardRedemption";
 import RedeemGiftCard from "./pages/RedeemGiftCard";
 import AdminGiftCardManagement from "./pages/AdminGiftCardManagement";
+import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
 import OfferwallPage from "./pages/OfferwallPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import PublisherSignIn from "./pages/PublisherSignIn";
+import AdvertiserSignIn from "./pages/AdvertiserSignIn";
+import AdvertiserRegister from "./pages/AdvertiserRegister";
 import VerifyEmail from "./pages/VerifyEmail";
 import Landing from "./pages/Landing";
 import Terms from "./pages/Terms";
@@ -77,8 +81,12 @@ const App = () => (
               <Routes>
                 {/* Public routes */}
                 <Route path="/" element={<Landing />} />
-                <Route path="/login" element={<Login />} />
-                <Route path="/register" element={<Register />} />
+                <Route path="/login" element={<Navigate to="/publisher/signin" replace />} />
+                <Route path="/register" element={<Navigate to="/publisher/register" replace />} />
+                <Route path="/publisher/signin" element={<PublisherSignIn />} />
+                <Route path="/publisher/register" element={<Register />} />
+                <Route path="/advertiser/signin" element={<AdvertiserSignIn />} />
+                <Route path="/advertiser/register" element={<AdvertiserRegister />} />
                 <Route path="/verify-email" element={<VerifyEmail />} />
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/privacy" element={<Privacy />} />
@@ -141,6 +149,7 @@ const App = () => (
                 <Route path="test-postback" element={<AdminTestPostback />} />
                 <Route path="subadmin-management" element={<AdminSubadminManagement />} />
                 <Route path="gift-cards" element={<AdminGiftCardManagement />} />
+                <Route path="advertisers" element={<AdminAdvertiserManagement />} />
               </Route>
 
               {/* Smart redirect based on authentication status */}
