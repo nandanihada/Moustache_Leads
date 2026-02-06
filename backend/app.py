@@ -73,6 +73,7 @@ traffic_sources_bp = safe_import_blueprint('routes.traffic_sources', 'traffic_so
 advertiser_auth_bp = safe_import_blueprint('routes.advertiser_auth', 'advertiser_auth_bp')
 publisher_auth_bp = safe_import_blueprint('routes.publisher_auth', 'publisher_auth_bp')
 admin_advertisers_bp = safe_import_blueprint('routes.admin_advertisers', 'admin_advertisers_bp')
+advertiser_dashboard_bp = safe_import_blueprint('routes.advertiser_dashboard', 'advertiser_dashboard_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -133,7 +134,8 @@ blueprints = [
     (traffic_sources_bp, '/api'),
     (advertiser_auth_bp, '/api/auth/advertiser'),
     (publisher_auth_bp, '/api/auth/publisher'),
-    (admin_advertisers_bp, '/api/admin')
+    (admin_advertisers_bp, '/api/admin'),
+    (advertiser_dashboard_bp, '/api/advertiser')
 ]
 
 def create_app():

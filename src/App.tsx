@@ -49,6 +49,9 @@ import GiftCardRedemption from "./pages/GiftCardRedemption";
 import RedeemGiftCard from "./pages/RedeemGiftCard";
 import AdminGiftCardManagement from "./pages/AdminGiftCardManagement";
 import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
+import AdvertiserDashboard from "./pages/AdvertiserDashboard";
+import AdvertiserCampaigns from "./pages/AdvertiserCampaigns";
+import AdvertiserLayout from "./components/layout/AdvertiserLayout";
 import OfferwallPage from "./pages/OfferwallPage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -150,6 +153,19 @@ const App = () => (
                 <Route path="subadmin-management" element={<AdminSubadminManagement />} />
                 <Route path="gift-cards" element={<AdminGiftCardManagement />} />
                 <Route path="advertisers" element={<AdminAdvertiserManagement />} />
+              </Route>
+
+              {/* Advertiser Dashboard routes */}
+              <Route
+                path="/advertiser"
+                element={<AdvertiserLayout />}
+              >
+                <Route index element={<AdvertiserDashboard />} />
+                <Route path="campaigns" element={<AdvertiserCampaigns />} />
+                <Route path="statistics" element={<AdvertiserDashboard />} />
+                <Route path="billing" element={<AdvertiserDashboard />} />
+                <Route path="profile" element={<AdvertiserDashboard />} />
+                <Route path="settings" element={<AdvertiserDashboard />} />
               </Route>
 
               {/* Smart redirect based on authentication status */}

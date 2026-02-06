@@ -33,17 +33,12 @@ export default function AdvertiserSignIn() {
       const data = await res.json();
 
       if (data.token) {
-        login(data.token, data.user);
-        alert("Login successful!");
+        // Store advertiser token separately
+        localStorage.setItem('advertiser_token', data.token);
+        localStorage.setItem('advertiser_user', JSON.stringify(data.user));
         
-        // Advertisers go to a different dashboard (for now, same dashboard)
-        const isProduction = window.location.hostname.includes('moustacheleads.com');
-        
-        if (isProduction) {
-          window.location.href = 'https://moustacheleads.com/dashboard';
-        } else {
-          navigate("/dashboard");
-        }
+        // Redirect to advertiser dashboard
+        navigate("/advertiser");
       } else {
         setError(data.error || "Invalid email or password");
       }

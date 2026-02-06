@@ -42,18 +42,27 @@ const PublisherOffersContent = () => {
   const [sortBy, setSortBy] = useState("newest");
   const [countryFilter, setCountryFilter] = useState("all");
   const [verticalFilter, setVerticalFilter] = useState("all");
-  const [viewMode, setViewMode] = useState<'card' | 'table'>('card');
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
   const [offers, setOffers] = useState<PublisherOffer[]>([]);
   const [myRequests, setMyRequests] = useState<any[]>([]);
+  const [myOffers, setMyOffers] = useState<PublisherOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [myOffersLoading, setMyOffersLoading] = useState(false);
+  // My Offers tab filters
+  const [myOffersSearchTerm, setMyOffersSearchTerm] = useState("");
+  const [myOffersSearchBy, setMyOffersSearchBy] = useState("name");
+  const [myOffersSortBy, setMyOffersSortBy] = useState("newest");
+  const [myOffersCountryFilter, setMyOffersCountryFilter] = useState("all");
+  const [myOffersVerticalFilter, setMyOffersVerticalFilter] = useState("all");
+  const [myOffersViewMode, setMyOffersViewMode] = useState<'card' | 'table'>('table');
   const [error, setError] = useState<string | null>(null);
   const [selectedOffer, setSelectedOffer] = useState<PublisherOffer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("offers");
   const [pagination, setPagination] = useState({
     page: 1,
-    per_page: 20,
+    per_page: 500,  // Load more offers so filtering works across all offers
     total: 0,
     pages: 0
   });
@@ -131,6 +140,21 @@ const PublisherOffersContent = () => {
     }
   };
 
+  // Log unique categories when offers load (for debugging)
+  useEffect(() => {
+    if (offers.length > 0) {
+      const uniqueCategories = [...new Set(offers.map(o => (o as any).vertical || o.category || 'UNKNOWN'))];
+      console.log('📊 Available Offers - Unique categories:', uniqueCategories);
+    }
+  }, [offers]);
+
+  useEffect(() => {
+    if (myOffers.length > 0) {
+      const uniqueCategories = [...new Set(myOffers.map(o => (o as any).vertical || o.category || 'UNKNOWN'))];
+      console.log('📊 My Offers - Unique categories:', uniqueCategories);
+    }
+  }, [myOffers]);
+
   const filteredOffers = offers.filter((offer) => {
     // Search filter
     if (searchTerm) {
@@ -160,30 +184,37 @@ const PublisherOffersContent = () => {
       }
     }
     
-    // Vertical/Category filter
+    // Vertical/Category filter - simplified logic
     if (verticalFilter !== 'all') {
-      const offerVertical = ((offer as any).vertical || offer.category || '').toUpperCase();
-      const filterValue = verticalFilter.toUpperCase();
+      const rawVertical = ((offer as any).vertical || offer.category || '').toString().toUpperCase().trim();
+      const filterValue = verticalFilter.toUpperCase().trim();
       
-      // Map old category names to new ones for backward compatibility
+      // Direct match first
+      if (rawVertical === filterValue) {
+        return true;
+      }
+      
+      // Category mappings for flexible matching
       const categoryMappings: Record<string, string[]> = {
-        'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
-        'SURVEY': ['SURVEY', 'SURVEYS'],
-        'EDUCATION': ['EDUCATION', 'LEARNING'],
-        'INSURANCE': ['INSURANCE'],
-        'LOAN': ['LOAN', 'LOANS', 'LENDING'],
-        'FINANCE': ['FINANCE', 'FINANCIAL'],
-        'DATING': ['DATING', 'RELATIONSHIPS'],
-        'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
-        'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
-        'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-        'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
+        'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL', 'HEALTH_&_BEAUTY', 'HEALTH AND BEAUTY', 'BEAUTY', 'WELLNESS', 'FITNESS'],
+        'SURVEY': ['SURVEY', 'SURVEYS', 'SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE'],
+        'EDUCATION': ['EDUCATION', 'LEARNING', 'EDU', 'COURSE', 'COURSES', 'TRAINING'],
+        'INSURANCE': ['INSURANCE', 'INSUR', 'POLICY', 'COVERAGE'],
+        'LOAN': ['LOAN', 'LOANS', 'LENDING', 'CREDIT', 'PERSONAL LOAN', 'HOME LOAN'],
+        'FINANCE': ['FINANCE', 'FINANCIAL', 'BANKING', 'INVESTMENT', 'CRYPTO', 'CRYPTOCURRENCY', 'TRADING', 'STOCKS', 'FOREX', 'BANK', 'MONEY'],
+        'DATING': ['DATING', 'RELATIONSHIPS', 'SOCIAL', 'ADULT', 'ROMANCE', 'SINGLES', 'MATCH', 'MATCHMAKING'],
+        'FREE_TRIAL': ['FREE_TRIAL', 'FREE TRIAL', 'FREETRIAL', 'TRIAL', 'TRIALS', 'DEMO', 'SAMPLE'],
+        'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS', 'MOBILE', 'APPLICATION', 'DOWNLOAD', 'SOFTWARE'],
+        'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMES INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING', 'CASINO', 'GAMBLING', 'IGAMING', 'GAME INSTALL', 'MOBILE GAME', 'PLAY'],
+        'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL', 'MISC', 'MISCELLANEOUS', 'UNKNOWN']
       };
       
-      // Check if offer category matches filter (including mappings)
       const matchingCategories = categoryMappings[filterValue] || [filterValue];
+      const matchesCategory = matchingCategories.some(cat => 
+        rawVertical === cat || rawVertical.includes(cat) || cat.includes(rawVertical)
+      );
       
-      if (!matchingCategories.includes(offerVertical)) {
+      if (!matchesCategory) {
         return false;
       }
     }
@@ -191,6 +222,93 @@ const PublisherOffersContent = () => {
     return true;
   }).sort((a, b) => {
     switch (sortBy) {
+      case 'id_asc':
+        return (a.offer_id || '').localeCompare(b.offer_id || '');
+      case 'id_desc':
+        return (b.offer_id || '').localeCompare(a.offer_id || '');
+      case 'payout_high':
+        return (b.payout || 0) - (a.payout || 0);
+      case 'payout_low':
+        return (a.payout || 0) - (b.payout || 0);
+      case 'title_az':
+        return (a.name || '').localeCompare(b.name || '');
+      case 'title_za':
+        return (b.name || '').localeCompare(a.name || '');
+      case 'newest':
+        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+      case 'oldest':
+        return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+      default:
+        return 0;
+    }
+  });
+
+  // Filter and sort My Offers
+  const filteredMyOffers = myOffers.filter((offer) => {
+    // Search filter
+    if (myOffersSearchTerm) {
+      const term = myOffersSearchTerm.toLowerCase();
+      let matchesSearch = false;
+      switch (myOffersSearchBy) {
+        case "name":
+          matchesSearch = offer.name.toLowerCase().includes(term);
+          break;
+        case "id":
+          matchesSearch = offer.offer_id.toLowerCase().includes(term);
+          break;
+        case "vertical":
+          matchesSearch = ((offer as any).vertical || offer.category || "").toLowerCase().includes(term);
+          break;
+        default:
+          matchesSearch = true;
+      }
+      if (!matchesSearch) return false;
+    }
+    
+    // Country filter
+    if (myOffersCountryFilter !== 'all') {
+      const offerCountries = (offer as any).countries || [];
+      if (!offerCountries.some((c: string) => c.toUpperCase() === myOffersCountryFilter.toUpperCase())) {
+        return false;
+      }
+    }
+    
+    // Vertical/Category filter - simplified logic
+    if (myOffersVerticalFilter !== 'all') {
+      const rawVertical = ((offer as any).vertical || offer.category || '').toString().toUpperCase().trim();
+      const filterValue = myOffersVerticalFilter.toUpperCase().trim();
+      
+      // Direct match first
+      if (rawVertical === filterValue) {
+        return true;
+      }
+      
+      // Category mappings for flexible matching
+      const categoryMappings: Record<string, string[]> = {
+        'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL', 'HEALTH_&_BEAUTY', 'HEALTH AND BEAUTY', 'BEAUTY', 'WELLNESS', 'FITNESS'],
+        'SURVEY': ['SURVEY', 'SURVEYS', 'SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE'],
+        'EDUCATION': ['EDUCATION', 'LEARNING', 'EDU', 'COURSE', 'COURSES', 'TRAINING'],
+        'INSURANCE': ['INSURANCE', 'INSUR', 'POLICY', 'COVERAGE'],
+        'LOAN': ['LOAN', 'LOANS', 'LENDING', 'CREDIT', 'PERSONAL LOAN', 'HOME LOAN'],
+        'FINANCE': ['FINANCE', 'FINANCIAL', 'BANKING', 'INVESTMENT', 'CRYPTO', 'CRYPTOCURRENCY', 'TRADING', 'STOCKS', 'FOREX', 'BANK', 'MONEY'],
+        'DATING': ['DATING', 'RELATIONSHIPS', 'SOCIAL', 'ADULT', 'ROMANCE', 'SINGLES', 'MATCH', 'MATCHMAKING'],
+        'FREE_TRIAL': ['FREE_TRIAL', 'FREE TRIAL', 'FREETRIAL', 'TRIAL', 'TRIALS', 'DEMO', 'SAMPLE'],
+        'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS', 'MOBILE', 'APPLICATION', 'DOWNLOAD', 'SOFTWARE'],
+        'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMES INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING', 'CASINO', 'GAMBLING', 'IGAMING', 'GAME INSTALL', 'MOBILE GAME', 'PLAY'],
+        'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL', 'MISC', 'MISCELLANEOUS', 'UNKNOWN']
+      };
+      
+      const matchingCategories = categoryMappings[filterValue] || [filterValue];
+      const matchesCategory = matchingCategories.some(cat => 
+        rawVertical === cat || rawVertical.includes(cat) || cat.includes(rawVertical)
+      );
+      
+      if (!matchesCategory) return false;
+    }
+    
+    return true;
+  }).sort((a, b) => {
+    switch (myOffersSortBy) {
       case 'id_asc':
         return (a.offer_id || '').localeCompare(b.offer_id || '');
       case 'id_desc':
@@ -232,6 +350,34 @@ const PublisherOffersContent = () => {
     }
   };
 
+  const fetchMyOffers = async () => {
+    try {
+      setMyOffersLoading(true);
+      // Fetch offers that the user has access to (approved requests or auto-approved)
+      const response = await publisherOfferApi.getAvailableOffers({
+        status: 'active',
+        page: 1,
+        per_page: 200
+      });
+      
+      // Filter to only show offers the user has access to
+      const accessibleOffers = (response.offers || []).filter((offer: PublisherOffer) => 
+        (offer as any).has_access === true && !(offer as any).is_locked
+      );
+      
+      setMyOffers(accessibleOffers);
+    } catch (err: any) {
+      console.error('Error fetching my offers:', err);
+      toast({
+        title: "Error",
+        description: "Failed to load your offers. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setMyOffersLoading(false);
+    }
+  };
+
   const handleViewDetails = (offer: PublisherOffer) => {
     // Track the click before showing details
     trackDashboardClick(offer);
@@ -252,6 +398,9 @@ const PublisherOffersContent = () => {
     if (activeTab === 'requests' && myRequests.length === 0) {
       fetchMyRequests();
     }
+    if (activeTab === 'myoffers' && myOffers.length === 0) {
+      fetchMyOffers();
+    }
   }, [activeTab]);
 
   return (
@@ -262,9 +411,10 @@ const PublisherOffersContent = () => {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="offers">Available Offers</TabsTrigger>
           <TabsTrigger value="requests">My Requests</TabsTrigger>
+          <TabsTrigger value="myoffers">My Offers</TabsTrigger>
         </TabsList>
 
         <TabsContent value="offers" className="space-y-4">
@@ -451,7 +601,6 @@ const PublisherOffersContent = () => {
                             <TableHead>Payout</TableHead>
                             <TableHead>Traffic Sources</TableHead>
                             <TableHead>Device</TableHead>
-                            <TableHead>Network</TableHead>
                             <TableHead>Actions</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -552,9 +701,6 @@ const PublisherOffersContent = () => {
                                   <Laptop className="h-4 w-4 text-purple-500" />
                                 )}
                               </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {(offer as any).network || 'N/A'}
-                              </TableCell>
                               <TableCell>
                                 <div className="flex items-center gap-2">
                                   <Button
@@ -618,9 +764,6 @@ const PublisherOffersContent = () => {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent>
-                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 20, page: 1 }))}>
-                              20 per page
-                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 50, page: 1 }))}>
                               50 per page
                             </DropdownMenuItem>
@@ -629,6 +772,9 @@ const PublisherOffersContent = () => {
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 200, page: 1 }))}>
                               200 per page
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 500, page: 1 }))}>
+                              500 per page
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: pagination.total || 1000, page: 1 }))}>
                               Show All ({pagination.total})
@@ -768,6 +914,279 @@ const PublisherOffersContent = () => {
                     </Card>
                   ))}
                 </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="myoffers" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-green-600" />
+                My Offers
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Filter Controls */}
+              <div className="flex flex-wrap gap-4 items-center">
+                <div className="flex-1 min-w-[200px] relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search your offers..."
+                    value={myOffersSearchTerm}
+                    onChange={(e) => setMyOffersSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Select value={myOffersSearchBy} onValueChange={setMyOffersSearchBy}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Search by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="name">Name</SelectItem>
+                    <SelectItem value="id">Offer ID</SelectItem>
+                    <SelectItem value="vertical">Vertical</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={myOffersVerticalFilter} onValueChange={setMyOffersVerticalFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Category" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value="all">All Categories</SelectItem>
+                    <SelectItem value="HEALTH">💊 Health</SelectItem>
+                    <SelectItem value="SURVEY">📋 Survey</SelectItem>
+                    <SelectItem value="EDUCATION">📚 Education</SelectItem>
+                    <SelectItem value="INSURANCE">🛡️ Insurance</SelectItem>
+                    <SelectItem value="LOAN">💳 Loan</SelectItem>
+                    <SelectItem value="FINANCE">💰 Finance</SelectItem>
+                    <SelectItem value="DATING">❤️ Dating</SelectItem>
+                    <SelectItem value="FREE_TRIAL">🎁 Free Trial</SelectItem>
+                    <SelectItem value="INSTALLS">📲 Installs</SelectItem>
+                    <SelectItem value="GAMES_INSTALL">🎮 Games Install</SelectItem>
+                    <SelectItem value="OTHER">📦 Other</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={myOffersSortBy} onValueChange={setMyOffersSortBy}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
+                    <SelectItem value="id_asc">ID (A → Z)</SelectItem>
+                    <SelectItem value="id_desc">ID (Z → A)</SelectItem>
+                    <SelectItem value="payout_high">Payout (Highest)</SelectItem>
+                    <SelectItem value="payout_low">Payout (Lowest)</SelectItem>
+                    <SelectItem value="title_az">Title (A → Z)</SelectItem>
+                    <SelectItem value="title_za">Title (Z → A)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={myOffersCountryFilter} onValueChange={setMyOffersCountryFilter}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Country" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-64">
+                    <SelectItem value="all">All Countries</SelectItem>
+                    <SelectItem value="US">🇺🇸 United States</SelectItem>
+                    <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
+                    <SelectItem value="CA">🇨🇦 Canada</SelectItem>
+                    <SelectItem value="AU">🇦🇺 Australia</SelectItem>
+                    <SelectItem value="DE">🇩🇪 Germany</SelectItem>
+                    <SelectItem value="FR">🇫🇷 France</SelectItem>
+                    <SelectItem value="ES">🇪🇸 Spain</SelectItem>
+                    <SelectItem value="IT">🇮🇹 Italy</SelectItem>
+                    <SelectItem value="NL">🇳🇱 Netherlands</SelectItem>
+                    <SelectItem value="BE">🇧🇪 Belgium</SelectItem>
+                    <SelectItem value="AT">🇦🇹 Austria</SelectItem>
+                    <SelectItem value="CH">🇨🇭 Switzerland</SelectItem>
+                    <SelectItem value="SE">🇸🇪 Sweden</SelectItem>
+                    <SelectItem value="NO">🇳🇴 Norway</SelectItem>
+                    <SelectItem value="DK">🇩🇰 Denmark</SelectItem>
+                    <SelectItem value="FI">🇫🇮 Finland</SelectItem>
+                    <SelectItem value="PL">🇵🇱 Poland</SelectItem>
+                    <SelectItem value="BR">🇧🇷 Brazil</SelectItem>
+                    <SelectItem value="MX">🇲🇽 Mexico</SelectItem>
+                    <SelectItem value="IN">🇮🇳 India</SelectItem>
+                    <SelectItem value="JP">🇯🇵 Japan</SelectItem>
+                    <SelectItem value="KR">🇰🇷 South Korea</SelectItem>
+                    <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
+                    <SelectItem value="NZ">🇳🇿 New Zealand</SelectItem>
+                    <SelectItem value="ZA">🇿🇦 South Africa</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button onClick={fetchMyOffers} variant="outline" size="sm">
+                  Refresh
+                </Button>
+                <div className="flex items-center border rounded-md">
+                  <Button
+                    variant={myOffersViewMode === 'card' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setMyOffersViewMode('card')}
+                    className="rounded-r-none"
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant={myOffersViewMode === 'table' ? 'default' : 'ghost'}
+                    size="sm"
+                    onClick={() => setMyOffersViewMode('table')}
+                    className="rounded-l-none"
+                  >
+                    <List className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Loading State */}
+              {myOffersLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                  <span className="ml-3 text-muted-foreground">Loading your offers...</span>
+                </div>
+              )}
+
+              {/* Empty State */}
+              {!myOffersLoading && filteredMyOffers.length === 0 && (
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>No offers found</AlertTitle>
+                  <AlertDescription>
+                    {myOffersSearchTerm || myOffersVerticalFilter !== 'all' || myOffersCountryFilter !== 'all'
+                      ? 'No offers match your filter criteria.'
+                      : "You don't have access to any offers yet. Browse available offers and request access to get started."}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {/* My Offers Display */}
+              {!myOffersLoading && filteredMyOffers.length > 0 && (
+                <>
+                  {myOffersViewMode === 'card' ? (
+                    /* Card Grid View */
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredMyOffers.map((offer) => (
+                        <OfferCardWithApproval
+                          key={offer.offer_id}
+                          offer={offer}
+                          onViewDetails={handleViewDetails}
+                          onAccessGranted={handleAccessGranted}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    /* Table View */
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Image</TableHead>
+                            <TableHead>Offer ID</TableHead>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Vertical</TableHead>
+                            <TableHead>Countries</TableHead>
+                            <TableHead>Payout</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredMyOffers.map((offer) => (
+                            <TableRow key={offer.offer_id}>
+                              <TableCell>
+                                {(offer as any).thumbnail_url || (offer as any).image_url ? (
+                                  <img
+                                    src={(offer as any).thumbnail_url || (offer as any).image_url}
+                                    alt={offer.name}
+                                    className="w-12 h-12 object-cover rounded border"
+                                    onError={(e) => {
+                                      const target = e.target as HTMLImageElement;
+                                      target.style.display = 'none';
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
+                                    <span className="text-xs text-gray-400">No Img</span>
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell className="font-mono text-sm">{offer.offer_id}</TableCell>
+                              <TableCell>
+                                <div className="max-w-[200px]">
+                                  <div className="font-medium truncate">{offer.name}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline">
+                                  {(offer as any).vertical || offer.category || 'Other'}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex gap-1 flex-wrap max-w-[120px]">
+                                  {((offer as any).countries || []).slice(0, 3).map((country: string) => (
+                                    <Badge key={country} variant="secondary" className="text-xs">
+                                      {country}
+                                    </Badge>
+                                  ))}
+                                  {((offer as any).countries || []).length > 3 && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      +{((offer as any).countries || []).length - 3}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="font-medium text-green-600">
+                                ${offer.payout?.toFixed(2) || '0.00'}
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleViewDetails(offer)}
+                                  >
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    Details
+                                  </Button>
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={() => {
+                                      const hostname = window.location.hostname;
+                                      let baseUrl = 'http://localhost:5000';
+                                      if (hostname.includes('moustacheleads.com') || hostname.includes('vercel.app') || hostname.includes('onrender.com')) {
+                                        baseUrl = 'https://offers.moustacheleads.com';
+                                      }
+                                      let userId = '';
+                                      try {
+                                        const userStr = localStorage.getItem('user');
+                                        if (userStr) {
+                                          const user = JSON.parse(userStr);
+                                          userId = user._id || user.id || '';
+                                        }
+                                      } catch (e) {}
+                                      const trackingUrl = `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1=default`;
+                                      window.open(trackingUrl, '_blank');
+                                    }}
+                                    className="bg-green-600 hover:bg-green-700"
+                                  >
+                                    <ExternalLink className="h-4 w-4 mr-1" />
+                                    Run
+                                  </Button>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+
+                  {/* Results Count */}
+                  <div className="text-sm text-muted-foreground pt-2">
+                    Showing {filteredMyOffers.length} of {myOffers.length} offers
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
