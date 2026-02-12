@@ -64,6 +64,7 @@ const adminMenuStructure = [
     type: "group" as const,
     subtabs: [
       { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
+      { title: "Missing Offers", url: "/admin/missing-offers", icon: AlertTriangle, tab: "missing-offers" },
       { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
       { title: "Gift Cards", url: "/admin/gift-cards", icon: Gift, tab: "gift-cards" },
     ]

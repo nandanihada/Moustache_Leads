@@ -74,6 +74,7 @@ advertiser_auth_bp = safe_import_blueprint('routes.advertiser_auth', 'advertiser
 publisher_auth_bp = safe_import_blueprint('routes.publisher_auth', 'publisher_auth_bp')
 admin_advertisers_bp = safe_import_blueprint('routes.admin_advertisers', 'admin_advertisers_bp')
 advertiser_dashboard_bp = safe_import_blueprint('routes.advertiser_dashboard', 'advertiser_dashboard_bp')
+missing_offers_bp = safe_import_blueprint('routes.missing_offers', 'missing_offers_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -135,7 +136,8 @@ blueprints = [
     (advertiser_auth_bp, '/api/auth/advertiser'),
     (publisher_auth_bp, '/api/auth/publisher'),
     (admin_advertisers_bp, '/api/admin'),
-    (advertiser_dashboard_bp, '/api/advertiser')
+    (advertiser_dashboard_bp, '/api/advertiser'),
+    (missing_offers_bp, '')
 ]
 
 def create_app():
@@ -456,6 +458,15 @@ if db_instance.is_connected():
             logging.info("✅ Placement auto-approval service started (3 days)")
         except Exception as e:
             logging.warning(f"⚠️ Placement auto-approval service failed to start: {str(e)}")
+        
+        # Try to import and start scheduled email service
+        try:
+            from services.scheduled_email_service import get_scheduled_email_service
+            email_service = get_scheduled_email_service()
+            email_service.start_service()
+            logging.info("✅ Scheduled email service started")
+        except Exception as e:
+            logging.warning(f"⚠️ Scheduled email service failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:

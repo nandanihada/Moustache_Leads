@@ -1091,11 +1091,11 @@ def bulk_upload_offers():
         
         logging.info(f"🔐 Approval settings from options: {approval_settings}")
         
-        # Validate spreadsheet data
+        # Validate spreadsheet data - returns (valid, errors, missing_offers)
         logging.info(f"✅ Parsed {len(rows)} rows from spreadsheet")
-        valid_rows, error_rows = validate_spreadsheet_data(rows)
+        valid_rows, error_rows, missing_offers_rows = validate_spreadsheet_data(rows, store_missing=True)
         
-        logging.info(f"✅ Validated: {len(valid_rows)} valid, {len(error_rows)} errors")
+        logging.info(f"✅ Validated: {len(valid_rows)} valid, {len(error_rows)} errors, {len(missing_offers_rows)} missing data")
         
         # Apply approval settings to all valid rows (override spreadsheet values if options provided)
         if options.get('approval_type'):
@@ -1113,21 +1113,25 @@ def bulk_upload_offers():
         for row in valid_rows:
             row['show_in_offerwall'] = show_in_offerwall
         
-        # If there are validation errors, return them
+        # If there are critical validation errors (invalid format), return them
         if error_rows:
             return jsonify({
                 'error': 'Validation errors found in spreadsheet',
                 'validation_errors': error_rows,
                 'valid_count': len(valid_rows),
-                'error_count': len(error_rows)
+                'error_count': len(error_rows),
+                'missing_count': len(missing_offers_rows)
             }), 400
         
         if not valid_rows:
             return jsonify({'error': 'No valid data found in spreadsheet'}), 400
         
-        # Create offers
+        # Create offers normally (no inventory gap detection - that's for Missing Offers page)
         logging.info(f"🔨 Creating {len(valid_rows)} offers...")
-        created_offer_ids, creation_errors = bulk_create_offers(valid_rows, str(user['_id']))
+        created_offer_ids, creation_errors, _ = bulk_create_offers(
+            valid_rows, 
+            str(user['_id'])
+        )
         
         logging.info(f"✅ Created {len(created_offer_ids)} offers")
         
@@ -1148,7 +1152,7 @@ def bulk_upload_offers():
             response_data['error_count'] = len(creation_errors)
             response_data['message'] = f'Created {len(created_offer_ids)} offers, {len(creation_errors)} failed'
         
-        return jsonify(response_data), 201 if created_offer_ids else 400
+        return jsonify(response_data), 201 if created_offer_ids else 200
         
     except Exception as e:
         logging.error(f"Bulk upload error: {str(e)}", exc_info=True)
@@ -1407,9 +1411,20 @@ def import_api_offers():
         imported_count = 0
         skipped_count = 0
         error_count = 0
+        missing_count = 0
         imported_offers = []
         skipped_offers = []
         errors = []
+        missing_offers_list = []
+        
+        # Import missing offer service for detection
+        try:
+            from services.missing_offer_service import MissingOfferService
+            from models.missing_offer import MissingOffer
+            missing_offer_service = MissingOfferService
+        except ImportError:
+            missing_offer_service = None
+            logging.warning("MissingOfferService not available, skipping missing offer detection")
         
         # Get duplicate strategy
         skip_duplicates = options.get('skip_duplicates', True)
@@ -1471,6 +1486,22 @@ def import_api_offers():
                     })
                     continue
                 
+                # Check for inventory gaps and store in missing offers collection
+                if missing_offer_service:
+                    result = missing_offer_service.process_offer_for_inventory_gap(
+                        offer_data=mapped_offer,
+                        source='api_fetch',
+                        network=network_id
+                    )
+                    if not result.get('in_inventory') and result.get('missing_offer_id'):
+                        missing_count += 1
+                        missing_offers_list.append({
+                            'name': mapped_offer.get('name', 'Unknown'),
+                            'match_key': result.get('match_key'),
+                            'missing_offer_id': result.get('missing_offer_id')
+                        })
+                        logging.info(f"Stored inventory gap from API: {result.get('match_key')}")
+                
                 # Check for duplicates
                 is_duplicate, duplicate_id, existing_offer = duplicate_detector.check_duplicate(
                     mapped_offer, duplicate_strategy
@@ -1529,18 +1560,26 @@ def import_api_offers():
                 logging.error(f"Error importing offer: {str(e)}", exc_info=True)
         
         # Return summary
-        return jsonify({
+        response_data = {
             'success': True,
             'summary': {
                 'total_fetched': len(offers),
                 'imported': imported_count,
                 'skipped': skipped_count,
-                'errors': error_count
+                'errors': error_count,
+                'missing_data': missing_count
             },
             'imported_offers': imported_offers,
             'skipped_offers': skipped_offers[:10],  # Limit to first 10
             'errors': errors[:10]  # Limit to first 10
-        }), 200
+        }
+        
+        # Include missing offers info if any
+        if missing_offers_list:
+            response_data['missing_offers'] = missing_offers_list[:10]  # Limit to first 10
+            response_data['summary']['message'] = f'{missing_count} offers have missing data (see Missing Offers tab)'
+        
+        return jsonify(response_data), 200
         
     except Exception as e:
         logging.error(f"API import failed: {str(e)}", exc_info=True)

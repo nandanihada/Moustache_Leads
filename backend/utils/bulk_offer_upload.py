@@ -15,7 +15,6 @@ from openpyxl import load_workbook
 # Import offer constants for validation
 from models.offer import (
     VALID_VERTICALS, 
-    CATEGORY_TO_VERTICAL_MAP, 
     calculate_incentive_type,
     validate_vertical,
     map_category_to_vertical
@@ -145,6 +144,43 @@ DEFAULT_OFFER_IMAGES = [
     'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=300&h=200&fit=crop',  # Business/insurance
 ]
 
+# Currency symbols for payout parsing
+CURRENCY_SYMBOLS = {
+    '$': 'USD',
+    '€': 'EUR',
+    '₹': 'INR',
+    '£': 'GBP',
+    '¥': 'JPY',
+    '₽': 'RUB',
+    'R$': 'BRL',
+    'C$': 'CAD',
+    'A$': 'AUD',
+    'CHF': 'CHF',
+    'kr': 'SEK',
+    'zł': 'PLN',
+    '₪': 'ILS',
+    '₩': 'KRW',
+    '฿': 'THB',
+    '₫': 'VND',
+    'Rp': 'IDR',
+    'RM': 'MYR',
+    '₱': 'PHP',
+    'S$': 'SGD',
+    'HK$': 'HKD',
+    'NT$': 'TWD',
+    'R': 'ZAR',
+    'د.إ': 'AED',
+    'SR': 'SAR',
+    'QR': 'QAR',
+    'BD': 'BHD',
+    'KD': 'KWD',
+    'OMR': 'OMR',
+    '₤': 'GBP',  # Alternative pound symbol
+}
+
+# Currency indicators for validation
+CURRENCY_INDICATORS = ['$', '€', '£', '₹', '¥', '₽']
+
 
 def parse_payout_value(payout_str: str) -> Tuple[float, float, str]:
     """
@@ -161,40 +197,6 @@ def parse_payout_value(payout_str: str) -> Tuple[float, float, str]:
     """
     payout_str = str(payout_str).strip()
     
-    # Currency symbol mapping
-    currency_symbols = {
-        '$': 'USD',
-        '€': 'EUR',
-        '₹': 'INR',
-        '£': 'GBP',
-        '¥': 'JPY',
-        '₽': 'RUB',
-        'R$': 'BRL',
-        'C$': 'CAD',
-        'A$': 'AUD',
-        'CHF': 'CHF',
-        'kr': 'SEK',
-        'zł': 'PLN',
-        '₪': 'ILS',
-        '₩': 'KRW',
-        '฿': 'THB',
-        '₫': 'VND',
-        'Rp': 'IDR',
-        'RM': 'MYR',
-        '₱': 'PHP',
-        'S$': 'SGD',
-        'HK$': 'HKD',
-        'NT$': 'TWD',
-        'R': 'ZAR',
-        'د.إ': 'AED',
-        'SR': 'SAR',
-        'QR': 'QAR',
-        'BD': 'BHD',
-        'KD': 'KWD',
-        'OMR': 'OMR',
-        '₤': 'GBP',  # Alternative pound symbol
-    }
-    
     # Check if it's a percentage
     if '%' in payout_str:
         # Percentage payout - extract number
@@ -206,7 +208,7 @@ def parse_payout_value(payout_str: str) -> Tuple[float, float, str]:
     numeric_part = payout_str
     
     # Check for currency symbols at the beginning or end
-    for symbol, currency_code in currency_symbols.items():
+    for symbol, currency_code in CURRENCY_SYMBOLS.items():
         if payout_str.startswith(symbol):
             detected_currency = currency_code
             numeric_part = payout_str[len(symbol):].strip()
@@ -231,6 +233,7 @@ def parse_payout_value(payout_str: str) -> Tuple[float, float, str]:
 def normalize_column_name(column: str) -> str:
     """Normalize column names to lowercase and remove extra spaces"""
     return column.strip().lower()
+
 
 
 def parse_excel_file(file_path: str) -> Tuple[List[Dict[str, Any]], Optional[str]]:
@@ -346,9 +349,6 @@ def fetch_google_sheet(sheet_url: str) -> Tuple[List[Dict[str, Any]], Optional[s
     """
     try:
         # Convert Google Sheets URL to CSV export URL
-        # Example: https://docs.google.com/spreadsheets/d/SHEET_ID/edit#gid=0
-        # Convert to: https://docs.google.com/spreadsheets/d/SHEET_ID/export?format=csv&gid=0
-        
         if 'docs.google.com/spreadsheets' not in sheet_url:
             return [], "Invalid Google Sheets URL"
         
@@ -419,13 +419,21 @@ def map_spreadsheet_to_db(row_data: Dict[str, Any]) -> Dict[str, Any]:
                     mapped_data[db_field] = [c.strip().upper() for c in value.split(',') if c.strip()]
                 else:
                     mapped_data[db_field] = [str(value).strip().upper()]
-            # Handle revenue_share_percent - remove % sign if present
+            # Handle revenue_share_percent - remove % sign if present, detect currency values
             elif db_field == 'revenue_share_percent' and value:
                 value_str = str(value).strip()
-                # Remove % sign and convert to float
-                if '%' in value_str:
-                    value_str = value_str.replace('%', '').strip()
-                mapped_data[db_field] = value_str
+                # Check if this looks like a currency value (has $, €, etc.)
+                is_currency_value = any(symbol in value_str for symbol in CURRENCY_INDICATORS)
+                
+                if is_currency_value:
+                    # This is actually a payout value, not a percentage
+                    # Store it temporarily, will be handled in validation
+                    mapped_data[db_field] = value_str
+                else:
+                    # Remove % sign and store
+                    if '%' in value_str:
+                        value_str = value_str.replace('%', '').strip()
+                    mapped_data[db_field] = value_str
             else:
                 mapped_data[db_field] = value
     
@@ -452,9 +460,7 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Debug: Log if payout_model is present
     if 'payout_model' in result:
-        logger.info(f"✅ payout_model found in row data: {result['payout_model']}")
-    else:
-        logger.info("⚠️ payout_model NOT found in row data")
+        logger.info(f"payout_model found in row data: {result['payout_model']}")
     
     # Apply default expiration date (90 days / 3 months from now)
     if not result.get('expiration_date'):
@@ -491,7 +497,6 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
         if 'revenue_share_percent' not in result:
             result['revenue_share_percent'] = 0
 
-    
     # Handle vertical field - validate and normalize, or auto-detect from description
     if 'vertical' in result and result['vertical'] and result['vertical'].lower() != 'lifestyle':
         is_valid, vertical_result = validate_vertical(result['vertical'])
@@ -590,22 +595,30 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+
+def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = True) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Validate spreadsheet data and apply field mapping and defaults
+    Validate spreadsheet data and apply field mapping and defaults.
+    Offers with missing required fields are stored in Missing Offers collection.
     
     Args:
         rows: List of raw spreadsheet row dictionaries
+        store_missing: Whether to return missing offers separately (True) or as errors (False)
         
     Returns:
-        Tuple of (valid rows list, error rows list)
+        Tuple of (valid rows list, error rows list, missing offers list)
+        - valid_rows: Offers that passed all validation
+        - error_rows: Offers with critical errors (invalid data format)
+        - missing_offers: Offers with missing required fields (to be stored in Missing Offers)
     """
     valid_rows = []
     error_rows = []
+    missing_offers_rows = []
     
     for row in rows:
         row_number = row.get('_row_number', 'Unknown')
         errors = []
+        missing_fields = []
         
         # Map spreadsheet columns to database fields
         mapped_data = map_spreadsheet_to_db(row)
@@ -615,28 +628,27 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
         logger = logging.getLogger(__name__)
         logger.info(f"Row {row_number} mapped data: {mapped_data}")
 
-        
-        # Check required fields
+        # Check required fields - track which are missing
         for required_field in REQUIRED_FIELDS:
             if required_field not in mapped_data or not mapped_data[required_field]:
-                # Map back to spreadsheet column name for user-friendly error
-                spreadsheet_col = next((k for k, v in SPREADSHEET_TO_DB_MAPPING.items() if v == required_field), required_field)
-                errors.append(f"Missing required field: {spreadsheet_col}")
+                missing_fields.append(required_field)
         
         # Special validation: Either 'payout' OR 'revenue_share_percent' must be present
         has_payout = 'payout' in mapped_data and mapped_data['payout']
         has_percent = 'revenue_share_percent' in mapped_data and mapped_data['revenue_share_percent']
         
         if not has_payout and not has_percent:
-            errors.append("Missing required field: either 'payout' or 'percent' must be provided")
+            missing_fields.append('payout')
         
         # If only percent is provided, set payout to 0
         if has_percent and not has_payout:
             mapped_data['payout'] = 0
+            # Remove payout from missing fields if it was added
+            if 'payout' in missing_fields:
+                missing_fields.remove('payout')
 
-        
         # Validate payout is numeric (handle percentage format like "50%" and currency symbols like "$42")
-        if 'payout' in mapped_data:
+        if 'payout' in mapped_data and mapped_data['payout']:
             payout_str = str(mapped_data['payout']).strip()
             try:
                 # Try to parse with currency detection
@@ -656,12 +668,27 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
         
         # Validate revenue_share_percent if provided
         if 'revenue_share_percent' in mapped_data and mapped_data['revenue_share_percent']:
-            try:
-                percent = float(str(mapped_data['revenue_share_percent']).replace('%', '').strip())
-                if percent < 0 or percent > 100:
-                    errors.append(f"Invalid revenue_share_percent: {mapped_data['revenue_share_percent']} (must be 0-100)")
-            except (ValueError, TypeError):
-                errors.append(f"Invalid revenue_share_percent: {mapped_data['revenue_share_percent']} (must be numeric)")
+            percent_str = str(mapped_data['revenue_share_percent']).strip()
+            
+            # Check if this looks like a payout value (has currency symbol like $, €, etc.)
+            is_currency_value = any(symbol in percent_str for symbol in CURRENCY_INDICATORS)
+            
+            if is_currency_value:
+                # This is actually a payout value, not a percentage - move it to payout
+                if not mapped_data.get('payout'):
+                    mapped_data['payout'] = percent_str
+                    # Remove payout from missing fields if it was added
+                    if 'payout' in missing_fields:
+                        missing_fields.remove('payout')
+                mapped_data['revenue_share_percent'] = 0
+            else:
+                try:
+                    # Remove % sign if present
+                    percent = float(percent_str.replace('%', '').strip())
+                    if percent < 0 or percent > 100:
+                        errors.append(f"Invalid revenue_share_percent: {mapped_data['revenue_share_percent']} (must be 0-100)")
+                except (ValueError, TypeError):
+                    errors.append(f"Invalid revenue_share_percent: {mapped_data['revenue_share_percent']} (must be numeric)")
         
         # Validate URL format (allow macros like {user_id})
         if 'target_url' in mapped_data:
@@ -682,10 +709,31 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
             if not url_pattern.match(temp_url):
                 errors.append(f"Invalid URL format: {mapped_data['target_url']}")
         
+        # Determine where this row goes:
+        # 1. If critical errors (invalid format) -> error_rows
+        # 2. If missing required fields but no format errors -> missing_offers_rows
+        # 3. If all good -> valid_rows
+        
         if errors:
+            # Critical errors - invalid data format
             error_rows.append({
                 'row': row_number,
                 'errors': errors,
+                'data': row
+            })
+        elif missing_fields and store_missing:
+            # Missing required fields - store in Missing Offers
+            missing_offers_rows.append({
+                'row': row_number,
+                'missing_fields': missing_fields,
+                'data': mapped_data,
+                'raw_data': row
+            })
+        elif missing_fields:
+            # Missing fields but store_missing=False - treat as error
+            error_rows.append({
+                'row': row_number,
+                'errors': [f"Missing required field: {f}" for f in missing_fields],
                 'data': row
             })
         else:
@@ -694,22 +742,25 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str
             validated_data['_row_number'] = row_number
             valid_rows.append(validated_data)
     
-    return valid_rows, error_rows
+    return valid_rows, error_rows, missing_offers_rows
 
 
-def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+
+def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str) -> Tuple[List[str], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Create multiple offers in the database
+    Create multiple offers in the database.
     
     Args:
         validated_data: List of validated offer data dictionaries
         created_by: Username/ID of admin creating the offers
         
     Returns:
-        Tuple of (list of created offer IDs, list of errors)
+        Tuple of (list of created offer IDs, list of errors, empty list for backward compatibility)
     """
     from models.offer import Offer
+    import logging
     
+    logger = logging.getLogger(__name__)
     offer_model = Offer()
     created_offer_ids = []
     creation_errors = []
@@ -718,9 +769,6 @@ def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str) ->
         row_number = offer_data.pop('_row_number', 'Unknown')
         
         try:
-            # Log offer data before creation
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(f"Creating offer for row {row_number}: {offer_data}")
             
             # Create offer using the existing create_offer method
@@ -744,4 +792,55 @@ def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str) ->
                 'data': offer_data
             })
     
-    return created_offer_ids, creation_errors
+    return created_offer_ids, creation_errors, []
+
+
+def check_inventory_gaps(offers_data: List[Dict[str, Any]], network: str = None) -> Dict[str, Any]:
+    """
+    Check a list of offers against inventory and identify gaps.
+    This is the main function for inventory gap detection.
+    
+    Match Key = Name + Country + Platform (iOS/Android/Web) + Payout Model
+    
+    Args:
+        offers_data: List of offer dictionaries to check
+        network: Partner network name
+        
+    Returns:
+        Dictionary with:
+        - in_inventory: list of offers that exist
+        - not_in_inventory: list of offers that don't exist (stored as missing)
+        - stats: summary statistics
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        from services.missing_offer_service import MissingOfferService
+        
+        result = MissingOfferService.process_bulk_upload_for_gaps(
+            offers=offers_data,
+            source='sheet_upload',
+            network=network
+        )
+        
+        return {
+            'in_inventory': result['existing_offers'],
+            'not_in_inventory': result['missing_offers'],
+            'stats': result['stats']
+        }
+        
+    except ImportError:
+        logger.error("MissingOfferService not available")
+        return {
+            'in_inventory': [],
+            'not_in_inventory': [],
+            'stats': {'total': len(offers_data), 'error': 'Service not available'}
+        }
+    except Exception as e:
+        logger.error(f"Error checking inventory gaps: {e}")
+        return {
+            'in_inventory': [],
+            'not_in_inventory': [],
+            'stats': {'total': len(offers_data), 'error': str(e)}
+        }
