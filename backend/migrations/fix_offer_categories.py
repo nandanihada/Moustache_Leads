@@ -17,10 +17,17 @@ from database import db_instance
 
 # Category detection rules - order matters (more specific first)
 CATEGORY_RULES = {
+    'SWEEPSTAKES': {
+        'keywords': [
+            'sweepstakes', 'sweeps', 'giveaway', 'prize', 'win a', 'chance to win',
+            'winner', 'lottery', 'raffle', 'contest', 'jackpot', 'lucky draw',
+            'grand prize', 'instant win', 'enter to win', 'free entry', 'prize draw'
+        ],
+        'negative_keywords': []  # Keywords that should NOT match this category
+    },
     'SURVEY': {
         'keywords': [
             'survey', 'surveys', 'opinion', 'questionnaire', 'poll', 'feedback',
-            'sweepstakes', 'sweeps', 'giveaway', 'win a', 'chance to win',
             'reward survey', 'paid survey', 'earn for opinions', 'share your opinion',
             'market research', 'consumer research'
         ],

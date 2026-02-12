@@ -144,53 +144,6 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
     return emojis[category.toLowerCase()] || '⭐';
   };
 
-  // Extract steps from description
-  const getSteps = () => {
-    const description = offer.description || '';
-    
-    // Try to extract numbered steps from description
-    const stepMatches = description.match(/\d+\.\s*[^\n.]+/g);
-    if (stepMatches && stepMatches.length > 0) {
-      return stepMatches.map(step => step.replace(/^\d+\.\s*/, '').trim());
-    }
-    
-    // Try to split by common delimiters
-    if (description.includes('•')) {
-      return description.split('•').filter(s => s.trim()).map(s => s.trim());
-    }
-    
-    if (description.includes('\n')) {
-      const lines = description.split('\n').filter(s => s.trim());
-      if (lines.length > 1) {
-        return lines;
-      }
-    }
-    
-    // Default steps based on category
-    const defaultSteps: Record<string, string[]> = {
-      app: ['Download and install the app', 'Open the app and create an account', 'Complete the tutorial or first level'],
-      game: ['Download and install the game', 'Complete the tutorial', 'Reach the required level or play for specified time'],
-      survey: ['Click "Start Earning" to begin', 'Answer all survey questions honestly', 'Submit the survey to receive your reward'],
-      video: ['Click "Start Earning" to watch', 'Watch the entire video without skipping', 'Complete any required actions'],
-      shopping: ['Click "Start Earning" to visit the store', 'Browse and add items to cart', 'Complete your purchase'],
-      signup: ['Click "Start Earning" to visit the site', 'Fill out the registration form', 'Verify your email address'],
-      finance: ['Click "Start Earning" to begin', 'Complete the application form', 'Submit required documents'],
-      lifestyle: ['Click "Start Earning" to start', 'Follow the instructions provided', 'Complete all required actions'],
-      health: ['Click "Start Earning" to begin', 'Complete the health assessment', 'Follow through with recommendations'],
-      education: ['Click "Start Earning" to start', 'Complete the course or lesson', 'Pass any required assessments'],
-      entertainment: ['Click "Start Earning" to begin', 'Engage with the content', 'Complete the required activities'],
-      travel: ['Click "Start Earning" to start', 'Complete the booking or registration', 'Confirm your reservation'],
-    };
-    
-    return defaultSteps[offer.category.toLowerCase()] || [
-      'Click "Start Earning" to begin',
-      'Follow the instructions on the offer page',
-      'Complete all required actions to earn your reward'
-    ];
-  };
-
-  const steps = getSteps();
-
   return (
     <div 
       className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 flex items-end sm:items-center justify-center p-0 sm:p-4"
@@ -319,26 +272,6 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
               </div>
             </div>
           )}
-
-          {/* Steps */}
-          <div className="mb-6">
-            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              How to Complete
-            </h3>
-            <div className="space-y-3">
-              {steps.map((step, index) => (
-                <div key={index} className="flex items-start gap-4 bg-white rounded-xl p-4 shadow-sm border border-gray-100 hover:shadow-md transition-shadow">
-                  <div className="flex-shrink-0 w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 text-white rounded-full flex items-center justify-center text-sm font-bold shadow-md">
-                    {index + 1}
-                  </div>
-                  <p className="flex-1 text-gray-700 font-medium leading-relaxed pt-0.5">
-                    {step}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
 
           {/* Important Notes */}
           <div className="bg-gradient-to-br from-blue-50 to-cyan-50 border-2 border-blue-200 rounded-2xl p-5 mb-6">

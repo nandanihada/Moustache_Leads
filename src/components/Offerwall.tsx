@@ -36,11 +36,12 @@ interface Offer {
   requires_approval?: boolean;
 }
 
-// Category definitions (11 predefined categories)
+// Category definitions (12 predefined categories)
 const CATEGORIES = [
   { id: 'all', name: 'All Offers', icon: '🎯' },
   { id: 'HEALTH', name: 'Health', icon: '💊' },
   { id: 'SURVEY', name: 'Surveys', icon: '📋' },
+  { id: 'SWEEPSTAKES', name: 'Sweepstakes', icon: '🎰' },
   { id: 'EDUCATION', name: 'Education', icon: '📚' },
   { id: 'INSURANCE', name: 'Insurance', icon: '🛡️' },
   { id: 'LOAN', name: 'Loans', icon: '💳' },
@@ -273,6 +274,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
     const categoryMappings: Record<string, string[]> = {
       'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
       'SURVEY': ['SURVEY', 'SURVEYS'],
+      'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
       'EDUCATION': ['EDUCATION', 'LEARNING'],
       'INSURANCE': ['INSURANCE'],
       'LOAN': ['LOAN', 'LOANS', 'LENDING'],

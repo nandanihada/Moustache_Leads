@@ -18,10 +18,11 @@ except ImportError:
 
 # ==================== OFFER CATEGORIZATION RULES ====================
 
-# 11 Predefined Categories (priority order matters!)
+# 12 Predefined Categories (priority order matters!)
 VALID_CATEGORIES = [
     'HEALTH',
-    'SURVEY', 
+    'SURVEY',
+    'SWEEPSTAKES',
     'EDUCATION',
     'INSURANCE',
     'LOAN',
@@ -47,6 +48,16 @@ CATEGORY_KEYWORDS = {
         'market research', 'user feedback',
         'earn rewards', 'earn money', 'payout', 'cash reward'
     ],
+    'SWEEPSTAKES': [
+        'sweepstakes', 'sweeps', 'giveaway', 'giveaways', 'prize', 'prizes',
+        'win', 'winner', 'winners', 'lottery', 'lotto', 'raffle',
+        'contest', 'contests', 'jackpot', 'lucky draw', 'lucky winner',
+        'free entry', 'grand prize', 'cash prize', 'gift card',
+        'chance to win', 'enter to win', 'win a', 'win free',
+        'prize draw', 'prize giveaway', 'instant win', 'daily prize',
+        'weekly prize', 'monthly prize', 'mega prize', 'big win',
+        'scratch', 'scratch card', 'spin to win', 'wheel of fortune'
+    ],
     'EDUCATION': [
         'education', 'course', 'learning', 'training', 'class', 'study',
         'online course', 'certification', 'diploma', 'degree',
@@ -60,11 +71,12 @@ CATEGORY_KEYWORDS = {
         'claim', 'renewal', 'insured amount', 'sum insured'
     ],
     'LOAN': [
-        'loan', 'credit', 'borrowing', 'finance',
+        'loan', 'loans', 'borrowing',
         'personal loan', 'home loan', 'business loan',
-        'instant loan', 'payday loan',
+        'instant loan', 'payday loan', 'auto loan', 'car loan',
+        'student loan', 'debt consolidation', 'refinance',
         'interest rate', 'emi', 'repayment',
-        'credit score', 'eligibility', 'approval'
+        'credit score', 'eligibility', 'approval', 'lender', 'lending'
     ],
     'FINANCE': [
         'bank', 'banking', 'savings', 'investment', 'invest', 'trading',
@@ -115,10 +127,16 @@ LEGACY_CATEGORY_MAP = {
     'ecommerce': 'OTHER',
     'e-commerce': 'OTHER',
     'entertainment': 'OTHER',
+    'food': 'OTHER',
+    'food delivery': 'OTHER',
     'travel': 'OTHER',
     'utilities': 'OTHER',
     'lifestyle': 'OTHER',
     'survey': 'SURVEY',
+    'sweepstakes': 'SWEEPSTAKES',
+    'sweeps': 'SWEEPSTAKES',
+    'giveaway': 'SWEEPSTAKES',
+    'contest': 'SWEEPSTAKES',
     'insurance': 'INSURANCE',
     'loan': 'LOAN',
     'games_install': 'GAMES_INSTALL',
@@ -146,15 +164,72 @@ def detect_category_from_text(name, description=''):
     # Combine name and description for analysis
     text = f"{name} {description}".lower()
     
+    # ==================== EXPLICIT CAMPAIGN TYPE DETECTION ====================
+    # Check for "CAMPAIGN TYPE:" pattern in description (common in Chameleon offers)
+    campaign_type_match = re.search(r'campaign\s*type[:\s]+([a-zA-Z\s\-]+?)(?:\.|,|\n|$)', description.lower())
+    if campaign_type_match:
+        campaign_type = campaign_type_match.group(1).strip()
+        # Map campaign type to category
+        campaign_type_mapping = {
+            'entertainment': 'OTHER',
+            'food delivery': 'OTHER',
+            'food': 'OTHER',
+            'ecommerce': 'OTHER',
+            'e-commerce': 'OTHER',
+            'shopping': 'OTHER',
+            'travel': 'OTHER',
+            'lifestyle': 'OTHER',
+            'utilities': 'OTHER',
+            'finance': 'FINANCE',
+            'banking': 'FINANCE',
+            'investment': 'FINANCE',
+            'crypto': 'FINANCE',
+            'loan': 'LOAN',
+            'lending': 'LOAN',
+            'credit': 'LOAN',
+            'insurance': 'INSURANCE',
+            'health': 'HEALTH',
+            'healthcare': 'HEALTH',
+            'medical': 'HEALTH',
+            'fitness': 'HEALTH',
+            'dating': 'DATING',
+            'romance': 'DATING',
+            'survey': 'SURVEY',
+            'surveys': 'SURVEY',
+            'sweepstakes': 'SWEEPSTAKES',
+            'giveaway': 'SWEEPSTAKES',
+            'contest': 'SWEEPSTAKES',
+            'education': 'EDUCATION',
+            'learning': 'EDUCATION',
+            'gaming': 'GAMES_INSTALL',
+            'games': 'GAMES_INSTALL',
+            'game': 'GAMES_INSTALL',
+            'app install': 'INSTALLS',
+            'mobile app': 'INSTALLS',
+            'free trial': 'FREE_TRIAL',
+            'trial': 'FREE_TRIAL',
+        }
+        for key, category in campaign_type_mapping.items():
+            if key in campaign_type:
+                return category
+    
     # ==================== GLOBAL OVERRIDE RULES ====================
     # These take absolute precedence over keyword matching
+    
+    # Rule 0: SWEEPSTAKES has highest priority - check first
+    for keyword in CATEGORY_KEYWORDS.get('SWEEPSTAKES', []):
+        if keyword.lower() in text:
+            return 'SWEEPSTAKES'
     
     # Rule 1: If offer contains "survey" AND "install app" → SURVEY
     if 'survey' in text and 'install app' in text:
         return 'SURVEY'
     
-    # Rule 2: If offer contains any LOAN keyword → LOAN (no other category allowed)
-    for keyword in CATEGORY_KEYWORDS['LOAN']:
+    # Rule 2: If offer contains specific LOAN keywords → LOAN
+    # Be more specific - don't match just "credit" alone as it could be "credit card" in finance
+    loan_specific_keywords = ['loan', 'personal loan', 'home loan', 'business loan', 'payday loan', 
+                              'instant loan', 'borrowing', 'emi', 'repayment']
+    for keyword in loan_specific_keywords:
         if keyword.lower() in text:
             return 'LOAN'
     

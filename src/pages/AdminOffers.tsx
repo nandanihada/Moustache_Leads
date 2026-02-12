@@ -92,7 +92,7 @@ const AdminOffers = () => {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [sortBy, setSortBy] = useState<string>('newest');
   const [countryFilter, setCountryFilter] = useState<string>('all');
-  const [verticalFilter, setVerticalFilter] = useState<string>('all');
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(['all']);
   const [pagination, setPagination] = useState({
     page: 1,
     per_page: 20,
@@ -105,6 +105,40 @@ const AdminOffers = () => {
     total: 0,
     pages: 0
   });
+
+  // Category definitions for multi-select filter
+  const CATEGORIES = [
+    { id: 'all', name: 'All', icon: '🎯' },
+    { id: 'HEALTH', name: 'Health', icon: '💊' },
+    { id: 'SURVEY', name: 'Survey', icon: '📋' },
+    { id: 'SWEEPSTAKES', name: 'Sweepstakes', icon: '🎰' },
+    { id: 'EDUCATION', name: 'Education', icon: '📚' },
+    { id: 'INSURANCE', name: 'Insurance', icon: '🛡️' },
+    { id: 'LOAN', name: 'Loan', icon: '💳' },
+    { id: 'FINANCE', name: 'Finance', icon: '💰' },
+    { id: 'DATING', name: 'Dating', icon: '❤️' },
+    { id: 'FREE_TRIAL', name: 'Free Trial', icon: '🎁' },
+    { id: 'INSTALLS', name: 'Installs', icon: '📲' },
+    { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
+    { id: 'OTHER', name: 'Other', icon: '📦' },
+  ];
+
+  // Toggle category selection (multi-select)
+  const toggleCategory = (categoryId: string) => {
+    if (categoryId === 'all') {
+      setSelectedCategories(['all']);
+    } else {
+      setSelectedCategories(prev => {
+        const withoutAll = prev.filter(c => c !== 'all');
+        if (withoutAll.includes(categoryId)) {
+          const newSelection = withoutAll.filter(c => c !== categoryId);
+          return newSelection.length === 0 ? ['all'] : newSelection;
+        } else {
+          return [...withoutAll, categoryId];
+        }
+      });
+    }
+  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -119,11 +153,11 @@ const AdminOffers = () => {
     }
   };
 
-  const fetchOffers = async () => {
+  const fetchOffers = async (overridePage?: number) => {
     try {
       setLoading(true);
       const params = {
-        page: pagination.page,
+        page: overridePage ?? pagination.page,
         per_page: pagination.per_page,
         ...(statusFilter !== 'all' && { status: statusFilter }),
         ...(searchTerm && { search: searchTerm }),
@@ -144,16 +178,16 @@ const AdminOffers = () => {
         });
       }
       
-      // Apply vertical/category filter
-      if (verticalFilter !== 'all') {
+      // Apply vertical/category filter (multi-select)
+      if (!selectedCategories.includes('all')) {
         filteredOffers = filteredOffers.filter(offer => {
           const offerVertical = (offer.vertical || offer.category || '').toUpperCase();
-          const filterValue = verticalFilter.toUpperCase();
           
           // Map category names for backward compatibility (all uppercase)
           const categoryMappings: Record<string, string[]> = {
             'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
             'SURVEY': ['SURVEY', 'SURVEYS'],
+            'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
             'EDUCATION': ['EDUCATION', 'LEARNING'],
             'INSURANCE': ['INSURANCE'],
             'LOAN': ['LOAN', 'LOANS', 'LENDING'],
@@ -165,9 +199,12 @@ const AdminOffers = () => {
             'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
           };
           
-          // Check if offer category matches filter (including mappings)
-          const matchingCategories = categoryMappings[filterValue] || [filterValue];
-          return matchingCategories.includes(offerVertical);
+          // Check if offer category matches any selected category
+          return selectedCategories.some(cat => {
+            const catUpper = cat.toUpperCase();
+            const matchingCategories = categoryMappings[catUpper] || [catUpper];
+            return matchingCategories.includes(offerVertical);
+          });
         });
       }
       
@@ -219,7 +256,14 @@ const AdminOffers = () => {
         title: "Success",
         description: "Offer moved to recycle bin",
       });
-      fetchOffers();
+      // Refresh offers - if current page becomes empty, go to page 1
+      const remainingOnPage = offers.length - 1;
+      if (remainingOnPage === 0 && pagination.page > 1) {
+        setPagination(prev => ({ ...prev, page: 1 }));
+        fetchOffers(1);
+      } else {
+        fetchOffers();
+      }
     } catch (error) {
       toast({
         title: "Error",
@@ -250,7 +294,9 @@ const AdminOffers = () => {
         description: `Moved ${result.deleted} offer(s) to recycle bin. ${result.failed > 0 ? `Failed: ${result.failed}` : ''}`,
       });
       setSelectedOffers(new Set());
-      fetchOffers();
+      // Reset to page 1 and fetch with override to ensure correct pagination
+      setPagination(prev => ({ ...prev, page: 1 }));
+      fetchOffers(1);
     } catch (error) {
       toast({
         title: "Error",
@@ -841,7 +887,7 @@ const AdminOffers = () => {
 
   useEffect(() => {
     fetchOffers();
-  }, [pagination.page, statusFilter, sortBy, countryFilter]);
+  }, [pagination.page, pagination.per_page, statusFilter, sortBy, countryFilter, selectedCategories]);
 
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
@@ -860,7 +906,7 @@ const AdminOffers = () => {
     if (activeTab === 'recycle-bin') {
       fetchRecycleBin();
     }
-  }, [activeTab, recycleBinPagination.page]);
+  }, [activeTab, recycleBinPagination.page, recycleBinPagination.per_page]);
 
   // Debounced search for recycle bin
   useEffect(() => {
@@ -999,7 +1045,8 @@ const AdminOffers = () => {
 
       {/* Search and Filters */}
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 pb-4">
+          {/* Row 1: Search + Status/Sort/Country dropdowns */}
           <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
             <div className="relative flex-1 w-full">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
@@ -1033,107 +1080,68 @@ const AdminOffers = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  Sort: {
-                    sortBy === 'newest' ? 'Newest' :
-                    sortBy === 'oldest' ? 'Oldest' :
-                    sortBy === 'id_asc' ? 'ID (A→Z)' :
-                    sortBy === 'id_desc' ? 'ID (Z→A)' :
-                    sortBy === 'payout_high' ? 'Payout (High)' :
-                    sortBy === 'payout_low' ? 'Payout (Low)' :
-                    sortBy === 'title_az' ? 'Title (A→Z)' :
-                    sortBy === 'title_za' ? 'Title (Z→A)' : 'Newest'
-                  }
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent>
-                <DropdownMenuItem onClick={() => setSortBy('newest')}>
-                  Newest First
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('oldest')}>
-                  Oldest First
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('id_asc')}>
-                  ID (A → Z)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('id_desc')}>
-                  ID (Z → A)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('payout_high')}>
-                  Payout (Highest)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('payout_low')}>
-                  Payout (Lowest)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('title_az')}>
-                  Title (A → Z)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setSortBy('title_za')}>
-                  Title (Z → A)
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Globe className="h-4 w-4 mr-2" />
-                  Country: {countryFilter === 'all' ? 'All' : countryFilter}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="max-h-64 overflow-y-auto">
-                <DropdownMenuItem onClick={() => setCountryFilter('all')}>
-                  All Countries
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('US')}>🇺🇸 United States</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('GB')}>🇬🇧 United Kingdom</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('CA')}>🇨🇦 Canada</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('AU')}>🇦🇺 Australia</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('DE')}>🇩🇪 Germany</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('FR')}>🇫🇷 France</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('ES')}>🇪🇸 Spain</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('IT')}>🇮🇹 Italy</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('NL')}>🇳🇱 Netherlands</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('BE')}>🇧🇪 Belgium</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('AT')}>🇦🇹 Austria</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('CH')}>🇨🇭 Switzerland</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('SE')}>🇸🇪 Sweden</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('NO')}>🇳🇴 Norway</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('DK')}>🇩🇰 Denmark</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('FI')}>🇫🇮 Finland</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('PL')}>🇵🇱 Poland</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('BR')}>🇧🇷 Brazil</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('MX')}>🇲🇽 Mexico</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('IN')}>🇮🇳 India</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('JP')}>🇯🇵 Japan</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('KR')}>🇰🇷 South Korea</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('SG')}>🇸🇬 Singapore</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('NZ')}>🇳🇿 New Zealand</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setCountryFilter('ZA')}>🇿🇦 South Africa</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  📁 Category: {verticalFilter === 'all' ? 'All' : verticalFilter}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent className="max-h-64 overflow-y-auto">
-                <DropdownMenuItem onClick={() => setVerticalFilter('all')}>All Categories</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('HEALTH')}>💊 Health</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('SURVEY')}>📋 Survey</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('EDUCATION')}>📚 Education</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('INSURANCE')}>🛡️ Insurance</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('LOAN')}>💳 Loan</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('FINANCE')}>💰 Finance</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('DATING')}>❤️ Dating</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('FREE_TRIAL')}>🎁 Free Trial</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('INSTALLS')}>📲 Installs</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('GAMES_INSTALL')}>🎮 Games Install</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setVerticalFilter('OTHER')}>📦 Other</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Layers className="h-4 w-4 mr-2" />
+                    Category: {selectedCategories.includes('all') ? 'All' : selectedCategories.length === 1 ? selectedCategories[0] : `${selectedCategories.length} selected`}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="max-h-80 overflow-y-auto">
+                  {CATEGORIES.map((cat) => {
+                    const isSelected = selectedCategories.includes(cat.id);
+                    return (
+                      <DropdownMenuItem 
+                        key={cat.id} 
+                        onClick={() => toggleCategory(cat.id)}
+                        className={isSelected ? 'bg-primary/10' : ''}
+                      >
+                        <span className="mr-2">{cat.icon}</span>
+                        {cat.name}
+                        {isSelected && <span className="ml-auto">✓</span>}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    Sort: {sortBy === 'newest' ? 'Newest' : sortBy === 'oldest' ? 'Oldest' : sortBy}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={() => setSortBy('newest')}>Newest First</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('oldest')}>Oldest First</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('payout_high')}>Payout (Highest)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('payout_low')}>Payout (Lowest)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('title_az')}>Title (A → Z)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('title_za')}>Title (Z → A)</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Globe className="h-4 w-4 mr-2" />
+                    Country: {countryFilter === 'all' ? 'All' : countryFilter}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="max-h-64 overflow-y-auto">
+                  <DropdownMenuItem onClick={() => setCountryFilter('all')}>All Countries</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('US')}>🇺🇸 United States</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('GB')}>🇬🇧 United Kingdom</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('CA')}>🇨🇦 Canada</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('AU')}>🇦🇺 Australia</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('DE')}>🇩🇪 Germany</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('FR')}>🇫🇷 France</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('IN')}>🇮🇳 India</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('BR')}>🇧🇷 Brazil</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('JP')}>🇯🇵 Japan</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('IT')}>🇮🇹 Italy</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('ES')}>🇪🇸 Spain</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCountryFilter('MX')}>🇲🇽 Mexico</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </CardContent>
@@ -1196,6 +1204,7 @@ const AdminOffers = () => {
                   <TableHead>Offer ID</TableHead>
                   <TableHead>Campaign</TableHead>
                   <TableHead>Name</TableHead>
+                  <TableHead>Category</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Countries</TableHead>
                   <TableHead>Payout/Revenue</TableHead>
@@ -1279,6 +1288,31 @@ const AdminOffers = () => {
                             offer.affiliates === 'selected' ? 'Selected Users' : 'All Users'}
                         </div>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      {(() => {
+                        const category = (offer.vertical || offer.category || 'OTHER').toUpperCase();
+                        const categoryIcons: Record<string, string> = {
+                          'HEALTH': '💊',
+                          'SURVEY': '📋',
+                          'SWEEPSTAKES': '🎰',
+                          'EDUCATION': '📚',
+                          'INSURANCE': '🛡️',
+                          'LOAN': '💳',
+                          'FINANCE': '💰',
+                          'DATING': '❤️',
+                          'FREE_TRIAL': '🎁',
+                          'INSTALLS': '📲',
+                          'GAMES_INSTALL': '🎮',
+                          'OTHER': '📦'
+                        };
+                        const icon = categoryIcons[category] || '📦';
+                        return (
+                          <Badge variant="outline" className="text-xs">
+                            {icon} {category}
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Badge className={getStatusColor(offer.status)}>

@@ -100,9 +100,9 @@ const DISALLOWED_TRAFFIC = ['Adult', 'Fraud', 'Brand Bidding', 'Spam', 'Incentiv
 
 const NETWORK_PARTNERS = ['PepperAds', 'PepeLeads', 'MaxBounty', 'ClickDealer', 'CPAlead'];
 
-// 11 Predefined Categories (new categorization system)
+// 12 Predefined Categories (new categorization system)
 const VALID_CATEGORIES = [
-  'HEALTH', 'SURVEY', 'EDUCATION', 'INSURANCE', 'LOAN', 
+  'HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 
   'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL', 'OTHER'
 ];
 

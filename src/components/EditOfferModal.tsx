@@ -95,9 +95,9 @@ const getFlagUrl = (countryCode: string) => {
 
 const NETWORK_PARTNERS = ['PepperAds', 'PepeLeads', 'MaxBounty', 'ClickDealer', 'CPAlead'];
 
-// 10 Predefined Verticals (replaces category)
+// 12 Predefined Verticals (replaces category)
 const VALID_CATEGORIES = [
-  'HEALTH', 'SURVEY', 'EDUCATION', 'INSURANCE', 'LOAN',
+  'HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN',
   'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL', 'OTHER'
 ];
 

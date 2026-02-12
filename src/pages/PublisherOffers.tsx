@@ -197,7 +197,8 @@ const PublisherOffersContent = () => {
       // Category mappings for flexible matching
       const categoryMappings: Record<string, string[]> = {
         'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL', 'HEALTH_&_BEAUTY', 'HEALTH AND BEAUTY', 'BEAUTY', 'WELLNESS', 'FITNESS'],
-        'SURVEY': ['SURVEY', 'SURVEYS', 'SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE'],
+        'SURVEY': ['SURVEY', 'SURVEYS'],
+        'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
         'EDUCATION': ['EDUCATION', 'LEARNING', 'EDU', 'COURSE', 'COURSES', 'TRAINING'],
         'INSURANCE': ['INSURANCE', 'INSUR', 'POLICY', 'COVERAGE'],
         'LOAN': ['LOAN', 'LOANS', 'LENDING', 'CREDIT', 'PERSONAL LOAN', 'HOME LOAN'],
@@ -286,7 +287,8 @@ const PublisherOffersContent = () => {
       // Category mappings for flexible matching
       const categoryMappings: Record<string, string[]> = {
         'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL', 'HEALTH_&_BEAUTY', 'HEALTH AND BEAUTY', 'BEAUTY', 'WELLNESS', 'FITNESS'],
-        'SURVEY': ['SURVEY', 'SURVEYS', 'SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE'],
+        'SURVEY': ['SURVEY', 'SURVEYS'],
+        'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
         'EDUCATION': ['EDUCATION', 'LEARNING', 'EDU', 'COURSE', 'COURSES', 'TRAINING'],
         'INSURANCE': ['INSURANCE', 'INSUR', 'POLICY', 'COVERAGE'],
         'LOAN': ['LOAN', 'LOANS', 'LENDING', 'CREDIT', 'PERSONAL LOAN', 'HOME LOAN'],
@@ -452,6 +454,7 @@ const PublisherOffersContent = () => {
                     <SelectItem value="all">All Categories</SelectItem>
                     <SelectItem value="HEALTH">💊 Health</SelectItem>
                     <SelectItem value="SURVEY">📋 Survey</SelectItem>
+                    <SelectItem value="SWEEPSTAKES">🎰 Sweepstakes</SelectItem>
                     <SelectItem value="EDUCATION">📚 Education</SelectItem>
                     <SelectItem value="INSURANCE">🛡️ Insurance</SelectItem>
                     <SelectItem value="LOAN">💳 Loan</SelectItem>
@@ -957,6 +960,7 @@ const PublisherOffersContent = () => {
                     <SelectItem value="all">All Categories</SelectItem>
                     <SelectItem value="HEALTH">💊 Health</SelectItem>
                     <SelectItem value="SURVEY">📋 Survey</SelectItem>
+                    <SelectItem value="SWEEPSTAKES">🎰 Sweepstakes</SelectItem>
                     <SelectItem value="EDUCATION">📚 Education</SelectItem>
                     <SelectItem value="INSURANCE">🛡️ Insurance</SelectItem>
                     <SelectItem value="LOAN">💳 Loan</SelectItem>
