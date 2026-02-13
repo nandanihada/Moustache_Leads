@@ -69,7 +69,7 @@ export function AdvertiserSidebar() {
   };
 
   return (
-    <Sidebar className="w-64 border-r border-border/60">
+    <Sidebar className="w-56 lg:w-64 border-r border-border/60 flex-shrink-0">
       <SidebarHeader className="p-6">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">

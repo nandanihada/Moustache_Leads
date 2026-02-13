@@ -11,13 +11,13 @@ const DashboardLayout = () => {
 
   return (
     <SidebarProvider defaultOpen={true}>
-      <div className="h-screen flex w-full bg-background overflow-hidden">
+      <div className="h-screen w-screen max-w-full flex bg-background overflow-hidden">
         <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 max-w-full overflow-hidden">
           <TopBar />
           <NotificationBar />
-          <main className="flex-1 p-4 md:p-6 overflow-auto">
-            <div className="min-w-0">
+          <main className="flex-1 p-3 sm:p-4 md:p-6 overflow-auto scrollbar-thin">
+            <div className="min-w-0 max-w-full">
               <Outlet />
             </div>
           </main>

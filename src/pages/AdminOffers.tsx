@@ -923,12 +923,12 @@ const AdminOffers = () => {
   }, [recycleBinSearchTerm]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Offers Management</h2>
-          <p className="text-muted-foreground">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Offers Management</h2>
+          <p className="text-muted-foreground text-sm">
             Create, manage, and track your offers with advanced masking and analytics.
           </p>
         </div>
@@ -1170,7 +1170,7 @@ const AdminOffers = () => {
                 Manage your offers with full tracking and masking capabilities
               </CardDescription>
             </CardHeader>
-        <CardContent className="overflow-x-auto">
+        <CardContent className="p-0">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-6 w-6 animate-spin mr-2" />
@@ -1188,11 +1188,11 @@ const AdminOffers = () => {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-            <Table>
+            <div className="overflow-x-auto w-full">
+            <Table className="min-w-[1200px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-12">
+                  <TableHead className="w-10 sticky left-0 bg-background z-10">
                     <input
                       type="checkbox"
                       checked={selectedOffers.size === offers.length && offers.length > 0}
@@ -1200,19 +1200,19 @@ const AdminOffers = () => {
                       className="rounded border-gray-300"
                     />
                   </TableHead>
-                  <TableHead>Image</TableHead>
-                  <TableHead>Offer ID</TableHead>
-                  <TableHead>Campaign</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Countries</TableHead>
-                  <TableHead>Payout/Revenue</TableHead>
-                  <TableHead>Incentive</TableHead>
-                  <TableHead>Network</TableHead>
-                  <TableHead>Date Added</TableHead>
-                  <TableHead>Hits/Limit</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead className="w-16">Image</TableHead>
+                  <TableHead className="w-24">Offer ID</TableHead>
+                  <TableHead className="w-20">Campaign</TableHead>
+                  <TableHead className="min-w-[150px]">Name</TableHead>
+                  <TableHead className="w-24">Category</TableHead>
+                  <TableHead className="w-20">Status</TableHead>
+                  <TableHead className="w-24">Countries</TableHead>
+                  <TableHead className="w-28">Payout/Revenue</TableHead>
+                  <TableHead className="w-20">Incentive</TableHead>
+                  <TableHead className="w-24">Network</TableHead>
+                  <TableHead className="w-28">Date Added</TableHead>
+                  <TableHead className="w-24">Hits/Limit</TableHead>
+                  <TableHead className="w-20 sticky right-0 bg-background z-10">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

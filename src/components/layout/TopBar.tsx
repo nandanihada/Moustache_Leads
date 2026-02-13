@@ -125,30 +125,33 @@ export function TopBar() {
   };
 
   return (
-    <header className="h-16 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex items-center justify-between h-full px-6">
-        <div className="flex items-center gap-8">
+    <header className="h-14 sm:h-16 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
+      <div className="flex items-center justify-between h-full px-3 sm:px-6">
+        <div className="flex items-center gap-4 sm:gap-8 min-w-0 flex-1">
           {/* Only show earnings for users with approved placement */}
           {hasApprovedPlacement && earnings && (
-            <div className="flex items-center gap-6">
-              <div className="text-sm">
+            <div className="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm">
+              <div className="hidden sm:block">
                 <span className="text-muted-foreground">Monthly Earnings:</span>
                 <span className="ml-2 font-semibold text-primary">${earnings.monthly.toFixed(2)}</span>
               </div>
-              <div className="text-sm">
+              <div className="sm:hidden">
+                <span className="font-semibold text-primary">${earnings.monthly.toFixed(2)}</span>
+              </div>
+              <div className="hidden md:block">
                 <span className="text-muted-foreground">Next Payout:</span>
                 <span className="ml-2 font-semibold">{earnings.nextPayout}</span>
               </div>
             </div>
           )}
           {!hasApprovedPlacement && user && (
-            <div className="text-sm text-muted-foreground">
+            <div className="text-xs sm:text-sm text-muted-foreground truncate">
               Create a placement to start earning
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
           <Button
             variant="ghost"
             size="icon"
