@@ -998,7 +998,8 @@ def resend_verification():
                 verification_service = get_email_verification_service()
                 
                 # Delete old token and generate new one
-                if verification_service.verification_collection:
+                # Use 'is not None' to avoid PyMongo boolean check error
+                if verification_service.verification_collection is not None:
                     verification_service.verification_collection.delete_many({'email': email})
                 
                 verification_token = verification_service.generate_verification_token(email, user_id)
