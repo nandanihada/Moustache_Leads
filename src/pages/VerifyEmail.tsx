@@ -16,20 +16,32 @@ export default function VerifyEmail() {
     const verifyEmail = async () => {
       if (!token) {
         setStatus('error');
-        setMessage('No verification token provided');
+        setMessage('No verification token provided. Please check your email for the correct link.');
+        return;
+      }
+
+      // Clean the token - remove any whitespace or newlines
+      const cleanToken = token.trim();
+      
+      if (cleanToken.length < 20) {
+        setStatus('error');
+        setMessage('Invalid verification token. The token appears to be incomplete. Please copy the full link from your email.');
         return;
       }
 
       try {
+        console.log('Verifying token:', cleanToken.substring(0, 30) + '...');
+        
         const response = await fetch(`${API_BASE_URL}/api/auth/verify-email`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ token }),
+          body: JSON.stringify({ token: cleanToken }),
         });
 
         const data = await response.json();
+        console.log('Verification response:', data);
 
         if (response.ok) {
           setStatus('success');
@@ -37,11 +49,19 @@ export default function VerifyEmail() {
           setMessage(data.message || 'Email verified successfully!');
         } else {
           setStatus('error');
-          setMessage(data.error || 'Failed to verify email');
+          // Provide more helpful error messages
+          if (data.error?.includes('expired')) {
+            setMessage('Your verification link has expired. Please register again or contact support.');
+          } else if (data.error?.includes('Invalid')) {
+            setMessage('Invalid verification token. This could happen if:\n• The link was copied incorrectly\n• The link has already been used\n• The link has expired\n\nPlease try copying the full link from your email again.');
+          } else {
+            setMessage(data.error || 'Failed to verify email');
+          }
         }
       } catch (error) {
+        console.error('Verification error:', error);
         setStatus('error');
-        setMessage('An error occurred while verifying your email');
+        setMessage('An error occurred while verifying your email. Please try again or contact support.');
       }
     };
 
@@ -140,7 +160,18 @@ export default function VerifyEmail() {
                   <p className="text-lg font-semibold text-gray-900 mb-2">
                     Verification Failed
                   </p>
-                  <p className="text-gray-600 mb-6">{message}</p>
+                  <p className="text-gray-600 mb-6 whitespace-pre-line">{message}</p>
+                  
+                  {/* Help section */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 text-left">
+                    <h4 className="font-medium text-amber-800 mb-2">Need help?</h4>
+                    <ul className="text-sm text-amber-700 space-y-1">
+                      <li>• Make sure you copied the entire link from your email</li>
+                      <li>• Try copying the link text directly (not clicking)</li>
+                      <li>• Check if you've already verified this email</li>
+                    </ul>
+                  </div>
+                  
                   <Button
                     onClick={() => navigate('/register')}
                     className="w-full bg-indigo-600 hover:bg-indigo-700"
