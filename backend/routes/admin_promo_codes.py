@@ -295,7 +295,7 @@ def get_promo_code_users(code_id):
         skip = (page - 1) * limit
         
         collection = db_instance.get_collection('user_promo_codes')
-        if not collection:
+        if collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
         
         # Get total count

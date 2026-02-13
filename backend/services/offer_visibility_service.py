@@ -213,7 +213,7 @@ class OfferVisibilityService:
     def _get_user_request_status(self, offer_id, user_id):
         """Get the user's access request status for an offer"""
         try:
-            if not self.affiliate_requests_collection:
+            if self.affiliate_requests_collection is None:
                 logger.warning("affiliate_requests_collection not available")
                 return 'not_requested'
             
@@ -259,7 +259,7 @@ class OfferVisibilityService:
     def _auto_approve_request(self, offer_id, user_id):
         """Auto-approve a pending request"""
         try:
-            if not self.affiliate_requests_collection:
+            if self.affiliate_requests_collection is None:
                 return
             
             user_id_str = str(user_id)

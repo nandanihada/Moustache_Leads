@@ -18,7 +18,7 @@ class AccessControlService:
     def _log_activity(self, activity_type, user_id, offer_id, details=None):
         """Log activity to recent_activity collection"""
         try:
-            if not self.recent_activity_collection:
+            if self.recent_activity_collection is None:
                 return
             
             # Get user info

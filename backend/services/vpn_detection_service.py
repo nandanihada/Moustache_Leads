@@ -156,7 +156,7 @@ class VPNDetectionService:
     
     def _get_from_cache(self, ip_address: str) -> Optional[Dict]:
         """Get cached VPN detection result"""
-        if not self.cache_collection:
+        if self.cache_collection is None:
             return None
         
         try:
@@ -178,7 +178,7 @@ class VPNDetectionService:
     
     def _save_to_cache(self, ip_address: str, result: Dict):
         """Save VPN detection result to cache"""
-        if not self.cache_collection:
+        if self.cache_collection is None:
             return
         
         try:

@@ -102,7 +102,7 @@ def get_forwarded_postback_details(postback_id):
     try:
         # Get postback
         forwarded_postbacks_collection = db_instance.get_collection('forwarded_postbacks')
-        if not forwarded_postbacks_collection:
+        if forwarded_postbacks_collection is None:
             return jsonify({'success': False, 'error': 'Database not available'}), 503
             
         postback = forwarded_postbacks_collection.find_one({'_id': ObjectId(postback_id)})
@@ -144,7 +144,7 @@ def bulk_delete_forwarded_postbacks():
             return jsonify({'error': 'log_ids must be a non-empty array'}), 400
         
         forwarded_postbacks_collection = db_instance.get_collection('forwarded_postbacks')
-        if not forwarded_postbacks_collection:
+        if forwarded_postbacks_collection is None:
             return jsonify({'error': 'Database not available'}), 503
         
         # Convert string IDs to ObjectId

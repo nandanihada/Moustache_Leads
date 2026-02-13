@@ -65,7 +65,7 @@ def receive_postback_simple(key):
         
         # Get ALL users with postback_url configured
         users_collection = get_collection('users')
-        if not users_collection:
+        if users_collection is None:
             return jsonify({'message': 'Database error'}), 500
         
         users_with_postback = list(users_collection.find({
