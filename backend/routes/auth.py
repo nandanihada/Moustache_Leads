@@ -383,42 +383,58 @@ def register():
         # Log successful registration
         log_signup_attempt(data, 'success')
         
+        # Generate verification token SYNCHRONOUSLY (before background thread)
+        # This ensures the token is saved to DB before we return the response
+        verification_service = get_email_verification_service()
+        verification_token = verification_service.generate_verification_token(
+            email, 
+            str(user_data['_id'])
+        )
+        
+        if not verification_token:
+            logging.warning(f"⚠️ Failed to generate verification token for {email}")
+        else:
+            logging.info(f"✅ Verification token generated for {email}")
+        
         # Send verification email asynchronously (non-blocking)
         # This prevents worker timeout if email service is slow or unavailable
         import threading
         
-        def send_email_async():
+        def send_email_async(token_to_send, email_to, username_to):
             """Send verification email in background thread"""
             try:
-                verification_service = get_email_verification_service()
-                verification_token = verification_service.generate_verification_token(
-                    email, 
-                    str(user_data['_id'])
-                )
+                # Get fresh service instance for the thread
+                email_service = get_email_verification_service()
                 
-                if verification_token:
+                if token_to_send:
                     # Send verification email
-                    email_sent = verification_service.send_verification_email(
-                        email, 
-                        verification_token, 
-                        username
+                    email_sent = email_service.send_verification_email(
+                        email_to, 
+                        token_to_send, 
+                        username_to
                     )
                     
                     if email_sent:
-                        logging.info(f"✅ Verification email sent to {email}")
+                        logging.info(f"✅ Verification email sent to {email_to}")
                     else:
-                        logging.warning(f"⚠️ Failed to send verification email to {email}")
+                        logging.warning(f"⚠️ Failed to send verification email to {email_to}")
                 else:
-                    logging.warning(f"⚠️ Failed to generate verification token for {email}")
+                    logging.warning(f"⚠️ No token provided for {email_to}")
             except Exception as e:
-                logging.error(f"❌ Background email error for {email}: {str(e)}")
+                logging.error(f"❌ Background email error for {email_to}: {str(e)}")
         
         # Start email sending in background thread (daemon=True means it won't block app shutdown)
-        email_thread = threading.Thread(target=send_email_async, daemon=True)
-        email_thread.start()
-        logging.info(f"📧 Verification email queued for {email}")
+        # Pass the token as argument to avoid closure issues
+        if verification_token:
+            email_thread = threading.Thread(
+                target=send_email_async, 
+                args=(verification_token, email, username),
+                daemon=True
+            )
+            email_thread.start()
+            logging.info(f"📧 Verification email queued for {email}")
         
-        # Generate token
+        # Generate auth token
         token = generate_token(user_data)
         
         return jsonify({
@@ -988,35 +1004,44 @@ def resend_verification():
         if user.get('email_verified'):
             return jsonify({'error': 'Email is already verified'}), 400
         
+        # Generate token SYNCHRONOUSLY (before background thread)
+        verification_service = get_email_verification_service()
+        
+        # Delete old tokens for this email
+        verification_collection = db_instance.get_collection('email_verifications')
+        if verification_collection is not None:
+            verification_collection.delete_many({'email': email})
+        
+        # Generate new token synchronously
+        verification_token = verification_service.generate_verification_token(email, user_id)
+        
+        if not verification_token:
+            logging.warning(f"⚠️ Failed to generate verification token for {email}")
+            return jsonify({'error': 'Failed to generate verification token'}), 500
+        
+        logging.info(f"✅ New verification token generated for {email}")
+        
         # Send verification email asynchronously (non-blocking)
-        # This prevents worker timeout if email service is slow
         import threading
         
-        def send_email_async():
+        def send_email_async(token_to_send, email_to, username_to):
             """Send verification email in background thread"""
             try:
-                verification_service = get_email_verification_service()
-                
-                # Delete old token and generate new one
-                # Use 'is not None' to avoid PyMongo boolean check error
-                if verification_service.verification_collection is not None:
-                    verification_service.verification_collection.delete_many({'email': email})
-                
-                verification_token = verification_service.generate_verification_token(email, user_id)
-                
-                if verification_token:
-                    email_sent = verification_service.send_verification_email(email, verification_token, username)
-                    if email_sent:
-                        logging.info(f"✅ Verification email resent to {email}")
-                    else:
-                        logging.warning(f"⚠️ Failed to resend verification email to {email}")
+                email_service = get_email_verification_service()
+                email_sent = email_service.send_verification_email(email_to, token_to_send, username_to)
+                if email_sent:
+                    logging.info(f"✅ Verification email resent to {email_to}")
                 else:
-                    logging.warning(f"⚠️ Failed to generate verification token for {email}")
+                    logging.warning(f"⚠️ Failed to resend verification email to {email_to}")
             except Exception as e:
-                logging.error(f"❌ Background email error for {email}: {str(e)}")
+                logging.error(f"❌ Background email error for {email_to}: {str(e)}")
         
         # Start email sending in background thread
-        email_thread = threading.Thread(target=send_email_async, daemon=True)
+        email_thread = threading.Thread(
+            target=send_email_async, 
+            args=(verification_token, email, username),
+            daemon=True
+        )
         email_thread.start()
         
         logging.info(f"📧 Verification email queued for resend to {email}")
