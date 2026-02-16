@@ -90,6 +90,11 @@ export interface Offer {
   auto_expire_action?: string;
   fallback_url?: string;
   
+  // Fallback Redirect with Timer
+  fallback_redirect_enabled?: boolean;
+  fallback_redirect_url?: string;
+  fallback_redirect_timer?: number;
+  
   // Smart Rules
   smart_rules?: {
     random_redirect?: boolean;
@@ -206,6 +211,11 @@ export interface CreateOfferData {
   expiration_date?: string;
   auto_expire_action?: string;  // pause/replace/redirect
   fallback_url?: string;
+  
+  // SECTION 7.1: FALLBACK REDIRECT WITH TIMER
+  fallback_redirect_enabled?: boolean;  // Enable timed redirect
+  fallback_redirect_url?: string;  // URL to redirect to after timer
+  fallback_redirect_timer?: number;  // Timer in seconds
   
   // SECTION 8: SMART RULES
   random_redirect?: boolean;

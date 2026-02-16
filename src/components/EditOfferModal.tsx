@@ -118,6 +118,13 @@ interface SmartRule {
   active: boolean;
 }
 
+// Fallback Redirect interface
+interface FallbackRedirect {
+  enabled: boolean;
+  url: string;
+  timer: number;  // Timer in seconds
+}
+
 const NETWORKS = [
   'AdGate Media', 'SuperRewards', 'CPAlead', 'OfferToro', 'RevenueUniverse',
   'Wannads', 'Adscend Media', 'Persona.ly', 'Kiwi Wall', 'Offerdaddy'
@@ -155,6 +162,13 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   const [smartRules, setSmartRules] = useState<SmartRule[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [partners, setPartners] = useState<any[]>([]);
+
+  // Fallback Redirect state
+  const [fallbackRedirect, setFallbackRedirect] = useState<FallbackRedirect>({
+    enabled: false,
+    url: '',
+    timer: 30  // Default 30 seconds
+  });
 
   // Promo code state
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
@@ -370,6 +384,13 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
       } else {
         setStartDate(undefined);
       }
+
+      // Load fallback redirect settings
+      setFallbackRedirect({
+        enabled: (offer as any).fallback_redirect_enabled || false,
+        url: (offer as any).fallback_redirect_url || '',
+        timer: (offer as any).fallback_redirect_timer || 30
+      });
     }
   }, [offer, open]);
 
@@ -521,7 +542,12 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         cap: rule.cap,
         priority: rule.priority,
         active: rule.active
-      }))
+      })),
+      fallbackRedirect: {
+        enabled: fallbackRedirect.enabled,
+        url: fallbackRedirect.url,
+        timer: fallbackRedirect.timer
+      }
     };
   };
 
@@ -578,6 +604,10 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
           priority: rule.priority,
           active: rule.active
         })),
+        // 🔥 FALLBACK REDIRECT WITH TIMER
+        fallback_redirect_enabled: fallbackRedirect.enabled,
+        fallback_redirect_url: fallbackRedirect.url,
+        fallback_redirect_timer: fallbackRedirect.timer,
         // 🔥 PROMO CODE ASSIGNMENT
         promo_code_id: selectedPromoCode || undefined,
         // 🔥 APPROVAL WORKFLOW DATA: Include all approval settings
@@ -591,6 +621,11 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
       // 🔍 QA VERIFICATION: Debug logs
       console.log('🔍 EDIT - Schedule Data Being Sent:', submitData.schedule);
       console.log('🔍 EDIT - Smart Rules Data Being Sent:', submitData.smartRules);
+      console.log('🔍 EDIT - Fallback Redirect Data Being Sent:', {
+        enabled: fallbackRedirect.enabled,
+        url: fallbackRedirect.url,
+        timer: fallbackRedirect.timer
+      });
 
       await adminOfferApi.updateOffer(offer.offer_id, submitData);
 
@@ -2008,6 +2043,80 @@ Your Team"
                       </Select>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Fallback Redirect Section */}
+              <Card className="border-orange-200 bg-orange-50/30">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-orange-800">
+                    <Clock className="h-5 w-5" />
+                    Fallback Redirect with Timer
+                  </CardTitle>
+                  <CardDescription>
+                    Redirect users to a fallback URL after a specified time. Useful for time-limited offers or backup redirects.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="fallback_redirect_enabled_edit"
+                      checked={fallbackRedirect.enabled}
+                      onCheckedChange={(checked) => setFallbackRedirect(prev => ({ ...prev, enabled: checked }))}
+                    />
+                    <Label htmlFor="fallback_redirect_enabled_edit" className="font-medium">
+                      Enable Fallback Redirect
+                    </Label>
+                  </div>
+
+                  {fallbackRedirect.enabled && (
+                    <div className="space-y-4 pt-2">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {/* Fallback URL */}
+                        <div className="md:col-span-2 space-y-2">
+                          <Label htmlFor="fallback_redirect_url_edit">Fallback URL *</Label>
+                          <Input
+                            id="fallback_redirect_url_edit"
+                            value={fallbackRedirect.url}
+                            onChange={(e) => setFallbackRedirect(prev => ({ ...prev, url: e.target.value }))}
+                            placeholder="https://example.com/fallback"
+                            className="bg-white"
+                          />
+                          <p className="text-xs text-gray-500">URL to redirect users to after the timer expires</p>
+                        </div>
+
+                        {/* Timer in Seconds */}
+                        <div className="space-y-2">
+                          <Label htmlFor="fallback_redirect_timer_edit">Timer (seconds) *</Label>
+                          <Input
+                            id="fallback_redirect_timer_edit"
+                            type="number"
+                            min="1"
+                            max="3600"
+                            value={fallbackRedirect.timer}
+                            onChange={(e) => setFallbackRedirect(prev => ({ ...prev, timer: Number(e.target.value) }))}
+                            className="bg-white"
+                          />
+                          <p className="text-xs text-gray-500">Time before redirect (1-3600 seconds)</p>
+                        </div>
+                      </div>
+
+                      {/* Timer Preview */}
+                      <div className="p-3 bg-orange-100 rounded-lg border border-orange-200">
+                        <div className="flex items-center gap-2 text-orange-800">
+                          <Clock className="h-4 w-4" />
+                          <span className="text-sm font-medium">
+                            Preview: User will be redirected to fallback URL after {fallbackRedirect.timer} second{fallbackRedirect.timer !== 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        {fallbackRedirect.url && (
+                          <p className="text-xs text-orange-600 mt-1 truncate">
+                            → {fallbackRedirect.url}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 

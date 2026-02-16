@@ -644,6 +644,12 @@ class Offer:
                 'auto_expire_action': offer_data.get('auto_expire_action', 'pause'),  # pause/replace/redirect
                 'fallback_url': offer_data.get('fallback_url', '').strip(),
                 
+                # SECTION 7.1: FALLBACK REDIRECT WITH TIMER
+                # When enabled, redirects user to fallback URL after specified time
+                'fallback_redirect_enabled': bool(offer_data.get('fallback_redirect_enabled', False)),
+                'fallback_redirect_url': (offer_data.get('fallback_redirect_url') or '').strip(),
+                'fallback_redirect_timer': int(offer_data.get('fallback_redirect_timer') or 0),  # Timer in seconds
+                
                 # SECTION 8: SMART RULES
                 'random_redirect': offer_data.get('random_redirect', False),
                 'redirect_urls': offer_data.get('redirect_urls', []),  # Alternate URLs
@@ -815,7 +821,7 @@ class Offer:
         
         try:
             # Validate URL if provided
-            if 'target_url' in update_data or 'preview_url' in update_data:
+            if 'target_url' in update_data or 'preview_url' in update_data or 'fallback_redirect_url' in update_data:
                 url_pattern = re.compile(
                     r'^https?://'
                     r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
@@ -828,6 +834,18 @@ class Offer:
                     return False, "Invalid target URL format"
                 if 'preview_url' in update_data and update_data['preview_url'] and not url_pattern.match(update_data['preview_url']):
                     return False, "Invalid preview URL format"
+                if 'fallback_redirect_url' in update_data and update_data['fallback_redirect_url'] and not url_pattern.match(update_data['fallback_redirect_url']):
+                    return False, "Invalid fallback redirect URL format"
+            
+            # Validate fallback redirect timer if provided
+            if 'fallback_redirect_timer' in update_data:
+                try:
+                    timer = int(update_data['fallback_redirect_timer'])
+                    if timer < 0 or timer > 3600:
+                        return False, "Fallback redirect timer must be between 0 and 3600 seconds"
+                    update_data['fallback_redirect_timer'] = timer
+                except (ValueError, TypeError):
+                    return False, "Fallback redirect timer must be a valid number"
             
             # Validate payout if provided
             if 'payout' in update_data:

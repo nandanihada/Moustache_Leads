@@ -366,6 +366,11 @@ class OfferExtended:
                 'promo_code_assigned_at': offer_data.get('promo_code_assigned_at'),  # When assigned
                 'promo_code_assigned_by': offer_data.get('promo_code_assigned_by'),  # Admin who assigned
                 
+                # SECTION 13: FALLBACK REDIRECT WITH TIMER
+                'fallback_redirect_enabled': bool(offer_data.get('fallback_redirect_enabled', False)),
+                'fallback_redirect_url': (offer_data.get('fallback_redirect_url') or '').strip(),
+                'fallback_redirect_timer': int(offer_data.get('fallback_redirect_timer') or 0),
+                
                 # SYSTEM FIELDS
                 'hits': 0,
                 'limit': offer_data.get('limit'),
@@ -655,7 +660,21 @@ class OfferExtended:
                 'terms_notes', 'conversion_goal',
                 # Promo code fields
                 'promo_code_id', 'promo_code', 'bonus_amount', 'bonus_type',
-                'promo_code_assigned_at', 'promo_code_assigned_by'
+                'promo_code_assigned_at', 'promo_code_assigned_by',
+                # Fallback redirect with timer fields
+                'fallback_redirect_enabled', 'fallback_redirect_url', 'fallback_redirect_timer',
+                # Geo-restriction fields
+                'allowed_countries', 'non_access_url',
+                # Revenue sharing fields
+                'revenue_share_percent', 'incentive_type', 'payout_type',
+                # Approval workflow fields
+                'approval_type', 'auto_approve_delay', 'require_approval', 
+                'approval_message', 'max_inactive_days', 'approval_settings',
+                # Traffic source fields
+                'allowed_traffic_sources', 'risky_traffic_sources', 
+                'disallowed_traffic_sources', 'blocked_traffic_sources', 'traffic_source_overrides',
+                # Vertical/category
+                'vertical', 'category'
             ]
             
             for field in regular_fields:

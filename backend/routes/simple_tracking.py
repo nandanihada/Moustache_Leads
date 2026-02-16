@@ -4,7 +4,7 @@ Simple tracking endpoint for publisher links
 Format: /track/{offer_id}?user_id={publisher_id}&sub1=...
 """
 
-from flask import Blueprint, request, redirect, jsonify
+from flask import Blueprint, request, redirect, jsonify, render_template_string
 from models.analytics import Analytics
 from database import db_instance
 from services.macro_replacement_service import macro_service
@@ -19,6 +19,52 @@ logger = logging.getLogger(__name__)
 def generate_click_id():
     """Generate unique click ID"""
     return f"CLK-{secrets.token_hex(6).upper()}"
+
+# HTML template for fallback redirect with timer
+# Strategy: Redirect to target URL immediately, user sees target site
+# The fallback redirect happens BEFORE going to target - we can't control after
+# So we redirect: Our Page -> Target URL (user stays there for timer) -> then we can't redirect them
+# 
+# NEW APPROACH: Since we can't control external sites, we do:
+# 1. Show target URL in iframe (if it works)
+# 2. If iframe blocked, just redirect to target URL directly (no fallback possible)
+# 3. If iframe works, redirect to fallback after timer
+FALLBACK_REDIRECT_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ offer_name }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; width: 100%; overflow: hidden; background: #fff; }
+        #targetFrame {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            width: 100%; height: 100%;
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <iframe id="targetFrame" src="{{ target_url }}"></iframe>
+    <script>
+        (function() {
+            var timer = {{ timer }};
+            var fallbackUrl = "{{ fallback_url }}";
+            var targetUrl = "{{ target_url }}";
+            
+            // Start redirect timer immediately
+            // After timer expires, redirect to fallback URL
+            setTimeout(function() {
+                window.location.href = fallbackUrl;
+            }, timer * 1000);
+        })();
+    </script>
+</body>
+</html>
+"""
 
 @simple_tracking_bp.route('/track/<offer_id>', methods=['GET'])
 def track_offer_click(offer_id):
@@ -123,6 +169,39 @@ def track_offer_click(offer_id):
         # No need to append click_id since it's already in the URL if partner needs it
         redirect_url = target_url
         
+        # 🔄 CHECK FOR FALLBACK REDIRECT WITH TIMER
+        fallback_enabled = offer.get('fallback_redirect_enabled', False)
+        fallback_url = offer.get('fallback_redirect_url', '')
+        fallback_timer = offer.get('fallback_redirect_timer', 0)
+        
+        if fallback_enabled and fallback_url and fallback_timer > 0:
+            # Ensure fallback URL has protocol
+            if not fallback_url.startswith('http://') and not fallback_url.startswith('https://'):
+                fallback_url = 'https://' + fallback_url
+            
+            # Ensure timer is an integer
+            try:
+                fallback_timer = int(fallback_timer)
+            except (ValueError, TypeError):
+                fallback_timer = 10  # Default to 10 seconds
+            
+            logger.info(f"⏱️ Fallback redirect enabled:")
+            logger.info(f"   - Timer: {fallback_timer} seconds (type: {type(fallback_timer).__name__})")
+            logger.info(f"   - Fallback URL: {fallback_url}")
+            logger.info(f"   - Target URL: {redirect_url}")
+            
+            # Show intermediate page with timer
+            return render_template_string(
+                FALLBACK_REDIRECT_TEMPLATE,
+                offer_name=offer.get('name', 'Special Offer'),
+                offer_image=offer.get('image_url', ''),
+                description=offer.get('description', ''),
+                payout=offer.get('payout', 0),
+                target_url=redirect_url,
+                fallback_url=fallback_url,
+                timer=fallback_timer
+            )
+        
         logger.info(f"↗️  Redirecting to: {redirect_url}")
         
         # Redirect to offer
@@ -158,6 +237,14 @@ def test_tracking_link(offer_id):
         if not offer:
             return jsonify({'error': 'Offer not found'}), 404
         
+        # Include fallback redirect info in test response
+        fallback_info = {
+            'fallback_redirect_enabled': offer.get('fallback_redirect_enabled', False),
+            'fallback_redirect_url': offer.get('fallback_redirect_url', ''),
+            'fallback_redirect_timer': offer.get('fallback_redirect_timer', 0),
+            'fallback_redirect_timer_type': type(offer.get('fallback_redirect_timer', 0)).__name__
+        }
+        
         return jsonify({
             'success': True,
             'offer_id': offer_id,
@@ -165,6 +252,7 @@ def test_tracking_link(offer_id):
             'target_url': offer.get('target_url'),
             'user_id': user_id,
             'sub1': sub1,
+            'fallback_redirect': fallback_info,
             'message': 'Tracking link is valid! Remove /test to use real link.'
         }), 200
         

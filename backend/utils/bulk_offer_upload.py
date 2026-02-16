@@ -84,6 +84,20 @@ SPREADSHEET_TO_DB_MAPPING = {
     'offerwall': 'show_in_offerwall',
     'visible': 'show_in_offerwall',
     'visible_in_offerwall': 'show_in_offerwall',
+    # NEW: Fallback redirect with timer
+    'fallback_redirect_enabled': 'fallback_redirect_enabled',
+    'fallback redirect enabled': 'fallback_redirect_enabled',
+    'enable_fallback_redirect': 'fallback_redirect_enabled',
+    'fallback_redirect_url': 'fallback_redirect_url',
+    'fallback redirect url': 'fallback_redirect_url',
+    'redirect_url': 'fallback_redirect_url',
+    'redirect url': 'fallback_redirect_url',
+    'fallback_redirect_timer': 'fallback_redirect_timer',
+    'fallback redirect timer': 'fallback_redirect_timer',
+    'redirect_timer': 'fallback_redirect_timer',
+    'redirect timer': 'fallback_redirect_timer',
+    'timer_seconds': 'fallback_redirect_timer',
+    'timer seconds': 'fallback_redirect_timer',
 }
 
 # Required fields that must be present in spreadsheet
@@ -128,6 +142,10 @@ DEFAULT_VALUES = {
     'require_approval': False,  # Whether approval is required
     # NEW: Offerwall visibility
     'show_in_offerwall': True,  # Whether to show in offerwall (default: yes)
+    # NEW: Fallback redirect with timer defaults
+    'fallback_redirect_enabled': False,  # Whether fallback redirect is enabled
+    'fallback_redirect_url': '',  # URL to redirect to after timer
+    'fallback_redirect_timer': 0,  # Timer in seconds (0 = disabled)
 }
 
 # List of real offer images to use as defaults
@@ -583,6 +601,40 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     result['auto_approve_delay'] = auto_approve_delay
     result['require_approval'] = require_approval
     
+    # Handle fallback redirect with timer
+    fallback_redirect_enabled = result.get('fallback_redirect_enabled', False)
+    fallback_redirect_url = result.get('fallback_redirect_url', '')
+    fallback_redirect_timer = result.get('fallback_redirect_timer', 0)
+    
+    # Parse fallback_redirect_enabled (convert to boolean)
+    if isinstance(fallback_redirect_enabled, str):
+        fallback_redirect_enabled = fallback_redirect_enabled.lower().strip() in ['true', 'yes', '1', 'on', 'enabled']
+    else:
+        fallback_redirect_enabled = bool(fallback_redirect_enabled)
+    
+    # Parse fallback_redirect_timer (convert to integer seconds)
+    if fallback_redirect_timer:
+        try:
+            timer_str = str(fallback_redirect_timer).lower().strip()
+            # Handle formats like "30", "30s", "1m", "1 minute"
+            if 'm' in timer_str or 'min' in timer_str:
+                minutes = float(re.sub(r'[^\d.]', '', timer_str))
+                fallback_redirect_timer = int(minutes * 60)
+            elif 'h' in timer_str or 'hour' in timer_str:
+                hours = float(re.sub(r'[^\d.]', '', timer_str))
+                fallback_redirect_timer = int(hours * 3600)
+            else:
+                fallback_redirect_timer = int(float(re.sub(r'[^\d.]', '', timer_str)))
+            
+            # Clamp to valid range (0-3600 seconds)
+            fallback_redirect_timer = max(0, min(3600, fallback_redirect_timer))
+        except (ValueError, TypeError):
+            fallback_redirect_timer = 0
+    
+    result['fallback_redirect_enabled'] = fallback_redirect_enabled
+    result['fallback_redirect_url'] = fallback_redirect_url.strip() if isinstance(fallback_redirect_url, str) else ''
+    result['fallback_redirect_timer'] = fallback_redirect_timer
+    
     # Apply other defaults
     for field, default_value in DEFAULT_VALUES.items():
         if field == 'image_url':  # Skip image_url as we handled it above
@@ -708,6 +760,34 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
             
             if not url_pattern.match(temp_url):
                 errors.append(f"Invalid URL format: {mapped_data['target_url']}")
+        
+        # Validate fallback_redirect_url if provided
+        if 'fallback_redirect_url' in mapped_data and mapped_data['fallback_redirect_url']:
+            temp_url = str(mapped_data['fallback_redirect_url'])
+            import re as regex_module
+            temp_url = regex_module.sub(r'\{[^}]+\}', 'MACRO_PLACEHOLDER', temp_url)
+            
+            url_pattern = re.compile(
+                r'^https?://'
+                r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
+                r'localhost|'
+                r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+                r'(?::\d+)?'
+                r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+            
+            if not url_pattern.match(temp_url):
+                errors.append(f"Invalid fallback redirect URL format: {mapped_data['fallback_redirect_url']}")
+        
+        # Validate fallback_redirect_timer if provided
+        if 'fallback_redirect_timer' in mapped_data and mapped_data['fallback_redirect_timer']:
+            try:
+                timer_str = str(mapped_data['fallback_redirect_timer']).lower().strip()
+                # Remove any unit suffixes for validation
+                timer_val = float(re.sub(r'[^\d.]', '', timer_str))
+                if timer_val < 0:
+                    errors.append(f"Invalid fallback redirect timer: {mapped_data['fallback_redirect_timer']} (must be positive)")
+            except (ValueError, TypeError):
+                errors.append(f"Invalid fallback redirect timer: {mapped_data['fallback_redirect_timer']} (must be numeric)")
         
         # Determine where this row goes:
         # 1. If critical errors (invalid format) -> error_rows

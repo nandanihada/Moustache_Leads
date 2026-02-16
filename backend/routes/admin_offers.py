@@ -324,6 +324,10 @@ def update_offer(offer_id):
         logging.info("📥 UPDATE OFFER - SmartRules received: %s", data.get("smartRules"))
         logging.info("📥 UPDATE OFFER - Allowed Countries received: %s", data.get("allowed_countries"))
         logging.info("📥 UPDATE OFFER - Non-Access URL received: %s", data.get("non_access_url"))
+        logging.info("📥 UPDATE OFFER - Fallback Redirect: enabled=%s, url=%s, timer=%s", 
+                     data.get("fallback_redirect_enabled"), 
+                     data.get("fallback_redirect_url"), 
+                     data.get("fallback_redirect_timer"))
         logging.info("📥 UPDATE OFFER - Full payload keys: %s", list(data.keys()))
         
         # 🔥 CRITICAL FIX: Apply field mapping for schedule + smart rules
