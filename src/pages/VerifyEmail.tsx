@@ -10,9 +10,44 @@ export default function VerifyEmail() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
   const [accountStatus, setAccountStatus] = useState<string>('');
+  
+  // Get parameters from URL
   const token = searchParams.get('token');
+  const success = searchParams.get('success');
+  const error = searchParams.get('error');
+  const urlStatus = searchParams.get('status');
 
   useEffect(() => {
+    // If we have success/error params from GET redirect, handle them directly
+    if (success === 'true') {
+      setStatus('success');
+      setAccountStatus(urlStatus || 'pending_approval');
+      setMessage('Email verified successfully!');
+      return;
+    }
+    
+    if (error) {
+      setStatus('error');
+      switch (error) {
+        case 'no_token':
+          setMessage('No verification token provided. Please check your email for the correct link.');
+          break;
+        case 'invalid_token':
+          setMessage('Invalid or expired verification token. The link may have already been used or expired.');
+          break;
+        case 'verification_failed':
+          setMessage('Failed to verify your email. Please try again or contact support.');
+          break;
+        case 'server_error':
+          setMessage('A server error occurred. Please try again later.');
+          break;
+        default:
+          setMessage('Verification failed. Please try again.');
+      }
+      return;
+    }
+
+    // If we have a token, verify it via POST (fallback for direct URL access)
     const verifyEmail = async () => {
       if (!token) {
         setStatus('error');
@@ -58,15 +93,15 @@ export default function VerifyEmail() {
             setMessage(data.error || 'Failed to verify email');
           }
         }
-      } catch (error) {
-        console.error('Verification error:', error);
+      } catch (err) {
+        console.error('Verification error:', err);
         setStatus('error');
         setMessage('An error occurred while verifying your email. Please try again or contact support.');
       }
     };
 
     verifyEmail();
-  }, [token]);
+  }, [token, success, error, urlStatus]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">

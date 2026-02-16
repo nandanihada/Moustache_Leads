@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, redirect
 from models.user import User
 from utils.auth import generate_token, token_required
 from services.email_verification_service import get_email_verification_service
@@ -763,6 +763,65 @@ def verify_email():
     except Exception as e:
         logging.error(f"Email verification error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Email verification failed: {str(e)}'}), 500
+
+
+@auth_bp.route('/verify-email-link', methods=['GET'])
+def verify_email_link():
+    """
+    GET endpoint for email verification - handles clicks from email links.
+    Verifies the token and redirects to frontend with appropriate status.
+    This is more reliable for email clients than POST requests.
+    """
+    try:
+        import os
+        token = request.args.get('token', '').strip()
+        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+        
+        if not token:
+            logging.warning("Email verification link clicked without token")
+            return redirect(f"{frontend_url}/verify-email?error=no_token")
+        
+        logging.info(f"📧 Email verification link clicked, token length: {len(token)}")
+        
+        # Verify token
+        verification_service = get_email_verification_service()
+        is_valid, email, user_id = verification_service.verify_email_token(token)
+        
+        if not is_valid:
+            logging.warning(f"❌ Invalid or expired verification token")
+            return redirect(f"{frontend_url}/verify-email?error=invalid_token")
+        
+        # Mark email as verified in user model
+        user_model = User()
+        if user_model.mark_email_verified(user_id):
+            logging.info(f"✅ Email verified for user {user_id} ({email})")
+            
+            # Get updated user data
+            user_data = user_model.find_by_id(user_id)
+            
+            # Send Email 2a - "Application Under Review" after email verification
+            try:
+                name = user_data.get('first_name') or user_data.get('username', 'User')
+                logging.info(f"📧 Sending 'Application Under Review' email to {email}")
+                email_sent = verification_service.send_application_under_review_email(email, name)
+                if email_sent:
+                    logging.info(f"✅ 'Application Under Review' email sent to {email}")
+                else:
+                    logging.warning(f"⚠️ Failed to send 'Application Under Review' email to {email}")
+            except Exception as e:
+                logging.error(f"❌ Error sending 'Application Under Review' email: {str(e)}")
+            
+            # Redirect to frontend success page
+            return redirect(f"{frontend_url}/verify-email?success=true&status=pending_approval")
+        else:
+            logging.error(f"❌ Failed to mark email as verified for user {user_id}")
+            return redirect(f"{frontend_url}/verify-email?error=verification_failed")
+        
+    except Exception as e:
+        logging.error(f"Email verification link error: {str(e)}", exc_info=True)
+        import os
+        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+        return redirect(f"{frontend_url}/verify-email?error=server_error")
 
 
 # ============ Admin User Approval Endpoints ============
