@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from "react";
-import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus, CheckCircle, AlertCircle, Loader2, Package, Code, Copy, Clock } from "lucide-react";
+import { Grid, Calendar, Play, BarChart, Settings, Bell, Info, Send, Clipboard, Globe, DollarSign, Edit, Trash2, X, Plus, CheckCircle, AlertCircle, Loader2, Package, Code, Copy, Clock, Smartphone, Monitor, Wifi, Shield, Activity, XCircle, PauseCircle, Layout } from "lucide-react";
 import { placementApi } from "../services/placementApi";
 import { clearPlacementCache } from "../hooks/usePlacementApproval";
 import { OfferwallIframeEnhanced } from "../components/OfferwallIframeEnhanced";
@@ -206,44 +206,32 @@ const ToggleSwitch = ({ label, checked, onChange }) => (
 
 const StatusToggle = ({ status, onChange, disabled = false }) => {
   const statusOptions = [
-    { value: 'LIVE', label: 'Live', color: 'bg-green-500', description: 'Placement is active and receiving traffic' },
-    { value: 'PAUSED', label: 'Paused', color: 'bg-yellow-500', description: 'Placement is temporarily disabled' },
-    { value: 'INACTIVE', label: 'Inactive', color: 'bg-red-500', description: 'Placement is permanently disabled' }
+    { value: 'LIVE', icon: '●', color: 'bg-green-500', hoverBorder: 'hover:border-green-400', description: 'Live' },
+    { value: 'PAUSED', icon: '●', color: 'bg-yellow-500', hoverBorder: 'hover:border-yellow-400', description: 'Paused' },
+    { value: 'INACTIVE', icon: '●', color: 'bg-red-500', hoverBorder: 'hover:border-red-400', description: 'Inactive' }
   ];
 
   return (
-    <div className="space-y-3">
-      <label className="text-sm font-medium text-gray-700 flex items-center">
-        Placement Status
-        <Info className="h-3 w-3 ml-1 text-gray-400 cursor-pointer hover:text-violet-500 transition" />
-      </label>
-      <div className="grid grid-cols-3 gap-2">
-        {statusOptions.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            disabled={disabled}
-            onClick={() => onChange('status', option.value)}
-            className={`
-              p-3 rounded-lg border-2 transition-all duration-200 text-sm font-medium
-              ${status === option.value 
-                ? `${option.color} text-white border-transparent shadow-lg` 
-                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300'
-              }
-              ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}
-            `}
-            title={option.description}
-          >
-            <div className="flex items-center justify-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${status === option.value ? 'bg-white' : option.color}`}></div>
-              <span>{option.label}</span>
-            </div>
-          </button>
-        ))}
-      </div>
-      <p className="text-xs text-gray-500">
-        {statusOptions.find(opt => opt.value === status)?.description || 'Select a status for this placement'}
-      </p>
+    <div className="flex items-center space-x-2">
+      {statusOptions.map(option => (
+        <button
+          key={option.value}
+          type="button"
+          disabled={disabled}
+          onClick={() => onChange('status', option.value)}
+          className={`
+            w-9 h-9 rounded-lg border-2 transition-all duration-200 flex items-center justify-center
+            ${status === option.value 
+              ? `${option.color} border-transparent shadow-md ring-2 ring-offset-1 ${option.color.replace('bg-', 'ring-')}/40` 
+              : `bg-white border-gray-200 ${option.hoverBorder}`
+            }
+            ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          `}
+          title={option.description}
+        >
+          <div className={`w-3 h-3 rounded-full ${status === option.value ? 'bg-white' : option.color}`}></div>
+        </button>
+      ))}
     </div>
   );
 };
@@ -486,7 +474,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
               icon={BarChart}
             />
             <Input
-              label="Postback Uri"
+              label="Postback URL"
               placeholder="Enter your server's postback URL"
               value={data.postbackUri}
               onChange={(e) => onChange('postbackUri', e.target.value)}
@@ -503,86 +491,114 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
             onChange={(e) => onChange('description', e.target.value)}
           />
 
-          <div className="mt-6">
-            <StatusToggle
-              status={data.status || 'LIVE'}
-              onChange={onChange}
-              disabled={false}
-            />
-          </div>
-
-          <div className="mt-6">
-            <ToggleSwitch
-              label="Enable Postback Failure Notification"
-              checked={data.postbackFailureNotification}
-              onChange={(e) => onChange('postbackFailureNotification', e.target.checked)}
-            />
+          <div className="mt-6 flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <span className="text-sm font-medium text-gray-700">Status</span>
+              <StatusToggle
+                status={data.status || 'LIVE'}
+                onChange={onChange}
+                disabled={false}
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Bell className="h-4 w-4 text-yellow-600" />
+              <span className="text-xs text-gray-600">Postback alerts</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" checked={data.postbackFailureNotification} onChange={(e) => onChange('postbackFailureNotification', e.target.checked)} className="sr-only peer" />
+                <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-violet-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600"></div>
+              </label>
+            </div>
           </div>
         </Card>
 
-        <p className="text-sm p-4 rounded-xl bg-violet-50/70 border border-violet-300 text-violet-800 shadow-inner">
-          <Info className="h-4 w-4 inline mr-2 text-violet-600" />
-          **Documentation Tip:** Review the "Postback URI" section in our API docs before deploying.
+        <p className="text-sm p-3 rounded-lg bg-violet-50/70 border border-violet-200 text-violet-700 flex items-center">
+          <Info className="h-4 w-4 mr-2 text-violet-500 flex-shrink-0" />
+          Review the Postback URL section in our API docs before deploying.
         </p>
 
-        <Button onClick={onSubmit} className="w-full mt-6" icon={data.placementIdentifier ? Edit : Play} disabled={loading}>
-          {loading ? (
-            <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-3 mt-6">
+          <button 
+            onClick={onSubmit} 
+            disabled={loading}
+            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg font-medium text-sm transition-all duration-200 ${
+              loading 
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                : 'bg-violet-600 hover:bg-violet-700 text-white shadow-md shadow-violet-500/30'
+            }`}
+          >
+            {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span>{data.placementIdentifier ? 'Saving...' : 'Creating...'}</span>
-            </div>
-          ) : (
-            data.placementIdentifier ? 'Save Configuration Changes' : 'Create New Placement'
-          )}
-        </Button>
+            ) : (
+              <>
+                {data.placementIdentifier ? <Edit className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                <span>{data.placementIdentifier ? 'Save' : 'Create'}</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       <div className="lg:col-span-1">
         <Card title="Current Status" className="sticky top-4">
           <div className="space-y-4">
-            <div className="flex justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
-              <span className="text-gray-600 font-medium">Approval Status:</span>
-              <span className={`font-bold px-2 py-1 rounded text-xs ${
-                data.approvalStatus === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                data.approvalStatus === 'REJECTED' ? 'bg-red-100 text-red-800' :
-                'bg-yellow-100 text-yellow-800'
-              }`}>
-                {data.approvalStatus || 'PENDING_APPROVAL'}
-              </span>
-            </div>
-            <div className="flex justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
-              <span className="text-gray-600 font-medium">Status:</span>
-              <span className={`font-bold ${data.placementIdentifier ? 'text-green-600' : 'text-yellow-600'}`}>
-                {data.status || 'DRAFT'}
-              </span>
-            </div>
-            <div className="flex justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
-              <span className="text-gray-600 font-medium">Platform:</span>
-              <span className="font-bold text-violet-600">
-                {data.platformType || 'UNSELECTED'}
-              </span>
-            </div>
-            <div className="flex justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
-              <span className="text-gray-600 font-medium">Placement ID:</span>
-              <span className="font-bold text-gray-900 truncate" title={data.placementIdentifier || 'N/A'}>
-                {data.placementIdentifier ? `${data.placementIdentifier.substring(0, 10)}...` : 'N/A'}
-              </span>
-            </div>
-            
-            {data.reviewMessage && (
-              <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
-                <h5 className="font-medium text-blue-900 mb-1">Review Message</h5>
-                <p className="text-sm text-blue-800">{data.reviewMessage}</p>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+              <div className="flex items-center space-x-2">
+                <Shield className="h-4 w-4 text-gray-500" />
+                <span className="text-sm text-gray-600">Approval</span>
               </div>
-            )}
-            
-            <hr className="border-gray-200 my-4" />
-            <div className="pt-2">
-              <h4 className="text-lg font-bold text-gray-900 mb-2">Platform Notes</h4>
-              <p className="text-sm text-gray-700 border-l-4 border-violet-600 pl-3 py-1 bg-violet-50 rounded-r-lg">
-                {data.platformType ? `Traffic is currently configured for the ${data.platformType} environment.` : 'Select a platform type (Android, iOS, or Website) to continue setup.'}
-              </p>
+              {data.approvalStatus === 'APPROVED' ? (
+                <span title="Approved"><CheckCircle className="h-5 w-5 text-green-500" /></span>
+              ) : data.approvalStatus === 'REJECTED' ? (
+                <span title="Rejected"><XCircle className="h-5 w-5 text-red-500" /></span>
+              ) : (
+                <span title="Pending"><Clock className="h-5 w-5 text-yellow-500" /></span>
+              )}
             </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+              <div className="flex items-center space-x-2">
+                <Activity className="h-4 w-4 text-gray-500" />
+                <span className="text-sm text-gray-600">Status</span>
+              </div>
+              {(data.status || 'DRAFT') === 'LIVE' ? (
+                <span className="flex items-center space-x-1" title="Live">
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                  <span className="text-xs font-medium text-green-600">Live</span>
+                </span>
+              ) : (data.status || 'DRAFT') === 'PAUSED' ? (
+                <span title="Paused"><PauseCircle className="h-5 w-5 text-yellow-500" /></span>
+              ) : (
+                <span className="w-2.5 h-2.5 rounded-full bg-gray-400" title="Draft"></span>
+              )}
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+              <div className="flex items-center space-x-2">
+                {data.platformType === 'Android' ? <Smartphone className="h-4 w-4 text-gray-500" /> :
+                 data.platformType === 'iOS' ? <Smartphone className="h-4 w-4 text-gray-500" /> :
+                 data.platformType === 'Website' ? <Monitor className="h-4 w-4 text-gray-500" /> :
+                 <Layout className="h-4 w-4 text-gray-500" />}
+                <span className="text-sm text-gray-600">Platform</span>
+              </div>
+              <span className="text-sm font-medium text-violet-600">
+                {data.platformType || '—'}
+              </span>
+            </div>
+            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+              <div className="flex items-center space-x-2">
+                <Clipboard className="h-4 w-4 text-gray-500" />
+                <span className="text-sm text-gray-600">ID</span>
+              </div>
+              <span className="text-xs font-mono text-gray-500 truncate max-w-[120px]" title={data.placementIdentifier || 'N/A'}>
+                {data.placementIdentifier ? `${data.placementIdentifier.substring(0, 8)}…` : '—'}
+              </span>
+            </div>
+            {!data.platformType && (
+              <>
+                <hr className="border-gray-200 my-4" />
+                <div className="pt-2">
+                  <p className="text-sm text-gray-500 text-center italic">Select a platform type to continue setup.</p>
+                </div>
+              </>
+            )}
           </div>
         </Card>
       </div>
@@ -1304,18 +1320,19 @@ export const Placements = () => {
     return (
       <button
         onClick={() => !isDisabled && setActiveTab(tabKey)}
-        className={`flex items-center justify-center space-x-2 py-3 px-6 rounded-t-xl transition-all duration-200 text-base font-semibold ${
+        className={`flex items-center justify-center space-x-1.5 py-2 px-4 rounded-lg transition-all duration-200 text-sm font-medium ${
           activeTab === tabKey
-            ? 'bg-white text-violet-700 border-b-2 border-violet-600 shadow-t'
+            ? 'bg-white text-violet-700 shadow-sm'
             : isDisabled
-              ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-              : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              ? 'text-gray-400 cursor-not-allowed'
+              : 'text-gray-600 hover:bg-white/60 hover:text-gray-800'
         }`}
         disabled={isDisabled}
+        title={label}
       >
-        <Icon className="h-5 w-5" />
-        <span>{label}</span>
-        {isLocked && <Clock className="h-4 w-4 ml-1 text-yellow-500" />}
+        <Icon className="h-4 w-4" />
+        <span className="hidden sm:inline">{label}</span>
+        {isLocked && <Clock className="h-3 w-3 ml-0.5 text-yellow-500" />}
       </button>
     );
   };
@@ -1341,23 +1358,14 @@ export const Placements = () => {
         {/* Authentication Status */}
         <div className="mb-4">
           {!localStorage.getItem('token') ? (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-              <div className="flex items-center">
-                <Info className="h-5 w-5 text-yellow-600 mr-2" />
-                <p className="text-yellow-800">
-                  <strong>Authentication Required:</strong> Please login first to create and manage real placements. 
-                  Currently showing demo data only.
-                </p>
-              </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 flex items-center space-x-2">
+              <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
+              <p className="text-sm text-yellow-800">Login required to manage placements. Showing demo data.</p>
             </div>
           ) : (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-              <div className="flex items-center">
-                <Info className="h-5 w-5 text-green-600 mr-2" />
-                <p className="text-green-800">
-                  <strong>Authenticated:</strong> You can now create and manage real placements.
-                </p>
-              </div>
+            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center space-x-2">
+              <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
+              <p className="text-sm text-green-800">Connected — manage your placements below.</p>
             </div>
           )}
         </div>
@@ -1401,10 +1409,12 @@ export const Placements = () => {
                       : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-violet-300 hover:shadow-md'
                   }`}
                 >
+                  <div className="flex items-center justify-center mb-1">
+                    {placement.platformType === 'Android' ? <Smartphone className="h-4 w-4" /> :
+                     placement.platformType === 'iOS' ? <Smartphone className="h-4 w-4" /> :
+                     <Monitor className="h-4 w-4" />}
+                  </div>
                   <p className="font-bold text-sm truncate">{placement.platformName || placement.offerwallTitle}</p>
-                  <p className={`text-xs mt-1 font-mono truncate ${!isNewPlacement && selectedPlacementIndex === index ? 'text-violet-200' : 'text-gray-400'}`}>
-                    {placement.placementIdentifier?.substring(0, 10)}...
-                  </p>
                 </button>
               ))
             ) : !error && localStorage.getItem('token') ? (
