@@ -21,42 +21,71 @@ def generate_click_id():
     return f"CLK-{secrets.token_hex(6).upper()}"
 
 # HTML template for fallback redirect with timer
-# Strategy: Redirect to target URL immediately, user sees target site
-# The fallback redirect happens BEFORE going to target - we can't control after
-# So we redirect: Our Page -> Target URL (user stays there for timer) -> then we can't redirect them
-# 
-# NEW APPROACH: Since we can't control external sites, we do:
-# 1. Show target URL in iframe (if it works)
-# 2. If iframe blocked, just redirect to target URL directly (no fallback possible)
-# 3. If iframe works, redirect to fallback after timer
+# Strategy: Open target URL in a new tab immediately, keep our page in control,
+# then redirect the current tab to fallback URL after the timer expires.
+# This avoids iframe X-Frame-Options issues entirely.
 FALLBACK_REDIRECT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ offer_name }}</title>
+    <title>{{ offer_name }} - Redirecting...</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { height: 100%; width: 100%; overflow: hidden; background: #fff; }
-        #targetFrame {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            width: 100%; height: 100%;
-            border: none;
+        html, body { height: 100%; width: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body {
+            display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
         }
+        .container {
+            text-align: center; padding: 40px;
+            background: rgba(255,255,255,0.1); border-radius: 16px;
+            backdrop-filter: blur(10px); max-width: 420px;
+        }
+        .spinner {
+            width: 40px; height: 40px; margin: 0 auto 20px;
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top-color: #fff; border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        h2 { font-size: 20px; margin-bottom: 8px; font-weight: 600; }
+        p { font-size: 14px; opacity: 0.85; line-height: 1.5; }
+        .link { 
+            display: inline-block; margin-top: 16px; color: #fff; 
+            text-decoration: underline; font-size: 13px; opacity: 0.7;
+            cursor: pointer;
+        }
+        .link:hover { opacity: 1; }
     </style>
 </head>
 <body>
-    <iframe id="targetFrame" src="{{ target_url }}"></iframe>
+    <div class="container">
+        <div class="spinner"></div>
+        <h2>Opening offer...</h2>
+        <p>You'll be redirected shortly.</p>
+        <a class="link" id="manualLink" href="{{ target_url }}" target="_blank" rel="noopener">Click here if nothing happened</a>
+    </div>
     <script>
         (function() {
             var timer = {{ timer }};
             var fallbackUrl = "{{ fallback_url }}";
             var targetUrl = "{{ target_url }}";
             
-            // Start redirect timer immediately
-            // After timer expires, redirect to fallback URL
+            // Open target URL in new tab immediately
+            var newTab = window.open(targetUrl, '_blank');
+            
+            // If popup was blocked, redirect current page to target instead
+            if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
+                // Popup blocked - fall back to direct redirect approach
+                // Redirect to target URL now, skip fallback (can't control after navigation)
+                window.location.href = targetUrl;
+                return;
+            }
+            
+            // New tab opened successfully - redirect this tab to fallback after timer
             setTimeout(function() {
                 window.location.href = fallbackUrl;
             }, timer * 1000);
