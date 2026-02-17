@@ -88,9 +88,12 @@ def track_offer_click(offer_id):
             logger.error(f"❌ Offer not found: {offer_id}")
             return jsonify({'error': 'Offer not found'}), 404
         
-        if offer.get('status', '').lower() != 'active':
-            logger.error(f"❌ Offer not active: {offer_id}, status={offer.get('status')}")
-            return jsonify({'error': 'Offer not active'}), 404
+        # Allow tracking for 'active' and 'hidden' status offers
+        # Hidden offers should work for tracking but not show in user panel
+        offer_status = offer.get('status', '').lower()
+        if offer_status not in ['active', 'hidden']:
+            logger.error(f"❌ Offer not active or hidden: {offer_id}, status={offer_status}")
+            return jsonify({'error': 'Offer not available'}), 404
         
         target_url = offer.get('target_url')
         if not target_url:

@@ -370,15 +370,16 @@ const AdminAdvertiserManagement = () => {
                   No advertisers found
                 </div>
               ) : (
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Advertiser</TableHead>
-                      <TableHead>Company</TableHead>
-                      <TableHead>Contact</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Join Date</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="whitespace-nowrap">Advertiser</TableHead>
+                      <TableHead className="whitespace-nowrap">Company</TableHead>
+                      <TableHead className="whitespace-nowrap">Contact</TableHead>
+                      <TableHead className="whitespace-nowrap">Status</TableHead>
+                      <TableHead className="whitespace-nowrap">Join Date</TableHead>
+                      <TableHead className="whitespace-nowrap">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -481,6 +482,7 @@ const AdminAdvertiserManagement = () => {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </TabsContent>
           </Tabs>

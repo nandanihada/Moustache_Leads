@@ -1064,17 +1064,17 @@ const AdminMissingOffers = () => {
                         Have ({checkResults.in_inventory.length})
                       </button>
                     </div>
-                    <div className="max-h-96 overflow-auto">
+                    <div className="max-h-96 overflow-auto -mx-4 sm:mx-0">
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Row</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Country</TableHead>
-                            <TableHead>Platform</TableHead>
-                            <TableHead>Model</TableHead>
-                            <TableHead>Network</TableHead>
-                            <TableHead>Status</TableHead>
+                            <TableHead className="whitespace-nowrap">Row</TableHead>
+                            <TableHead className="whitespace-nowrap">Name</TableHead>
+                            <TableHead className="whitespace-nowrap">Country</TableHead>
+                            <TableHead className="whitespace-nowrap">Platform</TableHead>
+                            <TableHead className="whitespace-nowrap">Model</TableHead>
+                            <TableHead className="whitespace-nowrap">Network</TableHead>
+                            <TableHead className="whitespace-nowrap">Status</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -1137,15 +1137,18 @@ const AdminMissingOffers = () => {
                   </div>
 
                   {/* Action Buttons */}
-                  <div className="flex justify-between items-center gap-2">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       {checkResults.not_in_inventory.length > 0 && (
                         <Button 
                           onClick={() => setEmailAutomationOpen(true)}
                           className="gap-2"
+                          size="sm"
                         >
                           <Mail className="h-4 w-4" />
-                          Email Automation ({checkResults.not_in_inventory.length - deliveredOfferIndices.size} remaining)
+                          <span className="hidden sm:inline">Email Automation</span>
+                          <span className="sm:hidden">Email</span>
+                          ({checkResults.not_in_inventory.length - deliveredOfferIndices.size})
                         </Button>
                       )}
                       
@@ -1155,20 +1158,20 @@ const AdminMissingOffers = () => {
                           {deliveredOfferIndices.size > 0 && (
                             <span className="flex items-center gap-1 text-green-600">
                               <CheckCircle className="h-3.5 w-3.5" />
-                              {deliveredOfferIndices.size} delivered
+                              {deliveredOfferIndices.size}
                             </span>
                           )}
                           {scheduledOfferIndices.size > 0 && (
                             <span className="flex items-center gap-1 text-yellow-600">
                               <Clock className="h-3.5 w-3.5" />
-                              {scheduledOfferIndices.size - deliveredOfferIndices.size} pending
+                              {scheduledOfferIndices.size - deliveredOfferIndices.size}
                             </span>
                           )}
                         </div>
                       )}
                     </div>
                     
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button 
                         variant="outline" 
                         size="sm"
@@ -1179,7 +1182,7 @@ const AdminMissingOffers = () => {
                         className="gap-1"
                       >
                         <RefreshCw className="h-4 w-4" />
-                        Refresh Status
+                        <span className="hidden sm:inline">Refresh</span>
                       </Button>
                       <Button 
                         variant="outline" 
@@ -1188,15 +1191,15 @@ const AdminMissingOffers = () => {
                         className="gap-1"
                       >
                         <Calendar className="h-4 w-4" />
-                        View History
+                        <span className="hidden sm:inline">History</span>
                       </Button>
-                      <Button variant="outline" onClick={() => { 
+                      <Button variant="outline" size="sm" onClick={() => { 
                         setCheckResults(null); 
                         setScheduledOfferIndices(new Set()); 
                         setDeliveredOfferIndices(new Set()); 
                         localStorage.removeItem('inventoryCheckResults');
                       }}>
-                        Clear Results
+                        Clear
                       </Button>
                     </div>
                   </div>

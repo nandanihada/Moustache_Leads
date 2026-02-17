@@ -34,6 +34,7 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useState } from "react";
@@ -113,6 +114,7 @@ export function AppSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout, isAdminOrSubadmin, isAccountApproved, user } = useAuth();
+  const { isMobile, setOpenMobile } = useSidebar();
   const {
     hasApprovedPlacement,
     hasPendingPlacement,
@@ -130,7 +132,15 @@ export function AppSidebar() {
     return expandedTab ? [expandedTab.title] : [];
   });
 
+  // Close mobile sidebar when navigating
+  const closeMobileSidebar = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
+
   const handleLogout = () => {
+    closeMobileSidebar();
     logout();
     navigate("/");
   };
@@ -254,6 +264,7 @@ export function AppSidebar() {
                         <NavLink
                           to={item.url!}
                           end
+                          onClick={closeMobileSidebar}
                           className={({ isActive }) =>
                             `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
                               ? "bg-primary/10 text-primary border-r-2 border-primary"
@@ -295,6 +306,7 @@ export function AppSidebar() {
                             onClick={(e) => {
                               if (isDisabled) {
                                 e.preventDefault();
+                                closeMobileSidebar();
                                 navigate('/dashboard/placements');
                               }
                             }}
@@ -328,8 +340,11 @@ export function AppSidebar() {
                                           e.preventDefault();
                                           // Don't navigate anywhere if account not approved
                                           if (!needsAccountApproval) {
+                                            closeMobileSidebar();
                                             navigate('/dashboard/placements');
                                           }
+                                        } else {
+                                          closeMobileSidebar();
                                         }
                                       }}
                                       className={({ isActive }) =>
@@ -366,6 +381,7 @@ export function AppSidebar() {
                     <Link
                       to="/admin"
                       reloadDocument
+                      onClick={closeMobileSidebar}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-muted-foreground hover:text-foreground hover:bg-orange-50 cursor-pointer"
                     >
                       <Shield className="h-5 w-5" />

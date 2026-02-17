@@ -61,6 +61,7 @@ import { adminOfferApi, Offer } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getOfferImage } from '@/utils/categoryImages';
 
 const AdminOffers = () => {
   const { toast } = useToast();
@@ -1231,20 +1232,16 @@ const AdminOffers = () => {
                         const creativeType = (offer as any).creative_type || 'image';
 
                         if (creativeType === 'image' || creativeType === 'upload') {
-                          return (offer.thumbnail_url || offer.image_url) ? (
+                          return (
                             <img
-                              src={offer.thumbnail_url || offer.image_url}
+                              src={getOfferImage(offer as any)}
                               alt={offer.name}
                               className="w-12 h-12 object-cover rounded border"
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
+                                target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
                               }}
                             />
-                          ) : (
-                            <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
-                              <span className="text-xs text-gray-400">No Image</span>
-                            </div>
                           );
                         } else if (creativeType === 'html' && (offer as any).html_code) {
                           return (
@@ -1689,21 +1686,15 @@ const AdminOffers = () => {
                           />
                         </TableCell>
                         <TableCell>
-                          {(offer.thumbnail_url || offer.image_url) ? (
-                            <img
-                              src={offer.thumbnail_url || offer.image_url}
-                              alt={offer.name}
-                              className="w-12 h-12 object-cover rounded border opacity-60"
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                target.style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center opacity-60">
-                              <span className="text-xs text-gray-400">No Image</span>
-                            </div>
-                          )}
+                          <img
+                            src={getOfferImage(offer as any)}
+                            alt={offer.name}
+                            className="w-12 h-12 object-cover rounded border opacity-60"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
+                            }}
+                          />
                         </TableCell>
                         <TableCell className="font-mono font-medium text-muted-foreground">
                           {offer.offer_id}
@@ -2045,21 +2036,15 @@ const AdminOffers = () => {
             <div className="space-y-4">
               {/* Offer Header */}
               <div className="flex items-start gap-4 p-4 bg-gray-50 rounded-lg">
-                {(offers[carouselIndex].thumbnail_url || offers[carouselIndex].image_url) ? (
-                  <img
-                    src={offers[carouselIndex].thumbnail_url || offers[carouselIndex].image_url}
-                    alt={offers[carouselIndex].name}
-                    className="w-24 h-24 object-cover rounded border"
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                    }}
-                  />
-                ) : (
-                  <div className="w-24 h-24 bg-gray-200 rounded border flex items-center justify-center">
-                    <span className="text-xs text-gray-400">No Image</span>
-                  </div>
-                )}
+                <img
+                  src={getOfferImage(offers[carouselIndex] as any)}
+                  alt={offers[carouselIndex].name}
+                  className="w-24 h-24 object-cover rounded border"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect fill="%23e5e7eb" width="96" height="96"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="12">No Img</text></svg>';
+                  }}
+                />
                 <div className="flex-1">
                   <h3 className="text-xl font-bold">{offers[carouselIndex].name}</h3>
                   <div className="flex items-center gap-2 mt-1">

@@ -475,15 +475,16 @@ const AdminOfferAccessRequests: React.FC = () => {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="overflow-x-auto -mx-4 sm:mx-0">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Publisher</TableHead>
-                <TableHead>Offer</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Requested</TableHead>
-                <TableHead>Message</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead className="whitespace-nowrap">Publisher</TableHead>
+                <TableHead className="whitespace-nowrap">Offer</TableHead>
+                <TableHead className="whitespace-nowrap">Status</TableHead>
+                <TableHead className="whitespace-nowrap">Requested</TableHead>
+                <TableHead className="whitespace-nowrap">Message</TableHead>
+                <TableHead className="whitespace-nowrap">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -559,6 +560,7 @@ const AdminOfferAccessRequests: React.FC = () => {
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 

@@ -32,6 +32,7 @@ import {
   SidebarMenuItem,
   SidebarHeader,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useEffect, useState } from "react";
@@ -104,6 +105,7 @@ export function AdminSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout, user } = useAuth();
+  const { isMobile, setOpenMobile } = useSidebar();
   const [allowedTabs, setAllowedTabs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -116,6 +118,13 @@ export function AdminSidebar() {
     );
     return expandedTab ? [expandedTab.title] : [];
   });
+
+  // Close mobile sidebar when navigating
+  const closeMobileSidebar = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
 
   useEffect(() => {
     const fetchPermissions = async () => {
@@ -154,11 +163,13 @@ export function AdminSidebar() {
   }, [user]);
 
   const handleLogout = () => {
+    closeMobileSidebar();
     logout();
     navigate("/");
   };
 
   const handleBackToDashboard = () => {
+    closeMobileSidebar();
     navigate("/dashboard");
   };
 
@@ -207,6 +218,7 @@ export function AdminSidebar() {
                           <NavLink
                             to={item.url!}
                             end
+                            onClick={closeMobileSidebar}
                             className={({ isActive }) =>
                               `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
                                 ? "bg-orange-100 text-orange-700 border-r-2 border-orange-500"
@@ -256,6 +268,7 @@ export function AdminSidebar() {
                                   <SidebarMenuButton asChild>
                                     <NavLink
                                       to={subtab.url}
+                                      onClick={closeMobileSidebar}
                                       className={({ isActive }) =>
                                         `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${isActive
                                           ? "bg-orange-100 text-orange-700 font-medium"

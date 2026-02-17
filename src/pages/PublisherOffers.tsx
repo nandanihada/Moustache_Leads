@@ -35,6 +35,7 @@ import OfferCardWithApproval from "@/components/OfferCardWithApproval";
 import { API_BASE_URL } from "@/services/apiConfig";
 import { useAuth } from "@/contexts/AuthContext";
 import PlacementRequired from "@/components/PlacementRequired";
+import { getOfferImage } from "@/utils/categoryImages";
 
 const PublisherOffersContent = () => {
   const [searchTerm, setSearchTerm] = useState("");
@@ -56,6 +57,8 @@ const PublisherOffersContent = () => {
   const [myOffersCountryFilter, setMyOffersCountryFilter] = useState("all");
   const [myOffersVerticalFilter, setMyOffersVerticalFilter] = useState("all");
   const [myOffersViewMode, setMyOffersViewMode] = useState<'card' | 'table'>('table');
+  const [myOffersPerPage, setMyOffersPerPage] = useState<number>(20);
+  const [myOffersCurrentPage, setMyOffersCurrentPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [selectedOffer, setSelectedOffer] = useState<PublisherOffer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -245,7 +248,7 @@ const PublisherOffersContent = () => {
   });
 
   // Filter and sort My Offers
-  const filteredMyOffers = myOffers.filter((offer) => {
+  const filteredMyOffersAll = myOffers.filter((offer) => {
     // Search filter
     if (myOffersSearchTerm) {
       const term = myOffersSearchTerm.toLowerCase();
@@ -331,6 +334,17 @@ const PublisherOffersContent = () => {
         return 0;
     }
   });
+
+  // Pagination for My Offers
+  const myOffersTotalPages = myOffersPerPage === -1 ? 1 : Math.ceil(filteredMyOffersAll.length / myOffersPerPage);
+  const filteredMyOffers = myOffersPerPage === -1 
+    ? filteredMyOffersAll 
+    : filteredMyOffersAll.slice((myOffersCurrentPage - 1) * myOffersPerPage, myOffersCurrentPage * myOffersPerPage);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setMyOffersCurrentPage(1);
+  }, [myOffersSearchTerm, myOffersSearchBy, myOffersSortBy, myOffersCountryFilter, myOffersVerticalFilter, myOffersPerPage]);
 
   const fetchMyRequests = async () => {
     try {
@@ -611,21 +625,16 @@ const PublisherOffersContent = () => {
                           {filteredOffers.map((offer) => (
                             <TableRow key={offer.offer_id}>
                               <TableCell>
-                                {(offer as any).thumbnail_url || (offer as any).image_url ? (
-                                  <img
-                                    src={(offer as any).thumbnail_url || (offer as any).image_url}
-                                    alt={offer.name}
-                                    className="w-12 h-12 object-cover rounded border"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
-                                      target.style.display = 'none';
-                                    }}
-                                  />
-                                ) : (
-                                  <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
-                                    <span className="text-xs text-gray-400">No Img</span>
-                                  </div>
-                                )}
+                                <img
+                                  src={getOfferImage(offer as any)}
+                                  alt={offer.name}
+                                  className="w-12 h-12 object-cover rounded border"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    // Try to use a placeholder instead of hiding
+                                    target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
+                                  }}
+                                />
                               </TableCell>
                               <TableCell className="font-mono text-sm">{offer.offer_id}</TableCell>
                               <TableCell>
@@ -1098,21 +1107,16 @@ const PublisherOffersContent = () => {
                           {filteredMyOffers.map((offer) => (
                             <TableRow key={offer.offer_id}>
                               <TableCell>
-                                {(offer as any).thumbnail_url || (offer as any).image_url ? (
-                                  <img
-                                    src={(offer as any).thumbnail_url || (offer as any).image_url}
-                                    alt={offer.name}
-                                    className="w-12 h-12 object-cover rounded border"
-                                    onError={(e) => {
-                                      const target = e.target as HTMLImageElement;
-                                      target.style.display = 'none';
-                                    }}
-                                  />
-                                ) : (
-                                  <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
-                                    <span className="text-xs text-gray-400">No Img</span>
-                                  </div>
-                                )}
+                                <img
+                                  src={getOfferImage(offer as any)}
+                                  alt={offer.name}
+                                  className="w-12 h-12 object-cover rounded border"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    // Try to use a placeholder instead of hiding
+                                    target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
+                                  }}
+                                />
                               </TableCell>
                               <TableCell className="font-mono text-sm">{offer.offer_id}</TableCell>
                               <TableCell>
@@ -1186,9 +1190,71 @@ const PublisherOffersContent = () => {
                     </div>
                   )}
 
-                  {/* Results Count */}
-                  <div className="text-sm text-muted-foreground pt-2">
-                    Showing {filteredMyOffers.length} of {myOffers.length} offers
+                  {/* Pagination Controls */}
+                  <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Show:</span>
+                      <Select 
+                        value={myOffersPerPage.toString()} 
+                        onValueChange={(val) => setMyOffersPerPage(val === 'all' ? -1 : parseInt(val))}
+                      >
+                        <SelectTrigger className="w-24">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="20">20</SelectItem>
+                          <SelectItem value="50">50</SelectItem>
+                          <SelectItem value="100">100</SelectItem>
+                          <SelectItem value="200">200</SelectItem>
+                          <SelectItem value="-1">All</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <span className="text-sm text-muted-foreground">per page</span>
+                    </div>
+                    
+                    <div className="text-sm text-muted-foreground">
+                      Showing {myOffersPerPage === -1 ? filteredMyOffersAll.length : Math.min((myOffersCurrentPage - 1) * myOffersPerPage + 1, filteredMyOffersAll.length)}-{myOffersPerPage === -1 ? filteredMyOffersAll.length : Math.min(myOffersCurrentPage * myOffersPerPage, filteredMyOffersAll.length)} of {filteredMyOffersAll.length} offers
+                    </div>
+                    
+                    {myOffersPerPage !== -1 && myOffersTotalPages > 1 && (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMyOffersCurrentPage(1)}
+                          disabled={myOffersCurrentPage === 1}
+                        >
+                          First
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMyOffersCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={myOffersCurrentPage === 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <span className="text-sm px-2">
+                          Page {myOffersCurrentPage} of {myOffersTotalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMyOffersCurrentPage(p => Math.min(myOffersTotalPages, p + 1))}
+                          disabled={myOffersCurrentPage === myOffersTotalPages}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setMyOffersCurrentPage(myOffersTotalPages)}
+                          disabled={myOffersCurrentPage === myOffersTotalPages}
+                        >
+                          Last
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </>
               )}

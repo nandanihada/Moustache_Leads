@@ -18,6 +18,7 @@ import {
   markNotificationAsSeen, 
   getNotificationIcon 
 } from "@/components/NotificationBar";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 
 export function TopBar() {
   const { theme, setTheme } = useTheme();
@@ -127,7 +128,10 @@ export function TopBar() {
   return (
     <header className="h-14 sm:h-16 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
       <div className="flex items-center justify-between h-full px-3 sm:px-6">
-        <div className="flex items-center gap-4 sm:gap-8 min-w-0 flex-1">
+        <div className="flex items-center gap-2 sm:gap-4 md:gap-8 min-w-0 flex-1">
+          {/* Mobile menu trigger - only visible on mobile */}
+          <SidebarTrigger className="md:hidden h-9 w-9" />
+          
           {/* Only show earnings for users with approved placement */}
           {hasApprovedPlacement && earnings && (
             <div className="flex items-center gap-3 sm:gap-6 text-xs sm:text-sm">
@@ -146,7 +150,8 @@ export function TopBar() {
           )}
           {!hasApprovedPlacement && user && (
             <div className="text-xs sm:text-sm text-muted-foreground truncate">
-              Create a placement to start earning
+              <span className="hidden sm:inline">Create a placement to start earning</span>
+              <span className="sm:hidden">Create placement</span>
             </div>
           )}
         </div>

@@ -245,12 +245,12 @@ export default function Landing() {
 
       {/* ================= HEADER ================= */}
       <header className="bg-white/10 backdrop-blur-xl border-b border-white/20 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 flex justify-between items-center">
           <motion.div
             variants={fadeBlurUp}
             initial="hidden"
             animate="visible"
-            className="flex items-center space-x-3"
+            className="flex items-center space-x-2 sm:space-x-3"
           >
             <motion.div
               variants={scaleIn}
@@ -262,14 +262,52 @@ export default function Landing() {
               <img
                 src="/logo.png"
                 alt="Mustache Leads"
-                className="h-12 w-12 drop-shadow-lg"
+                className="h-8 w-8 sm:h-12 sm:w-12 drop-shadow-lg"
               />
             </motion.div>
-            <span className="text-2xl font-bold bg-gradient-to-r from-purple-600 via-purple-500 to-purple-700 bg-clip-text text-transparent">
+            <span className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-purple-500 to-purple-700 bg-clip-text text-transparent">
               Mustache Leads
             </span>
           </motion.div>
 
+          {/* Mobile buttons - icon only */}
+          <motion.div
+            variants={fadeBlurUp}
+            initial="hidden"
+            animate="visible"
+            transition={{ delay: 0.1 }}
+            className="flex md:hidden items-center space-x-2"
+          >
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Link
+                to="/publisher/signin"
+                className="p-2 rounded-full bg-white/20 backdrop-blur-sm border border-white/30 text-purple-600 hover:bg-purple-50 transition-colors duration-300"
+                title="Sign In"
+              >
+                <Users className="h-5 w-5" />
+              </Link>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Link
+                to="/advertiser/register"
+                className="p-2 rounded-full bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg"
+                title="Get Leads"
+              >
+                <Zap className="h-5 w-5" />
+              </Link>
+            </motion.div>
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Link
+                to="/publisher/register"
+                className="p-2 rounded-full bg-gradient-to-r from-purple-600 to-purple-700 text-white shadow-lg"
+                title="Get Offers"
+              >
+                <Sparkles className="h-5 w-5" />
+              </Link>
+            </motion.div>
+          </motion.div>
+
+          {/* Desktop buttons - full text */}
           <motion.div
             variants={fadeBlurUp}
             initial="hidden"

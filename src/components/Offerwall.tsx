@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, Sparkles, AlertCircle, Gift, Zap, Globe, Smartphone, Monitor, Timer, Flame, Clock as ClockIcon, Search, X, Lock } from 'lucide-react';
 import { OfferModal } from './OfferModal';
+import { getOfferImage } from '@/utils/categoryImages';
 
 interface Offer {
   id: string;
@@ -644,19 +645,17 @@ const Offerwall: React.FC<OfferwallProps> = ({
 
                 {/* Offer Image */}
                 <div className="relative h-48 overflow-hidden">
-                  {offer.image_url && offer.image_url.trim() !== '' ? (
-                    <img 
-                      src={offer.image_url} 
-                      alt={offer.title}
-                      className={`w-full h-full object-cover transition-transform duration-300 ${isLocked ? 'blur-sm' : 'group-hover:scale-110'}`}
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.style.display = 'none';
-                        target.nextElementSibling?.classList.remove('hidden');
-                      }}
-                    />
-                  ) : null}
-                  <div className={`${offer.image_url && offer.image_url.trim() !== '' ? 'hidden' : ''} absolute inset-0 bg-gradient-to-br ${getCategoryColor(offer.category)} flex items-center justify-center ${isLocked ? 'blur-sm' : ''}`}>
+                  <img 
+                    src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} 
+                    alt={offer.title}
+                    className={`w-full h-full object-cover transition-transform duration-300 ${isLocked ? 'blur-sm' : 'group-hover:scale-110'}`}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.style.display = 'none';
+                      target.nextElementSibling?.classList.remove('hidden');
+                    }}
+                  />
+                  <div className="hidden absolute inset-0 bg-gradient-to-br ${getCategoryColor(offer.category)} flex items-center justify-center ${isLocked ? 'blur-sm' : ''}">
                     <span className="text-6xl">{getCategoryIcon(offer.category)}</span>
                   </div>
                   

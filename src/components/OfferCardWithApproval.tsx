@@ -21,6 +21,7 @@ import { PublisherOffer } from '@/services/publisherOfferApi';
 import { publisherOfferApi } from '@/services/publisherOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { getOfferImage } from '@/utils/categoryImages';
 
 // Country code to flag emoji mapping
 const FLAG_MAP: Record<string, string> = {
@@ -286,21 +287,19 @@ const OfferCardWithApproval: React.FC<OfferCardWithApprovalProps> = ({
           </div>
 
           {/* Offer Image */}
-          {(offer.thumbnail_url || offer.image_url) && (
-            <div className="mb-3">
-              <img 
-                src={offer.thumbnail_url || offer.image_url} 
-                alt={offer.name}
-                className={cn(
-                  "w-full h-32 object-cover rounded",
-                  isBlurred && "blur-sm"
-                )}
-                onError={(e) => {
-                  (e.target as HTMLImageElement).style.display = 'none';
-                }}
-              />
-            </div>
-          )}
+          <div className="mb-3">
+            <img 
+              src={getOfferImage(offer as any)} 
+              alt={offer.name}
+              className={cn(
+                "w-full h-32 object-cover rounded",
+                isBlurred && "blur-sm"
+              )}
+              onError={(e) => {
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          </div>
 
           {/* Offer Name */}
           <h3 className="font-bold text-lg mb-2 line-clamp-2">{cleanTitleFromCountries(offer.name)}</h3>

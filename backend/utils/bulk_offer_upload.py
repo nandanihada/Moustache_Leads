@@ -148,7 +148,7 @@ DEFAULT_VALUES = {
     'fallback_redirect_timer': 0,  # Timer in seconds (0 = disabled)
 }
 
-# List of real offer images to use as defaults
+# List of real offer images to use as defaults - NOW USING CATEGORY-BASED IMAGES
 DEFAULT_OFFER_IMAGES = [
     'https://images.unsplash.com/photo-1607083206869-4c7672e72a8a?w=300&h=200&fit=crop',  # Shopping/ecommerce
     'https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=300&h=200&fit=crop',  # Finance/money
@@ -161,6 +161,30 @@ DEFAULT_OFFER_IMAGES = [
     'https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?w=300&h=200&fit=crop',  # Health/fitness
     'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=300&h=200&fit=crop',  # Business/insurance
 ]
+
+# Category to image URL mapping for new offers
+# These paths match the frontend public folder structure
+CATEGORY_IMAGE_MAP = {
+    'HEALTH': '/category-images/health.png',
+    'SURVEY': '/category-images/survey.png',
+    'SWEEPSTAKES': '/category-images/sweepstakes.png',
+    'EDUCATION': '/category-images/education.png',
+    'INSURANCE': '/category-images/insurance.png',
+    'LOAN': '/category-images/loan.png',
+    'FINANCE': '/category-images/finance.png',
+    'DATING': '/category-images/dating.png',
+    'FREE_TRIAL': '/category-images/free_trial.png',
+    'INSTALLS': '/category-images/installs.png',
+    'GAMES_INSTALL': '/category-images/games_install.png',
+    'OTHER': '/category-images/other.png',
+}
+
+def get_category_image(category: str) -> str:
+    """Get the image URL for a category"""
+    if not category:
+        return CATEGORY_IMAGE_MAP['OTHER']
+    cat_upper = category.upper().strip()
+    return CATEGORY_IMAGE_MAP.get(cat_upper, CATEGORY_IMAGE_MAP['OTHER'])
 
 # Currency symbols for payout parsing
 CURRENCY_SYMBOLS = {
@@ -485,9 +509,11 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
         expiry_date = datetime.utcnow() + timedelta(days=90)
         result['expiration_date'] = expiry_date.strftime('%Y-%m-%d')
     
-    # Apply random image if not provided
+    # Apply category-based image if not provided
     if not result.get('image_url'):
-        result['image_url'] = random.choice(DEFAULT_OFFER_IMAGES)
+        # Get vertical/category for image selection
+        vertical = result.get('vertical', 'OTHER')
+        result['image_url'] = get_category_image(vertical)
     
     # Handle payout - detect percentage, currency, and extract revenue_share_percent
     if 'payout' in result and result['payout']:
@@ -826,30 +852,64 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
 
 
 
-def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str) -> Tuple[List[str], List[Dict[str, Any]], List[Dict[str, Any]]]:
+def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str, duplicate_strategy: str = 'skip') -> Tuple[List[str], List[Dict[str, Any]], List[Dict[str, Any]]]:
     """
-    Create multiple offers in the database.
+    Create multiple offers in the database with duplicate detection.
     
     Args:
         validated_data: List of validated offer data dictionaries
         created_by: Username/ID of admin creating the offers
+        duplicate_strategy: How to handle duplicates - 'skip', 'update', or 'create_new'
         
     Returns:
-        Tuple of (list of created offer IDs, list of errors, empty list for backward compatibility)
+        Tuple of (list of created offer IDs, list of errors, list of skipped duplicates)
     """
     from models.offer import Offer
+    from utils.duplicate_detection import create_duplicate_detector
+    from database import db_instance
     import logging
     
     logger = logging.getLogger(__name__)
     offer_model = Offer()
+    duplicate_detector = create_duplicate_detector(db_instance)
+    
     created_offer_ids = []
     creation_errors = []
+    skipped_duplicates = []
     
     for offer_data in validated_data:
         row_number = offer_data.pop('_row_number', 'Unknown')
         
         try:
-            logger.info(f"Creating offer for row {row_number}: {offer_data}")
+            # Check for duplicates before creating
+            is_duplicate, existing_offer_id, existing_offer = duplicate_detector.check_duplicate(offer_data, duplicate_strategy)
+            
+            if is_duplicate:
+                if duplicate_strategy == 'skip':
+                    logger.info(f"Row {row_number}: Skipping duplicate offer (existing: {existing_offer_id})")
+                    skipped_duplicates.append({
+                        'row': row_number,
+                        'reason': 'duplicate',
+                        'existing_offer_id': existing_offer_id,
+                        'match_type': 'campaign_id' if offer_data.get('campaign_id') == existing_offer.get('campaign_id') else 'name_network_or_url',
+                        'data': offer_data
+                    })
+                    continue
+                    
+                elif duplicate_strategy == 'update':
+                    # Update existing offer
+                    action, offer_id = duplicate_detector.handle_duplicate(offer_data, existing_offer, 'update')
+                    logger.info(f"Row {row_number}: Updated existing offer {offer_id}")
+                    created_offer_ids.append(offer_id)
+                    continue
+                    
+                elif duplicate_strategy == 'create_new':
+                    # Modify name and create new
+                    action, _ = duplicate_detector.handle_duplicate(offer_data, existing_offer, 'create_new')
+                    logger.info(f"Row {row_number}: Creating new offer with modified name")
+                    # Fall through to create the offer with modified name
+            
+            logger.info(f"Creating offer for row {row_number}: {offer_data.get('name', 'Unknown')}")
             
             # Create offer using the existing create_offer method
             created_offer, error = offer_model.create_offer(offer_data, created_by)
@@ -866,13 +926,14 @@ def bulk_create_offers(validated_data: List[Dict[str, Any]], created_by: str) ->
                 created_offer_ids.append(created_offer['offer_id'])
                 
         except Exception as e:
+            logger.error(f"Error processing row {row_number}: {str(e)}", exc_info=True)
             creation_errors.append({
                 'row': row_number,
                 'error': f"Unexpected error: {str(e)}",
                 'data': offer_data
             })
     
-    return created_offer_ids, creation_errors, []
+    return created_offer_ids, creation_errors, skipped_duplicates
 
 
 def check_inventory_gaps(offers_data: List[Dict[str, Any]], network: str = None) -> Dict[str, Any]:

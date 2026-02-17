@@ -254,6 +254,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     // 🔥 APPROVAL WORKFLOW FIELDS - Initialize with defaults
     approval_type: 'auto_approve',
     auto_approve_delay: 0,
+    auto_approve_delay_unit: 'minutes',
     require_approval: false,
     approval_message: '',
     max_inactive_days: 30,
@@ -522,6 +523,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         // 🔥 APPROVAL WORKFLOW FIELDS - Reset to defaults
         approval_type: 'auto_approve',
         auto_approve_delay: 0,
+        auto_approve_delay_unit: 'minutes',
         require_approval: false,
         approval_message: '',
         max_inactive_days: 30,
@@ -1361,20 +1363,49 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         </Button>
                       </div>
                       
-                      {/* Custom input */}
-                      <div className="flex gap-2 items-center">
+                      {/* Custom input with unit selector */}
+                      <div className="flex gap-2 items-center flex-wrap">
                         <span className="text-sm text-yellow-700">Or custom:</span>
                         <Input
-                          id="auto_approve_delay"
+                          id="auto_approve_delay_value"
                           type="number"
                           min="1"
-                          max="10080"
-                          value={formData.auto_approve_delay || 60}
-                          onChange={(e) => handleInputChange('auto_approve_delay', parseInt(e.target.value))}
+                          value={
+                            (formData as any).auto_approve_delay_unit === 'days' 
+                              ? Math.floor((formData.auto_approve_delay || 60) / 1440)
+                              : (formData as any).auto_approve_delay_unit === 'hours'
+                                ? Math.floor((formData.auto_approve_delay || 60) / 60)
+                                : (formData.auto_approve_delay || 60)
+                          }
+                          onChange={(e) => {
+                            const value = parseInt(e.target.value) || 1;
+                            const unit = (formData as any).auto_approve_delay_unit || 'minutes';
+                            let minutes = value;
+                            if (unit === 'hours') minutes = value * 60;
+                            if (unit === 'days') minutes = value * 1440;
+                            handleInputChange('auto_approve_delay', minutes);
+                          }}
                           placeholder="60"
-                          className="w-24"
+                          className="w-20"
                         />
-                        <span className="text-sm text-yellow-700">minutes</span>
+                        <Select
+                          value={(formData as any).auto_approve_delay_unit || 'minutes'}
+                          onValueChange={(unit) => {
+                            // Convert current value to new unit
+                            const currentMinutes = formData.auto_approve_delay || 60;
+                            handleInputChange('auto_approve_delay_unit', unit);
+                            // Keep the same total time, just change display unit
+                          }}
+                        >
+                          <SelectTrigger className="w-28">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="minutes">Minutes</SelectItem>
+                            <SelectItem value="hours">Hours</SelectItem>
+                            <SelectItem value="days">Days</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                       
                       <div className="bg-yellow-100 p-2 rounded text-sm text-yellow-800">

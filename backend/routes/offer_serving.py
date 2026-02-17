@@ -180,9 +180,10 @@ def apply_schedule_and_smart_rules(offer, default_target_url, request):
     try:
         logger.info(f"🔍 Applying schedule and smart rules for offer {offer.get('offer_id')}")
         
-        # Step 1: Check offer status
-        if offer.get('status') != 'Active':
-            logger.warning(f"❌ Offer {offer.get('offer_id')} is not active (status: {offer.get('status')})")
+        # Step 1: Check offer status - allow 'Active' and 'Hidden' (hidden offers work for tracking)
+        offer_status = offer.get('status', '').lower()
+        if offer_status not in ['active', 'hidden']:
+            logger.warning(f"❌ Offer {offer.get('offer_id')} is not active or hidden (status: {offer.get('status')})")
             return default_target_url
         
         # Step 2: Check geo-restriction (NEW)

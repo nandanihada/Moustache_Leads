@@ -315,15 +315,16 @@ const Users = () => {
                   No users found
                 </div>
               ) : (
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>User</TableHead>
-                      <TableHead>Contact</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Email Verified</TableHead>
-                      <TableHead>Join Date</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead className="whitespace-nowrap">User</TableHead>
+                      <TableHead className="whitespace-nowrap">Contact</TableHead>
+                      <TableHead className="whitespace-nowrap">Status</TableHead>
+                      <TableHead className="whitespace-nowrap">Email Verified</TableHead>
+                      <TableHead className="whitespace-nowrap">Join Date</TableHead>
+                      <TableHead className="whitespace-nowrap">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -422,6 +423,7 @@ const Users = () => {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </TabsContent>
           </Tabs>

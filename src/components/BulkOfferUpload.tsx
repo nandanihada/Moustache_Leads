@@ -42,6 +42,7 @@ interface UploadResult {
     success: boolean;
     created_count: number;
     error_count?: number;
+    duplicate_count?: number;
     created_offer_ids: string[];
     validation_errors?: Array<{
         row: number;
@@ -50,6 +51,12 @@ interface UploadResult {
     creation_errors?: Array<{
         row: number;
         error: string;
+    }>;
+    skipped_duplicates?: Array<{
+        row: number;
+        reason: string;
+        existing_offer_id: string;
+        match_type: string;
     }>;
     message: string;
 }
@@ -75,7 +82,9 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
     // Approval workflow options
     const [approvalType, setApprovalType] = useState<string>('auto_approve');
     const [autoApproveDelay, setAutoApproveDelay] = useState<number>(0);
+    const [autoApproveDelayUnit, setAutoApproveDelayUnit] = useState<string>('minutes');
     const [showInOfferwall, setShowInOfferwall] = useState<boolean>(true);
+    const [skipDuplicates, setSkipDuplicates] = useState<boolean>(true);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -175,6 +184,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 show_in_offerwall: showInOfferwall,
                 default_star_rating: defaultStarRating,
                 default_timer: defaultTimer,
+                duplicate_strategy: skipDuplicates ? 'skip' : 'create_new',
             };
 
             if (uploadMode === 'file' && selectedFile) {
@@ -415,6 +425,23 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                 If unchecked, offers will be imported but hidden from the offerwall until manually enabled
                             </p>
                             
+                            {/* Skip Duplicates Option */}
+                            <div className="flex items-center space-x-2 p-2 bg-white rounded border">
+                                <input
+                                    type="checkbox"
+                                    id="skip-duplicates-bulk"
+                                    checked={skipDuplicates}
+                                    onChange={(e) => setSkipDuplicates(e.target.checked)}
+                                    className="h-4 w-4 rounded border-gray-300"
+                                />
+                                <label htmlFor="skip-duplicates-bulk" className="text-sm cursor-pointer">
+                                    🔍 Skip Duplicate Offers (recommended)
+                                </label>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                                If checked, offers that already exist (same campaign ID, name+network, or URL) will be skipped. Uncheck to allow duplicates.
+                            </p>
+                            
                             <div className="space-y-2">
                                 <Label htmlFor="bulk-approval-type">Approval Type</Label>
                                 <Select 
@@ -439,18 +466,51 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                             
                             {approvalType === 'time_based' && (
                                 <div className="space-y-2">
-                                    <Label htmlFor="bulk-approval-delay">Auto-Approve Delay (minutes)</Label>
-                                    <Input
-                                        id="bulk-approval-delay"
-                                        type="number"
-                                        min="1"
-                                        max="10080"
-                                        placeholder="e.g., 60"
-                                        value={autoApproveDelay || ''}
-                                        onChange={(e) => setAutoApproveDelay(parseInt(e.target.value) || 0)}
-                                    />
+                                    <Label htmlFor="bulk-approval-delay">Auto-Approve Delay</Label>
+                                    <div className="flex gap-2">
+                                        <Input
+                                            id="bulk-approval-delay"
+                                            type="number"
+                                            min="1"
+                                            placeholder="e.g., 60"
+                                            value={
+                                                autoApproveDelayUnit === 'days' 
+                                                    ? Math.floor(autoApproveDelay / 1440) || ''
+                                                    : autoApproveDelayUnit === 'hours'
+                                                        ? Math.floor(autoApproveDelay / 60) || ''
+                                                        : autoApproveDelay || ''
+                                            }
+                                            onChange={(e) => {
+                                                const value = parseInt(e.target.value) || 0;
+                                                let minutes = value;
+                                                if (autoApproveDelayUnit === 'hours') minutes = value * 60;
+                                                if (autoApproveDelayUnit === 'days') minutes = value * 1440;
+                                                setAutoApproveDelay(minutes);
+                                            }}
+                                            className="w-24"
+                                        />
+                                        <Select
+                                            value={autoApproveDelayUnit}
+                                            onValueChange={setAutoApproveDelayUnit}
+                                        >
+                                            <SelectTrigger className="w-28">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="minutes">Minutes</SelectItem>
+                                                <SelectItem value="hours">Hours</SelectItem>
+                                                <SelectItem value="days">Days</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
                                     <p className="text-xs text-muted-foreground">
-                                        Users will get auto-approved after this delay (1-10080 minutes / up to 7 days)
+                                        Users will get auto-approved after{' '}
+                                        {autoApproveDelay >= 1440 
+                                            ? `${Math.floor(autoApproveDelay / 1440)} day(s)`
+                                            : autoApproveDelay >= 60
+                                                ? `${Math.floor(autoApproveDelay / 60)} hour(s)`
+                                                : `${autoApproveDelay} minutes`
+                                        }
                                     </p>
                                 </div>
                             )}
@@ -478,6 +538,9 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                         {uploadResult.message}
                                         <ul className="mt-2 space-y-1 text-sm">
                                             <li>✅ Created: {uploadResult.created_count} offers</li>
+                                            {uploadResult.duplicate_count && uploadResult.duplicate_count > 0 && (
+                                                <li>⏭️ Skipped: {uploadResult.duplicate_count} duplicates</li>
+                                            )}
                                             {uploadResult.created_offer_ids.length > 0 && (
                                                 <li className="mt-2 text-xs text-green-600">
                                                     Offer IDs: {uploadResult.created_offer_ids.join(', ')}
@@ -527,6 +590,26 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                             <div key={idx} className="text-sm border-l-2 border-yellow-400 pl-3 py-1">
                                                 <p className="font-medium text-yellow-700">Row {err.row}:</p>
                                                 <p className="text-yellow-600 ml-2">{err.error}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Skipped Duplicates */}
+                            {uploadResult.skipped_duplicates && uploadResult.skipped_duplicates.length > 0 && (
+                                <div className="border rounded-lg p-4 max-h-60 overflow-y-auto bg-blue-50">
+                                    <h4 className="font-semibold text-sm mb-2 text-blue-800">
+                                        ⏭️ Skipped Duplicates ({uploadResult.skipped_duplicates.length})
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {uploadResult.skipped_duplicates.map((dup, idx) => (
+                                            <div key={idx} className="text-sm border-l-2 border-blue-400 pl-3 py-1">
+                                                <p className="font-medium text-blue-700">Row {dup.row}:</p>
+                                                <p className="text-blue-600 ml-2">
+                                                    Matched existing offer: <span className="font-mono">{dup.existing_offer_id}</span>
+                                                    <span className="text-xs ml-2">({dup.match_type})</span>
+                                                </p>
                                             </div>
                                         ))}
                                     </div>

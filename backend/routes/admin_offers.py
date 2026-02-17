@@ -1071,6 +1071,7 @@ def bulk_upload_offers():
         auto_approve_delay = options.get('auto_approve_delay', 0)
         require_approval = options.get('require_approval', False)
         show_in_offerwall = options.get('show_in_offerwall', True)  # Default: show in offerwall
+        duplicate_strategy = options.get('duplicate_strategy', 'skip')  # skip, update, or create_new
         
         # Normalize approval_type
         if approval_type in ['direct', 'instant', 'immediate', 'auto']:
@@ -1131,13 +1132,14 @@ def bulk_upload_offers():
             return jsonify({'error': 'No valid data found in spreadsheet'}), 400
         
         # Create offers normally (no inventory gap detection - that's for Missing Offers page)
-        logging.info(f"🔨 Creating {len(valid_rows)} offers...")
-        created_offer_ids, creation_errors, _ = bulk_create_offers(
+        logging.info(f"🔨 Creating {len(valid_rows)} offers with duplicate_strategy='{duplicate_strategy}'...")
+        created_offer_ids, creation_errors, skipped_duplicates = bulk_create_offers(
             valid_rows, 
-            str(user['_id'])
+            str(user['_id']),
+            duplicate_strategy
         )
         
-        logging.info(f"✅ Created {len(created_offer_ids)} offers")
+        logging.info(f"✅ Created {len(created_offer_ids)} offers, skipped {len(skipped_duplicates)} duplicates")
         
         if creation_errors:
             logging.warning(f"⚠️ {len(creation_errors)} offers failed to create")
@@ -1151,10 +1153,18 @@ def bulk_upload_offers():
             'success': True
         }
         
+        if skipped_duplicates:
+            response_data['skipped_duplicates'] = skipped_duplicates
+            response_data['duplicate_count'] = len(skipped_duplicates)
+            response_data['message'] = f'Created {len(created_offer_ids)} offers, skipped {len(skipped_duplicates)} duplicates'
+        
         if creation_errors:
             response_data['creation_errors'] = creation_errors
             response_data['error_count'] = len(creation_errors)
-            response_data['message'] = f'Created {len(created_offer_ids)} offers, {len(creation_errors)} failed'
+            if skipped_duplicates:
+                response_data['message'] = f'Created {len(created_offer_ids)} offers, skipped {len(skipped_duplicates)} duplicates, {len(creation_errors)} failed'
+            else:
+                response_data['message'] = f'Created {len(created_offer_ids)} offers, {len(creation_errors)} failed'
         
         return jsonify(response_data), 201 if created_offer_ids else 200
         

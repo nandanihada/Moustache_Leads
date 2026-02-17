@@ -46,6 +46,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   // Approval workflow options
   const [approvalType, setApprovalType] = useState<string>('auto_approve');
   const [autoApproveDelay, setAutoApproveDelay] = useState<number>(0);
+  const [autoApproveDelayUnit, setAutoApproveDelayUnit] = useState<string>('minutes');
   const [showInOfferwall, setShowInOfferwall] = useState<boolean>(true);
   
   // Import progress
@@ -140,6 +141,14 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     }, 500);
     
     try {
+      // Convert delay to minutes based on selected unit
+      let delayInMinutes = autoApproveDelay;
+      if (autoApproveDelayUnit === 'hours') {
+        delayInMinutes = autoApproveDelay * 60;
+      } else if (autoApproveDelayUnit === 'days') {
+        delayInMinutes = autoApproveDelay * 60 * 24;
+      }
+      
       const response = await apiImportService.importOffers({
         network_id: networkId,
         api_key: apiKey,
@@ -150,7 +159,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
           auto_activate: autoActivate,
           show_in_offerwall: showInOfferwall,
           approval_type: approvalType,
-          auto_approve_delay: autoApproveDelay,
+          auto_approve_delay: delayInMinutes,
           require_approval: approvalType !== 'auto_approve',
         },
       });
@@ -410,19 +419,30 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                   
                   {approvalType === 'time_based' && (
                     <div className="space-y-2">
-                      <Label htmlFor="approval-delay" className="text-sm">Auto-Approve Delay (minutes)</Label>
-                      <Input
-                        id="approval-delay"
-                        type="number"
-                        min="1"
-                        max="10080"
-                        placeholder="e.g., 60"
-                        value={autoApproveDelay || ''}
-                        onChange={(e) => setAutoApproveDelay(parseInt(e.target.value) || 0)}
-                        className="w-full"
-                      />
+                      <Label htmlFor="approval-delay" className="text-sm">Auto-Approve Delay</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          id="approval-delay"
+                          type="number"
+                          min="1"
+                          placeholder="e.g., 60"
+                          value={autoApproveDelay || ''}
+                          onChange={(e) => setAutoApproveDelay(parseInt(e.target.value) || 0)}
+                          className="flex-1"
+                        />
+                        <Select value={autoApproveDelayUnit} onValueChange={setAutoApproveDelayUnit}>
+                          <SelectTrigger className="w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="minutes">Minutes</SelectItem>
+                            <SelectItem value="hours">Hours</SelectItem>
+                            <SelectItem value="days">Days</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                       <p className="text-xs text-muted-foreground">
-                        Users will get auto-approved after this delay (1-10080 minutes / up to 7 days)
+                        Users will get auto-approved after this delay
                       </p>
                     </div>
                   )}
