@@ -398,6 +398,31 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
+  async exportOffers(params?: {
+    export_type?: 'all' | 'range';
+    start?: number;
+    end?: number;
+    status?: string;
+    network?: string;
+    search?: string;
+  }): Promise<{ offers: Offer[]; total: number; exported_count: number; range: { start: number; end: number } }> {
+    const searchParams = new URLSearchParams();
+    
+    if (params?.export_type) searchParams.append('export_type', params.export_type);
+    if (params?.start !== undefined) searchParams.append('start', params.start.toString());
+    if (params?.end !== undefined) searchParams.append('end', params.end.toString());
+    if (params?.status) searchParams.append('status', params.status);
+    if (params?.network) searchParams.append('network', params.network);
+    if (params?.search) searchParams.append('search', params.search);
+
+    const response = await fetch(`${API_BASE_URL}/offers/export?${searchParams}`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
   async cloneOffer(offerId: string): Promise<{ message: string; offer: Offer }> {
     const response = await fetch(`${API_BASE_URL}/offers/${offerId}/clone`, {
       method: 'POST',

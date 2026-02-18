@@ -249,6 +249,55 @@ def create_offer():
         logging.error(f"Create offer error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to create offer: {str(e)}'}), 500
 
+@admin_offers_bp.route('/offers/export', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def export_offers():
+    """Export offers with flexible pagination for CSV export (Admin only)"""
+    try:
+        # Get query parameters
+        # export_type: 'all', 'range'
+        export_type = request.args.get('export_type', 'all')
+        start = int(request.args.get('start', 0))  # Starting index (0-based)
+        end = int(request.args.get('end', 0))  # Ending index (0 = no limit)
+        status = request.args.get('status')
+        network = request.args.get('network')
+        search = request.args.get('search')
+        
+        # Build filters
+        filters = {}
+        if status and status != 'all':
+            filters['status'] = status
+        if network:
+            filters['network'] = network
+        if search:
+            filters['search'] = search
+        
+        # Get total count first
+        _, total = offer_model.get_offers(filters, 0, 1)
+        
+        if export_type == 'all':
+            # Fetch all offers (no limit)
+            offers, _ = offer_model.get_offers(filters, 0, total if total > 0 else 10000)
+        else:
+            # Fetch range
+            limit = end - start if end > start else 100
+            offers, _ = offer_model.get_offers(filters, start, limit)
+        
+        return safe_json_response({
+            'offers': offers,
+            'total': total,
+            'exported_count': len(offers),
+            'range': {
+                'start': start,
+                'end': start + len(offers)
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"Export offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to export offers: {str(e)}'}), 500
+
 @admin_offers_bp.route('/offers', methods=['GET'])
 @token_required
 @subadmin_or_admin_required('offers')

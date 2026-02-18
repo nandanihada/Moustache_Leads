@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -106,6 +107,10 @@ const AdminOffers = () => {
     total: 0,
     pages: 0
   });
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportType, setExportType] = useState<'all' | 'range'>('all');
+  const [exportStart, setExportStart] = useState(0);
+  const [exportEnd, setExportEnd] = useState(100);
 
   // Category definitions for multi-select filter
   const CATEGORIES = [
@@ -745,15 +750,16 @@ const AdminOffers = () => {
     try {
       setLoading(true);
 
-      // Get all offers for export (without pagination)
-      const allOffers = await adminOfferApi.getOffers({
-        page: 1,
-        per_page: 1000, // Get up to 1000 offers
+      // Use the new export API with flexible range
+      const exportResponse = await adminOfferApi.exportOffers({
+        export_type: exportType,
+        start: exportType === 'range' ? exportStart : undefined,
+        end: exportType === 'range' ? exportEnd : undefined,
         status: statusFilter === 'all' ? undefined : statusFilter,
         search: searchTerm || undefined
       });
 
-      if (!allOffers.offers || allOffers.offers.length === 0) {
+      if (!exportResponse.offers || exportResponse.offers.length === 0) {
         toast({
           title: "No Data",
           description: "No offers found to export",
@@ -763,7 +769,7 @@ const AdminOffers = () => {
       }
 
       // Prepare CSV data with comprehensive fields
-      const csvData = allOffers.offers.map(offer => ({
+      const csvData = exportResponse.offers.map(offer => ({
         'Offer ID': offer.offer_id,
         'Campaign ID': offer.campaign_id,
         'Name': offer.name,
@@ -1001,7 +1007,7 @@ const AdminOffers = () => {
               <Eye className="h-4 w-4 mr-2" />
               Preview
             </Button>
-            <Button variant="outline" onClick={handleCSVExport} disabled={loading}>
+            <Button variant="outline" onClick={() => setExportModalOpen(true)} disabled={loading}>
               <Download className="h-4 w-4 mr-2" />
               CSV Export
             </Button>
@@ -2156,6 +2162,151 @@ const AdminOffers = () => {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* CSV Export Modal */}
+      <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5" />
+              Export Offers to CSV
+            </DialogTitle>
+            <DialogDescription>
+              Choose how many offers to export. Total available: {pagination.total}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Export Type Selection */}
+            <div className="space-y-3">
+              <Label>Export Type</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant={exportType === 'all' ? 'default' : 'outline'}
+                  onClick={() => setExportType('all')}
+                  className="w-full"
+                >
+                  All Offers ({pagination.total})
+                </Button>
+                <Button
+                  variant={exportType === 'range' ? 'default' : 'outline'}
+                  onClick={() => setExportType('range')}
+                  className="w-full"
+                >
+                  Custom Range
+                </Button>
+              </div>
+            </div>
+
+            {/* Range Selection (only shown when range is selected) */}
+            {exportType === 'range' && (
+              <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="export-start">From (Row #)</Label>
+                    <Input
+                      id="export-start"
+                      type="number"
+                      min="1"
+                      max={pagination.total}
+                      value={exportStart + 1}
+                      onChange={(e) => setExportStart(Math.max(0, parseInt(e.target.value) - 1 || 0))}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="export-end">To (Row #)</Label>
+                    <Input
+                      id="export-end"
+                      type="number"
+                      min={exportStart + 1}
+                      max={pagination.total}
+                      value={exportEnd}
+                      onChange={(e) => setExportEnd(Math.min(pagination.total, parseInt(e.target.value) || 100))}
+                    />
+                  </div>
+                </div>
+                
+                {/* Quick Range Buttons */}
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">Quick Select</Label>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setExportStart(0); setExportEnd(100); }}
+                    >
+                      1-100
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setExportStart(100); setExportEnd(200); }}
+                    >
+                      101-200
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setExportStart(200); setExportEnd(300); }}
+                    >
+                      201-300
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setExportStart(0); setExportEnd(500); }}
+                    >
+                      First 500
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setExportStart(0); setExportEnd(1000); }}
+                    >
+                      First 1000
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="text-sm text-muted-foreground">
+                  Will export {Math.min(exportEnd - exportStart, pagination.total - exportStart)} offers (rows {exportStart + 1} to {Math.min(exportEnd, pagination.total)})
+                </div>
+              </div>
+            )}
+
+            {/* Current Filters Info */}
+            {(statusFilter !== 'all' || searchTerm) && (
+              <div className="p-3 bg-blue-50 rounded-lg text-sm">
+                <div className="font-medium text-blue-800 mb-1">Active Filters:</div>
+                <div className="text-blue-600">
+                  {statusFilter !== 'all' && <span>Status: {statusFilter}</span>}
+                  {statusFilter !== 'all' && searchTerm && <span> • </span>}
+                  {searchTerm && <span>Search: "{searchTerm}"</span>}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setExportModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => { handleCSVExport(); setExportModalOpen(false); }} disabled={loading}>
+              {loading ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4 mr-2" />
+                  Export {exportType === 'all' ? pagination.total : Math.min(exportEnd - exportStart, pagination.total - exportStart)} Offers
+                </>
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
