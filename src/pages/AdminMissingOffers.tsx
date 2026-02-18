@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Search, Mail, Calendar, Clock, CheckCircle, XCircle,
-  Loader2, RefreshCw, MoreHorizontal, Send, Eye, Package, Upload, FileSpreadsheet, ChevronDown, ChevronUp
+  Loader2, RefreshCw, MoreHorizontal, Send, Eye, Package, Upload, FileSpreadsheet, ChevronDown, ChevronUp,
+  Pause, Play, AlertTriangle
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -326,6 +327,10 @@ const AdminMissingOffers = () => {
   const [scheduledOfferIndices, setScheduledOfferIndices] = useState<Set<number>>(new Set()); // Scheduled but not sent
   const [deliveredOfferIndices, setDeliveredOfferIndices] = useState<Set<number>>(new Set()); // Actually sent
   
+  // Email service pause state
+  const [emailServicePaused, setEmailServicePaused] = useState(true);
+  const [emailServiceLoading, setEmailServiceLoading] = useState(false);
+  
   const { toast } = useToast();
 
   // Load persisted check results on mount
@@ -412,7 +417,47 @@ const AdminMissingOffers = () => {
 
   useEffect(() => {
     fetchData();
+    fetchEmailServiceStatus();
   }, [statusFilter, networkFilter, platformFilter, payoutModelFilter]);
+
+  const fetchEmailServiceStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE_URL}/api/admin/email-service/status`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEmailServicePaused(data.paused);
+      }
+    } catch (error) {
+      console.error('Error fetching email service status:', error);
+    }
+  };
+
+  const toggleEmailService = async () => {
+    setEmailServiceLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const endpoint = emailServicePaused ? 'resume' : 'pause';
+      const res = await fetch(`${API_BASE_URL}/api/admin/email-service/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEmailServicePaused(data.paused);
+        toast({ 
+          title: data.paused ? "Email Service Paused" : "Email Service Resumed",
+          description: data.paused ? "No scheduled emails will be sent" : "Scheduled emails will now be sent"
+        });
+      }
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to toggle email service", variant: "destructive" });
+    } finally {
+      setEmailServiceLoading(false);
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -930,6 +975,27 @@ const AdminMissingOffers = () => {
 
   return (
     <div className="space-y-6 p-6">
+      {/* Email Service Status Banner */}
+      {emailServicePaused && (
+        <Alert className="bg-yellow-50 border-yellow-200">
+          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="flex items-center justify-between">
+            <span className="text-yellow-800">
+              Email service is <strong>PAUSED</strong> - No scheduled emails will be sent until resumed.
+            </span>
+            <Button 
+              size="sm" 
+              onClick={toggleEmailService}
+              disabled={emailServiceLoading}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              {emailServiceLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Play className="h-4 w-4 mr-1" />}
+              Resume Emails
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">
@@ -939,6 +1005,25 @@ const AdminMissingOffers = () => {
           <p className="text-muted-foreground">
             Upload a spreadsheet to check which offers you have vs don't have
           </p>
+        </div>
+        
+        {/* Email Service Control */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant={emailServicePaused ? "default" : "destructive"}
+            size="sm"
+            onClick={toggleEmailService}
+            disabled={emailServiceLoading}
+          >
+            {emailServiceLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-1" />
+            ) : emailServicePaused ? (
+              <Play className="h-4 w-4 mr-1" />
+            ) : (
+              <Pause className="h-4 w-4 mr-1" />
+            )}
+            {emailServicePaused ? "Resume Emails" : "Pause Emails"}
+          </Button>
         </div>
       </div>
 

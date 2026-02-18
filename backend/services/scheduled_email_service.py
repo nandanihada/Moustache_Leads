@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
+# Global email pause flag - stored in memory and database
+_email_paused = True  # START PAUSED BY DEFAULT
+
 
 class ScheduledEmailService:
     """Service for processing and sending scheduled emails"""
@@ -31,9 +34,72 @@ class ScheduledEmailService:
         
         self._initialized = True
         self._running = False
+        self._paused = True  # START PAUSED BY DEFAULT
         self._thread = None
         self._check_interval = 60  # Check every 60 seconds
-        logger.info("ScheduledEmailService initialized")
+        self._load_pause_state()
+        logger.info(f"ScheduledEmailService initialized (paused: {self._paused})")
+    
+    def _load_pause_state(self):
+        """Load pause state from database"""
+        try:
+            from database import db_instance
+            db = db_instance.get_db()
+            if db is not None:
+                settings = db['system_settings'].find_one({'key': 'email_service_paused'})
+                if settings:
+                    self._paused = settings.get('value', True)
+                else:
+                    # Create default setting (paused)
+                    db['system_settings'].insert_one({
+                        'key': 'email_service_paused',
+                        'value': True,
+                        'updated_at': datetime.utcnow()
+                    })
+                    self._paused = True
+        except Exception as e:
+            logger.error(f"Error loading pause state: {e}")
+            self._paused = True  # Default to paused on error
+    
+    def _save_pause_state(self):
+        """Save pause state to database"""
+        try:
+            from database import db_instance
+            db = db_instance.get_db()
+            if db is not None:
+                db['system_settings'].update_one(
+                    {'key': 'email_service_paused'},
+                    {'$set': {'value': self._paused, 'updated_at': datetime.utcnow()}},
+                    upsert=True
+                )
+        except Exception as e:
+            logger.error(f"Error saving pause state: {e}")
+    
+    def pause(self):
+        """Pause all email sending"""
+        self._paused = True
+        self._save_pause_state()
+        logger.info("📧 Email service PAUSED - no emails will be sent")
+        return True
+    
+    def resume(self):
+        """Resume email sending"""
+        self._paused = False
+        self._save_pause_state()
+        logger.info("📧 Email service RESUMED - emails will be sent")
+        return True
+    
+    def is_paused(self):
+        """Check if email service is paused"""
+        return self._paused
+    
+    def get_status(self):
+        """Get current service status"""
+        return {
+            'running': self._running,
+            'paused': self._paused,
+            'check_interval': self._check_interval
+        }
     
     def start_service(self):
         """Start the background email processing service"""
@@ -58,8 +124,12 @@ class ScheduledEmailService:
         logger.info("📧 Scheduled email processing loop started")
         while self._running:
             try:
-                logger.debug("📧 Checking for due emails...")
-                self._process_due_emails()
+                # Check if paused
+                if self._paused:
+                    logger.debug("📧 Email service is PAUSED - skipping email processing")
+                else:
+                    logger.debug("📧 Checking for due emails...")
+                    self._process_due_emails()
             except Exception as e:
                 logger.error(f"Error in scheduled email processing loop: {e}")
             

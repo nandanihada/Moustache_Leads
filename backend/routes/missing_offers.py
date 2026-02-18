@@ -17,6 +17,61 @@ missing_offers_bp = Blueprint('missing_offers', __name__)
 logger = logging.getLogger(__name__)
 
 
+# ==================== EMAIL SERVICE CONTROL ENDPOINTS ====================
+
+@missing_offers_bp.route('/api/admin/email-service/status', methods=['GET'])
+@token_required
+@admin_required
+def get_email_service_status():
+    """Get the current status of the email service (paused/running)."""
+    try:
+        from services.scheduled_email_service import get_scheduled_email_service
+        service = get_scheduled_email_service()
+        status = service.get_status()
+        return jsonify(status), 200
+    except Exception as e:
+        logger.error(f"Error getting email service status: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@missing_offers_bp.route('/api/admin/email-service/pause', methods=['POST'])
+@token_required
+@admin_required
+def pause_email_service():
+    """Pause all email sending."""
+    try:
+        from services.scheduled_email_service import get_scheduled_email_service
+        service = get_scheduled_email_service()
+        service.pause()
+        logger.info(f"📧 Email service paused by {request.current_user.get('username')}")
+        return jsonify({
+            'message': 'Email service paused successfully',
+            'paused': True
+        }), 200
+    except Exception as e:
+        logger.error(f"Error pausing email service: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@missing_offers_bp.route('/api/admin/email-service/resume', methods=['POST'])
+@token_required
+@admin_required
+def resume_email_service():
+    """Resume email sending."""
+    try:
+        from services.scheduled_email_service import get_scheduled_email_service
+        service = get_scheduled_email_service()
+        service.resume()
+        logger.info(f"📧 Email service resumed by {request.current_user.get('username')}")
+        return jsonify({
+            'message': 'Email service resumed successfully',
+            'paused': False
+        }), 200
+    except Exception as e:
+        logger.error(f"Error resuming email service: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ==================== MISSING OFFERS ENDPOINTS ====================
 
 @missing_offers_bp.route('/api/admin/missing-offers', methods=['GET'])
@@ -412,6 +467,15 @@ def delete_scheduled_email(email_id):
 def send_email_now(email_id):
     """Send a scheduled email immediately."""
     try:
+        # Check if email service is paused
+        from services.scheduled_email_service import get_scheduled_email_service
+        email_svc = get_scheduled_email_service()
+        if email_svc.is_paused():
+            return jsonify({
+                'error': 'Email service is currently paused. Please resume it before sending emails.',
+                'paused': True
+            }), 400
+        
         email = ScheduledEmail.get_by_id(email_id)
         if not email:
             return jsonify({'error': 'Scheduled email not found'}), 404
