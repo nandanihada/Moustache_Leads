@@ -2424,13 +2424,19 @@ def track_offerwall_click():
             logger.error("❌ No data provided")
             return jsonify({'error': 'No data provided'}), 400
         
-        required_fields = ['session_id', 'offer_id', 'placement_id', 'user_id']
+        # session_id is optional - generate one if not provided
+        required_fields = ['offer_id', 'placement_id', 'user_id']
         logger.info(f"🔍 Checking required fields: {required_fields}")
         
         for field in required_fields:
             if field not in data:
                 logger.error(f"❌ Missing required field: {field}")
                 return jsonify({'error': f'{field} is required'}), 400
+        
+        # Generate session_id if not provided
+        if 'session_id' not in data or not data['session_id']:
+            data['session_id'] = str(uuid.uuid4())
+            logger.info(f"🔧 Generated session_id: {data['session_id']}")
         
         logger.info("✅ All required fields present")
         
@@ -2532,8 +2538,20 @@ def track_offerwall_click():
             # Get geolocation and IP info
             logger.info("📦 Step 2: Getting geolocation data...")
             geo_service = GeolocationService()
-            ip_address = request.remote_addr
-            logger.info(f"   IP Address: {ip_address}")
+            
+            # Get real IP address from X-Forwarded-For header (handles proxies/load balancers)
+            x_forwarded_for = request.headers.get('X-Forwarded-For', '')
+            if x_forwarded_for:
+                # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
+                # The first IP is the real client IP
+                ip_address = x_forwarded_for.split(',')[0].strip()
+                logger.info(f"   Got IP from X-Forwarded-For: {ip_address} (full header: {x_forwarded_for})")
+            else:
+                # Fallback to remote_addr
+                ip_address = request.remote_addr
+                logger.info(f"   Got IP from remote_addr: {ip_address}")
+            
+            logger.info(f"   Final IP Address: {ip_address}")
             
             geo_info = geo_service.get_ip_info(ip_address)
             logger.info(f"✅ Step 2 Complete: Got geo info - Country: {geo_info.get('country')}, City: {geo_info.get('city')}")

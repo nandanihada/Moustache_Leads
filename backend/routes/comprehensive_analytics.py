@@ -647,36 +647,49 @@ def get_click_history():
         formatted_clicks = []
         for click in unique_clicks:
             # Handle different click formats (detailed, basic, simple)
+            # Extract device info - handle both nested and flat structures
             device_info = click.get('device', {})
-            if not device_info and click.get('device_type'):
-                device_info = {
-                    'device_type': click.get('device_type'),
-                    'browser': click.get('browser', 'Unknown'),
-                    'os': click.get('os', 'Unknown')
-                }
+            if not device_info or not isinstance(device_info, dict):
+                device_info = {}
             
+            # Build device response with fallbacks
+            device_response = {
+                'type': device_info.get('type') or click.get('device_type') or 'Unknown',
+                'browser': device_info.get('browser') or click.get('browser') or 'Unknown',
+                'os': device_info.get('os') or click.get('os') or 'Unknown'
+            }
+            
+            # Extract geo info - handle both nested and flat structures
             geo_info = click.get('geo', {})
-            if not geo_info and click.get('country'):
-                geo_info = {
-                    'country': click.get('country'),
-                    'city': click.get('city', 'Unknown'),
-                    'region': click.get('region', 'Unknown')
-                }
+            if not geo_info or not isinstance(geo_info, dict):
+                geo_info = {}
             
+            geo_response = {
+                'country': geo_info.get('country') or click.get('country') or 'Unknown',
+                'city': geo_info.get('city') or click.get('city') or 'Unknown',
+                'region': geo_info.get('region') or click.get('region') or 'Unknown'
+            }
+            
+            # Extract network info
             network_info = click.get('network', {})
-            if not network_info and click.get('ip_address'):
-                network_info = {
-                    'ip_address': click.get('ip_address'),
-                    'isp': click.get('isp', 'Unknown')
-                }
+            if not network_info or not isinstance(network_info, dict):
+                network_info = {}
             
+            network_response = {
+                'ip_address': network_info.get('ip_address') or geo_info.get('ip_address') or click.get('ip_address') or 'Unknown',
+                'isp': network_info.get('isp') or geo_info.get('isp') or click.get('isp') or 'Unknown'
+            }
+            
+            # Extract fraud indicators
             fraud_info = click.get('fraud_indicators', {})
-            if not fraud_info:
-                fraud_info = {
-                    'fraud_score': click.get('fraud_score', 0),
-                    'fraud_status': click.get('fraud_status', 'clean'),
-                    'is_duplicate': click.get('is_duplicate', False)
-                }
+            if not fraud_info or not isinstance(fraud_info, dict):
+                fraud_info = {}
+            
+            fraud_response = {
+                'fraud_score': fraud_info.get('fraud_score') or click.get('fraud_score', 0),
+                'fraud_status': fraud_info.get('fraud_status') or click.get('fraud_status', 'clean'),
+                'is_duplicate': fraud_info.get('duplicate_click') or click.get('is_duplicate', False)
+            }
             
             # Get offer name from different possible fields
             offer_name = (click.get('offer_name') or 
@@ -695,10 +708,10 @@ def get_click_history():
                 'offer_name': offer_name,
                 'placement_id': click.get('placement_id') or click.get('sub_id1', ''),
                 'timestamp': click.get('timestamp').isoformat() if click.get('timestamp') else None,
-                'device': device_info,
-                'network': network_info,
-                'geo': geo_info,
-                'fraud_indicators': fraud_info,
+                'device': device_response,
+                'network': network_response,
+                'geo': geo_response,
+                'fraud_indicators': fraud_response,
                 'event_type': 'click',
             })
         
@@ -759,23 +772,30 @@ def get_click_details(click_id):
     """Get detailed information about a specific click or conversion"""
     try:
         click = None
+        source_collection = None
         
         # Try to find in detailed clicks first
         clicks_col = db_instance.get_collection('offerwall_clicks_detailed')
         if clicks_col is not None:
             click = clicks_col.find_one({'click_id': click_id})
+            if click:
+                source_collection = 'offerwall_clicks_detailed'
         
         # If not found in detailed, try basic offerwall_clicks collection
         if not click:
             clicks_basic_col = db_instance.get_collection('offerwall_clicks')
             if clicks_basic_col is not None:
                 click = clicks_basic_col.find_one({'click_id': click_id})
+                if click:
+                    source_collection = 'offerwall_clicks'
         
         # If not found, try simple tracking clicks collection
         if not click:
             clicks_simple_col = db_instance.get_collection('clicks')
             if clicks_simple_col is not None:
                 click = clicks_simple_col.find_one({'click_id': click_id})
+                if click:
+                    source_collection = 'clicks'
         
         # If not found, try conversions
         if not click:
@@ -785,9 +805,12 @@ def get_click_details(click_id):
                 if click:
                     # Mark as conversion
                     click['event_type'] = 'conversion'
+                    source_collection = 'offerwall_conversions'
         
         if not click:
             return jsonify({'error': 'Click/Conversion not found'}), 404
+        
+        logger.info(f"✅ Found click in collection: {source_collection}")
         
         # Format response with all details
         event_type = click.get('event_type', 'click')
@@ -834,6 +857,92 @@ def get_click_details(click_id):
             except Exception as e:
                 logger.warning(f"⚠️ Error fetching publisher name: {e}")
         
+        # Extract device info - handle both nested and flat structures
+        device_info = click.get('device', {})
+        if not device_info or not isinstance(device_info, dict):
+            device_info = {}
+        
+        # Fallback to flat fields if nested is empty
+        device_response = {
+            'type': device_info.get('type') or click.get('device_type') or 'Unknown',
+            'model': device_info.get('model'),
+            'os': device_info.get('os') or click.get('os') or 'Unknown',
+            'os_version': device_info.get('os_version'),
+            'browser': device_info.get('browser') or click.get('browser') or 'Unknown',
+            'browser_version': device_info.get('browser_version'),
+            'screen_resolution': device_info.get('screen_resolution'),
+            'screen_dpi': device_info.get('screen_dpi'),
+            'timezone': device_info.get('timezone'),
+            'language': device_info.get('language'),
+        }
+        
+        # Extract geo info - handle both nested and flat structures
+        geo_info = click.get('geo', {})
+        if not geo_info or not isinstance(geo_info, dict):
+            geo_info = {}
+        
+        geo_response = {
+            'country': geo_info.get('country') or click.get('country') or 'Unknown',
+            'country_code': geo_info.get('country_code') or click.get('country_code'),
+            'region': geo_info.get('region') or click.get('region') or 'Unknown',
+            'city': geo_info.get('city') or click.get('city') or 'Unknown',
+            'postal_code': geo_info.get('postal_code') or click.get('postal_code'),
+            'latitude': geo_info.get('latitude') or click.get('latitude'),
+            'longitude': geo_info.get('longitude') or click.get('longitude'),
+            'timezone': geo_info.get('timezone'),
+            'ip_address': geo_info.get('ip_address') or click.get('ip_address'),
+            'isp': geo_info.get('isp') or click.get('isp'),
+            'asn': geo_info.get('asn') or click.get('asn'),
+            'organization': geo_info.get('organization') or click.get('organization'),
+        }
+        
+        # Extract network info
+        network_info = click.get('network', {})
+        if not network_info or not isinstance(network_info, dict):
+            network_info = {}
+        
+        network_response = {
+            'ip_address': network_info.get('ip_address') or geo_response.get('ip_address') or click.get('ip_address'),
+            'ip_version': network_info.get('ip_version'),
+            'asn': network_info.get('asn') or geo_response.get('asn'),
+            'isp': network_info.get('isp') or geo_response.get('isp'),
+            'organization': network_info.get('organization') or geo_response.get('organization'),
+            'proxy_detected': network_info.get('proxy_detected') or click.get('proxy_detected', False),
+            'vpn_detected': network_info.get('vpn_detected') or click.get('vpn_detected', False),
+            'tor_detected': network_info.get('tor_detected') or click.get('tor_detected', False),
+            'datacenter_detected': network_info.get('datacenter_detected') or click.get('hosting_detected', False),
+            'connection_type': network_info.get('connection_type'),
+        }
+        
+        # Extract fraud indicators
+        fraud_info = click.get('fraud_indicators', {})
+        if not fraud_info or not isinstance(fraud_info, dict):
+            fraud_info = {}
+        
+        fraud_response = {
+            'fraud_score': fraud_info.get('fraud_score') or click.get('fraud_score', 0),
+            'fraud_status': fraud_info.get('fraud_status') or click.get('fraud_status', 'clean'),
+            'duplicate_click': fraud_info.get('duplicate_click') or click.get('is_duplicate', False),
+            'fast_click': fraud_info.get('fast_click', False),
+            'bot_like': fraud_info.get('bot_like', False),
+            'vpn_detected': fraud_info.get('vpn_detected') or network_response.get('vpn_detected', False),
+            'proxy_detected': fraud_info.get('proxy_detected') or network_response.get('proxy_detected', False),
+            'tor_detected': fraud_info.get('tor_detected') or network_response.get('tor_detected', False),
+        }
+        
+        # Extract fingerprint info
+        fingerprint_info = click.get('fingerprint', {})
+        if not fingerprint_info or not isinstance(fingerprint_info, dict):
+            fingerprint_info = {}
+        
+        fingerprint_response = {
+            'user_agent_hash': fingerprint_info.get('user_agent_hash'),
+            'user_agent': fingerprint_info.get('user_agent') or click.get('user_agent'),
+            'canvas': fingerprint_info.get('canvas_fingerprint'),
+            'webgl': fingerprint_info.get('webgl_fingerprint'),
+            'fonts': fingerprint_info.get('fonts_fingerprint'),
+            'plugins': fingerprint_info.get('plugins_fingerprint'),
+        }
 
         response = {
             'click_id': click.get('click_id') or click.get('conversion_id'),
@@ -846,48 +955,17 @@ def get_click_details(click_id):
             'session_id': click.get('session_id'),
             'timestamp': click.get('timestamp').isoformat() if click.get('timestamp') else None,
             'event_type': event_type,
+            'source_collection': source_collection,
             
             # Conversion-specific fields
             'payout_amount': click.get('payout_amount'),
             'points_awarded': click.get('points_awarded'),
             
-            'device': click.get('device') or {
-                'type': click.get('device_type'),
-                'model': None,
-                'os': click.get('os'),
-                'os_version': None,
-                'browser': click.get('browser'),
-                'browser_version': None,
-                'screen_resolution': None,
-                'screen_dpi': None,
-                'timezone': None,
-                'language': None,
-            },
-            
-            'fingerprint': click.get('fingerprint') or {
-                'user_agent_hash': None,
-                'canvas': None,
-                'webgl': None,
-                'fonts': None,
-                'plugins': None,
-            },
-            
-            'network': click.get('network') or {
-                'ip_address': click.get('ip_address'),
-                'isp': click.get('isp'),
-            },
-            
-            'geo': click.get('geo') or {
-                'country': click.get('country'),
-                'city': click.get('city'),
-                'region': click.get('region'),
-            },
-            
-            'fraud_indicators': click.get('fraud_indicators') or {
-                'fraud_score': click.get('fraud_score', 0),
-                'fraud_status': click.get('fraud_status', 'clean'),
-                'is_duplicate': click.get('is_duplicate', False),
-            },
+            'device': device_response,
+            'fingerprint': fingerprint_response,
+            'network': network_response,
+            'geo': geo_response,
+            'fraud_indicators': fraud_response,
         }
         
         return jsonify({
@@ -897,6 +975,8 @@ def get_click_details(click_id):
         
     except Exception as e:
         logger.error(f"❌ Error getting click details: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 

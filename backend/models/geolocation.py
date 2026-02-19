@@ -26,8 +26,12 @@ class GeolocationService:
         Get comprehensive IP information
         Returns: country, region, city, postal_code, coordinates, isp, asn, organization
         """
-        if not ip_address or ip_address == '127.0.0.1':
+        # Handle empty, None, or local IPs
+        if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1', '']:
             return self._get_default_info()
+        
+        # Strip whitespace
+        ip_address = ip_address.strip()
         
         # Check cache first
         if ip_address in self.cache:
