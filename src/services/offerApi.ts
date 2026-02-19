@@ -114,29 +114,35 @@ class OfferApiService {
   }
 
   /**
-   * Track offer click
+   * Track offer click from dashboard/offers page
    * @param offerId - The offer ID
-   * @param placementId - Optional placement ID
-   * @param userId - Optional user ID
+   * @param offerName - The offer name
+   * @param userInfo - User information (id, email, role)
    */
-  async trackOfferClick(offerId: string, placementId?: string, userId?: string): Promise<void> {
+  async trackOfferClick(
+    offerId: string, 
+    offerName?: string,
+    userInfo?: { id?: string; email?: string; role?: string }
+  ): Promise<void> {
     try {
-      console.log('🔄 Tracking offer click:', offerId);
+      console.log('🔄 Tracking dashboard offer click:', offerId);
       
-      await fetch(`${API_BASE_URL}/offerwall/track/click`, {
+      // Use dashboard tracking endpoint (not offerwall)
+      await fetch(`${API_BASE_URL}/dashboard/track-click`, {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           offer_id: offerId,
-          placement_id: placementId || 'web-publisher',
-          user_id: userId || 'anonymous',
-          user_agent: navigator.userAgent,
+          offer_name: offerName || '',
+          user_id: userInfo?.id || 'anonymous',
+          user_email: userInfo?.email || '',
+          user_role: userInfo?.role || 'user',
         }),
       });
 
-      console.log('✅ Click tracked successfully');
+      console.log('✅ Dashboard click tracked successfully');
     } catch (error) {
-      console.error('❌ Error tracking click:', error);
+      console.error('❌ Error tracking dashboard click:', error);
       // Don't throw - tracking failure shouldn't block user action
     }
   }

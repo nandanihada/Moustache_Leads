@@ -302,8 +302,14 @@ function AdminClickTracking() {
 
   const formatDate = (dateString: string) => {
     try {
+      // Ensure the date is treated as UTC by appending 'Z' if not present
+      let utcDateString = dateString;
+      if (!dateString.endsWith('Z') && !dateString.includes('+') && !dateString.includes('-', 10)) {
+        utcDateString = dateString + 'Z';
+      }
+      
       // Parse the UTC date and convert to IST (Indian Standard Time)
-      const date = new Date(dateString);
+      const date = new Date(utcDateString);
       
       // Format with IST timezone
       const formatted = date.toLocaleString('en-IN', {

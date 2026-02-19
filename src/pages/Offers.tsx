@@ -24,6 +24,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { offerApi, type Offer } from "@/services/offerApi";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 
 const countryFlags = {
   US: "",
@@ -47,6 +48,7 @@ const OffersContent = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
     fetchOffers();
@@ -98,7 +100,16 @@ const OffersContent = () => {
 
   const handleOfferClick = async (offer: Offer) => {
     try {
-      await offerApi.trackOfferClick(offer.id);
+      // Track click with user info for dashboard clicks
+      await offerApi.trackOfferClick(
+        offer.id, 
+        offer.title,
+        {
+          id: user?.id || user?._id,
+          email: user?.email,
+          role: user?.role
+        }
+      );
       window.open(offer.click_url, '_blank');
     } catch (err) {
       console.error('Error tracking click:', err);
