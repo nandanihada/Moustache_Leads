@@ -110,7 +110,7 @@ class User:
             return None
     
     def verify_password(self, username, password):
-        """Verify user password"""
+        """Verify user password - supports login by username OR email"""
         if not self._check_db_connection():
             # Fallback demo user only when database is not available
             if username == "demo" and password == "demo123":
@@ -123,8 +123,14 @@ class User:
                     'is_active': True
                 }
             return None
-            
+        
+        # First try to find by username
         user = self.find_by_username(username)
+        
+        # If not found by username, try to find by email
+        if not user:
+            user = self.find_by_email(username)
+        
         if user and bcrypt.checkpw(password.encode('utf-8'), user['password']):
             # Remove password from returned data
             user.pop('password')

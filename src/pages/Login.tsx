@@ -113,7 +113,7 @@ export default function Login() {
           </div>
 
           <div className="space-y-6">
-            {/* Username */}
+            {/* Username or Email */}
             <div>
               <label htmlFor="username" className="block text-sm font-medium text-gray-200 mb-2">
                 Username or Email
@@ -124,7 +124,7 @@ export default function Login() {
                 type="text"
                 required
                 className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm transition-all"
-                placeholder="Enter your username"
+                placeholder="Enter your username or email"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 onKeyPress={handleKeyPress}

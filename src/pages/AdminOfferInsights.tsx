@@ -39,7 +39,10 @@ import {
   CheckCircle2,
   XCircle,
   History,
-  Sparkles
+  Sparkles,
+  Calendar,
+  Clock,
+  DollarSign
 } from 'lucide-react';
 import {
   offerInsightsApi,
@@ -92,6 +95,16 @@ const INSIGHT_CATEGORIES = [
     bgColor: 'bg-purple-50',
     borderColor: 'border-purple-200',
     textColor: 'text-purple-600'
+  },
+  {
+    id: 'price_mismatch' as InsightType,
+    title: 'Price Mismatch',
+    description: 'Offers with payout changes',
+    icon: DollarSign,
+    color: 'bg-red-500',
+    bgColor: 'bg-red-50',
+    borderColor: 'border-red-200',
+    textColor: 'text-red-600'
   }
 ];
 
@@ -100,7 +113,9 @@ const AdminOfferInsights = () => {
   
   // State
   const [selectedCategory, setSelectedCategory] = useState<InsightType>('highest_clicks');
+  const [timePeriod, setTimePeriod] = useState<'week' | 'month'>('week');
   const [offers, setOffers] = useState<InsightOffer[]>([]);
+  const [hasTrackingData, setHasTrackingData] = useState(true);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [emailHistory, setEmailHistory] = useState<EmailHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,9 +124,15 @@ const AdminOfferInsights = () => {
   
   // Selection state
   const [selectedOffer, setSelectedOffer] = useState<InsightOffer | null>(null);
+  const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [selectedPartners, setSelectedPartners] = useState<Set<string>>(new Set());
   const [partnerSearch, setPartnerSearch] = useState('');
   const [customMessage, setCustomMessage] = useState('');
+  
+  // Scheduling state
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
   
   // Modal state
   const [emailModalOpen, setEmailModalOpen] = useState(false);
@@ -119,10 +140,10 @@ const AdminOfferInsights = () => {
   const [previewHtml, setPreviewHtml] = useState('');
   const [sending, setSending] = useState(false);
 
-  // Fetch offers when category changes
+  // Fetch offers when category or time period changes
   useEffect(() => {
     fetchOffers();
-  }, [selectedCategory]);
+  }, [selectedCategory, timePeriod]);
 
   // Fetch partners, email history on mount only
   useEffect(() => {
@@ -142,8 +163,10 @@ const AdminOfferInsights = () => {
   const fetchOffers = async () => {
     setLoading(true);
     try {
-      const response = await offerInsightsApi.getOfferInsights(selectedCategory, 10, 30);
+      const days = timePeriod === 'week' ? 7 : 30;
+      const response = await offerInsightsApi.getOfferInsights(selectedCategory, 10, days);
       setOffers(response.offers || []);
+      setHasTrackingData(response.has_tracking_data !== false);
     } catch (error) {
       toast({
         title: 'Error',
@@ -181,15 +204,51 @@ const AdminOfferInsights = () => {
     setEmailModalOpen(true);
     setSelectedPartners(new Set());
     setCustomMessage('');
+    setScheduleEnabled(false);
+    setScheduleDate('');
+    setScheduleTime('');
+  };
+
+  const toggleOfferSelection = (offerId: string) => {
+    const newSelection = new Set(selectedOffers);
+    if (newSelection.has(offerId)) {
+      newSelection.delete(offerId);
+    } else {
+      newSelection.add(offerId);
+    }
+    setSelectedOffers(newSelection);
+  };
+
+  const handleBulkEmailModal = () => {
+    if (selectedOffers.size === 0) {
+      toast({
+        title: 'No Offers Selected',
+        description: 'Please select at least one offer to send emails',
+        variant: 'destructive'
+      });
+      return;
+    }
+    setSelectedOffer(null); // Clear single selection
+    setEmailModalOpen(true);
+    setSelectedPartners(new Set());
+    setCustomMessage('');
+    setScheduleEnabled(false);
+    setScheduleDate('');
+    setScheduleTime('');
+  };
+
+  const getSelectedOffersData = (): InsightOffer[] => {
+    return offers.filter(o => selectedOffers.has(o.offer_id));
   };
 
   const handlePreviewEmail = async () => {
-    if (!selectedOffer) return;
+    const offersToPreview = selectedOffer ? [selectedOffer] : getSelectedOffersData();
+    if (offersToPreview.length === 0) return;
     
     try {
       const response = await offerInsightsApi.previewEmail(
         selectedCategory,
-        selectedOffer,
+        offersToPreview,
         customMessage
       );
       setPreviewHtml(response.html);
@@ -204,30 +263,63 @@ const AdminOfferInsights = () => {
   };
 
   const handleSendEmails = async () => {
-    if (!selectedOffer || selectedPartners.size === 0) {
+    const offersToSend = selectedOffer ? [selectedOffer] : getSelectedOffersData();
+    
+    if (offersToSend.length === 0 || selectedPartners.size === 0) {
       toast({
         title: 'Error',
-        description: 'Please select at least one partner',
+        description: 'Please select at least one offer and one partner',
         variant: 'destructive'
       });
       return;
+    }
+
+    // Validate schedule if enabled
+    if (scheduleEnabled) {
+      if (!scheduleDate || !scheduleTime) {
+        toast({
+          title: 'Error',
+          description: 'Please select both date and time for scheduling',
+          variant: 'destructive'
+        });
+        return;
+      }
+      
+      const scheduledDateTime = new Date(`${scheduleDate}T${scheduleTime}`);
+      if (scheduledDateTime <= new Date()) {
+        toast({
+          title: 'Error',
+          description: 'Scheduled time must be in the future',
+          variant: 'destructive'
+        });
+        return;
+      }
     }
 
     setSending(true);
     try {
       const response = await offerInsightsApi.sendEmails(
         selectedCategory,
-        selectedOffer,
+        offersToSend,
         Array.from(selectedPartners),
-        customMessage
+        customMessage,
+        scheduleEnabled ? `${scheduleDate}T${scheduleTime}` : undefined
       );
       
-      toast({
-        title: 'Emails Sent!',
-        description: `Successfully sent ${response.sent_count} emails. ${response.failed_count} failed.`,
-      });
+      if (scheduleEnabled) {
+        toast({
+          title: 'Email Scheduled!',
+          description: `Email campaign scheduled for ${new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString()}`,
+        });
+      } else {
+        toast({
+          title: 'Emails Sent!',
+          description: `Successfully sent ${response.sent_count} emails. ${response.failed_count} failed.`,
+        });
+      }
       
       setEmailModalOpen(false);
+      setSelectedOffers(new Set());
       fetchEmailHistory();
     } catch (error) {
       toast({
@@ -283,10 +375,33 @@ const AdminOfferInsights = () => {
             Send targeted emails to partners about top-performing offers
           </p>
         </div>
-        <Button variant="outline" onClick={fetchOffers} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Time Period Toggle */}
+          <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
+            <Button
+              variant={timePeriod === 'week' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setTimePeriod('week')}
+              className="flex items-center gap-1"
+            >
+              <Calendar className="h-4 w-4" />
+              Last Week
+            </Button>
+            <Button
+              variant={timePeriod === 'month' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setTimePeriod('month')}
+              className="flex items-center gap-1"
+            >
+              <Calendar className="h-4 w-4" />
+              Last Month
+            </Button>
+          </div>
+          <Button variant="outline" onClick={fetchOffers} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Category Cards */}
@@ -337,17 +452,38 @@ const AdminOfferInsights = () => {
         <TabsContent value="offers">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                {currentCategory && (
-                  <>
-                    <currentCategory.icon className={`h-5 w-5 ${currentCategory.textColor}`} />
-                    {currentCategory.title}
-                  </>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    {currentCategory && (
+                      <>
+                        <currentCategory.icon className={`h-5 w-5 ${currentCategory.textColor}`} />
+                        {currentCategory.title}
+                        <Badge variant="outline" className="ml-2">
+                          {timePeriod === 'week' ? 'Last 7 Days' : 'Last 30 Days'}
+                        </Badge>
+                      </>
+                    )}
+                  </CardTitle>
+                  <CardDescription>
+                    Select multiple offers to send in a single email campaign
+                  </CardDescription>
+                </div>
+                {selectedOffers.size > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-sm">
+                      {selectedOffers.size} offer{selectedOffers.size > 1 ? 's' : ''} selected
+                    </Badge>
+                    <Button onClick={handleBulkEmailModal}>
+                      <Mail className="h-4 w-4 mr-2" />
+                      Send Campaign ({selectedOffers.size})
+                    </Button>
+                    <Button variant="outline" onClick={() => setSelectedOffers(new Set())}>
+                      Clear
+                    </Button>
+                  </div>
                 )}
-              </CardTitle>
-              <CardDescription>
-                Click on an offer to send email campaign to partners
-              </CardDescription>
+              </div>
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -356,69 +492,147 @@ const AdminOfferInsights = () => {
                 </div>
               ) : offers.length === 0 ? (
                 <div className="text-center py-12">
-                  <p className="text-muted-foreground">No offers found for this category</p>
+                  {selectedCategory === 'price_mismatch' ? (
+                    <>
+                      <DollarSign className="h-12 w-12 mx-auto text-green-500 mb-4" />
+                      <p className="text-muted-foreground font-medium">No price mismatches detected</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        All offer prices are in sync. Price mismatches will appear here when detected during sheet uploads.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-muted-foreground">No offers found for this category</p>
+                  )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {offers.map((offer, index) => (
-                    <Card
-                      key={offer.offer_id}
-                      className={`cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] ${currentCategory?.bgColor} ${currentCategory?.borderColor} border`}
-                      onClick={() => handleSelectOffer(offer)}
-                    >
-                      <CardContent className="pt-4">
-                        <div className="flex items-start gap-3">
-                          <div className="relative">
-                            <Badge 
-                              className={`absolute -top-2 -left-2 ${currentCategory?.color} text-white`}
-                            >
-                              #{index + 1}
-                            </Badge>
-                            <img
-                              src={offer.image_url || PLACEHOLDER_IMAGE}
-                              alt={offer.name}
-                              className="w-16 h-16 rounded-lg object-cover border-2 border-white shadow"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).src = PLACEHOLDER_IMAGE;
+                <>
+                  {/* Warning banner when no tracking data */}
+                  {!hasTrackingData && (
+                    <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-3">
+                      <AlertTriangle className="h-5 w-5 text-amber-600 flex-shrink-0" />
+                      <div>
+                        <p className="font-medium text-amber-800">No tracking data available</p>
+                        <p className="text-sm text-amber-600">
+                          Showing top offers by payout. Real click/conversion data will appear once tracking events are recorded.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {offers.map((offer, index) => {
+                    const isSelected = selectedOffers.has(offer.offer_id);
+                    return (
+                      <Card
+                        key={offer.offer_id}
+                        className={`cursor-pointer transition-all hover:shadow-lg hover:scale-[1.02] ${currentCategory?.bgColor} ${currentCategory?.borderColor} border ${isSelected ? 'ring-2 ring-primary' : ''}`}
+                      >
+                        <CardContent className="pt-4">
+                          <div className="flex items-start gap-3">
+                            {/* Checkbox for multi-select */}
+                            <div 
+                              className="mt-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleOfferSelection(offer.offer_id);
                               }}
-                            />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold truncate">{offer.name}</h4>
-                            <Badge variant="outline" className="mt-1 text-xs">
-                              {offer.category || 'General'}
-                            </Badge>
-                            <div className="flex items-center gap-4 mt-2">
-                              <div>
-                                <span className="text-xs text-muted-foreground">Payout</span>
-                                <p className="font-bold text-green-600">${offer.payout.toFixed(2)}</p>
-                              </div>
-                              <div>
-                                <span className="text-xs text-muted-foreground capitalize">
-                                  {offer.metric_label}
-                                </span>
-                                <p className={`font-bold ${currentCategory?.textColor}`}>
-                                  {offer.metric_value.toLocaleString()}
-                                </p>
-                              </div>
+                            >
+                              <Checkbox
+                                checked={isSelected}
+                                onCheckedChange={() => toggleOfferSelection(offer.offer_id)}
+                              />
+                            </div>
+                            <div className="relative">
+                              <Badge 
+                                className={`absolute -top-2 -left-2 ${currentCategory?.color} text-white`}
+                              >
+                                #{index + 1}
+                              </Badge>
+                              <img
+                                src={offer.image_url || PLACEHOLDER_IMAGE}
+                                alt={offer.name}
+                                className="w-16 h-16 rounded-lg object-cover border-2 border-white shadow"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = PLACEHOLDER_IMAGE;
+                                }}
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold truncate">{offer.name}</h4>
+                              <Badge variant="outline" className="mt-1 text-xs">
+                                {offer.category || 'General'}
+                              </Badge>
                             </div>
                           </div>
-                        </div>
-                        <Button 
-                          className="w-full mt-4" 
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectOffer(offer);
-                          }}
-                        >
-                          <Mail className="h-4 w-4 mr-2" />
-                          Send Email Campaign
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  ))}
+                          
+                          {/* Stats Row - Full Info Display */}
+                          <div className="grid grid-cols-3 gap-2 mt-4 p-3 bg-white/50 rounded-lg">
+                            {/* Price Mismatch: Show old price → new price */}
+                            {selectedCategory === 'price_mismatch' && offer.new_payout !== undefined ? (
+                              <>
+                                <div className="text-center">
+                                  <span className="text-xs text-muted-foreground block">Old Payout</span>
+                                  <p className="font-bold text-gray-500 text-lg line-through">${offer.payout.toFixed(2)}</p>
+                                </div>
+                                <div className="text-center border-x border-gray-200">
+                                  <span className="text-xs text-muted-foreground block">New Payout</span>
+                                  <p className={`font-bold text-lg ${offer.price_change_type === 'increase' ? 'text-green-600' : 'text-red-600'}`}>
+                                    ${offer.new_payout.toFixed(2)}
+                                  </p>
+                                </div>
+                                <div className="text-center">
+                                  <span className="text-xs text-muted-foreground block">Change</span>
+                                  <p className={`font-bold text-lg ${offer.price_change_type === 'increase' ? 'text-green-600' : 'text-red-600'}`}>
+                                    {offer.price_change_type === 'increase' ? '+' : ''}{offer.percent_change?.toFixed(1)}%
+                                  </p>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="text-center">
+                                  <span className="text-xs text-muted-foreground block">Payout</span>
+                                  <p className="font-bold text-green-600 text-lg">${offer.payout.toFixed(2)}</p>
+                                </div>
+                                <div className="text-center border-x border-gray-200">
+                                  <span className="text-xs text-muted-foreground block capitalize">
+                                    {offer.metric_label}
+                                  </span>
+                                  <p className={`font-bold text-lg ${currentCategory?.textColor}`}>
+                                    {typeof offer.metric_value === 'number' ? offer.metric_value.toLocaleString() : offer.metric_value}
+                                  </p>
+                                </div>
+                                {offer.conversion_rate !== undefined && (
+                                  <div className="text-center">
+                                    <span className="text-xs text-muted-foreground block">Conv. Rate</span>
+                                    <p className="font-bold text-blue-600 text-lg">{offer.conversion_rate}%</p>
+                                  </div>
+                                )}
+                                {offer.conversion_rate === undefined && (
+                                  <div className="text-center">
+                                    <span className="text-xs text-muted-foreground block">Rank</span>
+                                    <p className={`font-bold text-lg ${currentCategory?.textColor}`}>#{index + 1}</p>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                          
+                          <Button 
+                            className="w-full mt-4" 
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSelectOffer(offer);
+                            }}
+                          >
+                            <Mail className="h-4 w-4 mr-2" />
+                            Send Single Email
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
+                </>
               )}
             </CardContent>
           </Card>
@@ -505,13 +719,16 @@ const AdminOfferInsights = () => {
               Send Email Campaign
             </DialogTitle>
             <DialogDescription>
-              Send targeted email about this offer to selected partners
+              {selectedOffer 
+                ? 'Send targeted email about this offer to selected partners'
+                : `Send email campaign with ${selectedOffers.size} selected offers`
+              }
             </DialogDescription>
           </DialogHeader>
 
-          {selectedOffer && (
-            <div className="space-y-6">
-              {/* Selected Offer Preview */}
+          <div className="space-y-6">
+            {/* Selected Offers Preview */}
+            {selectedOffer ? (
               <div className={`p-4 rounded-lg ${currentCategory?.bgColor} ${currentCategory?.borderColor} border`}>
                 <div className="flex items-center gap-4">
                   <img
@@ -534,92 +751,158 @@ const AdminOfferInsights = () => {
                   </div>
                 </div>
               </div>
-
-              {/* Custom Message */}
-              <div className="space-y-2">
-                <Label>Custom Message (Optional)</Label>
-                <Textarea
-                  placeholder="Add a personal message to include in the email..."
-                  value={customMessage}
-                  onChange={(e) => setCustomMessage(e.target.value)}
-                  rows={3}
-                />
-              </div>
-
-              {/* Partner Selection */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    Select Partners ({selectedPartners.size} selected)
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        placeholder="Search partners..."
-                        value={partnerSearch}
-                        onChange={(e) => setPartnerSearch(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && fetchPartners()}
-                        className="pl-9 w-64"
+            ) : (
+              <div className={`p-4 rounded-lg ${currentCategory?.bgColor} ${currentCategory?.borderColor} border`}>
+                <h4 className="font-semibold mb-3">Selected Offers ({selectedOffers.size})</h4>
+                <div className="grid grid-cols-2 gap-3 max-h-48 overflow-y-auto">
+                  {getSelectedOffersData().map((offer) => (
+                    <div key={offer.offer_id} className="flex items-center gap-2 p-2 bg-white/50 rounded-lg">
+                      <img
+                        src={offer.image_url || PLACEHOLDER_IMAGE}
+                        alt={offer.name}
+                        className="w-10 h-10 rounded object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = PLACEHOLDER_IMAGE;
+                        }}
                       />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm truncate">{offer.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          ${offer.payout.toFixed(2)} • {offer.metric_value.toLocaleString()} {offer.metric_label}
+                        </p>
+                      </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={selectAllPartners}>
-                      {selectedPartners.size === partners.length ? 'Deselect All' : 'Select All'}
-                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Custom Message */}
+            <div className="space-y-2">
+              <Label>Custom Message (Optional)</Label>
+              <Textarea
+                placeholder="Add a personal message to include in the email..."
+                value={customMessage}
+                onChange={(e) => setCustomMessage(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            {/* Schedule Email Section */}
+            <div className="space-y-3 p-4 border rounded-lg bg-muted/30">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  Schedule Email
+                </Label>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="schedule-toggle"
+                    checked={scheduleEnabled}
+                    onCheckedChange={(checked) => setScheduleEnabled(checked as boolean)}
+                  />
+                  <label htmlFor="schedule-toggle" className="text-sm cursor-pointer">
+                    Schedule for later
+                  </label>
+                </div>
+              </div>
+              
+              {scheduleEnabled && (
+                <div className="grid grid-cols-2 gap-4 mt-3">
+                  <div className="space-y-2">
+                    <Label>Date</Label>
+                    <Input
+                      type="date"
+                      value={scheduleDate}
+                      onChange={(e) => setScheduleDate(e.target.value)}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Time</Label>
+                    <Input
+                      type="time"
+                      value={scheduleTime}
+                      onChange={(e) => setScheduleTime(e.target.value)}
+                    />
                   </div>
                 </div>
+              )}
+            </div>
 
-                <div className="border rounded-lg max-h-64 overflow-y-auto">
-                  {partnersLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                      <RefreshCw className="h-6 w-6 animate-spin" />
-                    </div>
-                  ) : partners.length === 0 ? (
-                    <div className="text-center py-8 text-muted-foreground">
-                      No partners found
-                    </div>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="w-12"></TableHead>
-                          <TableHead>Username</TableHead>
-                          <TableHead>Email</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {partners.map((partner) => (
-                          <TableRow
-                            key={partner._id}
-                            className={`cursor-pointer ${
-                              selectedPartners.has(partner._id) ? 'bg-primary/5' : ''
-                            }`}
-                            onClick={() => togglePartnerSelection(partner._id)}
-                          >
-                            <TableCell>
-                              <Checkbox
-                                checked={selectedPartners.has(partner._id)}
-                                onCheckedChange={() => togglePartnerSelection(partner._id)}
-                              />
-                            </TableCell>
-                            <TableCell className="font-medium">{partner.username}</TableCell>
-                            <TableCell>{partner.email}</TableCell>
-                            <TableCell>
-                              <Badge variant={partner.is_active ? 'default' : 'secondary'}>
-                                {partner.is_active ? 'Active' : 'Inactive'}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
+            {/* Partner Selection */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  Select Partners ({selectedPartners.size} selected)
+                </Label>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search partners..."
+                      value={partnerSearch}
+                      onChange={(e) => setPartnerSearch(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && fetchPartners()}
+                      className="pl-9 w-64"
+                    />
+                  </div>
+                  <Button variant="outline" size="sm" onClick={selectAllPartners}>
+                    {selectedPartners.size === partners.length ? 'Deselect All' : 'Select All'}
+                  </Button>
                 </div>
               </div>
+
+              <div className="border rounded-lg max-h-64 overflow-y-auto">
+                {partnersLoading ? (
+                  <div className="flex items-center justify-center py-8">
+                    <RefreshCw className="h-6 w-6 animate-spin" />
+                  </div>
+                ) : partners.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No partners found
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-12"></TableHead>
+                        <TableHead>Username</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {partners.map((partner) => (
+                        <TableRow
+                          key={partner._id}
+                          className={`cursor-pointer ${
+                            selectedPartners.has(partner._id) ? 'bg-primary/5' : ''
+                          }`}
+                          onClick={() => togglePartnerSelection(partner._id)}
+                        >
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedPartners.has(partner._id)}
+                              onCheckedChange={() => togglePartnerSelection(partner._id)}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium">{partner.username}</TableCell>
+                          <TableCell>{partner.email}</TableCell>
+                          <TableCell>
+                            <Badge variant={partner.is_active ? 'default' : 'secondary'}>
+                              {partner.is_active ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
             </div>
-          )}
+          </div>
 
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setEmailModalOpen(false)}>
@@ -636,7 +919,12 @@ const AdminOfferInsights = () => {
               {sending ? (
                 <>
                   <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Sending...
+                  {scheduleEnabled ? 'Scheduling...' : 'Sending...'}
+                </>
+              ) : scheduleEnabled ? (
+                <>
+                  <Clock className="h-4 w-4 mr-2" />
+                  Schedule for {selectedPartners.size} Partners
                 </>
               ) : (
                 <>

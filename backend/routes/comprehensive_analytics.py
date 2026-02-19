@@ -594,33 +594,111 @@ def get_click_history():
         if offer_id:
             filters['offer_id'] = offer_id
         
-        clicks_col = db_instance.get_collection('offerwall_clicks_detailed')
+        # Get all click collections
+        clicks_detailed_col = db_instance.get_collection('offerwall_clicks_detailed')
+        clicks_offerwall_col = db_instance.get_collection('offerwall_clicks')
+        clicks_simple_col = db_instance.get_collection('clicks')  # Simple tracking clicks
         
-        # Get total count
-        total = clicks_col.count_documents(filters)
+        all_clicks = []
         
-        # Get clicks with all details
-        clicks = list(clicks_col.find(filters)
-                     .sort('timestamp', -1)
-                     .skip(skip)
-                     .limit(limit))
+        # 1. Get clicks from offerwall_clicks_detailed
+        if clicks_detailed_col is not None:
+            detailed_clicks = list(clicks_detailed_col.find(filters)
+                                  .sort('timestamp', -1)
+                                  .limit(limit))
+            all_clicks.extend(detailed_clicks)
+        
+        # 2. Get clicks from offerwall_clicks (basic)
+        if clicks_offerwall_col is not None:
+            offerwall_clicks = list(clicks_offerwall_col.find(filters)
+                                   .sort('timestamp', -1)
+                                   .limit(limit))
+            all_clicks.extend(offerwall_clicks)
+        
+        # 3. Get clicks from simple tracking (clicks collection)
+        if clicks_simple_col is not None:
+            simple_filters = {}
+            if user_id:
+                simple_filters['user_id'] = user_id
+            if publisher_id:
+                simple_filters['affiliate_id'] = publisher_id  # Simple tracking uses affiliate_id
+            if offer_id:
+                simple_filters['offer_id'] = offer_id
+            
+            simple_clicks = list(clicks_simple_col.find(simple_filters)
+                                .sort('timestamp', -1)
+                                .limit(limit))
+            all_clicks.extend(simple_clicks)
+        
+        # Remove duplicates by click_id and sort by timestamp
+        seen_click_ids = set()
+        unique_clicks = []
+        for click in all_clicks:
+            click_id = click.get('click_id')
+            if click_id and click_id not in seen_click_ids:
+                seen_click_ids.add(click_id)
+                unique_clicks.append(click)
+        
+        # Sort by timestamp descending
+        unique_clicks.sort(key=lambda x: x.get('timestamp') or datetime.min, reverse=True)
+        unique_clicks = unique_clicks[:limit]
         
         # Format response for clicks
         formatted_clicks = []
-        for click in clicks:
+        for click in unique_clicks:
+            # Handle different click formats (detailed, basic, simple)
+            device_info = click.get('device', {})
+            if not device_info and click.get('device_type'):
+                device_info = {
+                    'device_type': click.get('device_type'),
+                    'browser': click.get('browser', 'Unknown'),
+                    'os': click.get('os', 'Unknown')
+                }
+            
+            geo_info = click.get('geo', {})
+            if not geo_info and click.get('country'):
+                geo_info = {
+                    'country': click.get('country'),
+                    'city': click.get('city', 'Unknown'),
+                    'region': click.get('region', 'Unknown')
+                }
+            
+            network_info = click.get('network', {})
+            if not network_info and click.get('ip_address'):
+                network_info = {
+                    'ip_address': click.get('ip_address'),
+                    'isp': click.get('isp', 'Unknown')
+                }
+            
+            fraud_info = click.get('fraud_indicators', {})
+            if not fraud_info:
+                fraud_info = {
+                    'fraud_score': click.get('fraud_score', 0),
+                    'fraud_status': click.get('fraud_status', 'clean'),
+                    'is_duplicate': click.get('is_duplicate', False)
+                }
+            
+            # Get offer name from different possible fields
+            offer_name = (click.get('offer_name') or 
+                         click.get('data', {}).get('offer_name') or 
+                         'Unknown Offer')
+            
+            # Get publisher_id from different possible fields
+            pub_id = click.get('publisher_id') or click.get('affiliate_id') or 'Unknown'
+            
             formatted_clicks.append({
                 'click_id': click.get('click_id'),
                 'user_id': click.get('user_id'),
-                'publisher_id': click.get('publisher_id'),
+                'publisher_id': pub_id,
                 'publisher_name': click.get('publisher_name', 'Unknown'),
                 'offer_id': click.get('offer_id'),
-                'offer_name': click.get('offer_name'),
-                'placement_id': click.get('placement_id'),
+                'offer_name': offer_name,
+                'placement_id': click.get('placement_id') or click.get('sub_id1', ''),
                 'timestamp': click.get('timestamp').isoformat() if click.get('timestamp') else None,
-                'device': click.get('device', {}),
-                'network': click.get('network', {}),
-                'geo': click.get('geo', {}),
-                'fraud_indicators': click.get('fraud_indicators', {}),
+                'device': device_info,
+                'network': network_info,
+                'geo': geo_info,
+                'fraud_indicators': fraud_info,
                 'event_type': 'click',
             })
         
@@ -680,17 +758,33 @@ def get_click_history():
 def get_click_details(click_id):
     """Get detailed information about a specific click or conversion"""
     try:
-        # Try to find in clicks first
+        click = None
+        
+        # Try to find in detailed clicks first
         clicks_col = db_instance.get_collection('offerwall_clicks_detailed')
-        click = clicks_col.find_one({'click_id': click_id})
+        if clicks_col is not None:
+            click = clicks_col.find_one({'click_id': click_id})
+        
+        # If not found in detailed, try basic offerwall_clicks collection
+        if not click:
+            clicks_basic_col = db_instance.get_collection('offerwall_clicks')
+            if clicks_basic_col is not None:
+                click = clicks_basic_col.find_one({'click_id': click_id})
+        
+        # If not found, try simple tracking clicks collection
+        if not click:
+            clicks_simple_col = db_instance.get_collection('clicks')
+            if clicks_simple_col is not None:
+                click = clicks_simple_col.find_one({'click_id': click_id})
         
         # If not found, try conversions
         if not click:
             conversions_col = db_instance.get_collection('offerwall_conversions')
-            click = conversions_col.find_one({'conversion_id': click_id})
-            if click:
-                # Mark as conversion
-                click['event_type'] = 'conversion'
+            if conversions_col is not None:
+                click = conversions_col.find_one({'conversion_id': click_id})
+                if click:
+                    # Mark as conversion
+                    click['event_type'] = 'conversion'
         
         if not click:
             return jsonify({'error': 'Click/Conversion not found'}), 404
@@ -700,7 +794,7 @@ def get_click_details(click_id):
         
         # Get publisher name if not in click data
         publisher_name = click.get('publisher_name', 'Unknown')
-        publisher_id = click.get('publisher_id')
+        publisher_id = click.get('publisher_id') or click.get('affiliate_id')
         
         if publisher_name == 'Unknown' and click.get('placement_id'):
             try:
@@ -757,32 +851,43 @@ def get_click_details(click_id):
             'payout_amount': click.get('payout_amount'),
             'points_awarded': click.get('points_awarded'),
             
-            'device': {
-                'type': click.get('device', {}).get('type'),
-                'model': click.get('device', {}).get('model'),
-                'os': click.get('device', {}).get('os'),
-                'os_version': click.get('device', {}).get('os_version'),
-                'browser': click.get('device', {}).get('browser'),
-                'browser_version': click.get('device', {}).get('browser_version'),
-                'screen_resolution': click.get('device', {}).get('screen_resolution'),
-                'screen_dpi': click.get('device', {}).get('screen_dpi'),
-                'timezone': click.get('device', {}).get('timezone'),
-                'language': click.get('device', {}).get('language'),
+            'device': click.get('device') or {
+                'type': click.get('device_type'),
+                'model': None,
+                'os': click.get('os'),
+                'os_version': None,
+                'browser': click.get('browser'),
+                'browser_version': None,
+                'screen_resolution': None,
+                'screen_dpi': None,
+                'timezone': None,
+                'language': None,
             },
             
-            'fingerprint': {
-                'user_agent_hash': click.get('fingerprint', {}).get('user_agent_hash'),
-                'canvas': click.get('fingerprint', {}).get('canvas'),
-                'webgl': click.get('fingerprint', {}).get('webgl'),
-                'fonts': click.get('fingerprint', {}).get('fonts'),
-                'plugins': click.get('fingerprint', {}).get('plugins'),
+            'fingerprint': click.get('fingerprint') or {
+                'user_agent_hash': None,
+                'canvas': None,
+                'webgl': None,
+                'fonts': None,
+                'plugins': None,
             },
             
-            'network': click.get('network', {}),
+            'network': click.get('network') or {
+                'ip_address': click.get('ip_address'),
+                'isp': click.get('isp'),
+            },
             
-            'geo': click.get('geo', {}),
+            'geo': click.get('geo') or {
+                'country': click.get('country'),
+                'city': click.get('city'),
+                'region': click.get('region'),
+            },
             
-            'fraud_indicators': click.get('fraud_indicators', {}),
+            'fraud_indicators': click.get('fraud_indicators') or {
+                'fraud_score': click.get('fraud_score', 0),
+                'fraud_status': click.get('fraud_status', 'clean'),
+                'is_duplicate': click.get('is_duplicate', False),
+            },
         }
         
         return jsonify({
@@ -802,11 +907,18 @@ def get_user_click_timeline(user_id):
         limit = int(request.args.get('limit', 100))
         
         clicks_col = db_instance.get_collection('offerwall_clicks_detailed')
+        clicks_basic_col = db_instance.get_collection('offerwall_clicks')
         
-        # Get all clicks for this user
+        # Get all clicks for this user from detailed collection
         clicks = list(clicks_col.find({'user_id': user_id})
                      .sort('timestamp', -1)
                      .limit(limit))
+        
+        # If no clicks in detailed, try basic collection
+        if not clicks:
+            clicks = list(clicks_basic_col.find({'user_id': user_id})
+                         .sort('timestamp', -1)
+                         .limit(limit))
         
         # Format as timeline
         timeline = []
@@ -814,14 +926,14 @@ def get_user_click_timeline(user_id):
             timeline.append({
                 'click_id': click.get('click_id'),
                 'offer_id': click.get('offer_id'),
-                'offer_name': click.get('offer_name'),
+                'offer_name': click.get('offer_name') or click.get('data', {}).get('offer_name', 'Unknown Offer'),
                 'publisher_id': click.get('publisher_id'),
                 'timestamp': click.get('timestamp').isoformat() if click.get('timestamp') else None,
-                'device_type': click.get('device', {}).get('type'),
-                'country': click.get('geo', {}).get('country'),
-                'city': click.get('geo', {}).get('city'),
-                'ip_address': click.get('network', {}).get('ip_address'),
-                'fraud_status': click.get('fraud_indicators', {}).get('fraud_status'),
+                'device_type': click.get('device', {}).get('type') or click.get('device_type'),
+                'country': click.get('geo', {}).get('country') or click.get('country'),
+                'city': click.get('geo', {}).get('city') or click.get('city'),
+                'ip_address': click.get('network', {}).get('ip_address') or click.get('ip_address'),
+                'fraud_status': click.get('fraud_indicators', {}).get('fraud_status') or click.get('fraud_status', 'clean'),
             })
         
         return jsonify({
@@ -843,11 +955,18 @@ def get_publisher_click_timeline(publisher_id):
         limit = int(request.args.get('limit', 100))
         
         clicks_col = db_instance.get_collection('offerwall_clicks_detailed')
+        clicks_basic_col = db_instance.get_collection('offerwall_clicks')
         
-        # Get all clicks for this publisher
+        # Get all clicks for this publisher from detailed collection
         clicks = list(clicks_col.find({'publisher_id': publisher_id})
                      .sort('timestamp', -1)
                      .limit(limit))
+        
+        # If no clicks in detailed, try basic collection
+        if not clicks:
+            clicks = list(clicks_basic_col.find({'publisher_id': publisher_id})
+                         .sort('timestamp', -1)
+                         .limit(limit))
         
         # Format as timeline
         timeline = []
@@ -856,13 +975,13 @@ def get_publisher_click_timeline(publisher_id):
                 'click_id': click.get('click_id'),
                 'user_id': click.get('user_id'),
                 'offer_id': click.get('offer_id'),
-                'offer_name': click.get('offer_name'),
+                'offer_name': click.get('offer_name') or click.get('data', {}).get('offer_name', 'Unknown Offer'),
                 'timestamp': click.get('timestamp').isoformat() if click.get('timestamp') else None,
-                'device_type': click.get('device', {}).get('type'),
-                'country': click.get('geo', {}).get('country'),
-                'city': click.get('geo', {}).get('city'),
-                'ip_address': click.get('network', {}).get('ip_address'),
-                'fraud_status': click.get('fraud_indicators', {}).get('fraud_status'),
+                'device_type': click.get('device', {}).get('type') or click.get('device_type'),
+                'country': click.get('geo', {}).get('country') or click.get('country'),
+                'city': click.get('geo', {}).get('city') or click.get('city'),
+                'ip_address': click.get('network', {}).get('ip_address') or click.get('ip_address'),
+                'fraud_status': click.get('fraud_indicators', {}).get('fraud_status') or click.get('fraud_status', 'clean'),
             })
         
         return jsonify({

@@ -6,7 +6,7 @@ Match Key = Name + Country + Platform (iOS/Android/Web) + Payout Model
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Tuple, Any, Optional
 
 from database import db_instance
@@ -221,6 +221,7 @@ class MissingOfferService:
         """
         Process an offer and check if it's an inventory gap.
         If the offer doesn't exist in our inventory, store it as a missing offer.
+        Also detects price mismatches when offer exists but with different payout.
         
         Args:
             offer_data: Dictionary containing offer data
@@ -233,6 +234,7 @@ class MissingOfferService:
             - in_inventory: bool (True if offer exists)
             - match_key: str
             - missing_offer_id: str (if stored as missing)
+            - price_mismatch: dict (if price differs from existing offer)
         """
         # Generate match key
         match_key = cls.generate_match_key(offer_data)
@@ -244,8 +246,47 @@ class MissingOfferService:
             'in_inventory': exists,
             'match_key': match_key,
             'missing_offer_id': None,
-            'existing_offer_id': str(existing_offer.get('_id')) if existing_offer else None
+            'existing_offer_id': str(existing_offer.get('_id')) if existing_offer else None,
+            'price_mismatch': None
         }
+        
+        # Check for price mismatch if offer exists
+        if exists and existing_offer:
+            try:
+                # Get new payout from uploaded data
+                new_payout = float(offer_data.get('payout', 0) or 0)
+                existing_payout = float(existing_offer.get('payout', 0) or 0)
+                
+                # Check if prices differ (with small tolerance for floating point)
+                if abs(new_payout - existing_payout) > 0.01:
+                    price_diff = new_payout - existing_payout
+                    price_change_type = 'increase' if price_diff > 0 else 'decrease'
+                    
+                    price_mismatch_data = {
+                        'offer_id': existing_offer.get('offer_id'),
+                        'offer_name': existing_offer.get('name'),
+                        'existing_payout': existing_payout,
+                        'new_payout': new_payout,
+                        'price_difference': round(price_diff, 2),
+                        'price_change_type': price_change_type,
+                        'percent_change': round((price_diff / existing_payout * 100), 2) if existing_payout > 0 else 0,
+                        'source': source,
+                        'network': network,
+                        'upload_batch_id': upload_batch_id,
+                        'detected_at': datetime.utcnow(),
+                        'status': 'pending',  # pending, acknowledged, updated
+                        'category': existing_offer.get('category', ''),
+                        'image_url': existing_offer.get('image_url', ''),
+                        'countries': existing_offer.get('countries', [])
+                    }
+                    
+                    # Store price mismatch in database
+                    cls._store_price_mismatch(price_mismatch_data)
+                    result['price_mismatch'] = price_mismatch_data
+                    logger.info(f"Price mismatch detected: {existing_offer.get('name')} - ${existing_payout} -> ${new_payout}")
+                    
+            except Exception as e:
+                logger.error(f"Error checking price mismatch: {e}")
         
         if not exists:
             # Store as missing offer (inventory gap)
@@ -334,6 +375,132 @@ class MissingOfferService:
                 'upload_batch_id': upload_batch_id
             }
         }
+    
+    @classmethod
+    def _store_price_mismatch(cls, price_mismatch_data: Dict[str, Any]) -> Optional[Dict]:
+        """
+        Store a price mismatch record in the database.
+        
+        Args:
+            price_mismatch_data: Dictionary containing price mismatch details
+            
+        Returns:
+            The stored document or None if failed
+        """
+        try:
+            db = db_instance.get_db()
+            if db is None:
+                logger.error("Database not connected")
+                return None
+            
+            price_mismatches_collection = db['price_mismatches']
+            
+            # Check if this mismatch already exists (same offer, same new price, pending status)
+            existing = price_mismatches_collection.find_one({
+                'offer_id': price_mismatch_data['offer_id'],
+                'new_payout': price_mismatch_data['new_payout'],
+                'status': 'pending'
+            })
+            
+            if existing:
+                # Update the existing record with new detection time
+                price_mismatches_collection.update_one(
+                    {'_id': existing['_id']},
+                    {'$set': {'detected_at': datetime.utcnow(), 'detection_count': existing.get('detection_count', 1) + 1}}
+                )
+                return existing
+            
+            # Add detection count
+            price_mismatch_data['detection_count'] = 1
+            price_mismatch_data['created_at'] = datetime.utcnow()
+            
+            result = price_mismatches_collection.insert_one(price_mismatch_data)
+            price_mismatch_data['_id'] = result.inserted_id
+            
+            return price_mismatch_data
+            
+        except Exception as e:
+            logger.error(f"Error storing price mismatch: {e}")
+            return None
+    
+    @classmethod
+    def get_price_mismatches(cls, status: str = None, days: int = 30, limit: int = 100) -> List[Dict]:
+        """
+        Get price mismatch records from the database.
+        
+        Args:
+            status: Filter by status (pending, acknowledged, updated)
+            days: Number of days to look back
+            limit: Maximum number of records to return
+            
+        Returns:
+            List of price mismatch records
+        """
+        try:
+            db = db_instance.get_db()
+            if db is None:
+                return []
+            
+            price_mismatches_collection = db['price_mismatches']
+            
+            query = {}
+            if status:
+                query['status'] = status
+            
+            if days:
+                start_date = datetime.utcnow() - timedelta(days=days)
+                query['detected_at'] = {'$gte': start_date}
+            
+            results = list(price_mismatches_collection.find(query)
+                          .sort('detected_at', -1)
+                          .limit(limit))
+            
+            # Convert ObjectId to string
+            for r in results:
+                r['_id'] = str(r['_id'])
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error getting price mismatches: {e}")
+            return []
+    
+    @classmethod
+    def update_price_mismatch_status(cls, mismatch_id: str, status: str, updated_by: str = None) -> bool:
+        """
+        Update the status of a price mismatch record.
+        
+        Args:
+            mismatch_id: The _id of the price mismatch record
+            status: New status (acknowledged, updated)
+            updated_by: Username of who updated it
+            
+        Returns:
+            True if updated successfully
+        """
+        try:
+            from bson import ObjectId
+            
+            db = db_instance.get_db()
+            if db is None:
+                return False
+            
+            price_mismatches_collection = db['price_mismatches']
+            
+            result = price_mismatches_collection.update_one(
+                {'_id': ObjectId(mismatch_id)},
+                {'$set': {
+                    'status': status,
+                    'updated_at': datetime.utcnow(),
+                    'updated_by': updated_by
+                }}
+            )
+            
+            return result.modified_count > 0
+            
+        except Exception as e:
+            logger.error(f"Error updating price mismatch status: {e}")
+            return False
 
 
 # Singleton instance

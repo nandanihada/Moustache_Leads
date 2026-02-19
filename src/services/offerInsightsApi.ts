@@ -10,7 +10,7 @@ const getAuthHeaders = (): HeadersInit => {
   };
 };
 
-export type InsightType = 'highest_clicks' | 'highest_conversions' | 'high_clicks_low_conversion' | 'most_requested';
+export type InsightType = 'highest_clicks' | 'highest_conversions' | 'high_clicks_low_conversion' | 'most_requested' | 'price_mismatch';
 
 export interface InsightOffer {
   offer_id: string;
@@ -21,6 +21,12 @@ export interface InsightOffer {
   metric_value: number;
   metric_label: string;
   conversion_rate?: number;
+  no_tracking_data?: boolean;
+  // Price mismatch specific fields
+  new_payout?: number;
+  price_change_type?: 'increase' | 'decrease';
+  percent_change?: number;
+  mismatch_id?: string;
 }
 
 export interface InsightTemplate {
@@ -51,6 +57,9 @@ export interface EmailHistoryItem {
   failed_count: number;
   sent_by: string;
   created_at: string;
+  scheduled_at?: string;
+  status?: 'sent' | 'scheduled' | 'cancelled';
+  offers?: InsightOffer[];
 }
 
 export const offerInsightsApi = {
@@ -78,14 +87,15 @@ export const offerInsightsApi = {
     return response.json();
   },
 
-  // Preview email template
-  async previewEmail(insightType: InsightType, offer: InsightOffer, customMessage: string = '') {
+  // Preview email template (supports multiple offers)
+  async previewEmail(insightType: InsightType, offers: InsightOffer | InsightOffer[], customMessage: string = '') {
+    const offersArray = Array.isArray(offers) ? offers : [offers];
     const response = await fetch(`${API_BASE_URL}/api/admin/insights/preview-email`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
         insight_type: insightType,
-        offer,
+        offers: offersArray,
         custom_message: customMessage
       })
     });
@@ -93,21 +103,24 @@ export const offerInsightsApi = {
     return response.json();
   },
 
-  // Send emails to selected partners
+  // Send emails to selected partners (supports multiple offers and scheduling)
   async sendEmails(
     insightType: InsightType,
-    offer: InsightOffer,
+    offers: InsightOffer | InsightOffer[],
     partnerIds: string[],
-    customMessage: string = ''
+    customMessage: string = '',
+    scheduledAt?: string
   ) {
+    const offersArray = Array.isArray(offers) ? offers : [offers];
     const response = await fetch(`${API_BASE_URL}/api/admin/insights/send-email`, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify({
         insight_type: insightType,
-        offer,
+        offers: offersArray,
         partner_ids: partnerIds,
-        custom_message: customMessage
+        custom_message: customMessage,
+        scheduled_at: scheduledAt
       })
     });
     if (!response.ok) throw new Error('Failed to send emails');
@@ -120,6 +133,27 @@ export const offerInsightsApi = {
       headers: getAuthHeaders()
     });
     if (!response.ok) throw new Error('Failed to fetch email history');
+    return response.json();
+  },
+
+  // Cancel scheduled email
+  async cancelScheduledEmail(emailId: string) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/insights/cancel-scheduled/${emailId}`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) throw new Error('Failed to cancel scheduled email');
+    return response.json();
+  },
+
+  // Resume/reschedule a cancelled email
+  async resumeScheduledEmail(emailId: string, newScheduledAt: string) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/insights/resume-scheduled/${emailId}`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ scheduled_at: newScheduledAt })
+    });
+    if (!response.ok) throw new Error('Failed to resume scheduled email');
     return response.json();
   }
 };
