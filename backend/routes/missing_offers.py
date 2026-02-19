@@ -699,6 +699,12 @@ def check_inventory():
         in_inventory = []
         not_in_inventory = []
         
+        # Generate a batch ID for this upload
+        import uuid
+        upload_batch_id = f"batch_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+        
+        price_mismatches = []
+        
         for row in rows:
             row_number = row.get('_row_number', 'Unknown')
             
@@ -711,8 +717,23 @@ def check_inventory():
             # Generate match key
             match_key = MissingOfferService.generate_match_key(processed_data)
             
-            # Check if exists in inventory
-            exists, existing_offer = MissingOfferService.check_inventory_exists(match_key)
+            # Use process_offer_for_inventory_gap to also detect price mismatches
+            try:
+                gap_result = MissingOfferService.process_offer_for_inventory_gap(
+                    offer_data=processed_data,
+                    source='sheet_upload',
+                    network=processed_data.get('network', 'Unknown'),
+                    upload_batch_id=upload_batch_id
+                )
+                
+                exists = gap_result['in_inventory']
+                existing_offer_id = gap_result.get('existing_offer_id')
+            except Exception as gap_error:
+                logger.error(f"Error processing offer for inventory gap: {gap_error}", exc_info=True)
+                # Fallback to simple check
+                exists, existing_offer = MissingOfferService.check_inventory_exists(match_key)
+                existing_offer_id = str(existing_offer.get('_id', '')) if existing_offer else None
+                gap_result = {'price_mismatch': None}
             
             # Build result item
             result_item = {
@@ -728,8 +749,11 @@ def check_inventory():
             }
             
             if exists:
-                result_item['existing_offer_id'] = str(existing_offer.get('_id', '')) if existing_offer else None
-                result_item['existing_offer_name'] = existing_offer.get('name', '') if existing_offer else None
+                result_item['existing_offer_id'] = existing_offer_id
+                # Check if there was a price mismatch
+                if gap_result.get('price_mismatch'):
+                    result_item['price_mismatch'] = gap_result['price_mismatch']
+                    price_mismatches.append(result_item)
                 in_inventory.append(result_item)
             else:
                 not_in_inventory.append(result_item)
@@ -739,16 +763,18 @@ def check_inventory():
             'message': f'Checked {len(rows)} offers against inventory',
             'in_inventory': in_inventory,
             'not_in_inventory': not_in_inventory,
+            'price_mismatches': price_mismatches,
             'stats': {
                 'total': len(rows),
                 'have': len(in_inventory),
                 'dont_have': len(not_in_inventory),
+                'price_mismatches': len(price_mismatches),
                 'have_percent': round(len(in_inventory) / len(rows) * 100, 1) if rows else 0,
                 'dont_have_percent': round(len(not_in_inventory) / len(rows) * 100, 1) if rows else 0
             }
         }
         
-        logger.info(f"✅ Inventory check complete: {len(in_inventory)} have, {len(not_in_inventory)} don't have")
+        logger.info(f"✅ Inventory check complete: {len(in_inventory)} have, {len(not_in_inventory)} don't have, {len(price_mismatches)} price mismatches")
         
         return jsonify(response), 200
         

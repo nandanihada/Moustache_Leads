@@ -164,7 +164,9 @@ const AdminOfferInsights = () => {
     setLoading(true);
     try {
       const days = timePeriod === 'week' ? 7 : 30;
-      const response = await offerInsightsApi.getOfferInsights(selectedCategory, 10, days);
+      // Use higher limit for price_mismatch to show all detected mismatches
+      const limit = selectedCategory === 'price_mismatch' ? 100 : 10;
+      const response = await offerInsightsApi.getOfferInsights(selectedCategory, limit, days);
       setOffers(response.offers || []);
       setHasTrackingData(response.has_tracking_data !== false);
     } catch (error) {
