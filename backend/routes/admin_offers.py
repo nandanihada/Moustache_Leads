@@ -1180,18 +1180,25 @@ def bulk_upload_offers():
         if not valid_rows:
             return jsonify({'error': 'No valid data found in spreadsheet'}), 400
         
-        # Create offers normally (no inventory gap detection - that's for Missing Offers page)
-        logging.info(f"🔨 Creating {len(valid_rows)} offers with duplicate_strategy='{duplicate_strategy}'...")
-        created_offer_ids, creation_errors, skipped_duplicates = bulk_create_offers(
+        # Use OPTIMIZED bulk processor for large datasets (avoids Render timeout)
+        logging.info(f"🔨 Creating {len(valid_rows)} offers with OPTIMIZED bulk processor...")
+        
+        from database import db_instance
+        from utils.bulk_operations import get_bulk_offer_processor
+        
+        bulk_processor = get_bulk_offer_processor(db_instance)
+        result = bulk_processor.bulk_create_offers_optimized(
             valid_rows, 
             str(user['_id']),
             duplicate_strategy
         )
         
-        logging.info(f"✅ Created {len(created_offer_ids)} offers, skipped {len(skipped_duplicates)} duplicates")
+        created_offer_ids = result['created_ids']
+        creation_errors = result['errors']
+        skipped_duplicates = result['skipped_duplicates']
+        stats = result['stats']
         
-        if creation_errors:
-            logging.warning(f"⚠️ {len(creation_errors)} offers failed to create")
+        logging.info(f"✅ Bulk create complete: {stats['created']} created, {stats['skipped']} skipped, {stats['errors']} errors in {stats['elapsed_seconds']}s")
         
         # Prepare response
         response_data = {
@@ -1199,7 +1206,8 @@ def bulk_upload_offers():
             'created_count': len(created_offer_ids),
             'created_offer_ids': created_offer_ids,
             'total_rows': len(rows),
-            'success': True
+            'success': True,
+            'processing_time': stats['elapsed_seconds']
         }
         
         if skipped_duplicates:
@@ -1427,7 +1435,7 @@ def preview_api_offers():
 @token_required
 @subadmin_or_admin_required('offers')
 def import_api_offers():
-    """Import offers from affiliate network API"""
+    """Import offers from affiliate network API - OPTIMIZED for large batches"""
     try:
         data = request.get_json()
         
@@ -1446,55 +1454,31 @@ def import_api_offers():
         # Import services
         from services.network_api_service import network_api_service
         from services.network_field_mapper import network_field_mapper
-        from utils.duplicate_detection import create_duplicate_detector
+        from utils.bulk_operations import get_bulk_offer_processor
         
         # Get current user
         current_user = request.current_user
-        created_by = current_user.get('username', 'admin')
+        created_by = str(current_user.get('_id', current_user.get('username', 'admin')))
         
-        # Fetch offers
+        # Fetch offers from API
         offers, error = network_api_service.fetch_offers(
             network_id, api_key, network_type, filters
         )
         
-        # Debug logging
-        logging.info(f"🔍 API Import Debug:")
-        logging.info(f"   Network: {network_id}")
-        logging.info(f"   Type: {network_type}")
-        logging.info(f"   Offers fetched: {len(offers)}")
-        logging.info(f"   Error: {error}")
+        logging.info(f"🔍 API Import: Fetched {len(offers)} offers from {network_id}")
         
         if error:
-            return jsonify({
-                'success': False,
-                'error': error
-            }), 400
+            return jsonify({'success': False, 'error': error}), 400
         
-        # Initialize counters
-        imported_count = 0
-        skipped_count = 0
-        error_count = 0
-        missing_count = 0
-        imported_offers = []
-        skipped_offers = []
-        errors = []
-        missing_offers_list = []
+        if not offers:
+            return jsonify({'success': True, 'summary': {'total_fetched': 0, 'imported': 0}}), 200
         
-        # Import missing offer service for detection
-        try:
-            from services.missing_offer_service import MissingOfferService
-            from models.missing_offer import MissingOffer
-            missing_offer_service = MissingOfferService
-        except ImportError:
-            missing_offer_service = None
-            logging.warning("MissingOfferService not available, skipping missing offer detection")
-        
-        # Get duplicate strategy
+        # Get options
         skip_duplicates = options.get('skip_duplicates', True)
         update_existing = options.get('update_existing', False)
         auto_activate = options.get('auto_activate', True)
         
-        # Get approval workflow settings from options
+        # Get approval workflow settings
         approval_type = options.get('approval_type', 'auto_approve')
         auto_approve_delay = options.get('auto_approve_delay', 0)
         require_approval = options.get('require_approval', False)
@@ -1507,11 +1491,9 @@ def import_api_offers():
         elif approval_type in ['admin', 'approval']:
             approval_type = 'manual'
         
-        # Auto-set require_approval based on approval_type
         if approval_type in ['time_based', 'manual']:
             require_approval = True
         
-        # Build approval_settings object
         approval_settings = {
             'type': approval_type,
             'require_approval': require_approval,
@@ -1522,125 +1504,75 @@ def import_api_offers():
         
         duplicate_strategy = 'skip' if skip_duplicates else ('update' if update_existing else 'create_new')
         
-        # Create duplicate detector
-        duplicate_detector = create_duplicate_detector(db_instance)
+        # Step 1: Map all offers to DB format (fast, no DB calls)
+        mapped_offers = []
+        mapping_errors = []
         
-        # Process each offer
-        for offer_data in offers:
+        for idx, offer_data in enumerate(offers):
             try:
-                # Map to database format - pass network_id
                 mapped_offer = network_field_mapper.map_to_db_format(offer_data, network_type, network_id)
                 
                 if not mapped_offer:
-                    error_count += 1
-                    errors.append({
-                        'offer_name': 'Unknown',
-                        'error': 'Failed to map offer data'
-                    })
+                    mapping_errors.append({'row': idx + 1, 'error': 'Failed to map offer data'})
                     continue
                 
-                # Validate mapped offer
+                # Validate
                 is_valid, validation_errors = network_field_mapper.validate_mapped_offer(mapped_offer)
                 if not is_valid:
-                    error_count += 1
-                    errors.append({
-                        'offer_name': mapped_offer.get('name', 'Unknown'),
+                    mapping_errors.append({
+                        'row': idx + 1,
+                        'name': mapped_offer.get('name', 'Unknown'),
                         'error': ', '.join(validation_errors)
                     })
                     continue
                 
-                # Check for inventory gaps and store in missing offers collection
-                if missing_offer_service:
-                    result = missing_offer_service.process_offer_for_inventory_gap(
-                        offer_data=mapped_offer,
-                        source='api_fetch',
-                        network=network_id
-                    )
-                    if not result.get('in_inventory') and result.get('missing_offer_id'):
-                        missing_count += 1
-                        missing_offers_list.append({
-                            'name': mapped_offer.get('name', 'Unknown'),
-                            'match_key': result.get('match_key'),
-                            'missing_offer_id': result.get('missing_offer_id')
-                        })
-                        logging.info(f"Stored inventory gap from API: {result.get('match_key')}")
-                
-                # Check for duplicates
-                is_duplicate, duplicate_id, existing_offer = duplicate_detector.check_duplicate(
-                    mapped_offer, duplicate_strategy
-                )
-                
-                if is_duplicate and duplicate_strategy == 'skip':
-                    skipped_count += 1
-                    skipped_offers.append({
-                        'name': mapped_offer.get('name'),
-                        'reason': f'Already exists (campaign_id: {mapped_offer.get("campaign_id")})'
-                    })
-                    continue
-                
-                # Set status based on auto_activate option
+                # Apply settings
                 if not auto_activate:
                     mapped_offer['status'] = 'inactive'
                 
-                # Apply approval workflow settings
                 mapped_offer['approval_settings'] = approval_settings
                 mapped_offer['approval_type'] = approval_type
                 mapped_offer['auto_approve_delay'] = approval_settings['auto_approve_delay']
                 mapped_offer['require_approval'] = require_approval
+                mapped_offer['_row_number'] = idx + 1
                 
-                # Set affiliates to 'request' if approval is required
                 if require_approval or approval_type in ['time_based', 'manual']:
                     mapped_offer['affiliates'] = 'request'
                 
-                # Create or update offer
-                if is_duplicate and duplicate_strategy == 'update':
-                    # Update existing offer
-                    action, offer_id = duplicate_detector.handle_duplicate(
-                        mapped_offer, existing_offer, 'update'
-                    )
-                    imported_count += 1
-                    imported_offers.append(offer_id)
-                else:
-                    # Create new offer
-                    created_offer, create_error = offer_model.create_offer(mapped_offer, created_by)
-                    
-                    if create_error:
-                        error_count += 1
-                        errors.append({
-                            'offer_name': mapped_offer.get('name'),
-                            'error': create_error
-                        })
-                    else:
-                        imported_count += 1
-                        imported_offers.append(created_offer['offer_id'])
+                mapped_offers.append(mapped_offer)
                 
             except Exception as e:
-                error_count += 1
-                errors.append({
-                    'offer_name': mapped_offer.get('name', 'Unknown') if 'mapped_offer' in locals() else 'Unknown',
+                mapping_errors.append({
+                    'row': idx + 1,
                     'error': str(e)
                 })
-                logging.error(f"Error importing offer: {str(e)}", exc_info=True)
         
-        # Return summary
+        logging.info(f"✅ Mapped {len(mapped_offers)} offers, {len(mapping_errors)} mapping errors")
+        
+        # Step 2: Use optimized bulk processor
+        bulk_processor = get_bulk_offer_processor(db_instance)
+        result = bulk_processor.bulk_create_offers_optimized(
+            mapped_offers,
+            created_by,
+            duplicate_strategy
+        )
+        
+        # Build response
         response_data = {
             'success': True,
             'summary': {
                 'total_fetched': len(offers),
-                'imported': imported_count,
-                'skipped': skipped_count,
-                'errors': error_count,
-                'missing_data': missing_count
+                'imported': result['stats']['created'],
+                'skipped': result['stats']['skipped'],
+                'errors': result['stats']['errors'] + len(mapping_errors),
+                'processing_time': result['stats']['elapsed_seconds']
             },
-            'imported_offers': imported_offers,
-            'skipped_offers': skipped_offers[:10],  # Limit to first 10
-            'errors': errors[:10]  # Limit to first 10
+            'imported_offers': result['created_ids'],
+            'skipped_offers': result['skipped_duplicates'][:10],
+            'errors': (mapping_errors + result['errors'])[:10]
         }
         
-        # Include missing offers info if any
-        if missing_offers_list:
-            response_data['missing_offers'] = missing_offers_list[:10]  # Limit to first 10
-            response_data['summary']['message'] = f'{missing_count} offers have missing data (see Missing Offers tab)'
+        logging.info(f"✅ API Import complete: {result['stats']['created']} imported in {result['stats']['elapsed_seconds']}s")
         
         return jsonify(response_data), 200
         

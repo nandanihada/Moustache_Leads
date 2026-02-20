@@ -1,4 +1,4 @@
-﻿"""Admin Advertiser Management Routes"""
+"""Admin Advertiser Management Routes"""
 from flask import Blueprint, request, jsonify
 from bson import ObjectId
 from datetime import datetime, timedelta

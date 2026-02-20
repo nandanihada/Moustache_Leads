@@ -695,86 +695,34 @@ def check_inventory():
         
         logger.info(f"✅ Parsed {len(rows)} rows for inventory check")
         
-        # Process each row and check against inventory
-        in_inventory = []
-        not_in_inventory = []
+        # Use OPTIMIZED bulk inventory checker (avoids Render timeout)
+        from database import db_instance
+        from utils.bulk_operations import get_bulk_inventory_checker
+        from utils.bulk_offer_upload import map_spreadsheet_to_db, apply_default_values
         
-        # Generate a batch ID for this upload
-        import uuid
-        upload_batch_id = f"batch_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-        
-        price_mismatches = []
-        
+        # Pre-process all rows
+        processed_rows = []
         for row in rows:
             row_number = row.get('_row_number', 'Unknown')
-            
-            # Map spreadsheet columns to database fields
             mapped_data = map_spreadsheet_to_db(row)
-            
-            # Apply defaults to get proper field values
             processed_data = apply_default_values(mapped_data)
-            
-            # Generate match key
-            match_key = MissingOfferService.generate_match_key(processed_data)
-            
-            # Use process_offer_for_inventory_gap to also detect price mismatches
-            try:
-                gap_result = MissingOfferService.process_offer_for_inventory_gap(
-                    offer_data=processed_data,
-                    source='sheet_upload',
-                    network=processed_data.get('network', 'Unknown'),
-                    upload_batch_id=upload_batch_id
-                )
-                
-                exists = gap_result['in_inventory']
-                existing_offer_id = gap_result.get('existing_offer_id')
-            except Exception as gap_error:
-                logger.error(f"Error processing offer for inventory gap: {gap_error}", exc_info=True)
-                # Fallback to simple check
-                exists, existing_offer = MissingOfferService.check_inventory_exists(match_key)
-                existing_offer_id = str(existing_offer.get('_id', '')) if existing_offer else None
-                gap_result = {'price_mismatch': None}
-            
-            # Build result item
-            result_item = {
-                'row': row_number,
-                'name': processed_data.get('name', 'Unknown'),
-                'country': MissingOfferService.normalize_country(processed_data.get('countries', [])),
-                'platform': MissingOfferService.detect_platform(processed_data.get('name', '')),
-                'payout_model': MissingOfferService.normalize_payout_model(processed_data.get('payout_model', '')),
-                'payout': processed_data.get('payout', 0),
-                'network': processed_data.get('network', 'Unknown'),
-                'match_key': match_key,
-                'raw_data': row
-            }
-            
-            if exists:
-                result_item['existing_offer_id'] = existing_offer_id
-                # Check if there was a price mismatch
-                if gap_result.get('price_mismatch'):
-                    result_item['price_mismatch'] = gap_result['price_mismatch']
-                    price_mismatches.append(result_item)
-                in_inventory.append(result_item)
-            else:
-                not_in_inventory.append(result_item)
+            processed_data['_row_number'] = row_number
+            processed_rows.append(processed_data)
+        
+        # Use optimized bulk checker
+        bulk_checker = get_bulk_inventory_checker(db_instance)
+        result = bulk_checker.bulk_check_inventory(processed_rows)
         
         # Build response
         response = {
             'message': f'Checked {len(rows)} offers against inventory',
-            'in_inventory': in_inventory,
-            'not_in_inventory': not_in_inventory,
-            'price_mismatches': price_mismatches,
-            'stats': {
-                'total': len(rows),
-                'have': len(in_inventory),
-                'dont_have': len(not_in_inventory),
-                'price_mismatches': len(price_mismatches),
-                'have_percent': round(len(in_inventory) / len(rows) * 100, 1) if rows else 0,
-                'dont_have_percent': round(len(not_in_inventory) / len(rows) * 100, 1) if rows else 0
-            }
+            'in_inventory': result['in_inventory'],
+            'not_in_inventory': result['not_in_inventory'],
+            'price_mismatches': result['price_mismatches'],
+            'stats': result['stats']
         }
         
-        logger.info(f"✅ Inventory check complete: {len(in_inventory)} have, {len(not_in_inventory)} don't have, {len(price_mismatches)} price mismatches")
+        logger.info(f"✅ Inventory check complete in {result['stats']['elapsed_seconds']}s: {result['stats']['have']} have, {result['stats']['dont_have']} don't have")
         
         return jsonify(response), 200
         
