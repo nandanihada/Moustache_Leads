@@ -1429,7 +1429,7 @@ const AdminOffers = () => {
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
-                        <div>{offer.hits.toLocaleString()}</div>
+                        <div>{(offer.hits ?? 0).toLocaleString()}</div>
                         <div className="text-muted-foreground">
                           {offer.limit ? `/ ${offer.limit.toLocaleString()}` : '/ ∞'}
                         </div>

@@ -27,11 +27,11 @@ class BulkOfferProcessor:
     
     def __init__(self, db_instance):
         self.db = db_instance.get_db()
-        self.offers_collection = self.db['offers'] if self.db else None
+        self.offers_collection = self.db['offers'] if self.db is not None else None
     
     def bulk_check_duplicates(self, offers_data: List[Dict]) -> Dict[str, Dict]:
         """Check duplicates for all offers in ONE query."""
-        if not self.offers_collection or not offers_data:
+        if self.offers_collection is None or not offers_data:
             return {}
         
         campaign_ids = [o.get('campaign_id') for o in offers_data if o.get('campaign_id')]
@@ -83,7 +83,7 @@ class BulkOfferProcessor:
     
     def bulk_create_offers_optimized(self, validated_data: List[Dict], created_by: str, duplicate_strategy: str = 'skip') -> Dict[str, Any]:
         """Optimized bulk offer creation."""
-        if not self.offers_collection:
+        if self.offers_collection is None:
             return {
                 'created_ids': [],
                 'errors': [{'error': 'Database not connected'}],
@@ -177,11 +177,11 @@ class BulkInventoryChecker:
     
     def __init__(self, db_instance):
         self.db = db_instance.get_db()
-        self.offers_collection = self.db['offers'] if self.db else None
+        self.offers_collection = self.db['offers'] if self.db is not None else None
     
     def bulk_check_inventory(self, offers_data: List[Dict]) -> Dict[str, Any]:
         """Check multiple offers against inventory."""
-        if not self.offers_collection or not offers_data:
+        if self.offers_collection is None or not offers_data:
             return {
                 'in_inventory': [],
                 'not_in_inventory': offers_data,
