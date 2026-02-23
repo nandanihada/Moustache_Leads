@@ -227,15 +227,30 @@ class BulkOfferProcessor:
                     created_ids.extend(batch_ids)
                     logger.info(f"Batch {batch_num}/{total_batches}: inserted {len(result.inserted_ids)} offers")
                 except Exception as e:
-                    # Handle partial failures in batch
+                    # Handle partial failures — extract success count from BulkWriteError
                     logger.error(f"Batch {batch_num} partial failure: {e}")
-                    # Try to identify which succeeded
-                    for doc in batch:
-                        try:
-                            existing = self.offers_collection.find_one({'offer_id': doc['offer_id']})
-                            if existing:
+                    try:
+                        # BulkWriteError has details with nInserted and writeErrors
+                        details = getattr(e, 'details', {})
+                        n_inserted = details.get('nInserted', 0)
+                        write_errors = details.get('writeErrors', [])
+                        failed_indexes = {we['index'] for we in write_errors}
+                        
+                        # Count successful inserts without per-doc DB queries
+                        for idx, doc in enumerate(batch):
+                            if idx not in failed_indexes:
                                 created_ids.append(doc['offer_id'])
-                        except:
+                            else:
+                                errors.append({
+                                    'row': doc.get('_source_row', 'Unknown'),
+                                    'error': 'Duplicate offer_id collision',
+                                    'name': doc.get('name', 'Unknown')
+                                })
+                        
+                        logger.info(f"Batch {batch_num}: {n_inserted} inserted, {len(write_errors)} failed")
+                    except Exception:
+                        # Fallback: assume all failed
+                        for doc in batch:
                             errors.append({
                                 'row': doc.get('_source_row', 'Unknown'),
                                 'error': str(e),
@@ -263,17 +278,14 @@ class BulkOfferProcessor:
 
     
     def _prepare_offer_for_insert(self, offer_data: Dict, created_by: str, row_number: Any) -> Optional[Dict]:
-        """Prepare a single offer document for bulk insert."""
+        """Prepare a single offer document for bulk insert. No DB queries."""
         try:
-            # Generate offer_id
             import random
             import string
-            offer_id = f"ML-{''.join(random.choices(string.digits, k=5))}"
-            
-            # Ensure unique offer_id
-            while self.offers_collection.find_one({'offer_id': offer_id}):
-                offer_id = f"ML-{''.join(random.choices(string.digits, k=5))}"
-            
+            # Use 7-digit random ID to minimize collision chance (10M possibilities)
+            # If collision happens, insert_many(ordered=False) handles it gracefully
+            offer_id = f"ML-{''.join(random.choices(string.digits, k=7))}"
+
             doc = {
                 **offer_data,
                 'offer_id': offer_id,
@@ -284,15 +296,16 @@ class BulkOfferProcessor:
                 'status': offer_data.get('status', 'active'),
                 '_source_row': row_number
             }
-            
+
             # Remove any None values
             doc = {k: v for k, v in doc.items() if v is not None}
-            
+
             return doc
-            
+
         except Exception as e:
             logger.error(f"Error preparing offer: {e}")
             return None
+
     
     def _update_existing_offer(self, offer_id: str, new_data: Dict) -> bool:
         """Update an existing offer with new data."""

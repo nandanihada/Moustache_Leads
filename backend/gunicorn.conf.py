@@ -7,7 +7,11 @@ bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 # Workers
 workers = 2
 worker_class = "sync"
-timeout = 120  # 120 seconds (default was 30, which caused WORKER TIMEOUT)
+timeout = 180  # 3 minutes for bulk import operations
+
+# Prevent memory leaks — restart workers after N requests
+max_requests = 1000
+max_requests_jitter = 50
 
 # Logging
 accesslog = "-"
