@@ -229,10 +229,15 @@ const Offerwall: React.FC<OfferwallProps> = ({
   const [offers, setOffers] = useState<Offer[]>([]);
   const [filteredOffers, setFilteredOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [placementData, setPlacementData] = useState<any>(null);
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [skippedCount, setSkippedCount] = useState(0);
   
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -349,14 +354,18 @@ const Offerwall: React.FC<OfferwallProps> = ({
     }
   };
 
-  const loadOffers = async () => {
+  const loadOffers = async (page = 1, append = false) => {
     try {
-      setLoading(true);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
 
-      // Load offers - increased limit to show all offers
+      // Load offers with pagination (backend defaults to 100 per page, max 500)
       const offersResponse = await fetch(
-        `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000`
+        `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&page=${page}&limit=200`
       );
       
       if (!offersResponse.ok) {
@@ -369,7 +378,22 @@ const Offerwall: React.FC<OfferwallProps> = ({
         throw new Error(offersData.error);
       }
 
-      setOffers(offersData.offers || []);
+      const newOffers = offersData.offers || [];
+      
+      if (append) {
+        setOffers(prev => [...prev, ...newOffers]);
+      } else {
+        setOffers(newOffers);
+      }
+      
+      setCurrentPage(offersData.page || 1);
+      setTotalPages(offersData.total_pages || 1);
+      setTotalCount(offersData.total_count || newOffers.length);
+      setSkippedCount(offersData.skipped_count || 0);
+      
+      if (offersData.skipped_count > 0) {
+        console.warn(`⚠️ ${offersData.skipped_count} offers skipped due to bad data:`, offersData.skipped_offers);
+      }
       
       // Try to get placement data for branding
       try {
@@ -388,6 +412,13 @@ const Offerwall: React.FC<OfferwallProps> = ({
       setError(err instanceof Error ? err.message : 'Failed to load offers');
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+    }
+  };
+
+  const loadMoreOffers = () => {
+    if (currentPage < totalPages && !loadingMore) {
+      loadOffers(currentPage + 1, true);
     }
   };
 
@@ -461,7 +492,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
           <h2 className="text-2xl font-bold text-white mb-2">Unable to Load Offers</h2>
           <p className="text-red-200 mb-6">{error}</p>
           <button
-            onClick={loadOffers}
+            onClick={() => loadOffers()}
             className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white px-8 py-3 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg"
           >
             Try Again
@@ -479,7 +510,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
           <h2 className="text-2xl font-bold text-white mb-2">No Offers Available</h2>
           <p className="text-gray-300 mb-6">Check back soon for new opportunities!</p>
           <button
-            onClick={loadOffers}
+            onClick={() => loadOffers()}
             className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-8 py-3 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg"
           >
             Refresh
@@ -750,6 +781,28 @@ const Offerwall: React.FC<OfferwallProps> = ({
           })}
         </div>
 
+        )}
+
+        {/* Load More Button */}
+        {currentPage < totalPages && (
+          <div className="text-center mt-10">
+            <button
+              onClick={loadMoreOffers}
+              disabled={loadingMore}
+              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-10 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loadingMore ? 'Loading...' : `Load More (${totalCount - offers.length} remaining)`}
+            </button>
+          </div>
+        )}
+
+        {/* Skipped offers warning */}
+        {skippedCount > 0 && (
+          <div className="text-center mt-4">
+            <p className="text-yellow-400 text-sm">
+              ⚠️ {skippedCount} offer{skippedCount > 1 ? 's' : ''} couldn't be loaded due to data issues
+            </p>
+          </div>
         )}
 
         {/* Footer */}

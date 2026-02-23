@@ -86,66 +86,36 @@ class NetworkAPIService:
                 'Target': 'Affiliate_Offer',
                 'Method': 'findMyOffers',
                 'api_key': api_key,
-                'limit': 100,  # Get more for accurate count
-                'contain[]': ['Country', 'Thumbnail']  # Request related data
+                'limit': 100,
+                'contain[]': ['Country', 'Thumbnail']
             }
             
-            print("="*80)
-            print(f"🔍 TESTING HASOFFERS CONNECTION")
-            print(f"   URL: {url}")
-            print(f"   Network ID: {network_id}")
-            print(f"   Requesting: Country, Thumbnail data")
-            print("="*80)
+            logger.info(f"Testing HasOffers connection for {network_id}")
             
             response = self.session.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
             
-            print(f"✅ HTTP Status: {response.status_code}")
-            
             data = response.json()
             
-            print(f"📦 Response structure:")
-            print(f"   Top-level keys: {list(data.keys())}")
-            print(f"   Response status: {data.get('response', {}).get('status')}")
-            
-            # Check if response is successful
             if data.get('response', {}).get('status') == 1:
-                # Get actual offer data - HasOffers has nested data structure
                 response_data = data.get('response', {}).get('data', {})
-                
-                print(f"📊 Response data structure:")
-                print(f"   Type: {type(response_data)}")
-                print(f"   Keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'N/A'}")
                 
                 # Check if there's a nested 'data' key (pagination structure)
                 if isinstance(response_data, dict) and 'data' in response_data:
-                    print(f"   ✅ Found nested 'data' key (paginated response)")
                     offer_data = response_data.get('data', {})
                 else:
-                    print(f"   Using direct data structure")
                     offer_data = response_data
-                
-                print(f"📊 Offer data:")
-                print(f"   Type: {type(offer_data)}")
-                print(f"   Is dict: {isinstance(offer_data, dict)}")
                 
                 # Count actual offers
                 if isinstance(offer_data, dict):
-                    print(f"   Number of keys: {len(offer_data)}")
                     offer_count = len([v for v in offer_data.values() if isinstance(v, dict) and 'Offer' in v])
-                    print(f"   Offers with 'Offer' key: {offer_count}")
                 else:
                     offer_count = 0
-                    print(f"   ⚠️ Not a dict, count = 0")
                 
-                print(f"✅ Test connection successful: {offer_count} offers found")
-                print("="*80)
-                
+                logger.info(f"Connection successful: {offer_count} offers found for {network_id}")
                 return True, offer_count, None
             else:
                 error_msg = data.get('response', {}).get('errorMessage', 'Unknown error')
-                print(f"❌ API Error: {error_msg}")
-                print("="*80)
                 return False, None, f"API Error: {error_msg}"
                 
         except requests.exceptions.Timeout:
@@ -160,100 +130,64 @@ class NetworkAPIService:
     def _fetch_hasoffers_offers(self, network_id: str, api_key: str, 
                                filters: Optional[Dict] = None, 
                                limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
-        """Fetch offers from HasOffers API"""
+        """Fetch offers from HasOffers API — resilient per-offer parsing"""
         try:
             url = f"https://{network_id}.api.hasoffers.com/Apiv3/json"
-            
+
             params = {
                 'NetworkId': network_id,
                 'Target': 'Affiliate_Offer',
                 'Method': 'findMyOffers',
                 'api_key': api_key,
-                'limit': limit or 1000,  # Default to 1000 if not specified
-                'contain[]': ['Country', 'Thumbnail']  # Request related data
+                'limit': limit or 1000,
+                'contain[]': ['Country', 'Thumbnail']
             }
-            
-            # Add filters if provided
+
             if filters:
                 if filters.get('status'):
                     params['filters[status]'] = filters['status']
                 if filters.get('countries'):
                     params['filters[countries]'] = filters['countries']
-            
-            print("="*80)
-            print(f"🌐 FETCHING HASOFFERS OFFERS")
-            print(f"   URL: {url}")
-            print(f"   Network ID: {network_id}")
-            print(f"   Limit: {limit or 1000}")
-            print(f"   Requesting: Country, Thumbnail data")
-            print("="*80)
-            
+
+            logger.info(f"Fetching HasOffers offers from {network_id} (limit: {limit or 1000})")
+
             response = self.session.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
-            
-            print(f"✅ HTTP Status: {response.status_code}")
-            
+
             data = response.json()
-            
-            print(f"📦 Response structure:")
-            print(f"   Top-level keys: {list(data.keys())}")
-            print(f"   Response status: {data.get('response', {}).get('status')}")
-            
+
             if data.get('response', {}).get('status') != 1:
                 error_msg = data.get('response', {}).get('errorMessage', 'Unknown error')
-                print(f"❌ API Error: {error_msg}")
                 return [], f"API Error: {error_msg}"
-            
-            # Parse offers from response - HasOffers has nested data structure
+
+            # Parse offers from response — HasOffers has nested data structure
             response_data = data.get('response', {}).get('data', {})
-            
-            print(f"📊 Response data structure:")
-            print(f"   Type: {type(response_data)}")
-            print(f"   Keys: {list(response_data.keys()) if isinstance(response_data, dict) else 'N/A'}")
-            
+
             # Check if there's a nested 'data' key (pagination structure)
             if isinstance(response_data, dict) and 'data' in response_data:
-                print(f"   ✅ Found nested 'data' key (paginated response)")
                 offers_data = response_data.get('data', {})
             else:
-                print(f"   Using direct data structure")
                 offers_data = response_data
-            
+
             offers = []
-            
-            print(f"📊 Offers data:")
-            print(f"   Type: {type(offers_data)}")
-            print(f"   Is dict: {isinstance(offers_data, dict)}")
-            
+            skipped = 0
+
             if isinstance(offers_data, dict):
-                print(f"   Number of offer keys: {len(offers_data)}")
-                print(f"   First 3 keys: {list(offers_data.keys())[:3]}")
-                
                 for offer_id, offer_info in offers_data.items():
-                    print(f"\n   Processing offer ID: {offer_id}")
-                    print(f"      Type: {type(offer_info)}")
-                    print(f"      Is dict: {isinstance(offer_info, dict)}")
-                    
-                    if isinstance(offer_info, dict):
-                        print(f"      Keys: {list(offer_info.keys())[:5]}")
-                        print(f"      Has 'Offer': {'Offer' in offer_info}")
-                        
-                        if 'Offer' in offer_info:
-                            offer_name = offer_info.get('Offer', {}).get('name', 'Unknown')
-                            print(f"      ✅ Adding offer: {offer_name}")
+                    try:
+                        if isinstance(offer_info, dict) and 'Offer' in offer_info:
                             offers.append(offer_info)
                         else:
-                            print(f"      ⚠️ No 'Offer' key found")
-                    else:
-                        print(f"      ⚠️ Not a dict, skipping")
-            else:
-                print(f"   ⚠️ offers_data is not a dict!")
-            
-            print(f"\n✅ Total offers collected: {len(offers)}")
-            print("="*80)
-            
+                            skipped += 1
+                            logger.debug(f"Skipped offer {offer_id}: missing 'Offer' key or not a dict")
+                    except Exception as e:
+                        skipped += 1
+                        logger.warning(f"Error parsing offer {offer_id}: {e}")
+
+            logger.info(f"Fetched {len(offers)} offers from {network_id} ({skipped} skipped)")
+
             return offers, None
-            
+
         except requests.exceptions.Timeout:
             return [], "Connection timeout. Please try again."
         except requests.exceptions.ConnectionError:
@@ -263,6 +197,7 @@ class NetworkAPIService:
         except Exception as e:
             logger.error(f"Error fetching HasOffers offers: {str(e)}", exc_info=True)
             return [], f"Error: {str(e)}"
+
     
     # ==================== Commission Junction Implementation ====================
     

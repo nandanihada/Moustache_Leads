@@ -1380,14 +1380,7 @@ def preview_api_offers():
         )
         
         # Debug with print (always shows)
-        print("="*80)
-        print(f"🔍 PREVIEW DEBUG:")
-        print(f"   Network: {network_id}")
-        print(f"   Type: {network_type}")
-        print(f"   Total available: {total_count}")
-        print(f"   Preview offers fetched: {len(offers)}")
-        print(f"   Error: {error}")
-        print("="*80)
+        logging.info(f"Preview: {network_id} ({network_type}) - {total_count} total, {len(offers)} fetched")
         
         if error:
             return jsonify({
@@ -1408,9 +1401,8 @@ def preview_api_offers():
                         'countries': mapped.get('countries', []),
                         'status': mapped.get('status', 'active')
                     })
-                    logging.info(f"   ✅ Mapped preview offer: {mapped.get('name')}")
             except Exception as e:
-                logging.error(f"   ❌ Error mapping offer: {str(e)}")
+                logging.warning(f"Error mapping preview offer: {str(e)}")
                 continue
         
         logging.info(f"✅ Returning {len(preview_offers)} preview offers (total available: {total_count})")

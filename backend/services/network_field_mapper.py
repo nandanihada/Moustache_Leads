@@ -160,7 +160,7 @@ class NetworkFieldMapper:
                 'name': formatted_name,  # Use formatted name
                 'description': clean_description,  # Use cleaned description
                 'preview_url': offer.get('preview_url', 'https://www.google.com'),
-                'payout': float(offer.get('default_payout', 0)),
+                'payout': float(offer.get('default_payout', 0) or 0),
                 'currency': offer.get('currency') or 'USD',  # Handle null currency
                 'status': self._normalize_status(offer.get('status', 'active')),
                 'network': network_name,  # Use actual network ID
@@ -180,16 +180,7 @@ class NetworkFieldMapper:
             tracking_link = offer.get('preview_url') or 'https://example.com/offer'
             mapped['target_url'] = tracking_link
             
-            logger.info(f"🔍 Mapping offer: {mapped['name']}")
-            logger.info(f"   Campaign ID: {mapped['campaign_id']}")
-            logger.info(f"   Target URL: {mapped['target_url']}")
-            logger.info(f"   Payout: {mapped['payout']} {mapped['currency']}")
-            logger.info(f"   Payout Type: {mapped['offer_type']}")
-            logger.info(f"   Conversion Type: {mapped.get('conversion_type', 'Not provided')}")
-            logger.info(f"   Device Targeting: {mapped.get('device_targeting', 'Not provided')}")
-            logger.info(f"   Traffic Type: {mapped.get('traffic_type', 'Not provided')}")
-            logger.info(f"   Conversion Window: {mapped.get('conversion_window', 'Not provided')}")
-            logger.info(f"   Protocol: {mapped.get('tracking_protocol', 'Not provided')}")
+            logger.debug(f"Mapping offer: {mapped['name']} (campaign: {mapped['campaign_id']})")
             
             # Handle expiration date
             expiration = offer.get('expiration_date')
@@ -210,8 +201,6 @@ class NetworkFieldMapper:
             countries = self._extract_countries(offer_data, offer)
             mapped['countries'] = countries if countries else ['US']
             
-            logger.info(f"   Countries: {mapped['countries']}")
-            
             # ENHANCEMENT 3: Extract tracking protocol - Use ONLY real data
             protocol = offer.get('protocol') or offer.get('tracking_protocol')
             mapped['tracking_protocol'] = protocol if protocol else ''
@@ -228,7 +217,6 @@ class NetworkFieldMapper:
                 offer_name = mapped.get('name', '')
                 offer_description = mapped.get('description', '')
                 mapped['vertical'] = detect_vertical_from_text(offer_name, offer_description)
-                logger.info(f"   Auto-detected vertical: {mapped['vertical']}")
             mapped['category'] = mapped['vertical']
             
             # Traffic and targeting - Use ONLY real data from API
@@ -302,8 +290,6 @@ class NetworkFieldMapper:
                 mapped['affiliate_terms'] = clean_html_description(offer['terms_and_conditions'])
             else:
                 mapped['affiliate_terms'] = ''
-            
-            logger.info(f"✅ Successfully mapped offer: {mapped['name']}")
             
             return mapped
             

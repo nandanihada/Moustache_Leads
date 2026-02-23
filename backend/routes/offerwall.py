@@ -2040,111 +2040,138 @@ def get_offers():
             except Exception as e:
                 logger.warning(f"Batch visibility query failed: {e}")
         
-        # Transform offers
+        # Transform offers — per-offer try/except so one bad offer doesn't kill the whole response
         transformed_offers = []
-        for offer in offers_list:
-            # Image URL
-            image_url = (
-                offer.get('image_url') or offer.get('creative_url') or
-                offer.get('preview_url') or offer.get('thumbnail_url') or ''
-            )
-            if not image_url or not image_url.strip():
-                image_url = ''
-            
-            # Tracking URL (computed once with base URL)
-            tracking_url = None
-            if offer.get('masked_url'):
-                masked_url = offer['masked_url']
-                if 'moustacheleads-backend.onrender.com' in masked_url or 'localhost:5000' in masked_url:
-                    tracking_url = masked_url
-            
-            if not tracking_url and offer.get('target_url'):
-                tracking_url = f"{tracking_base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}"
-            
-            if not tracking_url:
-                tracking_url = offer.get('target_url') or offer.get('url') or '#'
-            
-            # Countries extraction (simplified - use stored data first)
-            countries_data = offer.get('countries', []) or offer.get('allowed_countries', []) or offer.get('geo', [])
-            if isinstance(countries_data, str):
-                countries_data = [c.strip().upper() for c in countries_data.replace(',', ' ').split() if c.strip()]
-            
-            # Device targeting
-            device_targeting = offer.get('device_targeting', '') or offer.get('allowed_devices', '')
-            if not device_targeting:
-                devices = offer.get('devices', '')
-                device_targeting = ', '.join(devices) if isinstance(devices, list) else str(devices or '')
-            
-            # Payout
-            original_payout = float(offer.get('payout', 0))
-            publisher_payout = round(original_payout * 0.8, 2)
-            
-            # Category - use stored value, only detect if missing
-            stored_category = offer.get('category') or offer.get('vertical') or ''
-            if stored_category and stored_category.upper() not in ('GENERAL', '', 'UNKNOWN'):
-                category_value = stored_category.upper()
-            else:
-                category_value = 'OTHER'
-            
-            transformed_offer = {
-                'id': offer.get('offer_id', str(offer.get('_id'))),
-                'title': offer.get('name', 'Untitled Offer'),
-                'description': offer.get('description', 'No description available'),
-                'reward_amount': publisher_payout,
-                'reward_currency': offer.get('currency', 'USD'),
-                'category': category_value,
-                'status': offer.get('status', 'active'),
-                'image_url': image_url,
-                'click_url': tracking_url,
-                'network': offer.get('network', 'Unknown'),
-                'countries': countries_data,
-                'devices': offer.get('devices', []),
-                'device_targeting': device_targeting,
-                'estimated_time': offer.get('estimated_time', ''),
-                'created_at': offer.get('created_at', datetime.utcnow()).isoformat() if isinstance(offer.get('created_at'), datetime) else str(offer.get('created_at', '')),
-                'payout': publisher_payout,
-                'star_rating': offer.get('star_rating', 5),
-                'urgency_type': offer.get('urgency_type'),
-                'timer_enabled': offer.get('timer_enabled', False),
-                'timer_end_date': offer.get('timer_end_date'),
-                'show_in_iframe': offer.get('show_in_iframe', True),
-                'campaign_id': offer.get('campaign_id'),
-                'offer_type': offer.get('offer_type', 'standard'),
-                'conversion_flow': offer.get('conversion_flow', 'single_opt_in'),
-                'payout_type': offer.get('payout_type', 'cpa'),
-            }
-            
-            # OPTIMIZATION: Visibility check without N+1 queries
-            affiliates = offer.get('affiliates', 'all')
-            approval_settings = offer.get('approval_settings', {})
-            approval_type = approval_settings.get('type', 'auto_approve')
-            
-            if affiliates == 'request':
-                approval_type = 'manual'
-            
-            if affiliates == 'all' and approval_type == 'auto_approve':
-                # Fast path: no DB query needed (most offers)
-                transformed_offer['is_locked'] = False
-                transformed_offer['has_access'] = True
-                transformed_offer['lock_reason'] = None
-                transformed_offer['approval_type'] = 'auto_approve'
-                transformed_offer['request_status'] = 'approved'
-                transformed_offer['estimated_approval_time'] = 'Immediate'
-                transformed_offer['requires_approval'] = False
-            else:
-                # Use batch-loaded request status
-                request_status = user_request_map.get(offer.get('offer_id'), 'not_requested')
-                is_approved = request_status == 'approved'
+        skipped_offers = []
+        for idx, offer in enumerate(offers_list):
+            try:
+                # Image URL
+                image_url = (
+                    offer.get('image_url') or offer.get('creative_url') or
+                    offer.get('preview_url') or offer.get('thumbnail_url') or ''
+                )
+                if not image_url or not image_url.strip():
+                    image_url = ''
                 
-                transformed_offer['is_locked'] = not is_approved
-                transformed_offer['has_access'] = is_approved
-                transformed_offer['lock_reason'] = None if is_approved else 'Requires approval'
-                transformed_offer['approval_type'] = approval_type
-                transformed_offer['request_status'] = request_status
-                transformed_offer['estimated_approval_time'] = 'Approved' if is_approved else 'Pending'
-                transformed_offer['requires_approval'] = True
-            
-            transformed_offers.append(transformed_offer)
+                # Tracking URL (computed once with base URL)
+                tracking_url = None
+                if offer.get('masked_url'):
+                    masked_url = offer['masked_url']
+                    if 'moustacheleads-backend.onrender.com' in masked_url or 'localhost:5000' in masked_url:
+                        tracking_url = masked_url
+                
+                if not tracking_url and offer.get('target_url'):
+                    tracking_url = f"{tracking_base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}"
+                
+                if not tracking_url:
+                    tracking_url = offer.get('target_url') or offer.get('url') or '#'
+                
+                # Countries extraction (simplified - use stored data first)
+                countries_data = offer.get('countries', []) or offer.get('allowed_countries', []) or offer.get('geo', [])
+                if isinstance(countries_data, str):
+                    countries_data = [c.strip().upper() for c in countries_data.replace(',', ' ').split() if c.strip()]
+                
+                # Device targeting
+                device_targeting = offer.get('device_targeting', '') or offer.get('allowed_devices', '')
+                if not device_targeting:
+                    devices = offer.get('devices', '')
+                    device_targeting = ', '.join(devices) if isinstance(devices, list) else str(devices or '')
+                
+                # Payout — safe conversion
+                try:
+                    original_payout = float(offer.get('payout', 0) or 0)
+                except (ValueError, TypeError):
+                    original_payout = 0.0
+                publisher_payout = round(original_payout * 0.8, 2)
+                
+                # Category - use stored value, only detect if missing
+                stored_category = offer.get('category') or offer.get('vertical') or ''
+                if stored_category and str(stored_category).upper() not in ('GENERAL', '', 'UNKNOWN'):
+                    category_value = str(stored_category).upper()
+                else:
+                    category_value = 'OTHER'
+                
+                # Safe created_at handling
+                created_at_raw = offer.get('created_at')
+                if isinstance(created_at_raw, datetime):
+                    created_at_str = created_at_raw.isoformat()
+                elif created_at_raw:
+                    created_at_str = str(created_at_raw)
+                else:
+                    created_at_str = ''
+                
+                transformed_offer = {
+                    'id': offer.get('offer_id', str(offer.get('_id'))),
+                    'title': offer.get('name', 'Untitled Offer'),
+                    'description': offer.get('description', 'No description available'),
+                    'reward_amount': publisher_payout,
+                    'reward_currency': offer.get('currency', 'USD'),
+                    'category': category_value,
+                    'status': offer.get('status', 'active'),
+                    'image_url': image_url,
+                    'click_url': tracking_url,
+                    'network': offer.get('network', 'Unknown'),
+                    'countries': countries_data,
+                    'devices': offer.get('devices', []),
+                    'device_targeting': device_targeting,
+                    'estimated_time': offer.get('estimated_time', ''),
+                    'created_at': created_at_str,
+                    'payout': publisher_payout,
+                    'star_rating': offer.get('star_rating', 5),
+                    'urgency_type': offer.get('urgency_type'),
+                    'timer_enabled': offer.get('timer_enabled', False),
+                    'timer_end_date': offer.get('timer_end_date'),
+                    'show_in_iframe': offer.get('show_in_iframe', True),
+                    'campaign_id': offer.get('campaign_id'),
+                    'offer_type': offer.get('offer_type', 'standard'),
+                    'conversion_flow': offer.get('conversion_flow', 'single_opt_in'),
+                    'payout_type': offer.get('payout_type', 'cpa'),
+                }
+                
+                # OPTIMIZATION: Visibility check without N+1 queries
+                affiliates = offer.get('affiliates', 'all')
+                approval_settings = offer.get('approval_settings', {}) or {}
+                approval_type = approval_settings.get('type', 'auto_approve')
+                
+                if affiliates == 'request':
+                    approval_type = 'manual'
+                
+                if affiliates == 'all' and approval_type == 'auto_approve':
+                    # Fast path: no DB query needed (most offers)
+                    transformed_offer['is_locked'] = False
+                    transformed_offer['has_access'] = True
+                    transformed_offer['lock_reason'] = None
+                    transformed_offer['approval_type'] = 'auto_approve'
+                    transformed_offer['request_status'] = 'approved'
+                    transformed_offer['estimated_approval_time'] = 'Immediate'
+                    transformed_offer['requires_approval'] = False
+                else:
+                    # Use batch-loaded request status
+                    request_status = user_request_map.get(offer.get('offer_id'), 'not_requested')
+                    is_approved = request_status == 'approved'
+                    
+                    transformed_offer['is_locked'] = not is_approved
+                    transformed_offer['has_access'] = is_approved
+                    transformed_offer['lock_reason'] = None if is_approved else 'Requires approval'
+                    transformed_offer['approval_type'] = approval_type
+                    transformed_offer['request_status'] = request_status
+                    transformed_offer['estimated_approval_time'] = 'Approved' if is_approved else 'Pending'
+                    transformed_offer['requires_approval'] = True
+                
+                transformed_offers.append(transformed_offer)
+                
+            except Exception as offer_err:
+                offer_id = offer.get('offer_id') or offer.get('_id') or f'index_{idx}'
+                offer_name = offer.get('name', 'Unknown')
+                logger.warning(f"⚠️ Skipped offer {offer_id} ({offer_name}): {offer_err}")
+                skipped_offers.append({
+                    'offer_id': str(offer_id),
+                    'name': str(offer_name),
+                    'error': str(offer_err)
+                })
+        
+        if skipped_offers:
+            logger.warning(f"⚠️ Skipped {len(skipped_offers)} offers due to bad data")
         
         response_data = {
             'offers': transformed_offers,
@@ -2154,7 +2181,9 @@ def get_offers():
             'total_pages': (total_count + limit - 1) // limit,
             'placement_id': placement_id,
             'user_id': user_id,
-            'generated_at': datetime.utcnow().isoformat()
+            'generated_at': datetime.utcnow().isoformat(),
+            'skipped_count': len(skipped_offers),
+            'skipped_offers': skipped_offers[:20]  # Cap at 20 to avoid bloating response
         }
         
         logger.info(f"✅ Returning {len(transformed_offers)} offers (page {page}/{response_data['total_pages']})")

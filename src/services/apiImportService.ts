@@ -146,16 +146,20 @@ class ApiImportService {
         method: 'POST',
         headers: this.getAuthHeaders(),
         body: JSON.stringify(request),
-        credentials: 'include', // Include credentials for CORS
+        credentials: 'include',
       });
 
+      const data = await response.json().catch(() => null);
+
       if (!response.ok) {
-        const data = await response.json().catch(() => ({ error: 'Network error' }));
-        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+        // Even on error, the backend might return partial success info
+        if (data && data.summary) {
+          return data as ImportResponse;
+        }
+        throw new Error(data?.error || `HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return data;
+      return data as ImportResponse;
     } catch (error) {
       console.error('Import offers error:', error);
       if (error instanceof TypeError && error.message === 'Failed to fetch') {

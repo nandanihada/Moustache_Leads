@@ -167,16 +167,36 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
       clearInterval(progressInterval);
       setImportProgress(100);
       
-      if (response.success && response.summary) {
+      if (response.summary) {
         setImportSummary(response.summary);
         setImportErrors(response.errors || []);
         setCurrentStep('complete');
         
-        toast({
-          title: 'Import Complete',
-          description: `Successfully imported ${response.summary.imported} offers`,
-        });
+        const imported = response.summary.imported || 0;
+        const errors = response.summary.errors || 0;
         
+        if (imported > 0 && errors > 0) {
+          toast({
+            title: 'Import Partially Complete',
+            description: `Imported ${imported} offers, ${errors} failed. Check details below.`,
+          });
+        } else if (imported > 0) {
+          toast({
+            title: 'Import Complete',
+            description: `Successfully imported ${imported} offers`,
+          });
+        } else {
+          toast({
+            title: 'Import Failed',
+            description: `No offers were imported. ${errors} errors occurred.`,
+            variant: 'destructive',
+          });
+        }
+        
+        onImportComplete();
+      } else if (response.success) {
+        setCurrentStep('complete');
+        setImportSummary({ total_fetched: 0, imported: 0, skipped: 0, errors: 0 });
         onImportComplete();
       }
     } catch (error) {
