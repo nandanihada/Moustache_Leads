@@ -18,7 +18,7 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
   withCredentials: true, // Enable credentials for cross-origin requests
-  timeout: 30000, // 30 second timeout
+  timeout: 60000, // 60 second timeout
 });
 
 // Add auth token to requests

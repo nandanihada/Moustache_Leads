@@ -4,6 +4,7 @@ Publisher Offers API - Public offers endpoint for publishers
 """
 
 from flask import Blueprint, request, jsonify
+from datetime import datetime, timedelta
 from database import db_instance
 from utils.auth import token_required
 from services.access_control_service import AccessControlService
@@ -26,12 +27,9 @@ def get_available_offers():
     """
     try:
         # DEBUG: Log request details
-        logger.info(f"🔍 GET /offers/available - Method: {request.method}")
-        logger.info(f"🔍 Origin: {request.headers.get('Origin')}")
-        
         user = request.current_user
         user_id = user.get('_id')
-        logger.info(f"📦 Publisher {user.get('username')} requesting available offers")
+        logger.info(f"GET /offers/available - user: {user.get('username')}")
         
         # Get query parameters
         page = int(request.args.get('page', 1))
@@ -91,9 +89,21 @@ def get_available_offers():
         # Get total count
         total = offers_collection.count_documents(query)
         
-        # Get paginated results
+        # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
+        projection = {
+            'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1,
+            'payout': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
+            'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
+            'affiliates': 1, 'selected_users': 1, 'is_active': 1,
+            'target_url': 1, 'masked_url': 1, 'show_in_offerwall': 1,
+            'promo_code': 1, 'promo_code_id': 1, 'bonus_amount': 1, 'bonus_type': 1,
+            'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1
+        }
+        
+        # Get paginated results with projection
         skip = (page - 1) * per_page
-        offers = list(offers_collection.find(query).skip(skip).limit(per_page).sort('created_at', -1))
+        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort('created_at', -1))
         
         if not offers:
             return safe_json_response({
@@ -138,7 +148,7 @@ def get_available_offers():
         # Create a lookup dict for O(1) access
         requests_by_offer = {req['offer_id']: req for req in user_requests}
         
-        logger.info(f"📊 Batch loaded {len(user_requests)} requests for user {user_id_str} across {len(offers)} offers")
+        logger.info(f"Batch loaded {len(user_requests)} requests for {len(offers)} offers")
         
         # BATCH QUERY 2: Get user data once (already have it from token, but verify active status)
         users_collection = db_instance.get_collection('users')
@@ -148,88 +158,141 @@ def get_available_offers():
         
         # Process offers for publisher view (no more DB queries in loop!)
         processed_offers = []
+        skipped_count = 0
         
         for offer in offers:
-            if '_id' in offer:
-                offer['_id'] = str(offer['_id'])
-            
-            # Get approval settings
-            approval_settings = offer.get('approval_settings', {})
-            approval_type = approval_settings.get('type', 'auto_approve')
-            
-            # Check access using cached data (no DB query)
-            has_access, access_reason = _check_offer_access_fast(
-                offer, user_id, user_is_active, user_is_premium, requests_by_offer
-            )
-            
-            # Check if user has pending request (from cache)
-            existing_request = requests_by_offer.get(offer['offer_id'])
-            
-            # Calculate publisher payout (80% of original - 20% platform cut)
-            original_payout = float(offer.get('payout', 0))
-            publisher_payout = round(original_payout * 0.8, 2)
-            
-            # Prepare offer data for publisher
-            offer_data = {
-                'offer_id': offer['offer_id'],
-                'name': offer['name'],
-                'description': offer.get('description', ''),
-                'category': offer.get('category', 'general'),
-                'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
-                'payout': publisher_payout,
-                'currency': offer.get('currency', 'USD'),
-                'network': offer['network'],
-                'countries': offer.get('countries', []),
-                'image_url': offer.get('image_url', ''),
-                'thumbnail_url': offer.get('thumbnail_url', ''),
-                'preview_url': offer.get('preview_url', ''),
-                'created_at': offer.get('created_at'),
-                'approval_status': offer.get('approval_status', 'active'),
-                'approval_type': approval_type,
-                'has_access': has_access,
-                'access_reason': access_reason,
-                'requires_approval': approval_type != 'auto_approve' or approval_settings.get('require_approval', False),
-                'promo_code': offer.get('promo_code'),
-                'promo_code_id': offer.get('promo_code_id'),
-                'bonus_amount': offer.get('bonus_amount'),
-                'bonus_type': offer.get('bonus_type'),
-                # Traffic source rules
-                'allowed_traffic_sources': offer.get('allowed_traffic_sources', []),
-                'risky_traffic_sources': offer.get('risky_traffic_sources', []),
-                'disallowed_traffic_sources': offer.get('disallowed_traffic_sources', [])
-            }
-            
-            # 🔒 ADD VISIBILITY/LOCK INFORMATION using visibility service
-            visibility = offer_visibility_service.get_offer_visibility_status(offer, user_id)
-            offer_data['is_locked'] = visibility.get('is_locked', False)
-            offer_data['lock_reason'] = visibility.get('lock_reason')
-            offer_data['estimated_approval_time'] = visibility.get('estimated_approval_time', 'Immediate')
-            
-            # Override has_access with visibility service result
-            if visibility.get('is_locked'):
-                offer_data['has_access'] = False
-                offer_data['is_preview'] = True
-            
-            # Add request status if exists
-            if existing_request:
-                offer_data['request_status'] = existing_request.get('status')
-                offer_data['requested_at'] = existing_request.get('requested_at')
-                if existing_request.get('status') == 'approved':
-                    offer_data['approved_at'] = existing_request.get('approved_at')
-            
-            # Only show tracking URL if user has access
-            if has_access:
-                offer_data['target_url'] = offer.get('target_url')
-                offer_data['masked_url'] = offer.get('masked_url')
-            else:
-                offer_data['is_preview'] = True
-                offer_data['estimated_approval_time'] = _get_estimated_approval_time_fast(
-                    approval_type, approval_settings
+            try:
+                if '_id' in offer:
+                    offer['_id'] = str(offer['_id'])
+                
+                # Calculate publisher payout (80% of original - 20% platform cut)
+                try:
+                    original_payout = float(offer.get('payout', 0) or 0)
+                except (ValueError, TypeError):
+                    original_payout = 0.0
+                publisher_payout = round(original_payout * 0.8, 2)
+                
+                # Get approval settings
+                approval_settings = offer.get('approval_settings', {}) or {}
+                approval_type = approval_settings.get('type', 'auto_approve')
+                affiliates = offer.get('affiliates', 'all')
+                
+                # If affiliates is 'request', force manual approval
+                if affiliates == 'request':
+                    approval_type = 'manual'
+                
+                # Check access using cached data (no DB query)
+                has_access, access_reason = _check_offer_access_fast(
+                    offer, user_id, user_is_active, user_is_premium, requests_by_offer
                 )
-            
-            processed_offers.append(offer_data)
+                
+                # Check if user has pending request (from cache)
+                existing_request = requests_by_offer.get(offer.get('offer_id'))
+                
+                # INLINE VISIBILITY CHECK using batch-loaded data (replaces per-offer DB query)
+                is_locked = False
+                lock_reason = None
+                estimated_approval_time = 'Immediate'
+                request_status = 'not_requested'
+                
+                if existing_request:
+                    request_status = existing_request.get('status', 'pending')
+                
+                if affiliates == 'all' and approval_type == 'auto_approve':
+                    is_locked = False
+                elif approval_type == 'time_based':
+                    if request_status == 'approved':
+                        is_locked = False
+                    else:
+                        delay_minutes = approval_settings.get('auto_approve_delay', 60)
+                        created_at = offer.get('created_at', datetime.utcnow())
+                        if isinstance(created_at, str):
+                            try:
+                                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                            except:
+                                created_at = datetime.utcnow()
+                        unlock_time = created_at + timedelta(minutes=delay_minutes)
+                        if datetime.utcnow() >= unlock_time:
+                            is_locked = False
+                        else:
+                            is_locked = True
+                            remaining = unlock_time - datetime.utcnow()
+                            hours = int(remaining.total_seconds() // 3600)
+                            mins = int((remaining.total_seconds() % 3600) // 60)
+                            lock_reason = f'Auto-unlocks in {hours}h {mins}m' if hours > 0 else f'Auto-unlocks in {mins}m'
+                            estimated_approval_time = lock_reason
+                elif approval_type == 'manual':
+                    if request_status == 'approved':
+                        is_locked = False
+                        estimated_approval_time = 'Approved'
+                    elif request_status == 'pending':
+                        is_locked = True
+                        lock_reason = 'Awaiting admin approval'
+                        estimated_approval_time = 'Pending admin review'
+                    elif request_status == 'rejected':
+                        is_locked = True
+                        lock_reason = 'Access request was rejected'
+                        estimated_approval_time = 'Rejected'
+                    else:
+                        is_locked = True
+                        lock_reason = 'Requires admin approval'
+                        estimated_approval_time = 'Manual review required'
+                
+                # Prepare offer data for publisher
+                offer_data = {
+                    'offer_id': offer.get('offer_id'),
+                    'name': offer.get('name', 'Untitled'),
+                    'description': offer.get('description', ''),
+                    'category': offer.get('category', 'general'),
+                    'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
+                    'payout': publisher_payout,
+                    'currency': offer.get('currency', 'USD'),
+                    'network': offer.get('network', 'Unknown'),
+                    'countries': offer.get('countries', []),
+                    'image_url': offer.get('image_url', ''),
+                    'thumbnail_url': offer.get('thumbnail_url', ''),
+                    'preview_url': offer.get('preview_url', ''),
+                    'created_at': offer.get('created_at'),
+                    'approval_status': offer.get('approval_status', 'active'),
+                    'approval_type': approval_type,
+                    'has_access': has_access and not is_locked,
+                    'access_reason': access_reason,
+                    'requires_approval': approval_type != 'auto_approve' or approval_settings.get('require_approval', False),
+                    'promo_code': offer.get('promo_code'),
+                    'promo_code_id': offer.get('promo_code_id'),
+                    'bonus_amount': offer.get('bonus_amount'),
+                    'bonus_type': offer.get('bonus_type'),
+                    'allowed_traffic_sources': offer.get('allowed_traffic_sources', []),
+                    'risky_traffic_sources': offer.get('risky_traffic_sources', []),
+                    'disallowed_traffic_sources': offer.get('disallowed_traffic_sources', []),
+                    'is_locked': is_locked,
+                    'lock_reason': lock_reason,
+                    'estimated_approval_time': estimated_approval_time,
+                }
+                
+                # Add request status if exists
+                if existing_request:
+                    offer_data['request_status'] = existing_request.get('status')
+                    offer_data['requested_at'] = existing_request.get('requested_at')
+                    if existing_request.get('status') == 'approved':
+                        offer_data['approved_at'] = existing_request.get('approved_at')
+                
+                # Only show tracking URL if user has access and not locked
+                if has_access and not is_locked:
+                    offer_data['target_url'] = offer.get('target_url')
+                    offer_data['masked_url'] = offer.get('masked_url')
+                else:
+                    offer_data['is_preview'] = True
+                
+                processed_offers.append(offer_data)
+            except Exception as offer_err:
+                skipped_count += 1
+                logger.warning(f"Skipped offer {offer.get('offer_id', '?')}: {offer_err}")
         
-        logger.info(f"✅ Returning {len(processed_offers)} offers (total: {total})")
+        if skipped_count > 0:
+            logger.warning(f"Skipped {skipped_count} offers due to bad data")
+        
+        logger.info(f"Returning {len(processed_offers)} offers (total: {total})")
         
         return safe_json_response({
             'success': True,
