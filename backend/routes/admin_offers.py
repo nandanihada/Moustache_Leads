@@ -38,17 +38,12 @@ def create_offer():
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # QA VERIFICATION: Log received data
-        logging.info("📥 CREATE OFFER - Schedule received: %s", data.get("schedule"))
-        logging.info("📥 CREATE OFFER - SmartRules received: %s", data.get("smartRules"))
-        logging.info("📥 CREATE OFFER - Full payload keys: %s", list(data.keys()))
+        # Log received data at debug level
+        logging.debug("CREATE OFFER - Schedule received: %s", data.get("schedule"))
+        logging.debug("CREATE OFFER - SmartRules received: %s", data.get("smartRules"))
         
-        # 🔍 DEBUG: Check payout_type
-        print("="*80)
-        print("🔍 ROUTE HANDLER DEBUG:")
-        print(f"   payout_type from frontend: '{data.get('payout_type')}'")
-        print(f"   revenue_share_percent from frontend: {data.get('revenue_share_percent')}")
-        print("="*80)
+        logging.debug(f"payout_type from frontend: '{data.get('payout_type')}'")
+        logging.debug(f"revenue_share_percent from frontend: {data.get('revenue_share_percent')}")
         
         # 🔥 CRITICAL FIX: Apply field mapping for schedule + smart rules
         if 'schedule' in data or 'smartRules' in data:

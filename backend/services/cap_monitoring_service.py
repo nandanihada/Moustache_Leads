@@ -425,35 +425,91 @@ class CapMonitoringService:
             return {'error': str(e)}
     
     def start_monitoring_service(self):
-        """Start background monitoring service"""
+        """Start background monitoring service
+        
+        OPTIMIZED: Uses aggregation pipeline to check all offer caps in ONE query
+        instead of 4 separate count_documents() per offer. Runs every 10 minutes
+        instead of 5 to reduce DB load.
+        """
         def monitor_loop():
             while True:
                 try:
-                    # Get all active offers with caps
-                    offers = self.offers_collection.find({
+                    # OPTIMIZATION: Use aggregation to get all conversion counts at once
+                    now = datetime.utcnow()
+                    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    week_start = today_start - timedelta(days=today_start.weekday())
+                    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                    
+                    # Get all active offers with caps in one query
+                    offers_with_caps = list(self.offers_collection.find({
                         'is_active': True,
                         'status': 'active',
                         '$or': [
-                            {'daily_cap': {'$exists': True, '$ne': None}},
-                            {'weekly_cap': {'$exists': True, '$ne': None}},
-                            {'monthly_cap': {'$exists': True, '$ne': None}},
-                            {'limit': {'$exists': True, '$ne': None}}
+                            {'daily_cap': {'$exists': True, '$ne': None, '$gt': 0}},
+                            {'weekly_cap': {'$exists': True, '$ne': None, '$gt': 0}},
+                            {'monthly_cap': {'$exists': True, '$ne': None, '$gt': 0}},
+                            {'limit': {'$exists': True, '$ne': None, '$gt': 0}}
                         ]
-                    })
+                    }, {'offer_id': 1, 'name': 1, 'campaign_id': 1, 'daily_cap': 1, 
+                        'weekly_cap': 1, 'monthly_cap': 1, 'limit': 1, 
+                        'auto_pause_on_cap': 1, 'cap_alert_emails': 1, 'status': 1}))
                     
-                    for offer in offers:
-                        self.check_offer_caps(offer['offer_id'])
+                    if not offers_with_caps:
+                        time.sleep(600)  # 10 minutes
+                        continue
                     
-                    # Sleep for 5 minutes before next check
-                    time.sleep(300)
+                    offer_ids = [o['offer_id'] for o in offers_with_caps]
+                    
+                    # ONE aggregation query to get all conversion counts for all offers
+                    pipeline = [
+                        {'$match': {
+                            'offer_id': {'$in': offer_ids},
+                            'status': 'approved'
+                        }},
+                        {'$group': {
+                            '_id': '$offer_id',
+                            'total': {'$sum': 1},
+                            'daily': {'$sum': {'$cond': [{'$gte': ['$conversion_time', today_start]}, 1, 0]}},
+                            'weekly': {'$sum': {'$cond': [{'$gte': ['$conversion_time', week_start]}, 1, 0]}},
+                            'monthly': {'$sum': {'$cond': [{'$gte': ['$conversion_time', month_start]}, 1, 0]}}
+                        }}
+                    ]
+                    
+                    counts_by_offer = {}
+                    for doc in self.conversions_collection.aggregate(pipeline):
+                        counts_by_offer[doc['_id']] = {
+                            'daily': doc['daily'], 'weekly': doc['weekly'],
+                            'monthly': doc['monthly'], 'total': doc['total']
+                        }
+                    
+                    # Now check caps using pre-fetched counts
+                    for offer in offers_with_caps:
+                        counts = counts_by_offer.get(offer['offer_id'], 
+                                                      {'daily': 0, 'weekly': 0, 'monthly': 0, 'total': 0})
+                        
+                        should_pause = False
+                        if offer.get('daily_cap') and counts['daily'] >= offer['daily_cap']:
+                            should_pause = True
+                        if offer.get('weekly_cap') and counts['weekly'] >= offer['weekly_cap']:
+                            should_pause = True
+                        if offer.get('monthly_cap') and counts['monthly'] >= offer['monthly_cap']:
+                            should_pause = True
+                        if offer.get('limit') and counts['total'] >= offer['limit']:
+                            should_pause = True
+                        
+                        if should_pause and offer.get('auto_pause_on_cap', False):
+                            self._auto_pause_offer(offer['offer_id'])
+                    
+                    # Sleep for 10 minutes before next check
+                    time.sleep(600)
                     
                 except Exception as e:
                     self.logger.error(f"Error in monitoring loop: {str(e)}")
-                    time.sleep(60)  # Sleep 1 minute on error
+                    time.sleep(120)  # Sleep 2 minutes on error
         
         # Start monitoring in background thread
         monitor_thread = Thread(target=monitor_loop, daemon=True)
         monitor_thread.start()
-        self.logger.info("Cap monitoring service started")
+        self.logger.info("Cap monitoring service started (optimized, checks every 10 min)")
         
         return monitor_thread

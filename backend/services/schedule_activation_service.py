@@ -1,12 +1,14 @@
 """
 Schedule Activation Service
 Handles automated offer activation/deactivation based on schedule configuration
+
+NOTE: Uses simple threading.Timer instead of the 'schedule' library to avoid
+an extra dependency that was missing from requirements.txt.
 """
 
 from datetime import datetime, timedelta
 from models.offer_extended import OfferExtended
 import logging
-import schedule
 import time
 import threading
 
@@ -269,24 +271,28 @@ def get_activation_service():
     return _activation_service
 
 def setup_activation_scheduler():
-    """Setup cron job scheduler for offer activation"""
+    """Setup scheduler for offer activation using simple threading (no external deps)"""
     
     activation_service = get_activation_service()
     
-    # Every minute check
-    schedule.every(1).minutes.do(activation_service.run_activation_check)
+    last_cleanup = {'date': None}
     
-    # Backup check every 15 minutes
-    schedule.every(15).minutes.do(activation_service.run_activation_check)
-    
-    # Daily cleanup at midnight UTC
-    schedule.every().day.at("00:00").do(activation_service.daily_cleanup)
-    
-    # Start scheduler in background thread
     def run_scheduler():
         while True:
-            schedule.run_pending()
-            time.sleep(1)
+            try:
+                # Run activation check every 60 seconds
+                activation_service.run_activation_check()
+                
+                # Daily cleanup at midnight UTC
+                today = datetime.utcnow().date()
+                if last_cleanup['date'] != today and datetime.utcnow().hour == 0:
+                    activation_service.daily_cleanup()
+                    last_cleanup['date'] = today
+                    
+            except Exception as e:
+                logging.error(f"Error in activation scheduler: {e}")
+            
+            time.sleep(60)  # Check every 60 seconds
     
     scheduler_thread = threading.Thread(target=run_scheduler, daemon=True)
     scheduler_thread.start()

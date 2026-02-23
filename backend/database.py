@@ -22,16 +22,29 @@ class Database:
         try:
             # Try multiple connection approaches
             connection_attempts = [
-                # Attempt 1: Atlas connection with SSL bypass
+                # Attempt 1: Atlas connection with connection pooling + SSL bypass
                 lambda: MongoClient(
                     Config.MONGODB_URI,
                     serverSelectionTimeoutMS=10000,
                     connectTimeoutMS=20000,
                     socketTimeoutMS=30000,
-                    tlsAllowInvalidCertificates=True
+                    tlsAllowInvalidCertificates=True,
+                    maxPoolSize=50,
+                    minPoolSize=5,
+                    maxIdleTimeMS=30000,
+                    waitQueueTimeoutMS=10000,
+                    retryWrites=True,
+                    retryReads=True
                 ),
-                # Attempt 2: Standard connection
-                lambda: MongoClient(Config.MONGODB_URI, serverSelectionTimeoutMS=5000),
+                # Attempt 2: Standard connection with pooling
+                lambda: MongoClient(
+                    Config.MONGODB_URI,
+                    serverSelectionTimeoutMS=5000,
+                    maxPoolSize=50,
+                    minPoolSize=5,
+                    retryWrites=True,
+                    retryReads=True
+                ),
                 # Attempt 3: Local fallback
                 lambda: MongoClient("mongodb://localhost:27017/ascend_db", serverSelectionTimeoutMS=2000)
             ]

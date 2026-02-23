@@ -491,34 +491,34 @@ const Offerwall: React.FC<OfferwallProps> = ({
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         {/* Header */}
-        <div className="text-center mb-8 animate-fade-in">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-500 rounded-2xl mb-4 shadow-2xl">
-            <span className="text-2xl font-black text-white">ML</span>
+        <div className="text-center mb-10 animate-fade-in">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-3xl mb-5 shadow-2xl">
+            <span className="text-3xl font-black text-white">ML</span>
           </div>
-          <h1 className="text-4xl font-black mb-2 bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
+          <h1 className="text-5xl font-black mb-3 bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
             {placementData?.offerwallTitle || 'Earn Rewards'}
           </h1>
-          <p className="text-lg text-purple-200 mb-2">Complete tasks & earn instantly!</p>
+          <p className="text-xl text-purple-200 mb-2">Complete tasks & earn instantly!</p>
           <p className="text-sm text-purple-400">Powered by Moustache Leads</p>
         </div>
 
         {/* Search Bar */}
-        <div className="mb-6">
-          <div className="relative max-w-xl mx-auto">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+        <div className="mb-8">
+          <div className="relative max-w-2xl mx-auto">
+            <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
               type="text"
               placeholder="Search offers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-xl pl-12 pr-10 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              className="w-full bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-2xl pl-14 pr-12 py-4 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
+                className="absolute right-5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -527,18 +527,18 @@ const Offerwall: React.FC<OfferwallProps> = ({
         </div>
 
         {/* Category Filters (Multi-Select) */}
-        <div className="mb-6 overflow-x-auto scrollbar-hide">
-          <div className="flex gap-2 pb-2 justify-center flex-wrap">
+        <div className="mb-8 overflow-x-auto scrollbar-hide">
+          <div className="flex gap-3 pb-2 justify-center flex-wrap px-4">
             {CATEGORIES.map((cat) => {
               const isSelected = selectedCategories.includes(cat.id);
               return (
                 <button
                   key={cat.id}
                   onClick={() => toggleCategory(cat.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium whitespace-nowrap transition-all ${
+                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-semibold whitespace-nowrap transition-all duration-200 ${
                     isSelected
                       ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg scale-105'
-                      : 'bg-white/10 text-gray-300 hover:bg-white/20 border border-white/10'
+                      : 'bg-white/10 text-gray-300 hover:bg-white/20 border border-white/10 hover:scale-105'
                   }`}
                 >
                   <span>{cat.icon}</span>
@@ -566,17 +566,17 @@ const Offerwall: React.FC<OfferwallProps> = ({
         </div>
 
         {/* Sort & Results Count */}
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
-          <div className="flex items-center gap-2 bg-white/10 backdrop-blur-lg rounded-full px-4 py-2 border border-purple-500/30">
-            <Zap className="h-4 w-4 text-yellow-400" />
-            <span className="font-bold text-white">{filteredOffers.length}</span>
-            <span className="text-purple-200 text-sm">offers</span>
+        <div className="flex items-center justify-between mb-8 flex-wrap gap-4 px-4">
+          <div className="flex items-center gap-3 bg-white/10 backdrop-blur-lg rounded-2xl px-5 py-3 border border-purple-500/30">
+            <Zap className="h-5 w-5 text-yellow-400" />
+            <span className="font-bold text-white text-lg">{filteredOffers.length}</span>
+            <span className="text-purple-200">offers available</span>
           </div>
           
           <select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as any)}
-            className="bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-2xl px-5 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
           >
             <option value="points_high" className="bg-slate-800">Highest Points</option>
             <option value="points_low" className="bg-slate-800">Lowest Points</option>
@@ -602,7 +602,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
 
         {/* Offers Grid */}
         {filteredOffers.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 px-4">
           {filteredOffers.map((offer, index) => {
             // Calculate points from payout ($1 = 100 points)
             const points = payoutToPoints(offer.payout || offer.reward_amount || 0);
@@ -611,10 +611,10 @@ const Offerwall: React.FC<OfferwallProps> = ({
             return (
               <div
                 key={offer.id}
-                className={`group bg-white/10 backdrop-blur-lg rounded-2xl overflow-hidden transition-all duration-300 border border-white/10 animate-slide-up relative ${
+                className={`group bg-white/10 backdrop-blur-lg rounded-3xl overflow-hidden transition-all duration-300 border border-white/10 animate-slide-up relative ${
                   isLocked 
                     ? 'cursor-not-allowed opacity-90' 
-                    : 'hover:bg-white/15 hover:scale-105 hover:shadow-2xl cursor-pointer'
+                    : 'hover:bg-white/15 hover:scale-[1.03] hover:shadow-2xl cursor-pointer'
                 }`}
                 style={{ animationDelay: `${index * 50}ms` }}
                 onClick={() => !isLocked && handleOfferClick(offer)}
@@ -684,19 +684,19 @@ const Offerwall: React.FC<OfferwallProps> = ({
                 </div>
 
                 {/* Content */}
-                <div className={`p-5 ${isLocked ? 'blur-[2px]' : ''}`}>
+                <div className={`p-6 ${isLocked ? 'blur-[2px]' : ''}`}>
                   {/* Star Rating */}
-                  <div className="mb-2">
+                  <div className="mb-3">
                     {renderStarRating(offer.star_rating || 5)}
                   </div>
                   
                   {/* Title - Truncated */}
-                  <h3 className="font-bold text-white text-lg mb-2 leading-tight">
+                  <h3 className="font-bold text-white text-xl mb-3 leading-tight">
                     {truncateTitle(offer.title, 6)}
                   </h3>
                   
                   {/* Country & Device Row */}
-                  <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center justify-between mb-4">
                     {getCountryDisplay(getOfferCountries(offer))}
                     <div className="flex items-center gap-1">
                       {getDeviceIcon(offer.device_targeting || (offer.devices && offer.devices[0]))}

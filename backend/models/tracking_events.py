@@ -60,25 +60,10 @@ class TrackingEvents:
                 'created_at': datetime.utcnow()
             }
             
-            # Enrich with offer and user names for easier querying
-            if offer_id:
-                offer = self.offers_collection.find_one({'offer_id': offer_id})
-                if offer:
-                    event_doc['offer_name'] = offer.get('name', '')
-                    event_doc['network'] = offer.get('network', '')
-            
-            if user_id:
-                try:
-                    user = self.users_collection.find_one({'_id': ObjectId(user_id)})
-                    if user:
-                        event_doc['username'] = user.get('username', '')
-                        event_doc['user_role'] = user.get('role', '')
-                except:
-                    # Handle case where user_id might not be ObjectId format
-                    user = self.users_collection.find_one({'user_id': user_id})
-                    if user:
-                        event_doc['username'] = user.get('username', '')
-                        event_doc['user_role'] = user.get('role', '')
+            # NOTE: Removed per-event offer/user enrichment queries.
+            # Previously this did 2 extra DB queries per event (find offer name + find username).
+            # With 1000 clicks/day that was 2000 unnecessary queries.
+            # If you need offer_name/username, pass them in the metadata dict instead.
             
             result = self.tracking_events_collection.insert_one(event_doc)
             event_doc['_id'] = str(result.inserted_id)

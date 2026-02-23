@@ -80,11 +80,11 @@ const Modal = ({ title, children, isOpen, onClose }) => {
 };
 
 const Card = ({ title, description, children, className = '' }) => (
-  <div className={`bg-white shadow-xl rounded-xl p-6 transition-all duration-300 border border-gray-200 ${className}`}>
+  <div className={`bg-white rounded-2xl p-6 border border-gray-100 hover:border-gray-200 transition-all duration-300 ${className}`}>
     {title && (
-      <div className="mb-5 border-b border-gray-200 pb-3">
-        <h2 className="text-2xl font-bold text-gray-900 tracking-tight">{title}</h2>
-        {description && <p className="text-sm text-gray-600 mt-1">{description}</p>}
+      <div className="mb-5 pb-4 border-b border-gray-100">
+        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        {description && <p className="text-sm text-gray-500 mt-1">{description}</p>}
       </div>
     )}
     <div className="text-gray-700">{children}</div>
@@ -93,23 +93,22 @@ const Card = ({ title, description, children, className = '' }) => (
 
 const Input = ({ label, placeholder, value, onChange, type = 'text', icon: Icon, readOnly = false }) => (
   <div className="space-y-1.5">
-    <label className="text-sm font-medium text-gray-700 flex items-center">
+    <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide flex items-center">
       {label}
-      <Info className="h-3 w-3 ml-1 text-gray-400 cursor-pointer hover:text-violet-500 transition" />
     </label>
     <div className="relative">
-      {Icon && <Icon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />}
+      {Icon && <Icon className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />}
       <input
         type={type}
         placeholder={placeholder}
         value={value}
         onChange={onChange}
         readOnly={readOnly}
-        className={`w-full py-3 px-3 rounded-lg border bg-white transition duration-150 ease-in-out placeholder-gray-400 shadow-sm
+        className={`w-full py-2.5 px-3.5 rounded-xl border bg-white transition duration-150 ease-in-out placeholder-gray-400 text-sm
           ${
             readOnly 
-              ? 'border-gray-200 text-gray-500 cursor-not-allowed pl-3 bg-gray-50' 
-              : 'border-gray-300 text-gray-900 pl-10 focus:ring-2 focus:ring-violet-500 focus:border-violet-500'
+              ? 'border-gray-200 text-gray-500 cursor-not-allowed bg-gray-50' 
+              : 'border-gray-200 text-gray-900 pl-10 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-300'
           }
         `}
       />
@@ -119,19 +118,18 @@ const Input = ({ label, placeholder, value, onChange, type = 'text', icon: Icon,
 
 const Select = ({ label, value, onChange, options, readOnly = false }) => (
   <div className="space-y-1.5">
-    <label className="text-sm font-medium text-gray-700 flex items-center">
+    <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide flex items-center">
       {label}
-      <Info className="h-3 w-3 ml-1 text-gray-400 cursor-pointer hover:text-violet-500 transition" />
     </label>
     <select
       value={value}
       onChange={onChange}
       disabled={readOnly}
-      className={`w-full py-3 px-3 rounded-lg border bg-white text-gray-900 appearance-none focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition duration-150 ease-in-out shadow-sm
+      className={`w-full py-2.5 px-3.5 rounded-xl border bg-white text-gray-900 appearance-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out text-sm
         ${
           readOnly 
             ? 'border-gray-200 text-gray-500 cursor-not-allowed bg-gray-50' 
-            : 'border-gray-300'
+            : 'border-gray-200 hover:border-gray-300'
         }
       `}
     >
@@ -146,16 +144,15 @@ const Select = ({ label, value, onChange, options, readOnly = false }) => (
 
 const Textarea = ({ label, placeholder, value, onChange }) => (
   <div className="space-y-1.5">
-    <label className="text-sm font-medium text-gray-700 flex items-center">
+    <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide flex items-center">
       {label}
-      <Info className="h-3 w-3 ml-1 text-gray-400 cursor-pointer hover:text-violet-500 transition" />
     </label>
     <textarea
       placeholder={placeholder}
       value={value}
       onChange={onChange}
-      rows={4}
-      className="w-full py-3 px-4 rounded-lg border border-gray-300 bg-white text-gray-900 focus:ring-2 focus:ring-violet-500 focus:border-violet-500 transition duration-150 ease-in-out placeholder-gray-400 shadow-sm"
+      rows={3}
+      className="w-full py-2.5 px-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out placeholder-gray-400 text-sm hover:border-gray-300"
     />
   </div>
 );
@@ -164,27 +161,27 @@ const Button = ({ children, onClick, variant = 'primary', icon: Icon, className 
   let styles;
   switch (variant) {
     case 'secondary':
-      styles = 'bg-gray-200 hover:bg-gray-300 text-gray-800';
+      styles = 'bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-200';
       break;
     case 'outline':
-      styles = 'bg-transparent border border-gray-300 hover:bg-gray-100 text-gray-700';
+      styles = 'bg-white border-2 border-gray-200 hover:bg-gray-50 text-gray-700 hover:border-gray-300';
       break;
     case 'danger':
-        styles = 'bg-red-600 hover:bg-red-700 text-white font-semibold shadow-lg shadow-red-500/30';
+        styles = 'bg-red-600 hover:bg-red-700 text-white';
         break;
     default:
       styles = disabled 
-        ? 'bg-gray-300 text-gray-500 cursor-not-allowed shadow-none'
-        : 'bg-violet-600 hover:bg-violet-700 text-white font-semibold shadow-lg shadow-violet-500/30';
+        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+        : 'bg-blue-600 hover:bg-blue-700 text-white';
       break;
   }
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className={`flex items-center justify-center px-6 py-3 rounded-lg font-medium transition duration-200 ease-in-out transform hover:scale-[1.01] active:scale-[0.99] ${styles} ${className}`}
+      className={`flex items-center justify-center px-5 py-2.5 rounded-xl font-medium text-sm transition duration-200 ease-in-out ${styles} ${className}`}
     >
-      {Icon && <Icon className="h-5 w-5 mr-2" />}
+      {Icon && <Icon className="h-4 w-4 mr-2" />}
       {children}
     </button>
   );
@@ -206,9 +203,9 @@ const ToggleSwitch = ({ label, checked, onChange }) => (
 
 const StatusToggle = ({ status, onChange, disabled = false }) => {
   const statusOptions = [
-    { value: 'LIVE', icon: '●', color: 'bg-green-500', hoverBorder: 'hover:border-green-400', description: 'Live' },
-    { value: 'PAUSED', icon: '●', color: 'bg-yellow-500', hoverBorder: 'hover:border-yellow-400', description: 'Paused' },
-    { value: 'INACTIVE', icon: '●', color: 'bg-red-500', hoverBorder: 'hover:border-red-400', description: 'Inactive' }
+    { value: 'LIVE', icon: '●', color: 'bg-emerald-500', hoverBorder: 'hover:border-emerald-400', description: 'Live', ring: 'ring-emerald-500/40' },
+    { value: 'PAUSED', icon: '●', color: 'bg-amber-500', hoverBorder: 'hover:border-amber-400', description: 'Paused', ring: 'ring-amber-500/40' },
+    { value: 'INACTIVE', icon: '●', color: 'bg-gray-400', hoverBorder: 'hover:border-gray-300', description: 'Inactive', ring: 'ring-gray-400/40' }
   ];
 
   return (
@@ -220,16 +217,16 @@ const StatusToggle = ({ status, onChange, disabled = false }) => {
           disabled={disabled}
           onClick={() => onChange('status', option.value)}
           className={`
-            w-9 h-9 rounded-lg border-2 transition-all duration-200 flex items-center justify-center
+            w-8 h-8 rounded-lg border-2 transition-all duration-200 flex items-center justify-center
             ${status === option.value 
-              ? `${option.color} border-transparent shadow-md ring-2 ring-offset-1 ${option.color.replace('bg-', 'ring-')}/40` 
+              ? `${option.color} border-transparent shadow-sm ring-2 ring-offset-1 ${option.ring}` 
               : `bg-white border-gray-200 ${option.hoverBorder}`
             }
             ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
           `}
           title={option.description}
         >
-          <div className={`w-3 h-3 rounded-full ${status === option.value ? 'bg-white' : option.color}`}></div>
+          <div className={`w-2.5 h-2.5 rounded-full ${status === option.value ? 'bg-white' : option.color}`}></div>
         </button>
       ))}
     </div>
@@ -358,14 +355,18 @@ const EventModal = ({ eventData, isEditing, isOpen, onClose, onSubmit }) => {
                     <Input 
                         label="Start Date" 
                         type="date"
+                        placeholder=""
                         value={formData.startDate} 
-                        onChange={(e) => handleFormChange('startDate', e.target.value)} 
+                        onChange={(e) => handleFormChange('startDate', e.target.value)}
+                        icon={Calendar}
                     />
                     <Input 
                         label="End Date (Optional)" 
                         type="date"
+                        placeholder=""
                         value={formData.endDate} 
-                        onChange={(e) => handleFormChange('endDate', e.target.value)} 
+                        onChange={(e) => handleFormChange('endDate', e.target.value)}
+                        icon={Calendar}
                     />
                 </div>
                 <Button onClick={handleSubmit} className="w-full" icon={isEditing ? Edit : Plus}>
@@ -388,22 +389,51 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
   };
 
   const renderPlatformSelection = () => {
+    const platforms = [
+      { name: 'Android', icon: Smartphone, gradient: 'from-emerald-500 to-teal-600', bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700' },
+      { name: 'iOS', icon: Smartphone, gradient: 'from-blue-500 to-indigo-600', bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700' },
+      { name: 'Website', icon: Monitor, gradient: 'from-purple-500 to-pink-600', bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700' }
+    ];
+
     return (
-        <div className="mb-8 flex space-x-4 p-2 bg-gray-100 rounded-xl shadow-inner border border-gray-300">
-            {['Android', 'iOS', 'Website'].map(platform => {
-                const isActive = data.platformType === platform;
+        <div className="grid grid-cols-3 gap-2">
+            {platforms.map(({ name, icon: Icon, gradient, bg, border, text }) => {
+                const isActive = data.platformType === name;
                 return (
                     <button
-                        key={platform}
-                        onClick={() => onSelectPlatform(platform)}
-                        disabled={isPlatformLocked} 
-                        className={`flex-1 py-3 px-6 text-sm font-semibold rounded-lg transition duration-200 ease-in-out transform hover:scale-[1.01] active:scale-[0.99] ${
+                        key={name}
+                        onClick={() => onSelectPlatform(name)}
+                        disabled={isPlatformLocked}
+                        className={`group relative overflow-hidden rounded-lg p-3 transition-all duration-300 ${
                             isActive
-                                ? 'bg-violet-600 text-white shadow-md shadow-violet-500/30'
-                                : 'bg-transparent text-gray-700 hover:bg-gray-200'
-                        } ${isPlatformLocked ? 'cursor-not-allowed opacity-75' : ''}`}
+                                ? `bg-gradient-to-br ${gradient} text-white shadow-sm`
+                                : `${bg} ${border} border ${text} hover:scale-[1.02] hover:shadow-sm`
+                        } ${isPlatformLocked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
                     >
-                        {platform}
+                        {/* Animated background gradient on hover */}
+                        {!isActive && (
+                            <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-300`}></div>
+                        )}
+                        
+                        <div className="relative flex flex-col items-center space-y-1.5">
+                            <div className={`p-1.5 rounded-lg transition-all duration-300 ${
+                                isActive 
+                                    ? 'bg-white/20 backdrop-blur-sm' 
+                                    : `${bg} group-hover:scale-110`
+                            }`}>
+                                <Icon className={`h-4 w-4 ${isActive ? 'text-white' : text}`} />
+                            </div>
+                            <span className={`font-semibold text-xs ${isActive ? 'text-white' : text}`}>
+                                {name}
+                            </span>
+                        </div>
+
+                        {/* Active indicator */}
+                        {isActive && (
+                            <div className="absolute top-1.5 right-1.5">
+                                <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></div>
+                            </div>
+                        )}
                     </button>
                 );
             })}
@@ -412,14 +442,28 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <div className="lg:col-span-2 space-y-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="lg:col-span-2 space-y-3">
 
-        <h2 className="text-3xl font-extrabold text-gray-900 mt-2">Platform Selection</h2>
-        {renderPlatformSelection()}
+        {/* Platform Selection Section */}
+        <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg p-3 border border-gray-100">
+          <div className="mb-2">
+            <h3 className="text-sm font-semibold text-gray-900">Select Platform</h3>
+          </div>
+          {renderPlatformSelection()}
+        </div>
         
-        <Card title="Core Configuration">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Core Configuration Card */}
+        <div className="bg-white rounded-lg p-3 border border-gray-100 hover:border-gray-200 transition-all duration-300">
+          <div className="mb-3 pb-2 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                <Settings className="h-3 w-3 text-white" />
+              </div>
+              Core Configuration
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <Input
               label="Platform Name" // Now fully editable
               placeholder="e.g., MyApp Name"
@@ -435,7 +479,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
               icon={Info}
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             {data.placementIdentifier ? (
                 // Placement Identifier is now editable
                 <Input
@@ -464,7 +508,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
               icon={DollarSign}
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
             <Input
               label="Exchange Rate (1 USD = X Currency)"
               placeholder="e.g., 60"
@@ -481,9 +525,18 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
               icon={Send}
             />
           </div>
-        </Card>
+        </div>
 
-        <Card title="Advanced Settings">
+        {/* Advanced Settings Card */}
+        <div className="bg-white rounded-lg p-3 border border-gray-100 hover:border-gray-200 transition-all duration-300">
+          <div className="mb-3 pb-2 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
+                <BarChart className="h-3 w-3 text-white" />
+              </div>
+              Advanced Settings
+            </h3>
+          </div>
           <Textarea
             label="Description"
             placeholder="Provide a comprehensive overview of the app's traffic patterns, promotion strategies, and fraud prevention measures."
@@ -491,39 +544,37 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
             onChange={(e) => onChange('description', e.target.value)}
           />
 
-          <div className="mt-6 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <span className="text-sm font-medium text-gray-700">Status</span>
-              <StatusToggle
-                status={data.status || 'LIVE'}
-                onChange={onChange}
-                disabled={false}
-              />
-            </div>
-            <div className="flex items-center space-x-2">
-              <Bell className="h-4 w-4 text-yellow-600" />
-              <span className="text-xs text-gray-600">Postback alerts</span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" checked={data.postbackFailureNotification} onChange={(e) => onChange('postbackFailureNotification', e.target.checked)} className="sr-only peer" />
-                <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-violet-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600"></div>
-              </label>
+          <div className="mt-3 p-2.5 bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-100">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-medium text-gray-700">Status</span>
+                <StatusToggle
+                  status={data.status || 'LIVE'}
+                  onChange={onChange}
+                  disabled={false}
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <Bell className="h-3.5 w-3.5 text-yellow-600" />
+                <span className="text-xs text-gray-600">Postback alerts</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" checked={data.postbackFailureNotification} onChange={(e) => onChange('postbackFailureNotification', e.target.checked)} className="sr-only peer" />
+                  <div className="w-9 h-5 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-violet-100 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-violet-600"></div>
+                </label>
+              </div>
             </div>
           </div>
-        </Card>
+        </div>
 
-        <p className="text-sm p-3 rounded-lg bg-violet-50/70 border border-violet-200 text-violet-700 flex items-center">
-          <Info className="h-4 w-4 mr-2 text-violet-500 flex-shrink-0" />
-          Review the Postback URL section in our API docs before deploying.
-        </p>
-
-        <div className="flex items-center space-x-3 mt-6">
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
           <button 
             onClick={onSubmit} 
             disabled={loading}
-            className={`flex-1 flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg font-medium text-sm transition-all duration-200 ${
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium text-sm transition-all duration-300 ${
               loading 
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                : 'bg-violet-600 hover:bg-violet-700 text-white shadow-md shadow-violet-500/30'
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm hover:shadow-md'
             }`}
           >
             {loading ? (
@@ -531,7 +582,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
             ) : (
               <>
                 {data.placementIdentifier ? <Edit className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                <span>{data.placementIdentifier ? 'Save' : 'Create'}</span>
+                <span>{data.placementIdentifier ? 'Save Changes' : 'Create Placement'}</span>
               </>
             )}
           </button>
@@ -539,68 +590,126 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
       </div>
 
       <div className="lg:col-span-1">
-        <Card title="Current Status" className="sticky top-4">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+        {/* Current Status Sidebar */}
+        <div className="bg-white rounded-lg p-3 border border-gray-100 hover:border-gray-200 transition-all duration-300 sticky top-4">
+          <div className="mb-3 pb-2 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                <Activity className="h-3 w-3 text-white" />
+              </div>
+              Current Status
+            </h3>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 border border-gray-100 hover:border-gray-200 transition-colors">
               <div className="flex items-center space-x-2">
-                <Shield className="h-4 w-4 text-gray-500" />
-                <span className="text-sm text-gray-600">Approval</span>
+                <Shield className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">Approval</span>
               </div>
               {data.approvalStatus === 'APPROVED' ? (
-                <span title="Approved"><CheckCircle className="h-5 w-5 text-green-500" /></span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></div>
+                  <CheckCircle className="h-4 w-4 text-emerald-500" />
+                </div>
               ) : data.approvalStatus === 'REJECTED' ? (
-                <span title="Rejected"><XCircle className="h-5 w-5 text-red-500" /></span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+                  <XCircle className="h-4 w-4 text-red-500" />
+                </div>
               ) : (
-                <span title="Pending"><Clock className="h-5 w-5 text-yellow-500" /></span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse"></div>
+                  <Clock className="h-4 w-4 text-amber-500" />
+                </div>
               )}
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+            
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 border border-gray-100 hover:border-gray-200 transition-colors">
               <div className="flex items-center space-x-2">
-                <Activity className="h-4 w-4 text-gray-500" />
-                <span className="text-sm text-gray-600">Status</span>
+                <Activity className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">Status</span>
               </div>
               {(data.status || 'DRAFT') === 'LIVE' ? (
-                <span className="flex items-center space-x-1" title="Live">
-                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
-                  <span className="text-xs font-medium text-green-600">Live</span>
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+                  <span className="text-xs font-semibold text-emerald-600 px-2 py-0.5 bg-emerald-50 rounded-lg">Live</span>
+                </div>
               ) : (data.status || 'DRAFT') === 'PAUSED' ? (
-                <span title="Paused"><PauseCircle className="h-5 w-5 text-yellow-500" /></span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div>
+                  <span className="text-xs font-semibold text-amber-600 px-2 py-0.5 bg-amber-50 rounded-lg">Paused</span>
+                </div>
               ) : (
-                <span className="w-2.5 h-2.5 rounded-full bg-gray-400" title="Draft"></span>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-gray-400"></div>
+                  <span className="text-xs font-semibold text-gray-600 px-2 py-0.5 bg-gray-50 rounded-lg">Draft</span>
+                </div>
               )}
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
+            
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 border border-gray-100 hover:border-gray-200 transition-colors">
               <div className="flex items-center space-x-2">
-                {data.platformType === 'Android' ? <Smartphone className="h-4 w-4 text-gray-500" /> :
-                 data.platformType === 'iOS' ? <Smartphone className="h-4 w-4 text-gray-500" /> :
-                 data.platformType === 'Website' ? <Monitor className="h-4 w-4 text-gray-500" /> :
-                 <Layout className="h-4 w-4 text-gray-500" />}
-                <span className="text-sm text-gray-600">Platform</span>
+                <Layout className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">Platform</span>
               </div>
-              <span className="text-sm font-medium text-violet-600">
-                {data.platformType || '—'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-gray-50 border border-gray-200">
-              <div className="flex items-center space-x-2">
-                <Clipboard className="h-4 w-4 text-gray-500" />
-                <span className="text-sm text-gray-600">ID</span>
-              </div>
-              <span className="text-xs font-mono text-gray-500 truncate max-w-[120px]" title={data.placementIdentifier || 'N/A'}>
-                {data.placementIdentifier ? `${data.placementIdentifier.substring(0, 8)}…` : '—'}
-              </span>
-            </div>
-            {!data.platformType && (
-              <>
-                <hr className="border-gray-200 my-4" />
-                <div className="pt-2">
-                  <p className="text-sm text-gray-500 text-center italic">Select a platform type to continue setup.</p>
+              {data.platformType ? (
+                <div className="flex items-center gap-1.5">
+                  {data.platformType === 'Android' && (
+                    <div className="px-2 py-0.5 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-lg flex items-center gap-1">
+                      <Smartphone className="h-3 w-3 text-white" />
+                      <span className="text-xs font-semibold text-white">Android</span>
+                    </div>
+                  )}
+                  {data.platformType === 'iOS' && (
+                    <div className="px-2 py-0.5 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg flex items-center gap-1">
+                      <Smartphone className="h-3 w-3 text-white" />
+                      <span className="text-xs font-semibold text-white">iOS</span>
+                    </div>
+                  )}
+                  {data.platformType === 'Website' && (
+                    <div className="px-2 py-0.5 bg-gradient-to-r from-purple-500 to-pink-600 rounded-lg flex items-center gap-1">
+                      <Monitor className="h-3 w-3 text-white" />
+                      <span className="text-xs font-semibold text-white">Website</span>
+                    </div>
+                  )}
                 </div>
-              </>
+              ) : (
+                <span className="text-xs text-gray-400">—</span>
+              )}
+            </div>
+            
+            <div className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 border border-gray-100 hover:border-gray-200 transition-colors">
+              <div className="flex items-center space-x-2">
+                <Clipboard className="h-3.5 w-3.5 text-gray-500" />
+                <span className="text-xs font-medium text-gray-600 uppercase tracking-wide">ID</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {data.placementIdentifier ? (
+                  <>
+                    <code className="text-xs font-mono text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">
+                      {data.placementIdentifier.substring(0, 8)}...
+                    </code>
+                    <button 
+                      onClick={() => navigator.clipboard.writeText(data.placementIdentifier)}
+                      className="p-1 hover:bg-gray-100 rounded transition-colors"
+                      title="Copy ID"
+                    >
+                      <Copy className="h-3 w-3 text-gray-500" />
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-xs text-gray-400">Not generated</span>
+                )}
+              </div>
+            </div>
+            
+            {!data.platformType && (
+              <div className="mt-2 pt-2 border-t border-gray-100">
+                <p className="text-xs text-gray-500 text-center">Select a platform to continue</p>
+              </div>
             )}
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );
@@ -688,7 +797,7 @@ const EventsManager = ({ events, onAdd, onEdit, onDelete }) => {
                             ))
                         ) : (
                             <tr>
-                                <td colSpan="8" className="px-6 py-10 text-center text-gray-500">
+                                <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
                                     <Calendar className="h-10 w-10 mx-auto mb-3 text-gray-400" />
                                     No events found. Click "Create New Event" to start a new promotion.
                                 </td>
@@ -1268,6 +1377,7 @@ export const Placements = () => {
                 icon={Calendar}
                 title="Admin Access Required"
                 description="Event management is only available to administrators. Contact your admin to manage events and multipliers."
+                actionButton={null}
               />
             </Card>
           );
@@ -1320,19 +1430,19 @@ export const Placements = () => {
     return (
       <button
         onClick={() => !isDisabled && setActiveTab(tabKey)}
-        className={`flex items-center justify-center space-x-1.5 py-2 px-4 rounded-lg transition-all duration-200 text-sm font-medium ${
+        className={`flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg transition-all duration-200 text-sm font-medium ${
           activeTab === tabKey
-            ? 'bg-white text-violet-700 shadow-sm'
+            ? 'bg-white text-gray-900 shadow-sm'
             : isDisabled
               ? 'text-gray-400 cursor-not-allowed'
-              : 'text-gray-600 hover:bg-white/60 hover:text-gray-800'
+              : 'text-gray-600 hover:text-gray-900'
         }`}
         disabled={isDisabled}
         title={label}
       >
         <Icon className="h-4 w-4" />
         <span className="hidden sm:inline">{label}</span>
-        {isLocked && <Clock className="h-3 w-3 ml-0.5 text-yellow-500" />}
+        {isLocked && <Clock className="h-3 w-3 ml-0.5 text-amber-500" />}
       </button>
     );
   };
@@ -1353,70 +1463,80 @@ export const Placements = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans p-4 sm:p-8">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
+      <div className="max-w-[1400px] mx-auto px-6 py-8">
         {/* Authentication Status */}
-        <div className="mb-4">
+        <div className="mb-6">
           {!localStorage.getItem('token') ? (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 flex items-center space-x-2">
-              <AlertCircle className="h-4 w-4 text-yellow-600 flex-shrink-0" />
-              <p className="text-sm text-yellow-800">Login required to manage placements. Showing demo data.</p>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center space-x-2.5">
+              <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <p className="text-sm text-amber-800">Login required to manage placements. Showing demo data.</p>
             </div>
           ) : (
-            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center space-x-2">
-              <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
-              <p className="text-sm text-green-800">Connected — manage your placements below.</p>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center space-x-2.5">
+              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+              <p className="text-sm text-emerald-800">Connected — manage your placements below.</p>
             </div>
           )}
         </div>
 
         {/* Top Navigation - Placements Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Placements</h1>
-            <p className="text-gray-500 mt-1">Manage and monitor your offerwall placements</p>
+            <h1 className="text-3xl font-bold text-gray-900 mb-1">Placements</h1>
+            <p className="text-gray-600">Manage and monitor your offerwall placements</p>
           </div>
           <button
             onClick={() => setIsNewPlacement(true)}
-            className={`inline-flex items-center px-4 py-2.5 rounded-lg font-medium transition-all duration-200 ${
+            className={`inline-flex items-center px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${
               isNewPlacement 
-                ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' 
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 shadow-sm'
+                ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                : 'bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
             }`}
           >
-            <Plus className="h-5 w-5 mr-2" />
+            <Plus className="h-4 w-4 mr-2" />
             Add New Placement
           </button>
         </div>
 
         {/* Placement Tabs - Symmetric Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
             {loading ? (
               <div className="col-span-full flex justify-center py-4">
                 <LoadingSpinner size="sm" text="Loading placements..." />
               </div>
             ) : placements.length > 0 ? (
-              placements.map((placement, index) => (
-                <button 
-                  key={placement.id || index}
-                  onClick={() => {
-                    setIsNewPlacement(false);
-                    setSelectedPlacementIndex(index);
-                  }}
-                  className={`p-4 rounded-xl transition-all duration-200 border text-center ${
-                    !isNewPlacement && selectedPlacementIndex === index 
-                      ? 'bg-violet-600 border-violet-700 text-white shadow-lg shadow-violet-500/30' 
-                      : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-violet-300 hover:shadow-md'
-                  }`}
-                >
-                  <div className="flex items-center justify-center mb-1">
-                    {placement.platformType === 'Android' ? <Smartphone className="h-4 w-4" /> :
-                     placement.platformType === 'iOS' ? <Smartphone className="h-4 w-4" /> :
-                     <Monitor className="h-4 w-4" />}
-                  </div>
-                  <p className="font-bold text-sm truncate">{placement.platformName || placement.offerwallTitle}</p>
-                </button>
-              ))
+              placements.map((placement, index) => {
+                const isSelected = !isNewPlacement && selectedPlacementIndex === index;
+                const platformColors = {
+                  'Android': { bg: 'bg-emerald-50', border: 'border-emerald-200', text: 'text-emerald-700', icon: 'text-emerald-600', activeBg: 'bg-emerald-600', activeBorder: 'border-emerald-700' },
+                  'iOS': { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', icon: 'text-blue-600', activeBg: 'bg-blue-600', activeBorder: 'border-blue-700' },
+                  'Website': { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', icon: 'text-purple-600', activeBg: 'bg-purple-600', activeBorder: 'border-purple-700' }
+                };
+                const colors = platformColors[placement.platformType] || platformColors['Website'];
+                
+                return (
+                  <button 
+                    key={placement.id || index}
+                    onClick={() => {
+                      setIsNewPlacement(false);
+                      setSelectedPlacementIndex(index);
+                    }}
+                    className={`p-3.5 rounded-xl transition-all duration-200 border text-center ${
+                      isSelected
+                        ? `${colors.activeBg} ${colors.activeBorder} text-white shadow-md` 
+                        : `${colors.bg} ${colors.border} ${colors.text} hover:shadow-md hover:scale-[1.02]`
+                    }`}
+                  >
+                    <div className={`flex items-center justify-center mb-2 ${isSelected ? 'text-white' : colors.icon}`}>
+                      {placement.platformType === 'Android' ? <Smartphone className="h-5 w-5" /> :
+                       placement.platformType === 'iOS' ? <Smartphone className="h-5 w-5" /> :
+                       <Monitor className="h-5 w-5" />}
+                    </div>
+                    <p className="font-semibold text-xs truncate">{placement.platformName || placement.offerwallTitle}</p>
+                  </button>
+                );
+              })
             ) : !error && localStorage.getItem('token') ? (
               <div className="col-span-full text-center py-4 text-gray-500 text-sm italic">
                 No placements yet. Create your first one!
@@ -1435,7 +1555,7 @@ export const Placements = () => {
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex space-x-1 bg-gray-100 p-1 rounded-xl shadow-inner border border-gray-300">
+        <div className="flex gap-2 bg-gray-100 p-1.5 rounded-xl">
           <TabButton tabKey="placement" Icon={Grid} label="Placement Details" />
           <TabButton tabKey="events" Icon={Calendar} label="Event Management" />
           <TabButton tabKey="integration" Icon={Code} label="Iframe Integration" />
@@ -1443,7 +1563,7 @@ export const Placements = () => {
         </div>
 
         {/* Tab Content */}
-        <div className="pt-8">
+        <div className="pt-6">
             {renderActiveTab()}
         </div>
       </div>

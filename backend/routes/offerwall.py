@@ -1915,36 +1915,42 @@ def serve_offerwall():
 
 @offerwall_bp.route('/api/offerwall/offers', methods=['GET'])
 def get_offers():
-    """Get offers for the offerwall (JSON API) - fetches from admin's offer database"""
+    """Get offers for the offerwall (JSON API) - fetches from admin's offer database
+    
+    PERFORMANCE OPTIMIZED:
+    - Uses field projection to only fetch needed fields (not all 100+ fields)
+    - Batch-loads visibility status instead of N+1 per-offer queries
+    - Limits default to 100 offers with pagination support
+    - Computes tracking base URL once, not per-offer
+    - Removed per-offer logging (was logging every single offer)
+    """
     try:
-        from models.offer import Offer
         from database import db_instance
         from services.offer_visibility_service import offer_visibility_service
         
-        # Get query parameters (placement_id and user_id are optional for publisher view)
+        # Get query parameters
         placement_id = request.args.get('placement_id')
         user_id = request.args.get('user_id')
         category = request.args.get('category')
         status = request.args.get('status', 'active')
-        limit = int(request.args.get('limit', 10000))  # Increased to show ALL offers
+        page = int(request.args.get('page', 1))
+        limit = min(int(request.args.get('limit', 100)), 500)  # Max 500, default 100
+        skip = (page - 1) * limit
         
-        logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, status: {status}")
+        logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
         
-        # Build query filter - show ALL active offers (not deleted)
+        # Build query filter
         query_filter = {
             '$and': [
-                # Not deleted
                 {'$or': [
                     {'deleted': {'$exists': False}},
                     {'deleted': False},
                     {'deleted': None}
                 ]},
-                # Active or no is_active field (bulk imports may not have it)
                 {'$or': [
                     {'is_active': True},
                     {'is_active': {'$exists': False}}
                 ]},
-                # Show in offerwall (default to true if not set)
                 {'$or': [
                     {'show_in_offerwall': True},
                     {'show_in_offerwall': {'$exists': False}}
@@ -1952,234 +1958,133 @@ def get_offers():
             ]
         }
         
-        # Filter by status (default to active offers only)
         if status and status != 'all':
-            query_filter['status'] = status.lower()  # Force lowercase for consistency
+            query_filter['status'] = status.lower()
         
-        # Filter by category if provided
         if category:
-            query_filter['$or'] = [
-                {'category': {'$regex': category, '$options': 'i'}},
-                {'vertical': {'$regex': category, '$options': 'i'}}
-            ]
+            query_filter['$and'].append({
+                '$or': [
+                    {'category': {'$regex': category, '$options': 'i'}},
+                    {'vertical': {'$regex': category, '$options': 'i'}}
+                ]
+            })
         
-        # Get offers from database
         offers_collection = db_instance.get_collection('offers')
         
         if offers_collection is None:
-            logger.error("❌ Database connection not available")
             return jsonify({'error': 'Database connection not available'}), 500
         
-        # Fetch ALL offers from database - SORT BY NEWEST FIRST (created_at descending)
-        offers_cursor = offers_collection.find(query_filter).sort('created_at', -1).limit(limit)
+        # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
+        projection = {
+            'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1,
+            'status': 1, 'payout': 1, 'currency': 1, 'network': 1,
+            'image_url': 1, 'creative_url': 1, 'preview_url': 1, 'thumbnail_url': 1,
+            'masked_url': 1, 'target_url': 1, 'url': 1,
+            'countries': 1, 'geo': 1, 'allowed_countries': 1, 'country': 1,
+            'devices': 1, 'device_targeting': 1, 'allowed_devices': 1,
+            'estimated_time': 1, 'created_at': 1, 'star_rating': 1,
+            'urgency_type': 1, 'timer_enabled': 1, 'timer_end_date': 1,
+            'show_in_iframe': 1, 'campaign_id': 1, 'offer_type': 1,
+            'conversion_flow': 1, 'payout_type': 1,
+            'affiliates': 1, 'approval_settings': 1, 'offer_id': 1
+        }
+        
+        # Get total count for pagination
+        total_count = offers_collection.count_documents(query_filter)
+        
+        # Fetch offers with projection and pagination
+        offers_cursor = offers_collection.find(query_filter, projection).sort('created_at', -1).skip(skip).limit(limit)
         offers_list = list(offers_cursor)
         
-        logger.info(f"✅ Found {len(offers_list)} offers in database")
+        logger.info(f"✅ Found {len(offers_list)} offers (page {page}, total {total_count})")
         
-        # Helper function to auto-detect category from offer name/description
-        def detect_category(name, description='', existing_category=None):
-            """Auto-detect category based on offer name and description"""
-            # If already has a valid category (not 'general' or empty), use it as-is
-            if existing_category and existing_category.upper() not in ['GENERAL', '', 'UNKNOWN']:
-                # Return the existing category in uppercase (new standard format)
-                return existing_category.upper()
-            
-            text = f"{name} {description}".lower()
-            
-            # Category detection rules (order matters - more specific first)
-            # Return uppercase categories to match new standard
-            if any(word in text for word in ['survey', 'questionnaire', 'poll', 'opinion', 'feedback']):
-                return 'SURVEY'
-            if any(word in text for word in ['game', 'gaming', 'play', 'level', 'casino', 'slots', 'poker', 'puzzle', 'match']):
-                return 'GAMES_INSTALL'
-            if any(word in text for word in ['video', 'watch', 'stream', 'youtube', 'tiktok', 'movie']):
-                return 'OTHER'
-            if any(word in text for word in ['shop', 'shopping', 'buy', 'purchase', 'store', 'deal', 'discount', 'coupon', 'sale']):
-                return 'OTHER'
-            if any(word in text for word in ['app', 'download', 'install', 'mobile', 'android', 'ios', 'iphone']):
-                return 'INSTALLS'
-            if any(word in text for word in ['signup', 'sign up', 'register', 'create account', 'join', 'subscribe', 'newsletter', 'email']):
-                return 'OTHER'
-            if any(word in text for word in ['loan', 'credit', 'mortgage']):
-                return 'LOAN'
-            if any(word in text for word in ['insurance']):
-                return 'INSURANCE'
-            if any(word in text for word in ['bank', 'finance', 'invest', 'trading', 'crypto', 'bitcoin']):
-                return 'FINANCE'
-            if any(word in text for word in ['health', 'fitness', 'diet', 'weight', 'medical', 'doctor', 'pharmacy', 'vitamin', 'supplement']):
-                return 'HEALTH'
-            if any(word in text for word in ['travel', 'hotel', 'flight', 'vacation', 'trip', 'booking', 'airbnb']):
-                return 'OTHER'
-            if any(word in text for word in ['education', 'course', 'learn', 'study', 'school', 'university', 'training', 'tutorial']):
-                return 'EDUCATION'
-            if any(word in text for word in ['entertainment', 'music', 'spotify', 'netflix', 'streaming', 'tv', 'show']):
-                return 'OTHER'
-            if any(word in text for word in ['dating', 'social', 'relationship']):
-                return 'DATING'
-            if any(word in text for word in ['trial', 'free trial', 'freetrial']):
-                return 'FREE_TRIAL'
-            
-            # Default to 'OTHER' for unmatched offers
-            return 'OTHER'
+        # OPTIMIZATION: Compute tracking base URL ONCE (not per-offer)
+        if 'localhost' in request.host or '127.0.0.1' in request.host:
+            tracking_base_url = "http://localhost:5000"
+        else:
+            host = request.host.split(':')[0]
+            if 'theinterwebsite.space' in host:
+                tracking_base_url = "https://api.theinterwebsite.space"
+            elif 'moustacheleads.com' in host or 'vercel.app' in host or 'onrender.com' in host:
+                tracking_base_url = "https://offers.moustacheleads.com"
+            else:
+                tracking_base_url = f"{request.scheme}://{host}:5000"
         
-        # Transform offers to frontend format
+        # OPTIMIZATION: Batch-load visibility for offers that require approval
+        # Most offers have affiliates='all' and auto_approve, so they skip the DB query
+        # Only fetch affiliate_requests for offers that actually need it
+        offers_needing_approval = []
+        for offer in offers_list:
+            affiliates = offer.get('affiliates', 'all')
+            approval_type = offer.get('approval_settings', {}).get('type', 'auto_approve')
+            if affiliates == 'request' or approval_type in ('time_based', 'manual'):
+                offers_needing_approval.append(offer.get('offer_id'))
+        
+        # Batch query: get all user requests for these offers in ONE query
+        user_request_map = {}
+        if offers_needing_approval and user_id:
+            try:
+                affiliate_requests = db_instance.get_collection('affiliate_requests')
+                if affiliate_requests:
+                    user_id_str = str(user_id)
+                    batch_query = {
+                        'offer_id': {'$in': offers_needing_approval},
+                        '$or': [
+                            {'user_id': user_id_str},
+                            {'publisher_id': user_id_str}
+                        ]
+                    }
+                    requests_cursor = affiliate_requests.find(batch_query, {'offer_id': 1, 'status': 1})
+                    for req in requests_cursor:
+                        user_request_map[req['offer_id']] = req.get('status', 'pending')
+            except Exception as e:
+                logger.warning(f"Batch visibility query failed: {e}")
+        
+        # Transform offers
         transformed_offers = []
         for offer in offers_list:
-            # Get image URL from multiple possible fields
+            # Image URL
             image_url = (
-                offer.get('image_url') or 
-                offer.get('creative_url') or 
-                offer.get('preview_url') or 
-                offer.get('thumbnail_url') or
-                ''
+                offer.get('image_url') or offer.get('creative_url') or
+                offer.get('preview_url') or offer.get('thumbnail_url') or ''
             )
-            
-            # Only use placeholder if no real image URL
-            if not image_url or image_url.strip() == '':
+            if not image_url or not image_url.strip():
                 image_url = ''
             
-            # 🔥 TRACKING URL GENERATION: Use proper tracking URLs
+            # Tracking URL (computed once with base URL)
             tracking_url = None
-            
-            # 1. First check if masked_url is valid (contains our domain)
             if offer.get('masked_url'):
-                masked_url = offer.get('masked_url')
-                # Check if it's a valid tracking URL (contains our domain)
+                masked_url = offer['masked_url']
                 if 'moustacheleads-backend.onrender.com' in masked_url or 'localhost:5000' in masked_url:
                     tracking_url = masked_url
-                    logger.info(f"✅ Using valid masked_url: {tracking_url}")
-                else:
-                    logger.warning(f"⚠️ Invalid masked_url detected: {masked_url}, will generate new tracking URL")
             
-            # 2. Generate proper tracking URL if no valid masked_url
             if not tracking_url and offer.get('target_url'):
-                try:
-                    # Determine the correct base URL based on the request
-                    if 'localhost' in request.host or '127.0.0.1' in request.host:
-                        base_url = "http://localhost:5000"  # Local development URL
-                    else:
-                        # Use the same protocol and host as the request, but ensure we're pointing to backend
-                        protocol = request.scheme
-                        host = request.host.split(':')[0]  # Remove port if present
-                        
-                        # Map frontend domains to backend domains for tracking
-                        # Use offers.moustacheleads.com subdomain for cleaner tracking URLs
-                        if 'theinterwebsite.space' in host:
-                            base_url = "https://api.theinterwebsite.space"
-                        elif 'moustacheleads.com' in host or 'vercel.app' in host:
-                            # Use offers subdomain for tracking URLs
-                            base_url = "https://offers.moustacheleads.com"
-                        elif 'onrender.com' in host:
-                            # Request from Render itself - use offers subdomain
-                            base_url = "https://offers.moustacheleads.com"
-                        else:
-                            # Development - use localhost
-                            base_url = f"{protocol}://{host}:5000"
-                    
-                    # Create tracking URL in the format: /track/{offer_id}?user_id={user_id}&sub1={placement_id}
-                    tracking_url = f"{base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}"
-                    
-                    logger.info(f"✅ Generated tracking URL: {tracking_url}")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Error generating tracking URL: {e}")
-                    tracking_url = offer.get('target_url', '#')
+                tracking_url = f"{tracking_base_url}/track/{offer.get('offer_id')}?user_id={user_id}&sub1={placement_id}"
             
-            # 3. Final fallback
             if not tracking_url:
                 tracking_url = offer.get('target_url') or offer.get('url') or '#'
-                logger.warning(f"⚠️ Using fallback URL: {tracking_url}")
             
-            # Extract countries from multiple possible fields
-            countries_data = offer.get('countries', [])
-            
-            # If countries is empty, try to extract from other fields
-            if not countries_data or len(countries_data) == 0:
-                # Try 'geo' field
-                if offer.get('geo'):
-                    geo = offer.get('geo')
-                    if isinstance(geo, list):
-                        countries_data = geo
-                    elif isinstance(geo, str):
-                        # Parse comma-separated or space-separated
-                        countries_data = [c.strip().upper() for c in geo.replace(',', ' ').split() if len(c.strip()) == 2]
-                
-                # Try 'allowed_countries' field
-                if not countries_data and offer.get('allowed_countries'):
-                    countries_data = offer.get('allowed_countries', [])
-                
-                # Try 'country' field (single country)
-                if not countries_data and offer.get('country'):
-                    country = offer.get('country')
-                    if isinstance(country, str) and len(country) == 2:
-                        countries_data = [country.upper()]
-                    elif isinstance(country, str):
-                        # Try to extract country codes from string like "US, CA, GB"
-                        countries_data = [c.strip().upper() for c in country.replace(',', ' ').split() if len(c.strip()) == 2]
-                
-                # Try to extract from description/name (look for country codes or names)
-                if not countries_data:
-                    text = f"{offer.get('name', '')} {offer.get('description', '')}".upper()
-                    country_patterns = {
-                        'US': ['USA', 'UNITED STATES', ' US ', '(US)', '-US-'],
-                        'GB': ['UK', 'UNITED KINGDOM', 'BRITAIN', ' GB ', '(GB)', '-GB-', '(UK)', '-UK-'],
-                        'CA': ['CANADA', ' CA ', '(CA)', '-CA-'],
-                        'AU': ['AUSTRALIA', ' AU ', '(AU)', '-AU-'],
-                        'DE': ['GERMANY', 'DEUTSCHLAND', ' DE ', '(DE)', '-DE-'],
-                        'FR': ['FRANCE', ' FR ', '(FR)', '-FR-'],
-                        'IT': ['ITALY', 'ITALIA', ' IT ', '(IT)', '-IT-'],
-                        'ES': ['SPAIN', 'ESPAÑA', ' ES ', '(ES)', '-ES-'],
-                        'NL': ['NETHERLANDS', 'HOLLAND', ' NL ', '(NL)', '-NL-'],
-                        'BR': ['BRAZIL', 'BRASIL', ' BR ', '(BR)', '-BR-'],
-                        'IN': ['INDIA', ' IN ', '(IN)', '-IN-'],
-                        'JP': ['JAPAN', ' JP ', '(JP)', '-JP-'],
-                        'KR': ['KOREA', ' KR ', '(KR)', '-KR-'],
-                        'MX': ['MEXICO', ' MX ', '(MX)', '-MX-'],
-                        'SE': ['SWEDEN', ' SE ', '(SE)', '-SE-'],
-                        'NO': ['NORWAY', ' NO ', '(NO)', '-NO-'],
-                        'AT': ['AUSTRIA', ' AT ', '(AT)', '-AT-'],
-                        'CH': ['SWITZERLAND', ' CH ', '(CH)', '-CH-'],
-                        'PL': ['POLAND', ' PL ', '(PL)', '-PL-'],
-                        'PT': ['PORTUGAL', ' PT ', '(PT)', '-PT-'],
-                    }
-                    detected_countries = []
-                    for code, patterns in country_patterns.items():
-                        for pattern in patterns:
-                            if pattern in text:
-                                if code not in detected_countries:
-                                    detected_countries.append(code)
-                                break
-                    if detected_countries:
-                        countries_data = detected_countries
-            
-            # Ensure countries_data is a list
+            # Countries extraction (simplified - use stored data first)
+            countries_data = offer.get('countries', []) or offer.get('allowed_countries', []) or offer.get('geo', [])
             if isinstance(countries_data, str):
                 countries_data = [c.strip().upper() for c in countries_data.replace(',', ' ').split() if c.strip()]
             
-            # Extract device targeting from multiple possible fields
-            device_targeting = offer.get('device_targeting', '')
+            # Device targeting
+            device_targeting = offer.get('device_targeting', '') or offer.get('allowed_devices', '')
             if not device_targeting:
-                device_targeting = offer.get('allowed_devices', '')
-            if not device_targeting:
-                device_targeting = offer.get('devices', '')
-                if isinstance(device_targeting, list):
-                    device_targeting = ', '.join(device_targeting) if device_targeting else ''
+                devices = offer.get('devices', '')
+                device_targeting = ', '.join(devices) if isinstance(devices, list) else str(devices or '')
             
-            # Try to detect device from name/description
-            if not device_targeting:
-                text = f"{offer.get('name', '')} {offer.get('description', '')}".lower()
-                if 'android' in text:
-                    device_targeting = 'android'
-                elif 'ios' in text or 'iphone' in text or 'ipad' in text:
-                    device_targeting = 'ios'
-                elif 'mobile' in text:
-                    device_targeting = 'mobile'
-                elif 'desktop' in text or 'web' in text:
-                    device_targeting = 'web'
-            
-            # Calculate publisher payout (80% of original - 20% platform cut)
+            # Payout
             original_payout = float(offer.get('payout', 0))
             publisher_payout = round(original_payout * 0.8, 2)
+            
+            # Category - use stored value, only detect if missing
+            stored_category = offer.get('category') or offer.get('vertical') or ''
+            if stored_category and stored_category.upper() not in ('GENERAL', '', 'UNKNOWN'):
+                category_value = stored_category.upper()
+            else:
+                category_value = 'OTHER'
             
             transformed_offer = {
                 'id': offer.get('offer_id', str(offer.get('_id'))),
@@ -2187,11 +2092,7 @@ def get_offers():
                 'description': offer.get('description', 'No description available'),
                 'reward_amount': publisher_payout,
                 'reward_currency': offer.get('currency', 'USD'),
-                'category': detect_category(
-                    offer.get('name', ''), 
-                    offer.get('description', ''),
-                    offer.get('category')
-                ),
+                'category': category_value,
                 'status': offer.get('status', 'active'),
                 'image_url': image_url,
                 'click_url': tracking_url,
@@ -2213,28 +2114,50 @@ def get_offers():
                 'payout_type': offer.get('payout_type', 'cpa'),
             }
             
-            # 🔒 ADD VISIBILITY/APPROVAL INFORMATION
-            visibility = offer_visibility_service.get_offer_visibility_status(offer, user_id)
-            transformed_offer['is_locked'] = visibility.get('is_locked', False)
-            transformed_offer['has_access'] = visibility.get('has_access', True)
-            transformed_offer['lock_reason'] = visibility.get('lock_reason')
-            transformed_offer['approval_type'] = visibility.get('approval_type', 'auto_approve')
-            transformed_offer['request_status'] = visibility.get('request_status', 'approved')
-            transformed_offer['estimated_approval_time'] = visibility.get('estimated_approval_time', 'Immediate')
-            transformed_offer['requires_approval'] = visibility.get('approval_type') in ['time_based', 'manual']
-            transformed_offers.append(transformed_offer)
+            # OPTIMIZATION: Visibility check without N+1 queries
+            affiliates = offer.get('affiliates', 'all')
+            approval_settings = offer.get('approval_settings', {})
+            approval_type = approval_settings.get('type', 'auto_approve')
             
-            logger.info(f"✅ Offer: {transformed_offer['title']}, Tracking URL: {tracking_url}")
+            if affiliates == 'request':
+                approval_type = 'manual'
+            
+            if affiliates == 'all' and approval_type == 'auto_approve':
+                # Fast path: no DB query needed (most offers)
+                transformed_offer['is_locked'] = False
+                transformed_offer['has_access'] = True
+                transformed_offer['lock_reason'] = None
+                transformed_offer['approval_type'] = 'auto_approve'
+                transformed_offer['request_status'] = 'approved'
+                transformed_offer['estimated_approval_time'] = 'Immediate'
+                transformed_offer['requires_approval'] = False
+            else:
+                # Use batch-loaded request status
+                request_status = user_request_map.get(offer.get('offer_id'), 'not_requested')
+                is_approved = request_status == 'approved'
+                
+                transformed_offer['is_locked'] = not is_approved
+                transformed_offer['has_access'] = is_approved
+                transformed_offer['lock_reason'] = None if is_approved else 'Requires approval'
+                transformed_offer['approval_type'] = approval_type
+                transformed_offer['request_status'] = request_status
+                transformed_offer['estimated_approval_time'] = 'Approved' if is_approved else 'Pending'
+                transformed_offer['requires_approval'] = True
+            
+            transformed_offers.append(transformed_offer)
         
         response_data = {
             'offers': transformed_offers,
-            'total_count': len(transformed_offers),
+            'total_count': total_count,
+            'page': page,
+            'per_page': limit,
+            'total_pages': (total_count + limit - 1) // limit,
             'placement_id': placement_id,
             'user_id': user_id,
             'generated_at': datetime.utcnow().isoformat()
         }
         
-        logger.info(f"✅ Returning {len(transformed_offers)} offers to frontend")
+        logger.info(f"✅ Returning {len(transformed_offers)} offers (page {page}/{response_data['total_pages']})")
         return jsonify(response_data), 200
         
     except Exception as e:

@@ -157,119 +157,35 @@ def create_app():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    # Enable CORS with detailed configuration - Allow all moustacheleads.com subdomains
-    CORS(app, 
-         resources={
-             r"/*": {  # Match ALL routes, not just /api/*
-                 "origins": [
-                     "http://localhost:3000",
-                     "http://localhost:5173",
-                     "http://localhost:8080",
-                     "http://localhost:8081",
-                     "http://localhost:8082",
-                     "http://127.0.0.1:3000",
-                     "http://127.0.0.1:5173",
-                     "http://127.0.0.1:8080",
-                     "http://127.0.0.1:8081",
-                     "http://127.0.0.1:8082",
-                     "http://192.168.1.15:8080",
-                     "http://192.168.1.15:8081",
-                     "http://192.168.1.15:8082",
-                     "http://192.168.1.15:5173",
-                     "http://10.59.206.163:3000",
-                     "http://10.59.206.163:5173",
-                     "http://10.59.206.163:8080",
-                     "http://10.59.206.163:8081",
-                     "http://10.59.206.163:8082",
-                     "https://moustache-leads.vercel.app",
-                     "https://theinterwebsite.space",
-                     "https://www.theinterwebsite.space",
-                     "https://api.theinterwebsite.space",
-                     "https://moustacheleads.com",
-                     "https://www.moustacheleads.com",
-                     "https://dashboard.moustacheleads.com",
-                     "https://offers.moustacheleads.com",
-                     "https://offerwall.moustacheleads.com",
-                     "https://landing.moustacheleads.com"
-                 ],
-                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-                 "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
-                 "expose_headers": ["Content-Type", "Authorization"],
-                 "supports_credentials": True,
-                 "max_age": 3600
-             }
-         },
-         supports_credentials=True)
+    # Enable CORS - simplified config, detailed handling in after_request/before_request
+    CORS(app, supports_credentials=True)
     
-    # Custom CORS handler for additional origins (Vercel deployments and production)
+    # Custom CORS handler - single handler replaces the triple CORS processing
+    # (Previously: Flask-CORS middleware + after_request + before_request = 3x processing)
     @app.after_request
     def after_request(response):
         origin = request.headers.get('Origin')
-        method = request.method
-        path = request.path
         
-        # DEBUG: Log every request
-        logging.info(f"🔍 Request: {method} {path} from origin: {origin}")
-        
-        # List of allowed origins
-        allowed_origins = [
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:8080",
-            "http://localhost:8081",
-            "http://localhost:8082",
-            "http://127.0.0.1:3000",
-            "http://127.0.0.1:5173",
-            "http://127.0.0.1:8080",
-            "http://127.0.0.1:8081",
-            "http://127.0.0.1:8082",
-            "http://192.168.1.15:8080",
-            "http://192.168.1.15:8081",
-            "http://192.168.1.15:8082",
-            "http://192.168.1.15:5173",
-            "http://10.59.206.163:3000",
-            "http://10.59.206.163:5173",
-            "http://10.59.206.163:8080",
-            "http://10.59.206.163:8081",
-            "http://10.59.206.163:8082",
-            "https://moustache-leads.vercel.app",
-            "https://theinterwebsite.space",
-            "https://www.theinterwebsite.space",
-            "https://api.theinterwebsite.space",
-            "https://moustacheleads.com",
-            "https://www.moustacheleads.com",
-            "https://dashboard.moustacheleads.com",
-            "https://offers.moustacheleads.com",
-            "https://offerwall.moustacheleads.com",
-            "https://landing.moustacheleads.com"
-        ]
-        
-        # Allow all Vercel preview deployments, theinterwebsite.space subdomains, and moustacheleads.com subdomains
-        if origin and (origin in allowed_origins or '.vercel.app' in origin or 'theinterwebsite.space' in origin or 'moustacheleads.com' in origin):
-            logging.info(f"✅ CORS: Allowing origin {origin}")
+        if origin and ('moustacheleads.com' in origin or 'vercel.app' in origin or 
+                       'theinterwebsite.space' in origin or 'localhost' in origin or 
+                       '127.0.0.1' in origin or '192.168.' in origin or '10.' in origin):
             response.headers['Access-Control-Allow-Origin'] = origin
             response.headers['Access-Control-Allow-Credentials'] = 'true'
             response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH'
             response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
             response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
             response.headers['Access-Control-Max-Age'] = '3600'
-        else:
-            logging.warning(f"❌ CORS: Rejecting origin {origin}")
         
         return response
     
-    # Handle OPTIONS preflight requests explicitly
+    # Handle OPTIONS preflight requests
     @app.before_request
     def handle_preflight():
         if request.method == 'OPTIONS':
             origin = request.headers.get('Origin')
-            path = request.path
-            
-            logging.info(f"🔍 OPTIONS preflight: {path} from {origin}")
-            
-            # Check if origin is allowed
-            if origin and ('moustacheleads.com' in origin or 'vercel.app' in origin or 'theinterwebsite.space' in origin or 'localhost' in origin or '127.0.0.1' in origin):
-                logging.info(f"✅ OPTIONS: Allowing preflight from {origin}")
+            if origin and ('moustacheleads.com' in origin or 'vercel.app' in origin or 
+                          'theinterwebsite.space' in origin or 'localhost' in origin or 
+                          '127.0.0.1' in origin):
                 response = app.make_default_options_response()
                 response.headers['Access-Control-Allow-Origin'] = origin
                 response.headers['Access-Control-Allow-Credentials'] = 'true'
@@ -277,8 +193,6 @@ def create_app():
                 response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
                 response.headers['Access-Control-Max-Age'] = '3600'
                 return response
-            else:
-                logging.warning(f"❌ OPTIONS: Rejecting preflight from {origin}")
     
     # Register blueprints (only if successfully imported)
     for blueprint, url_prefix in blueprints:

@@ -415,9 +415,11 @@ class TrackingService:
                 try:
                     method = postback.get('method', 'GET')
                     
+                    # Use session for connection pooling, 10s timeout (was 30s)
+                    session = getattr(self, '_postback_session', requests)
+                    
                     # Send postback (GET or POST)
                     if method == 'POST':
-                        # For POST, send data as JSON body
                         post_data = {
                             'click_id': postback.get('click_id', ''),
                             'payout': postback.get('payout', ''),
@@ -426,16 +428,16 @@ class TrackingService:
                             'conversion_id': postback.get('conversion_id', ''),
                             'transaction_id': postback.get('transaction_id', '')
                         }
-                        response = requests.post(
+                        response = session.post(
                             postback['url'],
                             json=post_data,
-                            timeout=30,
+                            timeout=10,
                             headers={'User-Agent': 'PepeLeads-Postback/1.0', 'Content-Type': 'application/json'}
                         )
                     else:  # GET
-                        response = requests.get(
+                        response = session.get(
                             postback['url'],
-                            timeout=30,
+                            timeout=10,
                             headers={'User-Agent': 'PepeLeads-Postback/1.0'}
                         )
                     
@@ -597,20 +599,35 @@ class TrackingService:
             return False, f"Traffic source validation error: {str(e)}"
     
     def start_postback_processor(self):
-        """Start background postback processor"""
+        """Start background postback processor
+        
+        OPTIMIZED:
+        - Uses requests.Session for connection pooling (reuses TCP connections)
+        - Reduced HTTP timeout from 30s to 10s (prevents thread blocking)
+        - Processes every 60s instead of 30s to reduce DB polling
+        """
+        # Create a session with connection pooling for postback HTTP requests
+        self._postback_session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=0  # We handle retries ourselves
+        )
+        self._postback_session.mount('http://', adapter)
+        self._postback_session.mount('https://', adapter)
+        
         def processor_loop():
             while True:
                 try:
                     self.process_postback_queue()
-                    time.sleep(30)  # Process every 30 seconds
+                    time.sleep(60)  # Process every 60 seconds (was 30)
                 except Exception as e:
                     self.logger.error(f"Error in postback processor: {str(e)}")
-                    time.sleep(60)  # Sleep 1 minute on error
+                    time.sleep(120)  # Sleep 2 minutes on error
         
-        # Start processor in background thread
         processor_thread = Thread(target=processor_loop, daemon=True)
         processor_thread.start()
-        self.logger.info("Postback processor started")
+        self.logger.info("Postback processor started (optimized)")
         
         return processor_thread
     

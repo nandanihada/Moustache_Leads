@@ -1,3 +1,5 @@
+@import './styles/dashboard-improvements.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
