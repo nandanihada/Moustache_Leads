@@ -600,7 +600,7 @@ def delete_offer(offer_id):
 @token_required
 @subadmin_or_admin_required('offers')
 def bulk_delete_offers():
-    """Delete multiple offers at once (Admin only)"""
+    """Delete multiple offers at once (Admin only) - uses single bulk update"""
     try:
         data = request.get_json()
         
@@ -612,34 +612,32 @@ def bulk_delete_offers():
         if not isinstance(offer_ids, list) or len(offer_ids) == 0:
             return jsonify({'error': 'offer_ids must be a non-empty array'}), 400
         
-        # Delete each offer
-        deleted_count = 0
-        failed_count = 0
-        errors = []
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
         
-        for offer_id in offer_ids:
-            try:
-                success = offer_model.delete_offer(offer_id)
-                if success:
-                    deleted_count += 1
-                else:
-                    failed_count += 1
-                    errors.append({
-                        'offer_id': offer_id,
-                        'error': 'Offer not found or already deleted'
-                    })
-            except Exception as e:
-                failed_count += 1
-                errors.append({
-                    'offer_id': offer_id,
-                    'error': str(e)
-                })
+        # Single bulk update instead of per-offer loop
+        from datetime import datetime
+        result = offers_collection.update_many(
+            {'offer_id': {'$in': offer_ids}},
+            {
+                '$set': {
+                    'is_active': False,
+                    'deleted': True,
+                    'deleted_at': datetime.utcnow(),
+                    'updated_at': datetime.utcnow()
+                }
+            }
+        )
+        
+        deleted_count = result.modified_count
+        failed_count = len(offer_ids) - deleted_count
         
         return jsonify({
             'message': f'Bulk delete completed',
             'deleted': deleted_count,
             'failed': failed_count,
-            'errors': errors if errors else None
+            'errors': [{'error': f'{failed_count} offer(s) not found or already deleted'}] if failed_count > 0 else None
         }), 200
         
     except Exception as e:
@@ -735,7 +733,7 @@ def empty_recycle_bin():
 @token_required
 @subadmin_or_admin_required('offers')
 def bulk_restore_offers():
-    """Restore multiple offers from recycle bin"""
+    """Restore multiple offers from recycle bin - uses single bulk update"""
     try:
         data = request.get_json()
         
@@ -747,33 +745,33 @@ def bulk_restore_offers():
         if not isinstance(offer_ids, list) or len(offer_ids) == 0:
             return jsonify({'error': 'offer_ids must be a non-empty array'}), 400
         
-        restored_count = 0
-        failed_count = 0
-        errors = []
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
         
-        for offer_id in offer_ids:
-            try:
-                success = offer_model.restore_offer(offer_id)
-                if success:
-                    restored_count += 1
-                else:
-                    failed_count += 1
-                    errors.append({
-                        'offer_id': offer_id,
-                        'error': 'Offer not found in recycle bin'
-                    })
-            except Exception as e:
-                failed_count += 1
-                errors.append({
-                    'offer_id': offer_id,
-                    'error': str(e)
-                })
+        from datetime import datetime
+        result = offers_collection.update_many(
+            {'offer_id': {'$in': offer_ids}, 'deleted': True},
+            {
+                '$set': {
+                    'is_active': True,
+                    'deleted': False,
+                    'updated_at': datetime.utcnow()
+                },
+                '$unset': {
+                    'deleted_at': ''
+                }
+            }
+        )
+        
+        restored_count = result.modified_count
+        failed_count = len(offer_ids) - restored_count
         
         return jsonify({
             'message': f'Bulk restore completed',
             'restored': restored_count,
             'failed': failed_count,
-            'errors': errors if errors else None
+            'errors': [{'error': f'{failed_count} offer(s) not found in recycle bin'}] if failed_count > 0 else None
         }), 200
         
     except Exception as e:

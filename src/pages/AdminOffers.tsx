@@ -87,6 +87,7 @@ const AdminOffers = () => {
   const [selectedDeletedOffers, setSelectedDeletedOffers] = useState<Set<string>>(new Set());
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
   const [assigningImages, setAssigningImages] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [duplicatePreviewOpen, setDuplicatePreviewOpen] = useState(false);
   const [duplicateData, setDuplicateData] = useState<any>(null);
   const [keepStrategy, setKeepStrategy] = useState<'newest' | 'oldest'>('newest');
@@ -293,6 +294,7 @@ const AdminOffers = () => {
       return;
     }
 
+    setBulkDeleting(true);
     try {
       const result = await adminOfferApi.bulkDeleteOffers(Array.from(selectedOffers));
       toast({
@@ -309,6 +311,8 @@ const AdminOffers = () => {
         description: error instanceof Error ? error.message : "Failed to bulk delete offers",
         variant: "destructive",
       });
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -483,6 +487,7 @@ const AdminOffers = () => {
       return;
     }
 
+    setBulkDeleting(true);
     try {
       const result = await adminOfferApi.bulkRestoreOffers(Array.from(selectedDeletedOffers));
       toast({
@@ -498,6 +503,8 @@ const AdminOffers = () => {
         description: error instanceof Error ? error.message : "Failed to bulk restore offers",
         variant: "destructive",
       });
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -989,9 +996,14 @@ const AdminOffers = () => {
                 <Button
                   variant="destructive"
                   onClick={handleBulkDelete}
+                  disabled={bulkDeleting}
                 >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete Selected ({selectedOffers.size})
+                  {bulkDeleting ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4 mr-2" />
+                  )}
+                  {bulkDeleting ? `Deleting ${selectedOffers.size}...` : `Delete Selected (${selectedOffers.size})`}
                 </Button>
               </>
             )}
@@ -1178,7 +1190,13 @@ const AdminOffers = () => {
               </CardDescription>
             </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
+          {bulkDeleting ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <RefreshCw className="h-8 w-8 animate-spin mb-3 text-red-500" />
+              <p className="text-lg font-medium">Deleting {selectedOffers.size} offers...</p>
+              <p className="text-sm text-muted-foreground mt-1">Please wait, this may take a moment</p>
+            </div>
+          ) : loading ? (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-6 w-6 animate-spin mr-2" />
               Loading offers...
@@ -1613,9 +1631,14 @@ const AdminOffers = () => {
                     <Button
                       variant="outline"
                       onClick={handleBulkRestore}
+                      disabled={bulkDeleting}
                     >
-                      <RotateCcw className="h-4 w-4 mr-2" />
-                      Restore Selected ({selectedDeletedOffers.size})
+                      {bulkDeleting ? (
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                      )}
+                      {bulkDeleting ? `Restoring...` : `Restore Selected (${selectedDeletedOffers.size})`}
                     </Button>
                   )}
                   <Button
