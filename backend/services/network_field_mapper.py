@@ -298,120 +298,82 @@ class NetworkFieldMapper:
             return {}
     
     def _extract_countries(self, offer_data: Dict, offer: Dict) -> List[str]:
-        """
-        Extract countries from offer data with name-to-code mapping
-        
-        Args:
-            offer_data: Full offer data including Country object
-            offer: Offer object itself
-            
-        Returns:
-            List of country codes
-        """
+        """Extract countries from offer data with name-to-code mapping"""
         countries = []
         country_data = offer_data.get('Country', {})
-        
-        # Debug: Print country data structure
-        print(f"🌍 Extracting countries:")
-        print(f"   Type: {type(country_data)}")
-        
+
         if isinstance(country_data, dict):
-            print(f"   Dict keys: {list(country_data.keys())}")
             for country_info in country_data.values():
                 if isinstance(country_info, dict):
-                    # Try to get code first
                     code = country_info.get('code')
                     if code:
                         countries.append(code.upper())
-                        print(f"   ✅ Added country code: {code.upper()}")
                     else:
-                        # Try to get from name
                         name = country_info.get('name')
                         if name:
                             code = self.COUNTRY_NAME_TO_CODE.get(name)
                             if code:
                                 countries.append(code.upper())
-                                print(f"   ✅ Mapped country name '{name}' to code: {code.upper()}")
-                            else:
-                                print(f"   ⚠️ Unknown country name: {name}")
         elif isinstance(country_data, list):
-            print(f"   List length: {len(country_data)}")
             for country_info in country_data:
                 if isinstance(country_info, dict):
                     code = country_info.get('code')
                     if code:
                         countries.append(code.upper())
-                        print(f"   ✅ Added country code: {code.upper()}")
                     else:
                         name = country_info.get('name')
                         if name:
                             code = self.COUNTRY_NAME_TO_CODE.get(name)
                             if code:
                                 countries.append(code.upper())
-                                print(f"   ✅ Mapped country name '{name}' to code: {code.upper()}")
-        
+
         # Also check if countries are in the Offer object itself
         offer_countries = offer.get('countries')
-        if offer_countries:
-            print(f"   Found countries in Offer object: {offer_countries}")
-            if isinstance(offer_countries, list):
-                for country in offer_countries:
-                    if isinstance(country, str) and len(country) == 2:
-                        countries.append(country.upper())
-        
+        if offer_countries and isinstance(offer_countries, list):
+            for country in offer_countries:
+                if isinstance(country, str) and len(country) == 2:
+                    countries.append(country.upper())
+
         # Check for allowed_countries field
         allowed_countries = offer.get('allowed_countries')
-        if allowed_countries:
-            print(f"   Found allowed_countries: {allowed_countries}")
-            if isinstance(allowed_countries, list):
-                for country in allowed_countries:
-                    if isinstance(country, str) and len(country) == 2:
-                        countries.append(country.upper())
-        
+        if allowed_countries and isinstance(allowed_countries, list):
+            for country in allowed_countries:
+                if isinstance(country, str) and len(country) == 2:
+                    countries.append(country.upper())
+
         # Check for geo field (some networks use this)
         geo = offer.get('geo') or offer.get('geos') or offer.get('targeting_geo')
         if geo:
-            print(f"   Found geo field: {geo}")
-            extracted = self._parse_geo_string(geo)
-            countries.extend(extracted)
-        
+            countries.extend(self._parse_geo_string(geo))
+
         # Check for country_targeting field
         country_targeting = offer.get('country_targeting') or offer.get('geo_targeting')
         if country_targeting:
-            print(f"   Found country_targeting: {country_targeting}")
-            extracted = self._parse_geo_string(country_targeting)
-            countries.extend(extracted)
-        
+            countries.extend(self._parse_geo_string(country_targeting))
+
         # Extract from offer name (e.g., "Offer Name - US, CA, UK")
         offer_name = offer.get('name', '')
         if offer_name:
             name_countries = self._extract_countries_from_text(offer_name)
-            if name_countries:
-                print(f"   Extracted from name: {name_countries}")
-                countries.extend(name_countries)
-        
-        # Extract from description
+            countries.extend(name_countries)
+
+        # Extract from description (only if no countries found yet)
         description = offer.get('description', '')
-        if description and not countries:  # Only if no countries found yet
+        if description and not countries:
             desc_countries = self._extract_countries_from_text(description)
-            if desc_countries:
-                print(f"   Extracted from description: {desc_countries}")
-                countries.extend(desc_countries)
-        
+            countries.extend(desc_countries)
+
         # Remove duplicates
         countries = list(set(countries))
-        
-        # Handle GLOBAL/WORLDWIDE - if found, return common countries
+
+        # Handle GLOBAL/WORLDWIDE
         if not countries:
-            # Check if offer mentions global/worldwide
             text_to_check = f"{offer_name} {description}".lower()
             if 'global' in text_to_check or 'worldwide' in text_to_check or 'all geos' in text_to_check:
-                print(f"   ⚠️ GLOBAL offer detected - adding common countries")
                 countries = ['US', 'GB', 'CA', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'BE']
-        
-        print(f"   Final countries: {countries}")
-        
+
         return countries
+
     
     def _parse_geo_string(self, geo_value) -> List[str]:
         """Parse geo string/list into country codes"""

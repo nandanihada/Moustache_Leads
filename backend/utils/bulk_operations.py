@@ -42,7 +42,7 @@ class BulkOfferProcessor:
         Returns:
             Dict mapping offer identifiers to existing offer data (if duplicate)
         """
-        if not self.offers_collection or not offers_data:
+        if self.offers_collection is None or not offers_data:
             return {}
         
         # Collect all possible duplicate identifiers
@@ -157,7 +157,7 @@ class BulkOfferProcessor:
         Returns:
             Dict with created_ids, errors, skipped_duplicates, and stats
         """
-        if not self.offers_collection:
+        if self.offers_collection is None:
             return {
                 'created_ids': [],
                 'errors': [{'error': 'Database not connected'}],
@@ -330,7 +330,7 @@ class BulkInventoryChecker:
         Returns:
             Dict with in_inventory, not_in_inventory lists and stats
         """
-        if not self.offers_collection or not offers_data:
+        if self.offers_collection is None or not offers_data:
             return {
                 'in_inventory': [],
                 'not_in_inventory': offers_data,
