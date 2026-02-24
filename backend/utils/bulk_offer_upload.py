@@ -20,6 +20,9 @@ from models.offer import (
     map_category_to_vertical
 )
 
+# Import tracking link generator for special networks
+from services.tracking_link_generator import process_offer_tracking_link
+
 # Field mapping from spreadsheet columns to database fields
 SPREADSHEET_TO_DB_MAPPING = {
     'offer_id': 'campaign_id',  # In spreadsheet this is their campaign ID
@@ -669,6 +672,10 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
             continue
         if field not in result or not result[field]:
             result[field] = default_value
+    
+    # Generate tracking link for special networks (leadads, cpamerchant, chameleonads)
+    # This must be done after defaults are applied to ensure network field exists
+    result = process_offer_tracking_link(result)
     
     return result
 

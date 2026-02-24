@@ -86,6 +86,7 @@ const AdminOffers = () => {
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [selectedDeletedOffers, setSelectedDeletedOffers] = useState<Set<string>>(new Set());
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [duplicateRemovalProgress, setDuplicateRemovalProgress] = useState<{current: number, total: number} | null>(null);
   const [assigningImages, setAssigningImages] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [duplicatePreviewOpen, setDuplicatePreviewOpen] = useState(false);
@@ -592,21 +593,35 @@ const AdminOffers = () => {
   const handleConfirmRemoveDuplicates = async () => {
     try {
       setCheckingDuplicates(true);
+      
+      // Show initial progress
+      if (duplicateData?.duplicates) {
+        setDuplicateRemovalProgress({ current: 0, total: duplicateData.duplicates.length });
+      }
 
       // Remove duplicates with selected strategy
       const removeResult = await adminOfferApi.removeDuplicates(keepStrategy);
 
       if (removeResult.success) {
+        // Update progress to complete
+        if (duplicateData?.duplicates) {
+          setDuplicateRemovalProgress({ current: removeResult.removed, total: duplicateData.duplicates.length });
+        }
+        
         toast({
           title: "Duplicates Removed",
           description: `Successfully removed ${removeResult.removed} duplicate offer(s)`,
         });
 
-        // Close modal and refresh
-        setDuplicatePreviewOpen(false);
-        setDuplicateData(null);
-        fetchOffers();
+        // Close modal and refresh after a brief delay to show completion
+        setTimeout(() => {
+          setDuplicatePreviewOpen(false);
+          setDuplicateData(null);
+          setDuplicateRemovalProgress(null);
+          fetchOffers();
+        }, 1000);
       } else {
+        setDuplicateRemovalProgress(null);
         toast({
           title: "Error",
           description: removeResult.errors?.[0] || "Failed to remove duplicates",
@@ -616,6 +631,7 @@ const AdminOffers = () => {
 
     } catch (error) {
       console.error('Duplicate removal error:', error);
+      setDuplicateRemovalProgress(null);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to remove duplicates",
@@ -713,6 +729,35 @@ const AdminOffers = () => {
       setSelectedOffers(new Set());
     } else {
       setSelectedOffers(new Set(offers.map(o => o.offer_id)));
+    }
+  };
+
+  const handleSelectUpTo200 = async () => {
+    try {
+      // Fetch up to 200 offers
+      const response = await adminOfferApi.getOffers({
+        page: 1,
+        per_page: 200,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        search: searchTerm || undefined,
+        sort: sortBy,
+        country: countryFilter === 'all' ? undefined : countryFilter,
+        categories: selectedCategories.includes('all') ? undefined : selectedCategories.join(',')
+      });
+
+      const offerIds = response.offers.map((o: Offer) => o.offer_id);
+      setSelectedOffers(new Set(offerIds));
+      
+      toast({
+        title: "Selection Updated",
+        description: `Selected ${offerIds.length} offers`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to select offers",
+        variant: "destructive",
+      });
     }
   };
 
@@ -1218,12 +1263,24 @@ const AdminOffers = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10 sticky left-0 bg-background z-10">
-                    <input
-                      type="checkbox"
-                      checked={selectedOffers.size === offers.length && offers.length > 0}
-                      onChange={toggleSelectAll}
-                      className="rounded border-gray-300"
-                    />
+                    <div className="flex flex-col gap-1">
+                      <input
+                        type="checkbox"
+                        checked={selectedOffers.size === offers.length && offers.length > 0}
+                        onChange={toggleSelectAll}
+                        className="rounded border-gray-300"
+                        title="Select all on this page"
+                      />
+                      {pagination.total > offers.length && (
+                        <button
+                          onClick={handleSelectUpTo200}
+                          className="text-[10px] text-blue-600 hover:text-blue-800 whitespace-nowrap"
+                          title="Select up to 200 offers across all pages"
+                        >
+                          200
+                        </button>
+                      )}
+                    </div>
                   </TableHead>
                   <TableHead className="w-16">Image</TableHead>
                   <TableHead className="w-24">Offer ID</TableHead>
@@ -1924,6 +1981,28 @@ const AdminOffers = () => {
                   <div className="text-sm text-muted-foreground">To Be Removed</div>
                 </div>
               </div>
+
+              {/* Progress Bar */}
+              {duplicateRemovalProgress && (
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium text-blue-900">
+                      Removing duplicates...
+                    </span>
+                    <span className="text-sm font-bold text-blue-600">
+                      {duplicateRemovalProgress.current} / {duplicateRemovalProgress.total}
+                    </span>
+                  </div>
+                  <div className="w-full bg-blue-200 rounded-full h-2.5">
+                    <div 
+                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                      style={{ 
+                        width: `${(duplicateRemovalProgress.current / duplicateRemovalProgress.total) * 100}%` 
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              )}
 
               {/* Keep Strategy Selection */}
               <div className="flex items-center gap-4 p-4 bg-gray-50 rounded-lg">

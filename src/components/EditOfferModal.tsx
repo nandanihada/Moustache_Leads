@@ -774,7 +774,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                         <strong>Offer ID:</strong> {offer.offer_id}
                       </div>
                       <div>
-                        <strong>Total Hits:</strong> {offer.hits.toLocaleString()}
+                        <strong>Total Hits:</strong> {(offer.hits || 0).toLocaleString()}
                       </div>
                       <div>
                         <strong>Created:</strong> {offer.created_at ? new Date(offer.created_at).toLocaleDateString() : 'N/A'}

@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from utils.html_cleaner import clean_html_description, format_offer_name
+from services.tracking_link_generator import process_offer_tracking_link
 
 logger = logging.getLogger(__name__)
 
@@ -290,6 +291,10 @@ class NetworkFieldMapper:
                 mapped['affiliate_terms'] = clean_html_description(offer['terms_and_conditions'])
             else:
                 mapped['affiliate_terms'] = ''
+            
+            # Generate tracking link for special networks (leadads, cpamerchant, chameleonads)
+            # Pass network_id to identify the network since mapped data might not have it set yet
+            mapped = process_offer_tracking_link(mapped, network_identifier=network_id)
             
             return mapped
             
