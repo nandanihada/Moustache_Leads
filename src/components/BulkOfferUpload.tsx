@@ -47,7 +47,52 @@ interface UploadResult {
     validation_errors?: Array<{
         row: number;
         errors: string[];
+        missing_fields?: string[];
+        warnings?: string[];
     }>;
+    missing_offers?: Array<{
+        row: number;
+        missing_fields: string[];
+        warnings?: string[];
+    }>;
+    validation_feedback?: {
+        summary: string;
+        total_issues: number;
+        required_fields: Array<{
+            field: string;
+            description: string;
+            required: boolean;
+        }>;
+        special_network_info: {
+            networks: string[];
+            description: string;
+            requirement: string;
+        };
+        errors_by_type: {
+            missing_fields: Array<{
+                row: number;
+                missing: string[];
+            }>;
+            invalid_format: Array<{
+                row: number;
+                error: string;
+            }>;
+            invalid_values: Array<{
+                row: number;
+                error: string;
+            }>;
+        };
+        fix_suggestions: Array<{
+            field: string;
+            issue: string;
+            solution: string;
+            example: string;
+        }>;
+        column_mapping: {
+            description: string;
+            mappings: Record<string, string[]>;
+        };
+    };
     creation_errors?: Array<{
         row: number;
         error: string;
@@ -59,6 +104,8 @@ interface UploadResult {
         match_type: string;
     }>;
     message: string;
+    can_skip_invalid?: boolean;
+    valid_count?: number;
 }
 
 export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
@@ -150,7 +197,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
         }
     };
 
-    const handleUpload = async () => {
+    const handleUpload = async (skipInvalidRows: boolean = false) => {
         if (uploadMode === 'file' && !selectedFile) {
             toast({
                 title: 'No File Selected',
@@ -171,7 +218,11 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
 
         setIsUploading(true);
         setUploadProgress(0);
-        setUploadResult(null);
+        
+        // Don't clear uploadResult if we're retrying with skip_invalid_rows
+        if (!skipInvalidRows) {
+            setUploadResult(null);
+        }
 
         try {
             let result: UploadResult;
@@ -185,6 +236,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 default_star_rating: defaultStarRating,
                 default_timer: defaultTimer,
                 duplicate_strategy: skipDuplicates ? 'skip' : 'create_new',
+                skip_invalid_rows: skipInvalidRows,
             };
 
             if (uploadMode === 'file' && selectedFile) {
@@ -220,16 +272,29 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
             }
         } catch (error: any) {
             console.error('Upload error:', error);
+            console.log('Error object:', {
+                validation_errors: error.validation_errors,
+                validation_feedback: error.validation_feedback,
+                missing_offers: error.missing_offers,
+                message: error.message
+            });
 
             // Check if error has validation details
-            if (error.validation_errors) {
+            if (error.validation_errors || error.validation_feedback || error.missing_offers) {
                 setUploadResult({
                     success: false,
                     created_count: 0,
                     message: error.message || 'Validation errors found',
                     validation_errors: error.validation_errors,
+                    missing_offers: error.missing_offers,
+                    validation_feedback: error.validation_feedback,
                     error_count: error.error_count,
+                    created_offer_ids: [],
+                    can_skip_invalid: error.can_skip_invalid,
+                    valid_count: error.valid_count,
                 } as UploadResult);
+                
+                // Don't show toast - the detailed feedback will be displayed in the UI
             } else {
                 toast({
                     title: 'Upload Failed',
@@ -558,6 +623,136 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                 </Alert>
                             )}
 
+                            {/* Detailed Validation Feedback */}
+                            {uploadResult.validation_feedback && (
+                                <div className="border rounded-lg p-4 bg-amber-50 space-y-4">
+                                    <div className="flex items-start gap-2">
+                                        <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                                        <div className="flex-1">
+                                            <h4 className="font-semibold text-amber-900 mb-2">
+                                                Validation Issues Found
+                                            </h4>
+                                            <p className="text-sm text-amber-800 mb-4">
+                                                {uploadResult.validation_feedback.summary}
+                                            </p>
+
+                                            {/* Show skip option if there are valid rows */}
+                                            {uploadResult.can_skip_invalid && uploadResult.valid_count && uploadResult.valid_count > 0 && (
+                                                <Alert className="mb-4 bg-green-50 border-green-200">
+                                                    <CheckCircle2 className="h-4 w-4 text-green-600" />
+                                                    <AlertDescription className="text-green-800">
+                                                        <strong>Good news!</strong> You have {uploadResult.valid_count} valid offer(s) in your spreadsheet.
+                                                        <div className="mt-2">
+                                                            You can either:
+                                                            <ul className="list-disc list-inside ml-2 mt-1">
+                                                                <li>Fix the invalid rows and re-upload the entire sheet</li>
+                                                                <li>Click "Skip Invalid & Upload Valid Offers" below to proceed with only the valid offers</li>
+                                                            </ul>
+                                                        </div>
+                                                    </AlertDescription>
+                                                </Alert>
+                                            )}
+
+                                            {/* Special Network Info */}
+                                            {uploadResult.validation_feedback.special_network_info && (
+                                                <Alert className="mb-4 bg-blue-50 border-blue-200">
+                                                    <AlertCircle className="h-4 w-4 text-blue-600" />
+                                                    <AlertDescription className="text-blue-800">
+                                                        <strong>Special Networks:</strong>{' '}
+                                                        {uploadResult.validation_feedback.special_network_info.description}
+                                                        <div className="mt-2 text-sm">
+                                                            <strong>Networks:</strong>{' '}
+                                                            {uploadResult.validation_feedback.special_network_info.networks.join(', ')}
+                                                        </div>
+                                                        <div className="text-sm">
+                                                            <strong>Requirement:</strong>{' '}
+                                                            {uploadResult.validation_feedback.special_network_info.requirement}
+                                                        </div>
+                                                    </AlertDescription>
+                                                </Alert>
+                                            )}
+
+                                            {/* Fix Suggestions */}
+                                            {uploadResult.validation_feedback.fix_suggestions && 
+                                             uploadResult.validation_feedback.fix_suggestions.length > 0 && (
+                                                <div className="space-y-3">
+                                                    <h5 className="font-semibold text-sm text-amber-900">
+                                                        How to Fix Your Spreadsheet:
+                                                    </h5>
+                                                    {uploadResult.validation_feedback.fix_suggestions.map((suggestion, idx) => (
+                                                        <div key={idx} className="bg-white rounded p-3 border border-amber-200">
+                                                            <div className="flex items-start gap-2">
+                                                                <span className="text-amber-600 font-bold">
+                                                                    {idx + 1}.
+                                                                </span>
+                                                                <div className="flex-1">
+                                                                    <p className="font-medium text-amber-900 mb-1">
+                                                                        {suggestion.issue}
+                                                                    </p>
+                                                                    <p className="text-sm text-amber-800 mb-2">
+                                                                        {suggestion.solution}
+                                                                    </p>
+                                                                    <div className="bg-gray-100 rounded px-2 py-1 text-xs font-mono text-gray-700">
+                                                                        Example: {suggestion.example}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+
+                                            {/* Required Fields Reference */}
+                                            {uploadResult.validation_feedback.required_fields && (
+                                                <details className="mt-4">
+                                                    <summary className="cursor-pointer font-semibold text-sm text-amber-900 hover:text-amber-700">
+                                                        View All Required Fields
+                                                    </summary>
+                                                    <div className="mt-2 space-y-2 pl-4">
+                                                        {uploadResult.validation_feedback.required_fields.map((field, idx) => (
+                                                            <div key={idx} className="text-sm">
+                                                                <span className="font-mono text-amber-700">
+                                                                    {field.field}
+                                                                </span>
+                                                                {' - '}
+                                                                <span className="text-amber-800">
+                                                                    {field.description}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </details>
+                                            )}
+
+                                            {/* Column Mapping Reference */}
+                                            {uploadResult.validation_feedback.column_mapping && (
+                                                <details className="mt-4">
+                                                    <summary className="cursor-pointer font-semibold text-sm text-amber-900 hover:text-amber-700">
+                                                        View Accepted Column Names
+                                                    </summary>
+                                                    <div className="mt-2 space-y-2 pl-4">
+                                                        <p className="text-xs text-amber-700 mb-2">
+                                                            {uploadResult.validation_feedback.column_mapping.description}
+                                                        </p>
+                                                        {Object.entries(uploadResult.validation_feedback.column_mapping.mappings).map(([field, names], idx) => (
+                                                            <div key={idx} className="text-sm">
+                                                                <span className="font-semibold text-amber-800">
+                                                                    {field}:
+                                                                </span>
+                                                                {' '}
+                                                                <span className="font-mono text-amber-700">
+                                                                    {names.join(', ')}
+                                                                </span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </details>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Validation Errors */}
                             {uploadResult.validation_errors && uploadResult.validation_errors.length > 0 && (
                                 <div className="border rounded-lg p-4 max-h-60 overflow-y-auto bg-red-50">
@@ -568,11 +763,53 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                         {uploadResult.validation_errors.map((err, idx) => (
                                             <div key={idx} className="text-sm border-l-2 border-red-400 pl-3 py-1">
                                                 <p className="font-medium text-red-700">Row {err.row}:</p>
-                                                <ul className="list-disc list-inside text-red-600 ml-2">
-                                                    {err.errors.map((error, errIdx) => (
-                                                        <li key={errIdx}>{error}</li>
-                                                    ))}
-                                                </ul>
+                                                {err.errors && err.errors.length > 0 && (
+                                                    <ul className="list-disc list-inside text-red-600 ml-2">
+                                                        {err.errors.map((error, errIdx) => (
+                                                            <li key={errIdx}>{error}</li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                                {err.missing_fields && err.missing_fields.length > 0 && (
+                                                    <div className="ml-2 mt-1">
+                                                        <span className="text-red-700 font-medium">Missing fields: </span>
+                                                        <span className="text-red-600">{err.missing_fields.join(', ')}</span>
+                                                    </div>
+                                                )}
+                                                {err.warnings && err.warnings.length > 0 && (
+                                                    <ul className="list-disc list-inside text-amber-600 ml-2 mt-1">
+                                                        {err.warnings.map((warning, warnIdx) => (
+                                                            <li key={warnIdx}>{warning}</li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Missing Offers */}
+                            {uploadResult.missing_offers && uploadResult.missing_offers.length > 0 && (
+                                <div className="border rounded-lg p-4 max-h-60 overflow-y-auto bg-orange-50">
+                                    <h4 className="font-semibold text-sm mb-2 text-orange-800">
+                                        Rows with Missing Required Fields ({uploadResult.missing_offers.length})
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {uploadResult.missing_offers.map((missing, idx) => (
+                                            <div key={idx} className="text-sm border-l-2 border-orange-400 pl-3 py-1">
+                                                <p className="font-medium text-orange-700">Row {missing.row}:</p>
+                                                <div className="ml-2">
+                                                    <span className="text-orange-700 font-medium">Missing: </span>
+                                                    <span className="text-orange-600">{missing.missing_fields.join(', ')}</span>
+                                                </div>
+                                                {missing.warnings && missing.warnings.length > 0 && (
+                                                    <ul className="list-disc list-inside text-amber-600 ml-2 mt-1">
+                                                        {missing.warnings.map((warning, warnIdx) => (
+                                                            <li key={warnIdx}>{warning}</li>
+                                                        ))}
+                                                    </ul>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
@@ -623,26 +860,52 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                         <Button variant="outline" onClick={handleClose}>
                             Close
                         </Button>
-                        <Button
-                            onClick={handleUpload}
-                            disabled={
-                                isUploading ||
-                                (uploadMode === 'file' && !selectedFile) ||
-                                (uploadMode === 'url' && !googleSheetUrl.trim())
-                            }
-                        >
-                            {isUploading ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Uploading...
-                                </>
-                            ) : (
-                                <>
-                                    <Upload className="mr-2 h-4 w-4" />
-                                    Upload Offers
-                                </>
-                            )}
-                        </Button>
+                        
+                        {/* Show "Skip Invalid & Upload Valid" button when there are validation errors but also valid rows */}
+                        {uploadResult && !uploadResult.success && uploadResult.can_skip_invalid && uploadResult.valid_count && uploadResult.valid_count > 0 && (
+                            <Button
+                                onClick={() => handleUpload(true)}
+                                disabled={isUploading}
+                                variant="secondary"
+                                className="bg-amber-600 hover:bg-amber-700 text-white"
+                            >
+                                {isUploading ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Processing...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                                        Skip Invalid & Upload {uploadResult.valid_count} Valid Offers
+                                    </>
+                                )}
+                            </Button>
+                        )}
+                        
+                        {/* Regular upload button - hide if we're showing the skip button */}
+                        {!(uploadResult && !uploadResult.success && uploadResult.can_skip_invalid) && (
+                            <Button
+                                onClick={() => handleUpload(false)}
+                                disabled={
+                                    isUploading ||
+                                    (uploadMode === 'file' && !selectedFile) ||
+                                    (uploadMode === 'url' && !googleSheetUrl.trim())
+                                }
+                            >
+                                {isUploading ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Uploading...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Upload className="mr-2 h-4 w-4" />
+                                        Upload Offers
+                                    </>
+                                )}
+                            </Button>
+                        )}
                     </div>
                 </div>
             </DialogContent>

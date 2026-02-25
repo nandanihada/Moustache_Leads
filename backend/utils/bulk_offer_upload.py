@@ -104,15 +104,18 @@ SPREADSHEET_TO_DB_MAPPING = {
 }
 
 # Required fields that must be present in spreadsheet
+# Note: target_url requirement varies by network (see validation logic)
 # Note: Either 'payout' OR 'revenue_share_percent' must be present (validated separately)
-REQUIRED_FIELDS = [
-    'campaign_id',  # offer_id in spreadsheet
+BASE_REQUIRED_FIELDS = [
+    'campaign_id',  # offer_id in spreadsheet - REQUIRED for ALL networks
     'name',         # title in spreadsheet
-    'target_url',   # url in spreadsheet
     'countries',    # country in spreadsheet
     'description',
     'network'       # platform in spreadsheet
 ]
+
+# Special networks that can generate target_url from campaign_id
+SPECIAL_NETWORKS = ['cpamerchant', 'leadads', 'chameleonads']
 
 # Default values for optional fields
 DEFAULT_VALUES = {
@@ -704,6 +707,7 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
         row_number = row.get('_row_number', 'Unknown')
         errors = []
         missing_fields = []
+        warnings = []
         
         # Map spreadsheet columns to database fields
         mapped_data = map_spreadsheet_to_db(row)
@@ -713,10 +717,27 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
         logger = logging.getLogger(__name__)
         logger.info(f"Row {row_number} mapped data: {mapped_data}")
 
-        # Check required fields - track which are missing
-        for required_field in REQUIRED_FIELDS:
+        # Check if this is a special network that can generate target_url
+        network = mapped_data.get('network', '').lower().strip().replace(' ', '').replace('_', '')
+        is_special_network = network in SPECIAL_NETWORKS
+        has_campaign_id = 'campaign_id' in mapped_data and mapped_data['campaign_id']
+        has_target_url = 'target_url' in mapped_data and mapped_data['target_url']
+        
+        # Check base required fields (ALWAYS required for ALL networks)
+        # This includes campaign_id which is MANDATORY for every platform
+        for required_field in BASE_REQUIRED_FIELDS:
             if required_field not in mapped_data or not mapped_data[required_field]:
                 missing_fields.append(required_field)
+        
+        # Network-specific validation for target_url ONLY
+        if is_special_network:
+            # Special networks: target_url is OPTIONAL (will be auto-generated from campaign_id)
+            if has_campaign_id and not has_target_url:
+                warnings.append(f"target_url will be auto-generated for {network} network using campaign_id: {mapped_data.get('campaign_id')}")
+        else:
+            # Regular networks: target_url is REQUIRED
+            if not has_target_url:
+                missing_fields.append('target_url')
         
         # Special validation: Either 'payout' OR 'revenue_share_percent' must be present
         has_payout = 'payout' in mapped_data and mapped_data['payout']
@@ -832,6 +853,8 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
             error_rows.append({
                 'row': row_number,
                 'errors': errors,
+                'missing_fields': missing_fields,
+                'warnings': warnings,
                 'data': row
             })
         elif missing_fields and store_missing:
@@ -839,6 +862,7 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
             missing_offers_rows.append({
                 'row': row_number,
                 'missing_fields': missing_fields,
+                'warnings': warnings,
                 'data': mapped_data,
                 'raw_data': row
             })
@@ -847,12 +871,16 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
             error_rows.append({
                 'row': row_number,
                 'errors': [f"Missing required field: {f}" for f in missing_fields],
+                'missing_fields': missing_fields,
+                'warnings': warnings,
                 'data': row
             })
         else:
             # Apply defaults and add to valid rows
             validated_data = apply_default_values(mapped_data)
             validated_data['_row_number'] = row_number
+            if warnings:
+                validated_data['_warnings'] = warnings
             valid_rows.append(validated_data)
     
     return valid_rows, error_rows, missing_offers_rows
@@ -992,3 +1020,197 @@ def check_inventory_gaps(offers_data: List[Dict[str, Any]], network: str = None)
             'not_in_inventory': [],
             'stats': {'total': len(offers_data), 'error': str(e)}
         }
+
+
+def generate_validation_feedback(error_rows: List[Dict[str, Any]], missing_offers_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Generate detailed feedback about validation errors to help admins fix their spreadsheet.
+    
+    Args:
+        error_rows: List of rows with validation errors
+        missing_offers_rows: List of rows with missing required fields
+        
+    Returns:
+        Dictionary with detailed feedback including:
+        - summary: Overall summary of issues
+        - required_fields: List of required fields with descriptions
+        - special_network_info: Info about networks that don't require target_url
+        - errors_by_type: Categorized errors
+        - fix_suggestions: Specific suggestions to fix the sheet
+    """
+    
+    # Field descriptions for better understanding
+    field_descriptions = {
+        'campaign_id': 'Offer ID from the network (REQUIRED for ALL platforms)',
+        'name': 'Offer title/name',
+        'target_url': 'Destination URL (REQUIRED for most networks; OPTIONAL for cpamerchant, leadads, chameleonads - will be auto-generated)',
+        'countries': 'Target countries (comma-separated, e.g., US, UK, CA)',
+        'payout': 'Payout amount (e.g., $5, 50%, €10) - either this OR revenue_share_percent is required',
+        'description': 'Offer description',
+        'network': 'Network/platform name (e.g., cpamerchant, leadads, chameleonads)'
+    }
+    
+    # Special networks that can auto-generate target_url
+    special_networks = SPECIAL_NETWORKS
+    
+    # Analyze errors
+    all_missing_fields = set()
+    error_types = {
+        'missing_fields': [],
+        'invalid_format': [],
+        'invalid_values': []
+    }
+    
+    # Process error rows (invalid format)
+    for error_row in error_rows:
+        row_num = error_row.get('row', 'Unknown')
+        errors = error_row.get('errors', [])
+        missing = error_row.get('missing_fields', [])
+        
+        for field in missing:
+            all_missing_fields.add(field)
+        
+        for error in errors:
+            if 'Invalid' in error or 'must be' in error:
+                error_types['invalid_format'].append({
+                    'row': row_num,
+                    'error': error
+                })
+            else:
+                error_types['invalid_values'].append({
+                    'row': row_num,
+                    'error': error
+                })
+    
+    # Process missing offers rows
+    for missing_row in missing_offers_rows:
+        row_num = missing_row.get('row', 'Unknown')
+        missing = missing_row.get('missing_fields', [])
+        
+        for field in missing:
+            all_missing_fields.add(field)
+        
+        error_types['missing_fields'].append({
+            'row': row_num,
+            'missing': missing
+        })
+    
+    # Generate fix suggestions
+    fix_suggestions = []
+    
+    if 'campaign_id' in all_missing_fields:
+        fix_suggestions.append({
+            'field': 'campaign_id',
+            'issue': 'Missing offer ID in one or more rows',
+            'solution': "Add a 'campaign_id' or 'offer_id' column with the offer identifier from your network. This field is REQUIRED for ALL platforms.",
+            'example': '12345'
+        })
+    
+    if 'target_url' in all_missing_fields:
+        fix_suggestions.append({
+            'field': 'target_url',
+            'issue': 'Missing target URL in one or more rows',
+            'solution': f"Add a 'url' or 'target_url' column with valid URLs (starting with http:// or https://). NOTE: For special networks ({', '.join(special_networks)}), target_url is OPTIONAL - the system will auto-generate it from campaign_id. For ALL other networks, target_url is REQUIRED.",
+            'example': 'https://example.com/offer?id=123'
+        })
+    
+    if 'name' in all_missing_fields:
+        fix_suggestions.append({
+            'field': 'name',
+            'issue': 'Missing offer name/title in one or more rows',
+            'solution': "Add a 'name' or 'title' column with descriptive offer names",
+            'example': 'Sign up for Premium Subscription'
+        })
+    
+    if 'countries' in all_missing_fields:
+        fix_suggestions.append({
+            'field': 'countries',
+            'issue': 'Missing target countries in one or more rows',
+            'solution': "Add a 'country' or 'countries' column with 2-letter country codes (comma-separated for multiple)",
+            'example': 'US, UK, CA'
+        })
+    
+    if 'payout' in all_missing_fields:
+        fix_suggestions.append({
+            'field': 'payout',
+            'issue': 'Missing payout information in one or more rows',
+            'solution': "Add a 'payout' column with the payout amount (can include currency symbol like $5, or percentage like 50%). Alternatively, use 'revenue_share_percent' column for percentage-based payouts.",
+            'example': '$5.00 or 50% or €10'
+        })
+    
+    if 'description' in all_missing_fields:
+        fix_suggestions.append({
+            'field': 'description',
+            'issue': 'Missing offer description in one or more rows',
+            'solution': "Add a 'description' column with details about the offer",
+            'example': 'Complete a survey and earn rewards'
+        })
+    
+    if 'network' in all_missing_fields:
+        fix_suggestions.append({
+            'field': 'network',
+            'issue': 'Missing network/platform name in one or more rows',
+            'solution': "Add a 'network', 'platform', or 'name of platform' column with the network name",
+            'example': 'cpamerchant, leadads, or chameleonads'
+        })
+    
+    # Build summary
+    total_issues = len(error_rows) + len(missing_offers_rows)
+    summary = f"Found {total_issues} row(s) with issues. "
+    
+    if error_types['invalid_format']:
+        summary += f"{len(error_types['invalid_format'])} row(s) have invalid data format. "
+    
+    if error_types['missing_fields']:
+        summary += f"{len(error_types['missing_fields'])} row(s) have missing required fields. "
+    
+    # Build required fields list with descriptions
+    required_fields_info = []
+    
+    # Always required fields (including campaign_id)
+    for field in BASE_REQUIRED_FIELDS:
+        required_fields_info.append({
+            'field': field,
+            'description': field_descriptions.get(field, 'Required field'),
+            'required': True
+        })
+    
+    # Add payout/revenue_share info
+    required_fields_info.append({
+        'field': 'payout OR revenue_share_percent',
+        'description': 'Either fixed payout amount or revenue share percentage',
+        'required': True
+    })
+    
+    # Add network-specific requirement for target_url
+    required_fields_info.append({
+        'field': 'target_url',
+        'description': field_descriptions.get('target_url', 'Destination URL'),
+        'required': f'Required for most networks; Optional for {", ".join(special_networks)} (auto-generated)'
+    })
+    
+    return {
+        'summary': summary,
+        'total_issues': total_issues,
+        'required_fields': required_fields_info,
+        'special_network_info': {
+            'networks': special_networks,
+            'description': f"Special networks ({', '.join(special_networks)}) can auto-generate the target_url from campaign_id. For these networks, target_url is OPTIONAL. For all other networks, target_url is REQUIRED. NOTE: campaign_id (offer_id) is REQUIRED for ALL platforms.",
+            'requirement': 'campaign_id is always required. For special networks, target_url will be auto-generated if not provided.'
+        },
+        'errors_by_type': error_types,
+        'fix_suggestions': fix_suggestions,
+        'column_mapping': {
+            'description': 'The system accepts multiple column name variations. Here are the accepted names:',
+            'mappings': {
+                'campaign_id': ['campaign_id', 'offer_id'],
+                'name': ['name', 'title'],
+                'target_url': ['target_url', 'url'],
+                'countries': ['countries', 'country'],
+                'payout': ['payout'],
+                'description': ['description'],
+                'network': ['network', 'platform', 'name of platform']
+            }
+        }
+    }
+

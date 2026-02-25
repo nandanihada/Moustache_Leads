@@ -1160,18 +1160,35 @@ def bulk_upload_offers():
         for row in valid_rows:
             row['show_in_offerwall'] = show_in_offerwall
         
-        # If there are critical validation errors (invalid format), return them
-        if error_rows:
-            return jsonify({
+        # If there are validation issues OR no valid rows, generate detailed feedback
+        if error_rows or missing_offers_rows or not valid_rows:
+            from utils.bulk_offer_upload import generate_validation_feedback
+            
+            validation_feedback = generate_validation_feedback(error_rows, missing_offers_rows)
+            
+            # If there are SOME valid rows, allow skipping invalid ones
+            can_skip_invalid = len(valid_rows) > 0
+            
+            response_data = {
                 'error': 'Validation errors found in spreadsheet',
+                'message': validation_feedback['summary'],
+                'validation_feedback': validation_feedback,
                 'validation_errors': error_rows,
+                'missing_offers': missing_offers_rows,
                 'valid_count': len(valid_rows),
                 'error_count': len(error_rows),
-                'missing_count': len(missing_offers_rows)
-            }), 400
-        
-        if not valid_rows:
-            return jsonify({'error': 'No valid data found in spreadsheet'}), 400
+                'missing_count': len(missing_offers_rows),
+                'can_skip_invalid': can_skip_invalid,
+            }
+            
+            # If user explicitly requested to skip invalid rows, proceed with valid ones
+            skip_invalid = options.get('skip_invalid_rows', False)
+            
+            if skip_invalid and can_skip_invalid:
+                logging.info(f"⚠️ Skipping {len(error_rows) + len(missing_offers_rows)} invalid rows, proceeding with {len(valid_rows)} valid rows")
+                # Continue to create offers with valid rows
+            else:
+                return jsonify(response_data), 400
         
         # Use OPTIMIZED bulk processor for large datasets (avoids Render timeout)
         logging.info(f"🔨 Creating {len(valid_rows)} offers with OPTIMIZED bulk processor...")

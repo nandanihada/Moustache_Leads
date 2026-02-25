@@ -9,11 +9,58 @@ export interface BulkUploadResult {
   validation_errors?: Array<{
     row: number;
     errors: string[];
+    missing_fields?: string[];
+    warnings?: string[];
   }>;
+  missing_offers?: Array<{
+    row: number;
+    missing_fields: string[];
+    warnings?: string[];
+  }>;
+  validation_feedback?: {
+    summary: string;
+    total_issues: number;
+    required_fields: Array<{
+      field: string;
+      description: string;
+      required: boolean;
+    }>;
+    special_network_info: {
+      networks: string[];
+      description: string;
+      requirement: string;
+    };
+    errors_by_type: {
+      missing_fields: Array<{
+        row: number;
+        missing: string[];
+      }>;
+      invalid_format: Array<{
+        row: number;
+        error: string;
+      }>;
+      invalid_values: Array<{
+        row: number;
+        error: string;
+      }>;
+    };
+    fix_suggestions: Array<{
+      field: string;
+      issue: string;
+      solution: string;
+      example: string;
+    }>;
+    column_mapping: {
+      description: string;
+      mappings: Record<string, string[]>;
+    };
+  };
   creation_errors?: Array<{
     row: number;
     error: string;
   }>;
+  can_skip_invalid?: boolean;
+  valid_count?: number;
 }
 
 export interface BulkUploadOptions {
@@ -22,6 +69,7 @@ export interface BulkUploadOptions {
   require_approval?: boolean;
   default_star_rating?: number;
   default_timer?: number;
+  skip_invalid_rows?: boolean;
 }
 
 export const bulkOfferApi = {
@@ -55,12 +103,19 @@ export const bulkOfferApi = {
 
     if (!response.ok) {
       // If there are validation errors, include them in the error
-      if (data.validation_errors) {
+      if (data.validation_errors || data.validation_feedback || data.missing_offers) {
         console.log('Validation errors found:', data.validation_errors);
-        const error: any = new Error(data.error || 'Validation errors found');
+        console.log('Missing offers found:', data.missing_offers);
+        console.log('Validation feedback:', data.validation_feedback);
+        const error: any = new Error(data.message || data.error || 'Validation errors found');
         error.validation_errors = data.validation_errors;
+        error.missing_offers = data.missing_offers;
+        error.validation_feedback = data.validation_feedback;
         error.error_count = data.error_count;
         error.valid_count = data.valid_count;
+        error.missing_count = data.missing_count;
+        error.can_skip_invalid = data.can_skip_invalid;
+        error.message = data.message || data.error;
         throw error;
       }
       // If there are creation errors, log them
@@ -92,11 +147,19 @@ export const bulkOfferApi = {
 
     if (!response.ok) {
       // If there are validation errors, include them in the error
-      if (data.validation_errors) {
-        const error: any = new Error(data.error || 'Validation errors found');
+      if (data.validation_errors || data.validation_feedback || data.missing_offers) {
+        console.log('Google Sheets - Validation errors found:', data.validation_errors);
+        console.log('Google Sheets - Missing offers found:', data.missing_offers);
+        console.log('Google Sheets - Validation feedback:', data.validation_feedback);
+        const error: any = new Error(data.message || data.error || 'Validation errors found');
         error.validation_errors = data.validation_errors;
+        error.missing_offers = data.missing_offers;
+        error.validation_feedback = data.validation_feedback;
         error.error_count = data.error_count;
         error.valid_count = data.valid_count;
+        error.missing_count = data.missing_count;
+        error.can_skip_invalid = data.can_skip_invalid;
+        error.message = data.message || data.error;
         throw error;
       }
       throw new Error(data.error || 'Failed to upload from Google Sheets');
