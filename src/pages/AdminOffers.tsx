@@ -33,7 +33,8 @@ import {
   ImageIcon,
   ChevronLeft,
   ChevronRight,
-  Layers
+  Layers,
+  Loader2
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -595,18 +596,30 @@ const AdminOffers = () => {
       setCheckingDuplicates(true);
       
       // Show initial progress
-      if (duplicateData?.duplicates) {
-        setDuplicateRemovalProgress({ current: 0, total: duplicateData.duplicates.length });
+      const totalToRemove = duplicateData?.total_documents_to_remove || 0;
+      if (totalToRemove > 0) {
+        setDuplicateRemovalProgress({ current: 0, total: totalToRemove });
       }
+
+      // Simulate progress animation while removal is happening
+      const progressInterval = setInterval(() => {
+        setDuplicateRemovalProgress(prev => {
+          if (!prev) return null;
+          // Gradually increase progress up to 90% while waiting for backend
+          const newCurrent = Math.min(prev.current + Math.ceil(prev.total * 0.05), Math.floor(prev.total * 0.9));
+          return { current: newCurrent, total: prev.total };
+        });
+      }, 300); // Update every 300ms
 
       // Remove duplicates with selected strategy
       const removeResult = await adminOfferApi.removeDuplicates(keepStrategy);
 
+      // Clear the progress interval
+      clearInterval(progressInterval);
+
       if (removeResult.success) {
         // Update progress to complete
-        if (duplicateData?.duplicates) {
-          setDuplicateRemovalProgress({ current: removeResult.removed, total: duplicateData.duplicates.length });
-        }
+        setDuplicateRemovalProgress({ current: removeResult.removed, total: totalToRemove });
         
         toast({
           title: "Duplicates Removed",
@@ -619,7 +632,7 @@ const AdminOffers = () => {
           setDuplicateData(null);
           setDuplicateRemovalProgress(null);
           fetchOffers();
-        }, 1000);
+        }, 1500);
       } else {
         setDuplicateRemovalProgress(null);
         toast({
@@ -1984,22 +1997,30 @@ const AdminOffers = () => {
 
               {/* Progress Bar */}
               {duplicateRemovalProgress && (
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium text-blue-900">
-                      Removing duplicates...
-                    </span>
-                    <span className="text-sm font-bold text-blue-600">
+                <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-300 shadow-md">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      <span className="text-sm font-semibold text-blue-900">
+                        Removing duplicates...
+                      </span>
+                    </div>
+                    <span className="text-sm font-bold text-blue-700 bg-white px-3 py-1 rounded-full">
                       {duplicateRemovalProgress.current} / {duplicateRemovalProgress.total}
                     </span>
                   </div>
-                  <div className="w-full bg-blue-200 rounded-full h-2.5">
+                  <div className="w-full bg-blue-200 rounded-full h-3 overflow-hidden shadow-inner">
                     <div 
-                      className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                      className="bg-gradient-to-r from-blue-500 to-indigo-600 h-3 rounded-full transition-all duration-500 ease-out relative"
                       style={{ 
                         width: `${(duplicateRemovalProgress.current / duplicateRemovalProgress.total) * 100}%` 
                       }}
-                    ></div>
+                    >
+                      <div className="absolute inset-0 bg-white opacity-20 animate-pulse"></div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs text-blue-700 text-center">
+                    {Math.round((duplicateRemovalProgress.current / duplicateRemovalProgress.total) * 100)}% Complete
                   </div>
                 </div>
               )}
