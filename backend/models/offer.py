@@ -713,7 +713,13 @@ class Offer:
         
         try:
             # Exclude deleted offers by default
-            query = {'is_active': True, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+            # Exclude deleted offers — show offers where is_active is True or not set
+            query = {
+                '$and': [
+                    {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
+                    {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+                ]
+            }
             
             if filters:
                 if filters.get('status'):
@@ -722,10 +728,9 @@ class Offer:
                     query['network'] = {'$regex': filters['network'], '$options': 'i'}
                 if filters.get('search'):
                     search_regex = {'$regex': filters['search'], '$options': 'i'}
-                    # Need to handle $or properly when search is present
                     query = {
                         '$and': [
-                            {'is_active': True},
+                            {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
                             {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
                             {'$or': [
                                 {'name': search_regex},

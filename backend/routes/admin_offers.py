@@ -6,6 +6,7 @@ from utils.auth import token_required, subadmin_or_admin_required
 from utils.json_serializer import safe_json_response, serialize_for_json
 from utils.frontend_mapping import FrontendDatabaseMapper
 from services.email_service import get_email_service
+from services.health_check_service import HealthCheckService
 from database import db_instance
 import logging
 from datetime import datetime
@@ -321,6 +322,15 @@ def get_offers():
         # Get offers
         offers, total = offer_model.get_offers(filters, skip, per_page)
         
+        # Attach health status to each offer
+        try:
+            health_service = HealthCheckService()
+            health_results = health_service.evaluate_offers_batch(offers)
+            for offer in offers:
+                offer['health'] = health_results.get(offer.get('offer_id'), {"status": "unknown", "failures": []})
+        except Exception as e:
+            logging.warning(f"Health check failed for admin offers: {e}")
+        
         return safe_json_response({
             'offers': offers,
             'pagination': {
@@ -334,6 +344,26 @@ def get_offers():
     except Exception as e:
         logging.error(f"Get offers error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get offers: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/networks', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_networks():
+    """Return distinct network values from the offers collection."""
+    try:
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        raw_networks = offers_collection.distinct('network')
+        networks = sorted([
+            n for n in raw_networks
+            if n and isinstance(n, str) and n.strip()
+        ])
+        return jsonify({'networks': networks})
+    except Exception as e:
+        logging.error(f"Get networks error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get networks: {str(e)}'}), 500
 
 @admin_offers_bp.route('/offers/<offer_id>', methods=['GET'])
 @token_required
@@ -644,6 +674,54 @@ def bulk_delete_offers():
         logging.error(f"Bulk delete offers error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to bulk delete offers: {str(e)}'}), 500
 
+@admin_offers_bp.route('/offers/bulk-status', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_update_status():
+    """Update status of multiple offers at once (or all offers if no IDs provided)"""
+    try:
+        data = request.get_json()
+        if not data or 'status' not in data:
+            return jsonify({'error': 'status is required'}), 400
+
+        new_status = data['status'].strip().lower()
+        valid_statuses = ['active', 'pending', 'inactive', 'paused', 'hidden']
+        if new_status not in valid_statuses:
+            return jsonify({'error': f'Invalid status. Must be one of: {", ".join(valid_statuses)}'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        from datetime import datetime
+
+        if offer_ids and isinstance(offer_ids, list) and len(offer_ids) > 0:
+            # Update specific offers
+            query = {'offer_id': {'$in': offer_ids}, '$or': [{'is_active': True}, {'is_active': {'$exists': False}}]}
+        else:
+            # Update ALL active offers
+            query = {'$and': [
+                {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
+                {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+            ]}
+
+        result = offers_collection.update_many(
+            query,
+            {'$set': {'status': new_status, 'updated_at': datetime.utcnow()}}
+        )
+
+        return jsonify({
+            'message': f'Status updated to {new_status}',
+            'updated_count': result.modified_count
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Bulk update status error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to update status: {str(e)}'}), 500
+
+
 # ============================================
 # RECYCLE BIN ENDPOINTS
 # ============================================
@@ -728,6 +806,41 @@ def empty_recycle_bin():
     except Exception as e:
         logging.error(f"Empty recycle bin error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to empty recycle bin: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/clear-all', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def clear_all_offers():
+    """Move ALL active offers to recycle bin (soft delete)"""
+    try:
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        from datetime import datetime
+        result = offers_collection.update_many(
+            {'$and': [
+                {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
+                {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+            ]},
+            {
+                '$set': {
+                    'is_active': False,
+                    'deleted': True,
+                    'deleted_at': datetime.utcnow(),
+                    'updated_at': datetime.utcnow()
+                }
+            }
+        )
+
+        return jsonify({
+            'message': f'All offers moved to recycle bin',
+            'moved_count': result.modified_count
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Clear all offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to clear all offers: {str(e)}'}), 500
 
 @admin_offers_bp.route('/offers/bulk-restore', methods=['POST'])
 @token_required
@@ -1156,9 +1269,11 @@ def bulk_upload_offers():
                 if require_approval or approval_type in ['time_based', 'manual']:
                     row['affiliates'] = 'request'
         
-        # Apply show_in_offerwall setting to all rows
+        # Apply show_in_offerwall and default_status settings to all rows
+        default_status = options.get('default_status', 'active')
         for row in valid_rows:
             row['show_in_offerwall'] = show_in_offerwall
+            row['status'] = default_status
         
         # If there are validation issues OR no valid rows, generate detailed feedback
         if error_rows or missing_offers_rows or not valid_rows:
@@ -1478,7 +1593,7 @@ def import_api_offers():
         # Get options
         skip_duplicates = options.get('skip_duplicates', True)
         update_existing = options.get('update_existing', False)
-        auto_activate = options.get('auto_activate', True)
+        default_status = options.get('default_status', 'active')
         
         # Get approval workflow settings
         approval_type = options.get('approval_type', 'auto_approve')
@@ -1528,9 +1643,8 @@ def import_api_offers():
                     })
                     continue
                 
-                # Apply settings
-                if not auto_activate:
-                    mapped_offer['status'] = 'inactive'
+                # Apply default status from options
+                mapped_offer['status'] = default_status
                 
                 mapped_offer['approval_settings'] = approval_settings
                 mapped_offer['approval_type'] = approval_type

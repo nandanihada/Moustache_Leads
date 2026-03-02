@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,12 +14,9 @@ import {
 import {
   Plus,
   Copy,
-  X,
   Eye,
   Download,
-  Upload,
   Search,
-  Filter,
   MoreHorizontal,
   Edit,
   Trash2,
@@ -30,11 +27,10 @@ import {
   ExternalLink,
   RotateCcw,
   AlertTriangle,
-  ImageIcon,
   ChevronLeft,
   ChevronRight,
-  Layers,
-  Loader2
+  Loader2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -64,10 +60,14 @@ import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getOfferImage } from '@/utils/categoryImages';
+import ActionsDropdown from '@/components/ActionsDropdown';
+import FilterPanel from '@/components/FilterPanel';
+import HealthIcon from '@/components/HealthIcon';
+import HealthPopup from '@/components/HealthPopup';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const AdminOffers = () => {
   const { toast } = useToast();
-  const [offers, setOffers] = useState<Offer[]>([]);
   const [deletedOffers, setDeletedOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
@@ -97,7 +97,7 @@ const AdminOffers = () => {
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [sortBy, setSortBy] = useState<string>('newest');
   const [countryFilter, setCountryFilter] = useState<string>('all');
-  const [selectedCategories, setSelectedCategories] = useState<string[]>(['all']);
+  const [selectedCategories, setSelectedCategories] = useState<string>('all');
   const [pagination, setPagination] = useState({
     page: 1,
     per_page: 20,
@@ -114,6 +114,12 @@ const AdminOffers = () => {
   const [exportType, setExportType] = useState<'all' | 'range'>('all');
   const [exportStart, setExportStart] = useState(0);
   const [exportEnd, setExportEnd] = useState(100);
+  const [networkFilter, setNetworkFilter] = useState<string>('all');
+  const [networks, setNetworks] = useState<string[]>([]);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [healthFilter, setHealthFilter] = useState<string>('all');
+  const [healthPopupOffer, setHealthPopupOffer] = useState<Offer | null>(null);
+  const [rawOffers, setRawOffers] = useState<Offer[]>([]);
 
   // Category definitions for multi-select filter
   const CATEGORIES = [
@@ -131,23 +137,6 @@ const AdminOffers = () => {
     { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
     { id: 'OTHER', name: 'Other', icon: '📦' },
   ];
-
-  // Toggle category selection (multi-select)
-  const toggleCategory = (categoryId: string) => {
-    if (categoryId === 'all') {
-      setSelectedCategories(['all']);
-    } else {
-      setSelectedCategories(prev => {
-        const withoutAll = prev.filter(c => c !== 'all');
-        if (withoutAll.includes(categoryId)) {
-          const newSelection = withoutAll.filter(c => c !== categoryId);
-          return newSelection.length === 0 ? ['all'] : newSelection;
-        } else {
-          return [...withoutAll, categoryId];
-        }
-      });
-    }
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -171,81 +160,42 @@ const AdminOffers = () => {
         ...(statusFilter !== 'all' && { status: statusFilter }),
         ...(searchTerm && { search: searchTerm }),
         ...(sortBy && { sort: sortBy }),
-        ...(countryFilter !== 'all' && { country: countryFilter })
+        ...(countryFilter !== 'all' && { country: countryFilter }),
+        ...(networkFilter !== 'all' && { network: networkFilter })
       };
 
       const response = await adminOfferApi.getOffers(params);
       
-      // Apply client-side sorting and filtering
-      let filteredOffers = [...response.offers];
-      
-      // Apply country filter client-side if backend doesn't support it
-      if (countryFilter !== 'all') {
-        filteredOffers = filteredOffers.filter(offer => {
-          const offerCountries = offer.countries || [];
-          return offerCountries.some(c => c.toUpperCase() === countryFilter.toUpperCase());
-        });
-      }
-      
-      // Apply vertical/category filter (multi-select)
-      if (!selectedCategories.includes('all')) {
-        filteredOffers = filteredOffers.filter(offer => {
-          const offerVertical = (offer.vertical || offer.category || '').toUpperCase();
-          
-          // Map category names for backward compatibility (all uppercase)
-          const categoryMappings: Record<string, string[]> = {
-            'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
-            'SURVEY': ['SURVEY', 'SURVEYS'],
-            'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
-            'EDUCATION': ['EDUCATION', 'LEARNING'],
-            'INSURANCE': ['INSURANCE'],
-            'LOAN': ['LOAN', 'LOANS', 'LENDING'],
-            'FINANCE': ['FINANCE', 'FINANCIAL'],
-            'DATING': ['DATING', 'RELATIONSHIPS'],
-            'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
-            'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
-            'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-            'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
-          };
-          
-          // Check if offer category matches any selected category
-          return selectedCategories.some(cat => {
-            const catUpper = cat.toUpperCase();
-            const matchingCategories = categoryMappings[catUpper] || [catUpper];
-            return matchingCategories.includes(offerVertical);
-          });
-        });
-      }
-      
       // Apply sorting
+      let sortedOffers = [...response.offers];
       switch (sortBy) {
         case 'id_asc':
-          filteredOffers.sort((a, b) => (a.offer_id || '').localeCompare(b.offer_id || ''));
+          sortedOffers.sort((a, b) => (a.offer_id || '').localeCompare(b.offer_id || ''));
           break;
         case 'id_desc':
-          filteredOffers.sort((a, b) => (b.offer_id || '').localeCompare(a.offer_id || ''));
+          sortedOffers.sort((a, b) => (b.offer_id || '').localeCompare(a.offer_id || ''));
           break;
         case 'payout_high':
-          filteredOffers.sort((a, b) => (b.payout || 0) - (a.payout || 0));
+          sortedOffers.sort((a, b) => (b.payout || 0) - (a.payout || 0));
           break;
         case 'payout_low':
-          filteredOffers.sort((a, b) => (a.payout || 0) - (b.payout || 0));
+          sortedOffers.sort((a, b) => (a.payout || 0) - (b.payout || 0));
           break;
         case 'title_az':
-          filteredOffers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          sortedOffers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
           break;
         case 'title_za':
-          filteredOffers.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
+          sortedOffers.sort((a, b) => (b.name || '').localeCompare(a.name || ''));
           break;
         case 'newest':
-          filteredOffers.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+          sortedOffers.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
           break;
         case 'oldest':
-          filteredOffers.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+          sortedOffers.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
           break;
       }
       
-      setOffers(filteredOffers);
+      setRawOffers(sortedOffers);
       setPagination(response.pagination);
     } catch (error) {
       toast({
@@ -257,6 +207,65 @@ const AdminOffers = () => {
       setLoading(false);
     }
   };
+
+  // Category mappings for client-side filtering
+  const categoryMappings: Record<string, string[]> = {
+    'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
+    'SURVEY': ['SURVEY', 'SURVEYS'],
+    'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
+    'EDUCATION': ['EDUCATION', 'LEARNING'],
+    'INSURANCE': ['INSURANCE'],
+    'LOAN': ['LOAN', 'LOANS', 'LENDING'],
+    'FINANCE': ['FINANCE', 'FINANCIAL'],
+    'DATING': ['DATING', 'RELATIONSHIPS'],
+    'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
+    'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
+    'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
+    'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
+  };
+
+  // Client-side filtering via useMemo — no re-fetch needed
+  const offers = useMemo(() => {
+    let filtered = [...rawOffers];
+
+    // Apply category filter
+    if (selectedCategories !== 'all') {
+      filtered = filtered.filter(offer => {
+        const offerVertical = (offer.vertical || offer.category || '').toUpperCase();
+        const catUpper = selectedCategories.toUpperCase();
+        const matching = categoryMappings[catUpper] || [catUpper];
+        return matching.includes(offerVertical);
+      });
+    }
+
+    // Apply health filter
+    if (healthFilter !== 'all') {
+      if (healthFilter === 'healthy') {
+        filtered = filtered.filter(o => o.health?.status === 'healthy');
+      } else if (healthFilter === 'unhealthy') {
+        filtered = filtered.filter(o => (o.health?.status || 'unhealthy') === 'unhealthy');
+      } else {
+        // Specific criterion filters (no_image, no_partner, etc.)
+        const criterionMap: Record<string, string> = {
+          no_tracking_url: 'tracking_url',
+          no_upward_partner: 'upward_partner',
+          no_image: 'image',
+          no_country: 'country',
+          no_payout: 'payout',
+          no_payout_model: 'payout_model',
+        };
+        const criterion = criterionMap[healthFilter];
+        if (criterion) {
+          filtered = filtered.filter(o => {
+            const failures = o.health?.failures || [];
+            return failures.some((f: { criterion: string }) => f.criterion === criterion);
+          });
+        }
+      }
+    }
+
+    return filtered;
+  }, [rawOffers, selectedCategories, healthFilter]);
 
   const handleDeleteOffer = async (offerId: string) => {
     try {
@@ -531,6 +540,54 @@ const AdminOffers = () => {
     }
   };
 
+  const handleClearAllOffers = async () => {
+    if (!confirm(`Are you sure you want to move ALL ${pagination.total} offers to the recycle bin?`)) {
+      return;
+    }
+    if (!confirm('This will move EVERY offer to the recycle bin. Are you absolutely sure?')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await adminOfferApi.clearAllOffers();
+      toast({
+        title: "Success",
+        description: `Moved ${result.moved_count} offer(s) to recycle bin`,
+      });
+      setPagination(prev => ({ ...prev, page: 1 }));
+      fetchOffers(1);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to clear offers",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkStatusChange = async (newStatus: string) => {
+    const ids = Array.from(selectedOffers);
+    const scope = ids.length > 0 ? `${ids.length} selected offer(s)` : 'ALL offers';
+    if (!confirm(`Change status of ${scope} to "${newStatus}"?`)) return;
+
+    try {
+      const result = await adminOfferApi.bulkUpdateStatus(newStatus, ids.length > 0 ? ids : undefined);
+      toast({
+        title: "Success",
+        description: `Updated ${result.updated_count} offer(s) to ${newStatus}`,
+      });
+      setSelectedOffers(new Set());
+      fetchOffers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update status",
+        variant: "destructive",
+      });
+    }
+  };
+
   const toggleDeletedOfferSelection = (offerId: string) => {
     const newSelection = new Set(selectedDeletedOffers);
     if (newSelection.has(offerId)) {
@@ -755,7 +812,7 @@ const AdminOffers = () => {
         search: searchTerm || undefined,
         sort: sortBy,
         country: countryFilter === 'all' ? undefined : countryFilter,
-        categories: selectedCategories.includes('all') ? undefined : selectedCategories.join(',')
+        categories: selectedCategories === 'all' ? undefined : selectedCategories
       });
 
       const offerIds = response.offers.map((o: Offer) => o.offer_id);
@@ -959,7 +1016,7 @@ const AdminOffers = () => {
 
   useEffect(() => {
     fetchOffers();
-  }, [pagination.page, pagination.per_page, statusFilter, sortBy, countryFilter, selectedCategories]);
+  }, [pagination.page, pagination.per_page, statusFilter, sortBy, countryFilter, networkFilter]);
 
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
@@ -994,6 +1051,20 @@ const AdminOffers = () => {
     }
   }, [recycleBinSearchTerm]);
 
+  // Fetch networks on mount
+  useEffect(() => {
+    const fetchNetworks = async () => {
+      try {
+        const result = await adminOfferApi.getNetworks();
+        setNetworks(result.networks || []);
+      } catch (error) {
+        console.error('Failed to fetch networks:', error);
+        setNetworks([]);
+      }
+    };
+    fetchNetworks();
+  }, []);
+
   return (
     <div className="space-y-4 min-w-0">
       {/* Header */}
@@ -1006,223 +1077,137 @@ const AdminOffers = () => {
         </div>
       </div>
 
-      {/* Top Actions */}
-      <Card>
-        <CardHeader className="pb-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              className="bg-primary hover:bg-primary/90"
-              onClick={() => setAddOfferModalOpen(true)}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Create Offer
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setBulkUploadModalOpen(true)}
-            >
-              <Upload className="h-4 w-4 mr-2" />
-              Bulk Upload
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setApiImportModalOpen(true)}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              API Import
-            </Button>
-            {selectedOffers.size > 0 && (
-              <>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copy Selected ({selectedOffers.size})
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onClick={handleBulkCopyLinks}>
-                      <Link className="h-4 w-4 mr-2" />
-                      Copy Tracking Links Only
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleBulkCopyDetails}>
-                      <Copy className="h-4 w-4 mr-2" />
-                      Copy Full Details
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-                <Button
-                  variant="destructive"
-                  onClick={handleBulkDelete}
-                  disabled={bulkDeleting}
-                >
-                  {bulkDeleting ? (
-                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4 mr-2" />
-                  )}
-                  {bulkDeleting ? `Deleting ${selectedOffers.size}...` : `Delete Selected (${selectedOffers.size})`}
-                </Button>
-              </>
-            )}
-            <Button variant="outline">
-              <Copy className="h-4 w-4 mr-2" />
-              Clone
-            </Button>
-            <Button variant="outline">
-              <X className="h-4 w-4 mr-2" />
-              Clear
-            </Button>
-            <Button variant="outline">
-              <Eye className="h-4 w-4 mr-2" />
-              Preview
-            </Button>
-            <Button variant="outline" onClick={() => setExportModalOpen(true)} disabled={loading}>
-              <Download className="h-4 w-4 mr-2" />
-              CSV Export
-            </Button>
-            <Button variant="outline" onClick={fetchOffers} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-              Refresh
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleCheckAndRemoveDuplicates} 
-              disabled={checkingDuplicates || loading}
-              className="text-orange-600 hover:text-orange-700 hover:bg-orange-50"
-            >
-              <Trash2 className={`h-4 w-4 mr-2 ${checkingDuplicates ? 'animate-pulse' : ''}`} />
-              {checkingDuplicates ? 'Checking...' : 'Remove Duplicates'}
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleAssignRandomImages} 
-              disabled={assigningImages || loading}
-              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-            >
-              <ImageIcon className={`h-4 w-4 mr-2 ${assigningImages ? 'animate-pulse' : ''}`} />
-              {assigningImages ? 'Assigning...' : 'Assign Images'}
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={() => openCarouselView(0)} 
-              disabled={loading || offers.length === 0}
-              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-            >
-              <Layers className="h-4 w-4 mr-2" />
-              Carousel View
-            </Button>
-            <Button variant="outline" onClick={() => setDomainManagementModalOpen(true)}>
-              <Globe className="h-4 w-4 mr-2" />
-              Manage Domains
-            </Button>
+      {/* Compact Toolbar */}
+      <TooltipProvider>
+        <div className="flex items-center gap-2">
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Input
+              placeholder="Search offers by name, campaign ID, or offer ID..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
           </div>
-        </CardHeader>
-      </Card>
 
-      {/* Search and Filters */}
-      <Card>
-        <CardContent className="pt-6 pb-4">
-          {/* Row 1: Search + Status/Sort/Country dropdowns */}
-          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
-            <div className="relative flex-1 w-full">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-              <Input
-                placeholder="Search offers by name, campaign ID, or offer ID..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
+          {/* Filter icon button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setFilterPanelOpen((prev) => !prev)}
+                className="relative shrink-0"
+              >
+                <SlidersHorizontal className="h-4 w-4" />
+                {(statusFilter !== 'all' || selectedCategories !== 'all' || sortBy !== 'newest' || countryFilter !== 'all' || networkFilter !== 'all' || healthFilter !== 'all') && (
+                  <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Filters</TooltipContent>
+          </Tooltip>
+
+          {/* Selected offers actions (shown when offers are selected) */}
+          {selectedOffers.size > 0 && (
+            <>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Filter className="h-4 w-4 mr-2" />
-                    Status: {statusFilter === 'all' ? 'All' : statusFilter}
+                  <Button variant="outline" size="sm" className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 shrink-0">
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy ({selectedOffers.size})
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
-                  <DropdownMenuItem onClick={() => setStatusFilter('all')}>
-                    All Statuses
+                  <DropdownMenuItem onClick={handleBulkCopyLinks}>
+                    <Link className="h-4 w-4 mr-2" />
+                    Copy Tracking Links Only
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter('active')}>
-                    Active
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter('pending')}>
-                    Pending
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setStatusFilter('inactive')}>
-                    Inactive
+                  <DropdownMenuItem onClick={handleBulkCopyDetails}>
+                    <Copy className="h-4 w-4 mr-2" />
+                    Copy Full Details
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Layers className="h-4 w-4 mr-2" />
-                    Category: {selectedCategories.includes('all') ? 'All' : selectedCategories.length === 1 ? selectedCategories[0] : `${selectedCategories.length} selected`}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="max-h-80 overflow-y-auto">
-                  {CATEGORIES.map((cat) => {
-                    const isSelected = selectedCategories.includes(cat.id);
-                    return (
-                      <DropdownMenuItem 
-                        key={cat.id} 
-                        onClick={() => toggleCategory(cat.id)}
-                        className={isSelected ? 'bg-primary/10' : ''}
-                      >
-                        <span className="mr-2">{cat.icon}</span>
-                        {cat.name}
-                        {isSelected && <span className="ml-auto">✓</span>}
-                      </DropdownMenuItem>
-                    );
-                  })}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    Sort: {sortBy === 'newest' ? 'Newest' : sortBy === 'oldest' ? 'Oldest' : sortBy}
+                  <Button variant="outline" size="sm" className="shrink-0">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Status ({selectedOffers.size})
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
-                  <DropdownMenuItem onClick={() => setSortBy('newest')}>Newest First</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('oldest')}>Oldest First</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('payout_high')}>Payout (Highest)</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('payout_low')}>Payout (Lowest)</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('title_az')}>Title (A → Z)</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('title_za')}>Title (Z → A)</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkStatusChange('active')}>
+                    <span className="mr-2">🟢</span> Active
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkStatusChange('pending')}>
+                    <span className="mr-2">🟡</span> Pending
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkStatusChange('inactive')}>
+                    <span className="mr-2">⚫</span> Inactive
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkStatusChange('paused')}>
+                    <span className="mr-2">⏸️</span> Paused
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkStatusChange('hidden')}>
+                    <span className="mr-2">👁️</span> Hidden
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Globe className="h-4 w-4 mr-2" />
-                    Country: {countryFilter === 'all' ? 'All' : countryFilter}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="max-h-64 overflow-y-auto">
-                  <DropdownMenuItem onClick={() => setCountryFilter('all')}>All Countries</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('US')}>🇺🇸 United States</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('GB')}>🇬🇧 United Kingdom</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('CA')}>🇨🇦 Canada</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('AU')}>🇦🇺 Australia</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('DE')}>🇩🇪 Germany</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('FR')}>🇫🇷 France</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('IN')}>🇮🇳 India</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('BR')}>🇧🇷 Brazil</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('JP')}>🇯🇵 Japan</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('IT')}>🇮🇹 Italy</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('ES')}>🇪🇸 Spain</DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCountryFilter('MX')}>🇲🇽 Mexico</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+                className="shrink-0"
+              >
+                {bulkDeleting ? (
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4 mr-2" />
+                )}
+                {bulkDeleting ? `Deleting...` : `Delete (${selectedOffers.size})`}
+              </Button>
+            </>
+          )}
+
+          {/* Actions dropdown */}
+          <ActionsDropdown
+            onCreateOffer={() => setAddOfferModalOpen(true)}
+            onBulkUpload={() => setBulkUploadModalOpen(true)}
+            onApiImport={() => setApiImportModalOpen(true)}
+            onClone={() => {}}
+            onClear={handleClearAllOffers}
+            onPreview={() => {}}
+            onExportCsv={() => setExportModalOpen(true)}
+            onRefresh={() => fetchOffers()}
+            onRemoveDuplicates={handleCheckAndRemoveDuplicates}
+            onAssignImages={handleAssignRandomImages}
+            onCarouselView={() => openCarouselView(0)}
+            onManageDomains={() => setDomainManagementModalOpen(true)}
+            onBulkStatusChange={(status) => handleBulkStatusChange(status)}
+          />
+        </div>
+      </TooltipProvider>
+
+      {/* Collapsible Filter Panel */}
+      <FilterPanel
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+        categoryFilter={selectedCategories}
+        onCategoryChange={setSelectedCategories}
+        sortBy={sortBy}
+        onSortChange={setSortBy}
+        countryFilter={countryFilter}
+        onCountryChange={setCountryFilter}
+        networkFilter={networkFilter}
+        onNetworkChange={setNetworkFilter}
+        healthFilter={healthFilter}
+        onHealthChange={setHealthFilter}
+        networks={networks}
+        open={filterPanelOpen}
+      />
 
       {/* Tabs for Offers and Recycle Bin */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -1242,7 +1227,14 @@ const AdminOffers = () => {
           {/* Offers Table */}
           <Card>
             <CardHeader>
-              <CardTitle>Offers ({pagination.total})</CardTitle>
+              <CardTitle>
+                Offers ({offers.length})
+                {(healthFilter !== 'all' || selectedCategories !== 'all') && offers.length !== rawOffers.length && (
+                  <span className="text-sm font-normal text-orange-600 ml-2">
+                    — {rawOffers.length} on page, {pagination.total} total
+                  </span>
+                )}
+              </CardTitle>
               <CardDescription>
                 Manage your offers with full tracking and masking capabilities
               </CardDescription>
@@ -1261,14 +1253,34 @@ const AdminOffers = () => {
             </div>
           ) : offers.length === 0 ? (
             <div className="text-center py-8">
-              <p className="text-muted-foreground">No offers found</p>
-              <Button
-                className="mt-4"
-                onClick={() => setAddOfferModalOpen(true)}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Create Your First Offer
-              </Button>
+              <p className="text-muted-foreground">
+                {(healthFilter !== 'all' || selectedCategories !== 'all' || statusFilter !== 'all' || countryFilter !== 'all' || networkFilter !== 'all')
+                  ? 'No offers match the current filters'
+                  : 'No offers found'}
+              </p>
+              {(healthFilter !== 'all' || selectedCategories !== 'all' || statusFilter !== 'all' || countryFilter !== 'all' || networkFilter !== 'all') ? (
+                <Button
+                  className="mt-4"
+                  variant="outline"
+                  onClick={() => {
+                    setHealthFilter('all');
+                    setSelectedCategories('all');
+                    setStatusFilter('all');
+                    setCountryFilter('all');
+                    setNetworkFilter('all');
+                  }}
+                >
+                  Clear All Filters
+                </Button>
+              ) : (
+                <Button
+                  className="mt-4"
+                  onClick={() => setAddOfferModalOpen(true)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Your First Offer
+                </Button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto w-full">
@@ -1295,6 +1307,7 @@ const AdminOffers = () => {
                       )}
                     </div>
                   </TableHead>
+                  <TableHead className="w-12">Health</TableHead>
                   <TableHead className="w-16">Image</TableHead>
                   <TableHead className="w-24">Offer ID</TableHead>
                   <TableHead className="w-20">Campaign</TableHead>
@@ -1319,6 +1332,13 @@ const AdminOffers = () => {
                         checked={selectedOffers.has(offer.offer_id)}
                         onChange={() => toggleOfferSelection(offer.offer_id)}
                         className="rounded border-gray-300"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <HealthIcon
+                        status={offer.health?.status === 'healthy' ? 'healthy' : 'unhealthy'}
+                        failures={offer.health?.failures || []}
+                        onClickUnhealthy={() => setHealthPopupOffer(offer)}
                       />
                     </TableCell>
                     <TableCell>
@@ -1598,7 +1618,10 @@ const AdminOffers = () => {
             <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 <div className="text-sm text-muted-foreground">
-                  Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} offers
+                  Showing {offers.length > 0 ? 1 : 0} to {offers.length} of {offers.length} offers
+                  {(healthFilter !== 'all' || selectedCategories !== 'all') && offers.length !== rawOffers.length && (
+                    <span className="text-orange-600 ml-1">(filtered from {rawOffers.length} on this page)</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-muted-foreground">Show:</span>
@@ -2432,6 +2455,14 @@ const AdminOffers = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Health Popup */}
+      <HealthPopup
+        open={healthPopupOffer !== null}
+        onClose={() => setHealthPopupOffer(null)}
+        offerName={healthPopupOffer?.name || ''}
+        failures={healthPopupOffer?.health?.failures || []}
+      />
     </div>
   );
 };

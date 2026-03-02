@@ -130,6 +130,12 @@ export interface Offer {
     validation_type?: string;
   };
   
+  // Health check (computed on-the-fly, not persisted)
+  health?: {
+    status: string;
+    failures: { criterion: string; description: string }[];
+  };
+
   // System fields
   hits: number;
   limit?: number;
@@ -569,6 +575,34 @@ class AdminOfferApi {
     const response = await fetch(`${API_BASE_URL}/offers/count-without-images`, {
       method: 'GET',
       headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async getNetworks(): Promise<{ networks: string[] }> {
+    const response = await fetch(`${API_BASE_URL}/offers/networks`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async clearAllOffers(): Promise<{ message: string; moved_count: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/clear-all`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async bulkUpdateStatus(status: string, offerIds?: string[]): Promise<{ message: string; updated_count: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-status`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ status, ...(offerIds && offerIds.length > 0 ? { offer_ids: offerIds } : {}) }),
     });
 
     return this.handleResponse(response);

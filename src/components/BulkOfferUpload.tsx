@@ -123,6 +123,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
     const [isDragging, setIsDragging] = useState(false);
     
     // Default values for imported offers
+    const [defaultStatus, setDefaultStatus] = useState<string>('active');
     const [defaultStarRating, setDefaultStarRating] = useState<number>(4);
     const [defaultTimer, setDefaultTimer] = useState<number>(0); // 0 = no timer
     
@@ -233,6 +234,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 auto_approve_delay: autoApproveDelay,
                 require_approval: approvalType !== 'auto_approve',
                 show_in_offerwall: showInOfferwall,
+                default_status: defaultStatus,
                 default_star_rating: defaultStarRating,
                 default_timer: defaultTimer,
                 duplicate_strategy: skipDuplicates ? 'skip' : 'create_new',
@@ -431,6 +433,21 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                         <h4 className="font-semibold text-sm flex items-center gap-2">
                             ⚙️ Default Values for Imported Offers
                         </h4>
+                        <div className="space-y-2 mb-4">
+                            <Label htmlFor="bulk-default-status">Default Status</Label>
+                            <Select value={defaultStatus} onValueChange={setDefaultStatus}>
+                                <SelectTrigger id="bulk-default-status">
+                                    <SelectValue placeholder="Select status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="active">🟢 Active</SelectItem>
+                                    <SelectItem value="pending">🟡 Pending</SelectItem>
+                                    <SelectItem value="inactive">⚫ Inactive</SelectItem>
+                                    <SelectItem value="paused">⏸️ Paused</SelectItem>
+                                    <SelectItem value="hidden">👁️ Hidden</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <Label htmlFor="default-rating">Star Rating (1-5)</Label>

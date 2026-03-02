@@ -40,6 +40,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const [skipDuplicates, setSkipDuplicates] = useState(false);
   const [updateExisting, setUpdateExisting] = useState(false);
   const [autoActivate, setAutoActivate] = useState(true);
+  const [defaultStatus, setDefaultStatus] = useState<string>('active');
   const [defaultStarRating, setDefaultStarRating] = useState<number>(4);
   const [defaultTimer, setDefaultTimer] = useState<number>(0); // 0 = no timer
   
@@ -157,6 +158,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
           skip_duplicates: skipDuplicates,
           update_existing: updateExisting,
           auto_activate: autoActivate,
+          default_status: defaultStatus,
           show_in_offerwall: showInOfferwall,
           approval_type: approvalType,
           auto_approve_delay: delayInMinutes,
@@ -396,6 +398,22 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                 <label htmlFor="auto-activate" className="text-sm cursor-pointer">
                   Auto-activate imported offers
                 </label>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm">Default Status</Label>
+                <Select value={defaultStatus} onValueChange={setDefaultStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">🟢 Active</SelectItem>
+                    <SelectItem value="pending">🟡 Pending</SelectItem>
+                    <SelectItem value="inactive">⚫ Inactive</SelectItem>
+                    <SelectItem value="paused">⏸️ Paused</SelectItem>
+                    <SelectItem value="hidden">👁️ Hidden</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               
               <div className="flex items-center space-x-2">

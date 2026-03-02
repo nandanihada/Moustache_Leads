@@ -3,6 +3,7 @@ from models.placement import Placement
 from models.tracking import Tracking
 from models.offers import OffersService
 from models.offerwall_tracking import OfferwallTracking
+from services.health_check_service import HealthCheckService
 from database import db_instance
 from datetime import datetime, timedelta
 from bson import ObjectId
@@ -1986,7 +1987,8 @@ def get_offers():
             'urgency_type': 1, 'timer_enabled': 1, 'timer_end_date': 1,
             'show_in_iframe': 1, 'campaign_id': 1, 'offer_type': 1,
             'conversion_flow': 1, 'payout_type': 1,
-            'affiliates': 1, 'approval_settings': 1, 'offer_id': 1
+            'affiliates': 1, 'approval_settings': 1, 'offer_id': 1,
+            'partner_id': 1, 'payout_model': 1
         }
         
         # Get total count for pagination
@@ -1997,6 +1999,15 @@ def get_offers():
         offers_list = list(offers_cursor)
         
         logger.info(f"✅ Found {len(offers_list)} offers (page {page}, total {total_count})")
+        
+        # Filter out unhealthy offers so publishers only see complete, actionable offers
+        try:
+            health_service = HealthCheckService()
+            health_results = health_service.evaluate_offers_batch(offers_list)
+            offers_list = [o for o in offers_list if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
+            logger.info(f"✅ Health filter: {len(offers_list)} healthy offers remaining")
+        except Exception as e:
+            logger.warning(f"Offerwall health check failed, returning all offers: {e}")
         
         # OPTIMIZATION: Compute tracking base URL ONCE (not per-offer)
         if 'localhost' in request.host or '127.0.0.1' in request.host:
