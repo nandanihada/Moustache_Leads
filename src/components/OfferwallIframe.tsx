@@ -30,9 +30,9 @@ const getApiBaseUrl = (): string => {
   // For production, use the correct backend URL
   const hostname = window.location.hostname;
 
-  // If on Vercel frontend, use Render backend
+  // If on Vercel frontend, use API domain
   if (hostname.includes('vercel.app') || hostname.includes('moustache-leads')) {
-    return 'https://moustacheleads-backend.onrender.com';
+    return 'https://api.moustacheleads.com';
   }
 
   // If on theinterwebsite.space, use api.theinterwebsite.space

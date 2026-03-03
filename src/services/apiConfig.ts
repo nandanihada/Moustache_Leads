@@ -18,9 +18,9 @@ export const getApiBaseUrl = (): string => {
     return 'http://localhost:5000';
   }
 
-  // Vercel deployment or moustacheleads.com - use Render backend
+  // Vercel deployment or moustacheleads.com - use custom API domain
   if (hostname.includes('vercel.app') || hostname.includes('moustacheleads')) {
-    return 'https://moustacheleads-backend.onrender.com';
+    return 'https://api.moustacheleads.com';
   }
 
   // theinterwebsite.space deployment

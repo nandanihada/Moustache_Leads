@@ -51,6 +51,7 @@ import AdminGiftCardManagement from "./pages/AdminGiftCardManagement";
 import AdminMissingOffers from "./pages/AdminMissingOffers";
 import AdminOfferInsights from "./pages/AdminOfferInsights";
 import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
+import AdminPlacementProofs from "./pages/AdminPlacementProofs";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
 import AdvertiserCampaigns from "./pages/AdvertiserCampaigns";
 import AdvertiserLayout from "./components/layout/AdvertiserLayout";
@@ -157,6 +158,7 @@ const App = () => (
                 <Route path="subadmin-management" element={<AdminSubadminManagement />} />
                 <Route path="gift-cards" element={<AdminGiftCardManagement />} />
                 <Route path="advertisers" element={<AdminAdvertiserManagement />} />
+                <Route path="placement-proofs" element={<AdminPlacementProofs />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

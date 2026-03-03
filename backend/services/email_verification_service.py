@@ -150,7 +150,7 @@ class EmailVerificationService:
             logger.warning("Email not configured - skipping verification email")
             return False
 
-        backend_url = os.getenv('BACKEND_URL', 'https://moustacheleads-backend.onrender.com')
+        backend_url = os.getenv('BACKEND_URL', 'https://api.moustacheleads.com')
         link = f"{backend_url}/api/auth/verify-email-link?token={token}"
         frontend_link = f"{self.frontend_url}/verify-email?token={token}"
         year = datetime.now().year

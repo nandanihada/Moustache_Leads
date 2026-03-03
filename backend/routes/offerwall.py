@@ -2068,7 +2068,7 @@ def get_offers():
                 tracking_url = None
                 if offer.get('masked_url'):
                     masked_url = offer['masked_url']
-                    if 'moustacheleads-backend.onrender.com' in masked_url or 'localhost:5000' in masked_url:
+                    if 'api.moustacheleads.com' in masked_url or 'offers.moustacheleads.com' in masked_url or 'moustacheleads-backend.onrender.com' in masked_url or 'localhost:5000' in masked_url:
                         tracking_url = masked_url
                 
                 if not tracking_url and offer.get('target_url'):

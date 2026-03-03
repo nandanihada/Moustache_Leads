@@ -1,1284 +1,617 @@
-import { useState, useEffect } from "react";
-import { Search, Loader2, AlertCircle, Info, UserCheck, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Globe, LayoutGrid, List, Eye, ExternalLink, Smartphone, Monitor, Laptop } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useMemo } from "react";
+import { Search, Loader2, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Filter, ChevronDown, Send, Sparkles, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { publisherOfferApi, type PublisherOffer } from "@/services/publisherOfferApi";
 import { useToast } from "@/hooks/use-toast";
 import OfferDetailsModalNew from "@/components/OfferDetailsModalNew";
-import OfferCardWithApproval from "@/components/OfferCardWithApproval";
 import { API_BASE_URL } from "@/services/apiConfig";
 import { useAuth } from "@/contexts/AuthContext";
 import PlacementRequired from "@/components/PlacementRequired";
 import { getOfferImage } from "@/utils/categoryImages";
+import { PlacementProofPopup } from "@/components/PlacementProofPopup";
+
+// Image-based flags via flagcdn (works on all systems unlike emoji)
+const getFlag = (code: string) => {
+  const c = code.toUpperCase();
+  const mapped = c === "UK" ? "GB" : c;
+  return `https://flagcdn.com/20x15/${mapped.toLowerCase()}.png`;
+};
 
 const PublisherOffersContent = () => {
+  const { toast } = useToast();
+  const { user } = useAuth();
+
+  // View mode
+  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers">("available");
+
+  // Filters
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchBy, setSearchBy] = useState("name");
   const [sortBy, setSortBy] = useState("newest");
   const [countryFilter, setCountryFilter] = useState("all");
   const [verticalFilter, setVerticalFilter] = useState("all");
-  const [viewMode, setViewMode] = useState<'card' | 'table'>('table');
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Data
   const [offers, setOffers] = useState<PublisherOffer[]>([]);
   const [myRequests, setMyRequests] = useState<any[]>([]);
   const [myOffers, setMyOffers] = useState<PublisherOffer[]>([]);
   const [loading, setLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [myOffersLoading, setMyOffersLoading] = useState(false);
-  // My Offers tab filters
-  const [myOffersSearchTerm, setMyOffersSearchTerm] = useState("");
-  const [myOffersSearchBy, setMyOffersSearchBy] = useState("name");
-  const [myOffersSortBy, setMyOffersSortBy] = useState("newest");
-  const [myOffersCountryFilter, setMyOffersCountryFilter] = useState("all");
-  const [myOffersVerticalFilter, setMyOffersVerticalFilter] = useState("all");
-  const [myOffersViewMode, setMyOffersViewMode] = useState<'card' | 'table'>('table');
-  const [myOffersPerPage, setMyOffersPerPage] = useState<number>(20);
-  const [myOffersCurrentPage, setMyOffersCurrentPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
+
+  // Modals
   const [selectedOffer, setSelectedOffer] = useState<PublisherOffer | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState("offers");
-  const [pagination, setPagination] = useState({
-    page: 1,
-    per_page: 500,  // Load more offers so filtering works across all offers
-    total: 0,
-    pages: 0
-  });
-  const { toast } = useToast();
-  const { user } = useAuth();
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [applyPopupOpen, setApplyPopupOpen] = useState(false);
+  const [applyOffer, setApplyOffer] = useState<PublisherOffer | null>(null);
+  const [applyLoading, setApplyLoading] = useState(false);
+  const [proofPopupOpen, setProofPopupOpen] = useState(false);
+  const [proofOffer, setProofOffer] = useState<{ offer_id: string; name: string } | null>(null);
+  const [successPopupOpen, setSuccessPopupOpen] = useState(false);
 
-  // Track dashboard click when user views an offer
-  const trackDashboardClick = async (offer: PublisherOffer) => {
-    try {
-      await fetch(`${API_BASE_URL}/api/dashboard/track-click`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({
-          offer_id: offer.offer_id,
-          offer_name: offer.name,
-          user_id: user?.id || user?._id || 'anonymous',
-          user_email: user?.email || '',
-          user_role: user?.role || 'publisher',
-        }),
-      });
-      console.log('📊 Dashboard click tracked for offer:', offer.offer_id);
-    } catch (error) {
-      console.error('Failed to track dashboard click:', error);
-      // Don't show error to user - tracking failure shouldn't block UX
-    }
-  };
+  // Pagination
+  const [page, setPage] = useState(1);
+  const perPage = 25;
 
-  useEffect(() => {
-    fetchOffers();
-  }, [pagination.page, pagination.per_page]);
-
+  // Fetch available offers
   const fetchOffers = async () => {
-    console.log('🔍 fetchOffers: Starting...');
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
-      
-      console.log('🔍 fetchOffers: Calling API...');
-      // Fetch offers with pagination
-      const response = await publisherOfferApi.getAvailableOffers({
-        status: 'active',
-        page: pagination.page,
-        per_page: pagination.per_page
-      });
-      
-      console.log('✅ fetchOffers: Success!', response);
-      setOffers(response.offers || []);
-      if (response.pagination) {
-        setPagination(prev => ({
-          ...prev,
-          total: response.pagination.total || 0,
-          pages: response.pagination.pages || 0
-        }));
-      }
+      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 500, search: "" });
+      setOffers(res.offers || []);
     } catch (err: any) {
-      console.error('❌ fetchOffers: Error!', err);
-      console.error('Error details:', {
-        message: err.message,
-        code: err.code,
-        response: err.response,
-        stack: err.stack
-      });
-      setError(err.message || 'Failed to fetch offers');
-      toast({
-        title: "Error",
-        description: "Failed to load offers. Please try again.",
-        variant: "destructive",
-      });
+      setError(err.message || "Failed to load offers");
     } finally {
-      console.log('🔍 fetchOffers: Finished');
       setLoading(false);
     }
   };
 
-  // Log unique categories when offers load (for debugging)
-  useEffect(() => {
-    if (offers.length > 0) {
-      const uniqueCategories = [...new Set(offers.map(o => (o as any).vertical || o.category || 'UNKNOWN'))];
-      console.log('📊 Available Offers - Unique categories:', uniqueCategories);
-    }
-  }, [offers]);
-
-  useEffect(() => {
-    if (myOffers.length > 0) {
-      const uniqueCategories = [...new Set(myOffers.map(o => (o as any).vertical || o.category || 'UNKNOWN'))];
-      console.log('📊 My Offers - Unique categories:', uniqueCategories);
-    }
-  }, [myOffers]);
-
-  const filteredOffers = offers.filter((offer) => {
-    // Search filter
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      let matchesSearch = false;
-      switch (searchBy) {
-        case "name":
-          matchesSearch = offer.name.toLowerCase().includes(term);
-          break;
-        case "id":
-          matchesSearch = offer.offer_id.toLowerCase().includes(term);
-          break;
-        case "vertical":
-          matchesSearch = ((offer as any).vertical || offer.category || "").toLowerCase().includes(term);
-          break;
-        default:
-          matchesSearch = true;
-      }
-      if (!matchesSearch) return false;
-    }
-    
-    // Country filter
-    if (countryFilter !== 'all') {
-      const offerCountries = (offer as any).countries || [];
-      if (!offerCountries.some((c: string) => c.toUpperCase() === countryFilter.toUpperCase())) {
-        return false;
-      }
-    }
-    
-    // Vertical/Category filter - simplified logic
-    if (verticalFilter !== 'all') {
-      const rawVertical = ((offer as any).vertical || offer.category || '').toString().toUpperCase().trim();
-      const filterValue = verticalFilter.toUpperCase().trim();
-      
-      // Direct match first
-      if (rawVertical === filterValue) {
-        return true;
-      }
-      
-      // Category mappings for flexible matching
-      const categoryMappings: Record<string, string[]> = {
-        'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL', 'HEALTH_&_BEAUTY', 'HEALTH AND BEAUTY', 'BEAUTY', 'WELLNESS', 'FITNESS'],
-        'SURVEY': ['SURVEY', 'SURVEYS'],
-        'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
-        'EDUCATION': ['EDUCATION', 'LEARNING', 'EDU', 'COURSE', 'COURSES', 'TRAINING'],
-        'INSURANCE': ['INSURANCE', 'INSUR', 'POLICY', 'COVERAGE'],
-        'LOAN': ['LOAN', 'LOANS', 'LENDING', 'CREDIT', 'PERSONAL LOAN', 'HOME LOAN'],
-        'FINANCE': ['FINANCE', 'FINANCIAL', 'BANKING', 'INVESTMENT', 'CRYPTO', 'CRYPTOCURRENCY', 'TRADING', 'STOCKS', 'FOREX', 'BANK', 'MONEY'],
-        'DATING': ['DATING', 'RELATIONSHIPS', 'SOCIAL', 'ADULT', 'ROMANCE', 'SINGLES', 'MATCH', 'MATCHMAKING'],
-        'FREE_TRIAL': ['FREE_TRIAL', 'FREE TRIAL', 'FREETRIAL', 'TRIAL', 'TRIALS', 'DEMO', 'SAMPLE'],
-        'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS', 'MOBILE', 'APPLICATION', 'DOWNLOAD', 'SOFTWARE'],
-        'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMES INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING', 'CASINO', 'GAMBLING', 'IGAMING', 'GAME INSTALL', 'MOBILE GAME', 'PLAY'],
-        'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL', 'MISC', 'MISCELLANEOUS', 'UNKNOWN']
-      };
-      
-      const matchingCategories = categoryMappings[filterValue] || [filterValue];
-      const matchesCategory = matchingCategories.some(cat => 
-        rawVertical === cat || rawVertical.includes(cat) || cat.includes(rawVertical)
-      );
-      
-      if (!matchesCategory) {
-        return false;
-      }
-    }
-    
-    return true;
-  }).sort((a, b) => {
-    switch (sortBy) {
-      case 'id_asc':
-        return (a.offer_id || '').localeCompare(b.offer_id || '');
-      case 'id_desc':
-        return (b.offer_id || '').localeCompare(a.offer_id || '');
-      case 'payout_high':
-        return (b.payout || 0) - (a.payout || 0);
-      case 'payout_low':
-        return (a.payout || 0) - (b.payout || 0);
-      case 'title_az':
-        return (a.name || '').localeCompare(b.name || '');
-      case 'title_za':
-        return (b.name || '').localeCompare(a.name || '');
-      case 'newest':
-        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-      case 'oldest':
-        return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
-      default:
-        return 0;
-    }
-  });
-
-  // Filter and sort My Offers
-  const filteredMyOffersAll = myOffers.filter((offer) => {
-    // Search filter
-    if (myOffersSearchTerm) {
-      const term = myOffersSearchTerm.toLowerCase();
-      let matchesSearch = false;
-      switch (myOffersSearchBy) {
-        case "name":
-          matchesSearch = offer.name.toLowerCase().includes(term);
-          break;
-        case "id":
-          matchesSearch = offer.offer_id.toLowerCase().includes(term);
-          break;
-        case "vertical":
-          matchesSearch = ((offer as any).vertical || offer.category || "").toLowerCase().includes(term);
-          break;
-        default:
-          matchesSearch = true;
-      }
-      if (!matchesSearch) return false;
-    }
-    
-    // Country filter
-    if (myOffersCountryFilter !== 'all') {
-      const offerCountries = (offer as any).countries || [];
-      if (!offerCountries.some((c: string) => c.toUpperCase() === myOffersCountryFilter.toUpperCase())) {
-        return false;
-      }
-    }
-    
-    // Vertical/Category filter - simplified logic
-    if (myOffersVerticalFilter !== 'all') {
-      const rawVertical = ((offer as any).vertical || offer.category || '').toString().toUpperCase().trim();
-      const filterValue = myOffersVerticalFilter.toUpperCase().trim();
-      
-      // Direct match first
-      if (rawVertical === filterValue) {
-        return true;
-      }
-      
-      // Category mappings for flexible matching
-      const categoryMappings: Record<string, string[]> = {
-        'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL', 'HEALTH_&_BEAUTY', 'HEALTH AND BEAUTY', 'BEAUTY', 'WELLNESS', 'FITNESS'],
-        'SURVEY': ['SURVEY', 'SURVEYS'],
-        'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'SWEEPSTAKE', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
-        'EDUCATION': ['EDUCATION', 'LEARNING', 'EDU', 'COURSE', 'COURSES', 'TRAINING'],
-        'INSURANCE': ['INSURANCE', 'INSUR', 'POLICY', 'COVERAGE'],
-        'LOAN': ['LOAN', 'LOANS', 'LENDING', 'CREDIT', 'PERSONAL LOAN', 'HOME LOAN'],
-        'FINANCE': ['FINANCE', 'FINANCIAL', 'BANKING', 'INVESTMENT', 'CRYPTO', 'CRYPTOCURRENCY', 'TRADING', 'STOCKS', 'FOREX', 'BANK', 'MONEY'],
-        'DATING': ['DATING', 'RELATIONSHIPS', 'SOCIAL', 'ADULT', 'ROMANCE', 'SINGLES', 'MATCH', 'MATCHMAKING'],
-        'FREE_TRIAL': ['FREE_TRIAL', 'FREE TRIAL', 'FREETRIAL', 'TRIAL', 'TRIALS', 'DEMO', 'SAMPLE'],
-        'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS', 'MOBILE', 'APPLICATION', 'DOWNLOAD', 'SOFTWARE'],
-        'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMES INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING', 'CASINO', 'GAMBLING', 'IGAMING', 'GAME INSTALL', 'MOBILE GAME', 'PLAY'],
-        'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL', 'MISC', 'MISCELLANEOUS', 'UNKNOWN']
-      };
-      
-      const matchingCategories = categoryMappings[filterValue] || [filterValue];
-      const matchesCategory = matchingCategories.some(cat => 
-        rawVertical === cat || rawVertical.includes(cat) || cat.includes(rawVertical)
-      );
-      
-      if (!matchesCategory) return false;
-    }
-    
-    return true;
-  }).sort((a, b) => {
-    switch (myOffersSortBy) {
-      case 'id_asc':
-        return (a.offer_id || '').localeCompare(b.offer_id || '');
-      case 'id_desc':
-        return (b.offer_id || '').localeCompare(a.offer_id || '');
-      case 'payout_high':
-        return (b.payout || 0) - (a.payout || 0);
-      case 'payout_low':
-        return (a.payout || 0) - (b.payout || 0);
-      case 'title_az':
-        return (a.name || '').localeCompare(b.name || '');
-      case 'title_za':
-        return (b.name || '').localeCompare(a.name || '');
-      case 'newest':
-        return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-      case 'oldest':
-        return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
-      default:
-        return 0;
-    }
-  });
-
-  // Pagination for My Offers
-  const myOffersTotalPages = myOffersPerPage === -1 ? 1 : Math.ceil(filteredMyOffersAll.length / myOffersPerPage);
-  const filteredMyOffers = myOffersPerPage === -1 
-    ? filteredMyOffersAll 
-    : filteredMyOffersAll.slice((myOffersCurrentPage - 1) * myOffersPerPage, myOffersCurrentPage * myOffersPerPage);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setMyOffersCurrentPage(1);
-  }, [myOffersSearchTerm, myOffersSearchBy, myOffersSortBy, myOffersCountryFilter, myOffersVerticalFilter, myOffersPerPage]);
-
+  // Fetch my requests
   const fetchMyRequests = async () => {
+    setRequestsLoading(true);
     try {
-      setRequestsLoading(true);
-      const response = await publisherOfferApi.getMyAccessRequests({
-        page: 1,
-        per_page: 50
-      });
-      setMyRequests(response.requests || []);
+      const res = await publisherOfferApi.getMyAccessRequests({ page: 1, per_page: 500 });
+      setMyRequests(res.requests || []);
     } catch (err: any) {
-      console.error('Error fetching requests:', err);
-      toast({
-        title: "Error",
-        description: "Failed to load your requests. Please try again.",
-        variant: "destructive",
-      });
+      console.error("Failed to load requests:", err);
     } finally {
       setRequestsLoading(false);
     }
   };
 
+  // Fetch my approved offers (offers user has access to)
   const fetchMyOffers = async () => {
+    setMyOffersLoading(true);
     try {
-      setMyOffersLoading(true);
-      // Fetch offers that the user has access to (approved requests or auto-approved)
-      const response = await publisherOfferApi.getAvailableOffers({
-        status: 'active',
-        page: 1,
-        per_page: 200
-      });
-      
-      // Filter to only show offers the user has access to
-      const accessibleOffers = (response.offers || []).filter((offer: PublisherOffer) => 
-        (offer as any).has_access === true && !(offer as any).is_locked
-      );
-      
-      setMyOffers(accessibleOffers);
+      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 500 });
+      const approved = (res.offers || []).filter((o) => o.has_access);
+      setMyOffers(approved);
     } catch (err: any) {
-      console.error('Error fetching my offers:', err);
-      toast({
-        title: "Error",
-        description: "Failed to load your offers. Please try again.",
-        variant: "destructive",
-      });
+      console.error("Failed to load my offers:", err);
     } finally {
       setMyOffersLoading(false);
     }
   };
 
-  const handleViewDetails = (offer: PublisherOffer) => {
-    // Track the click before showing details
-    trackDashboardClick(offer);
-    setSelectedOffer(offer);
-    setModalOpen(true);
-  };
-
-  const handleAccessGranted = () => {
-    // Refresh offers and requests when access is granted
-    fetchOffers();
-    if (activeTab === 'requests') {
-      fetchMyRequests();
-    }
-  };
-
-  // Load requests when switching to requests tab
   useEffect(() => {
-    if (activeTab === 'requests' && myRequests.length === 0) {
+    fetchOffers();
+    fetchMyRequests();
+    fetchMyOffers();
+  }, []);
+
+  // Refresh when view changes
+  useEffect(() => {
+    if (viewMode === "requests") fetchMyRequests();
+    if (viewMode === "my_offers") fetchMyOffers();
+  }, [viewMode]);
+
+  // Get unique countries and verticals for filter dropdowns
+  const uniqueCountries = useMemo(() => {
+    const set = new Set<string>();
+    offers.forEach((o) => o.countries?.forEach((c) => set.add(c.toUpperCase())));
+    return Array.from(set).sort();
+  }, [offers]);
+
+  const uniqueVerticals = useMemo(() => {
+    const set = new Set<string>();
+    offers.forEach((o) => {
+      const v = (o as any).vertical || (o as any).category;
+      if (v) set.add(v);
+    });
+    return Array.from(set).sort();
+  }, [offers]);
+
+  // Filtered + sorted offers
+  const filteredOffers = useMemo(() => {
+    let list = viewMode === "my_offers" ? [...myOffers] : viewMode === "requests" ? [] : [...offers];
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      list = list.filter((o) => o.name.toLowerCase().includes(q) || o.offer_id.toLowerCase().includes(q) || o.network?.toLowerCase().includes(q));
+    }
+    if (countryFilter !== "all") {
+      list = list.filter((o) => o.countries?.some((c) => c.toUpperCase() === countryFilter));
+    }
+    if (verticalFilter !== "all") {
+      list = list.filter((o) => {
+        const v = (o as any).vertical || (o as any).category || "";
+        return v.toLowerCase() === verticalFilter.toLowerCase();
+      });
+    }
+    // Sort
+    if (sortBy === "newest") list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    else if (sortBy === "payout_high") list.sort((a, b) => b.payout - a.payout);
+    else if (sortBy === "payout_low") list.sort((a, b) => a.payout - b.payout);
+    else if (sortBy === "name") list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [offers, myOffers, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
+
+  // Paginated
+  const paginatedOffers = useMemo(() => {
+    const start = (page - 1) * perPage;
+    return filteredOffers.slice(start, start + perPage);
+  }, [filteredOffers, page]);
+
+  const totalPages = Math.ceil(filteredOffers.length / perPage);
+
+  // Track dashboard click
+  const trackDashboardClick = async (offerId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/api/publisher/offers/${offerId}/track-click`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "application/json" },
+      });
+    } catch {}
+  };
+
+  // Click offer name → open details modal
+  const handleViewDetails = (offer: PublisherOffer) => {
+    setSelectedOffer(offer);
+    setDetailsModalOpen(true);
+  };
+
+  // Click Apply → open apply popup (NOT direct link)
+  const handleApplyClick = (offer: PublisherOffer) => {
+    setApplyOffer(offer);
+    setApplyPopupOpen(true);
+  };
+
+  // Send request (from apply popup)
+  const handleSendRequest = async (withProof: boolean) => {
+    if (!applyOffer) return;
+    if (withProof) {
+      // Close apply popup, open proof popup
+      setApplyPopupOpen(false);
+      setProofOffer({ offer_id: applyOffer.offer_id, name: applyOffer.name });
+      setProofPopupOpen(true);
+      return;
+    }
+    // Send request without proof
+    setApplyLoading(true);
+    try {
+      await publisherOfferApi.requestOfferAccess(applyOffer.offer_id, "");
+      setApplyPopupOpen(false);
+      setSuccessPopupOpen(true);
       fetchMyRequests();
+      fetchOffers();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.response?.data?.error || err.message, variant: "destructive" });
+    } finally {
+      setApplyLoading(false);
     }
-    if (activeTab === 'myoffers' && myOffers.length === 0) {
-      fetchMyOffers();
-    }
-  }, [activeTab]);
+  };
 
-  return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-3xl font-bold">Available Offers</h1>
-        <p className="text-muted-foreground">Browse and promote offers to earn commissions</p>
+  // After proof submitted
+  const handleProofSubmitted = async () => {
+    // Also send the access request
+    if (proofOffer) {
+      try {
+        await publisherOfferApi.requestOfferAccess(proofOffer.offer_id, "Placement proof submitted");
+      } catch {}
+    }
+    setProofPopupOpen(false);
+    setSuccessPopupOpen(true);
+    fetchMyRequests();
+    fetchOffers();
+  };
+
+  // After proof skipped
+  const handleProofSkip = async () => {
+    if (proofOffer) {
+      try {
+        await publisherOfferApi.requestOfferAccess(proofOffer.offer_id, "");
+      } catch {}
+    }
+    setProofPopupOpen(false);
+    setSuccessPopupOpen(true);
+    fetchMyRequests();
+    fetchOffers();
+  };
+
+  // Access granted callback (from details modal)
+  const handleAccessGranted = () => {
+    fetchOffers();
+    fetchMyRequests();
+    fetchMyOffers();
+  };
+
+  // Render country flags
+  const renderFlags = (countries: string[]) => {
+    if (!countries || countries.length === 0) return <span className="text-xs text-muted-foreground">Global</span>;
+    const show = countries.slice(0, 5);
+    const rest = countries.length - 5;
+    return (
+      <div className="flex items-center gap-0.5 flex-wrap">
+        {show.map((c) => (
+          <Tooltip key={c}>
+            <TooltipTrigger asChild>
+              <img src={getFlag(c)} alt={c} className="w-5 h-[15px] rounded-sm border border-gray-200" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            </TooltipTrigger>
+            <TooltipContent side="top"><span className="text-xs">{c}</span></TooltipContent>
+          </Tooltip>
+        ))}
+        {rest > 0 && <span className="text-[10px] text-muted-foreground ml-0.5">+{rest}</span>}
       </div>
+    );
+  };
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="offers">Available Offers</TabsTrigger>
-          <TabsTrigger value="requests">My Requests</TabsTrigger>
-          <TabsTrigger value="myoffers">My Offers</TabsTrigger>
-        </TabsList>
+  // Request status badge
+  const statusBadge = (status: string) => {
+    if (status === "pending") return <Badge variant="outline" className="text-yellow-600 border-yellow-400 text-[10px] px-1.5 py-0"><Clock className="w-3 h-3 mr-0.5" />Pending</Badge>;
+    if (status === "approved") return <Badge variant="outline" className="text-green-600 border-green-400 text-[10px] px-1.5 py-0"><CheckCircle className="w-3 h-3 mr-0.5" />Approved</Badge>;
+    if (status === "rejected") return <Badge variant="outline" className="text-red-600 border-red-400 text-[10px] px-1.5 py-0"><XCircle className="w-3 h-3 mr-0.5" />Rejected</Badge>;
+    return null;
+  };
 
-        <TabsContent value="offers" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>🎯 Active Offers</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Search Controls */}
-              <div className="flex flex-wrap gap-4 items-center">
-                <div className="flex-1 min-w-[200px] relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search offers..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                <Select value={searchBy} onValueChange={setSearchBy}>
-                  <SelectTrigger className="w-32">
-                    <SelectValue placeholder="Search by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="name">Name</SelectItem>
-                    <SelectItem value="id">Offer ID</SelectItem>
-                    <SelectItem value="vertical">Vertical</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={verticalFilter} onValueChange={setVerticalFilter}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Category" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    <SelectItem value="all">All Categories</SelectItem>
-                    <SelectItem value="HEALTH">💊 Health</SelectItem>
-                    <SelectItem value="SURVEY">📋 Survey</SelectItem>
-                    <SelectItem value="SWEEPSTAKES">🎰 Sweepstakes</SelectItem>
-                    <SelectItem value="EDUCATION">📚 Education</SelectItem>
-                    <SelectItem value="INSURANCE">🛡️ Insurance</SelectItem>
-                    <SelectItem value="LOAN">💳 Loan</SelectItem>
-                    <SelectItem value="FINANCE">💰 Finance</SelectItem>
-                    <SelectItem value="DATING">❤️ Dating</SelectItem>
-                    <SelectItem value="FREE_TRIAL">🎁 Free Trial</SelectItem>
-                    <SelectItem value="INSTALLS">📲 Installs</SelectItem>
-                    <SelectItem value="GAMES_INSTALL">🎮 Games Install</SelectItem>
-                    <SelectItem value="OTHER">📦 Other</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Sort by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="newest">Newest First</SelectItem>
-                    <SelectItem value="oldest">Oldest First</SelectItem>
-                    <SelectItem value="id_asc">ID (A → Z)</SelectItem>
-                    <SelectItem value="id_desc">ID (Z → A)</SelectItem>
-                    <SelectItem value="payout_high">Payout (Highest)</SelectItem>
-                    <SelectItem value="payout_low">Payout (Lowest)</SelectItem>
-                    <SelectItem value="title_az">Title (A → Z)</SelectItem>
-                    <SelectItem value="title_za">Title (Z → A)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={countryFilter} onValueChange={setCountryFilter}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Country" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    <SelectItem value="all">All Countries</SelectItem>
-                    <SelectItem value="US">🇺🇸 United States</SelectItem>
-                    <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
-                    <SelectItem value="CA">🇨🇦 Canada</SelectItem>
-                    <SelectItem value="AU">🇦🇺 Australia</SelectItem>
-                    <SelectItem value="DE">🇩🇪 Germany</SelectItem>
-                    <SelectItem value="FR">🇫🇷 France</SelectItem>
-                    <SelectItem value="ES">🇪🇸 Spain</SelectItem>
-                    <SelectItem value="IT">🇮🇹 Italy</SelectItem>
-                    <SelectItem value="NL">🇳🇱 Netherlands</SelectItem>
-                    <SelectItem value="BE">🇧🇪 Belgium</SelectItem>
-                    <SelectItem value="AT">🇦🇹 Austria</SelectItem>
-                    <SelectItem value="CH">🇨🇭 Switzerland</SelectItem>
-                    <SelectItem value="SE">🇸🇪 Sweden</SelectItem>
-                    <SelectItem value="NO">🇳🇴 Norway</SelectItem>
-                    <SelectItem value="DK">🇩🇰 Denmark</SelectItem>
-                    <SelectItem value="FI">🇫🇮 Finland</SelectItem>
-                    <SelectItem value="PL">🇵🇱 Poland</SelectItem>
-                    <SelectItem value="BR">🇧🇷 Brazil</SelectItem>
-                    <SelectItem value="MX">🇲🇽 Mexico</SelectItem>
-                    <SelectItem value="IN">🇮🇳 India</SelectItem>
-                    <SelectItem value="JP">🇯🇵 Japan</SelectItem>
-                    <SelectItem value="KR">🇰🇷 South Korea</SelectItem>
-                    <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
-                    <SelectItem value="NZ">🇳🇿 New Zealand</SelectItem>
-                    <SelectItem value="ZA">🇿🇦 South Africa</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button onClick={fetchOffers} variant="outline" size="sm">
-                  Refresh
-                </Button>
-                <div className="flex items-center border rounded-md">
-                  <Button
-                    variant={viewMode === 'card' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('card')}
-                    className="rounded-r-none"
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant={viewMode === 'table' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setViewMode('table')}
-                    className="rounded-l-none"
-                  >
-                    <List className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-          {/* Loading State */}
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="ml-3 text-muted-foreground">Loading offers...</span>
-            </div>
-          )}
-
-          {/* Error State */}
-          {error && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>
-                {error}
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="ml-4"
-                  onClick={fetchOffers}
-                >
-                  Retry
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* Empty State */}
-          {!loading && !error && filteredOffers.length === 0 && (
-            <Alert>
-              <Info className="h-4 w-4" />
-              <AlertTitle>No offers found</AlertTitle>
-              <AlertDescription>
-                {searchTerm ? 'No offers match your search criteria.' : 'No active offers available at the moment.'}
-              </AlertDescription>
-            </Alert>
-          )}
-
-              {/* Offers Display - Card or Table View */}
-              {!loading && !error && filteredOffers.length > 0 && (
-                <>
-                  {viewMode === 'card' ? (
-                    /* Card Grid View */
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {filteredOffers.map((offer) => (
-                        <OfferCardWithApproval
-                          key={offer.offer_id}
-                          offer={offer}
-                          onViewDetails={handleViewDetails}
-                          onAccessGranted={handleAccessGranted}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    /* Table View */
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Image</TableHead>
-                            <TableHead>Offer ID</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Vertical</TableHead>
-                            <TableHead>Countries</TableHead>
-                            <TableHead>Payout</TableHead>
-                            <TableHead>Traffic Sources</TableHead>
-                            <TableHead>Device</TableHead>
-                            <TableHead>Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredOffers.map((offer) => (
-                            <TableRow key={offer.offer_id}>
-                              <TableCell>
-                                <img
-                                  src={getOfferImage(offer as any)}
-                                  alt={offer.name}
-                                  className="w-12 h-12 object-cover rounded border"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    // Try to use a placeholder instead of hiding
-                                    target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
-                                  }}
-                                />
-                              </TableCell>
-                              <TableCell className="font-mono text-sm">{offer.offer_id}</TableCell>
-                              <TableCell>
-                                <div className="max-w-[200px]">
-                                  <div className="font-medium truncate">{offer.name}</div>
-                                  {offer.description && (
-                                    <div className="text-xs text-muted-foreground truncate">{offer.description}</div>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline">
-                                  {(offer as any).vertical || offer.category || 'Lifestyle'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-1 flex-wrap max-w-[120px]">
-                                  {((offer as any).countries || []).slice(0, 3).map((country: string) => (
-                                    <Badge key={country} variant="secondary" className="text-xs">
-                                      {country}
-                                    </Badge>
-                                  ))}
-                                  {((offer as any).countries || []).length > 3 && (
-                                    <Badge variant="secondary" className="text-xs">
-                                      +{((offer as any).countries || []).length - 3}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="font-medium text-green-600">
-                                ${offer.payout?.toFixed(2) || '0.00'}
-                              </TableCell>
-                              <TableCell>
-                                <TooltipProvider>
-                                  <div className="flex flex-wrap gap-1 max-w-[150px]">
-                                    {((offer as any).allowed_traffic_sources || []).slice(0, 2).map((source: string) => (
-                                      <Tooltip key={source}>
-                                        <TooltipTrigger>
-                                          <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">
-                                            {source}
-                                          </Badge>
-                                        </TooltipTrigger>
-                                        <TooltipContent>Allowed</TooltipContent>
-                                      </Tooltip>
-                                    ))}
-                                    {((offer as any).allowed_traffic_sources || []).length > 2 && (
-                                      <Tooltip>
-                                        <TooltipTrigger>
-                                          <Badge variant="outline" className="text-xs">
-                                            +{((offer as any).allowed_traffic_sources || []).length - 2}
-                                          </Badge>
-                                        </TooltipTrigger>
-                                        <TooltipContent>
-                                          <div className="text-xs">
-                                            <div className="font-semibold mb-1">Allowed:</div>
-                                            {((offer as any).allowed_traffic_sources || []).join(', ')}
-                                            {((offer as any).disallowed_traffic_sources || []).length > 0 && (
-                                              <>
-                                                <div className="font-semibold mt-2 mb-1 text-red-400">Disallowed:</div>
-                                                {((offer as any).disallowed_traffic_sources || []).join(', ')}
-                                              </>
-                                            )}
-                                          </div>
-                                        </TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </div>
-                                </TooltipProvider>
-                              </TableCell>
-                              <TableCell>
-                                {(offer as any).device_targeting === 'mobile' ? (
-                                  <Smartphone className="h-4 w-4 text-blue-500" />
-                                ) : (offer as any).device_targeting === 'desktop' ? (
-                                  <Monitor className="h-4 w-4 text-gray-500" />
-                                ) : (
-                                  <Laptop className="h-4 w-4 text-purple-500" />
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleViewDetails(offer)}
-                                  >
-                                    <Eye className="h-4 w-4 mr-1" />
-                                    Details
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      // Open tracking link instead of preview URL
-                                      const hostname = window.location.hostname;
-                                      let baseUrl = 'http://localhost:5000';
-                                      if (hostname.includes('moustacheleads.com') || hostname.includes('vercel.app') || hostname.includes('onrender.com')) {
-                                        baseUrl = 'https://offers.moustacheleads.com';
-                                      }
-                                      let userId = '';
-                                      try {
-                                        const userStr = localStorage.getItem('user');
-                                        if (userStr) {
-                                          const user = JSON.parse(userStr);
-                                          userId = user._id || user.id || '';
-                                        }
-                                      } catch (e) {}
-                                      const trackingUrl = `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1=default`;
-                                      window.open(trackingUrl, '_blank');
-                                    }}
-                                    title="Open tracking link"
-                                  >
-                                    <ExternalLink className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {/* Results Count & Pagination */}
-              {!loading && filteredOffers.length > 0 && (
-                <div className="pt-4 border-t space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="text-sm text-muted-foreground">
-                        Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} offers
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-muted-foreground">Show:</span>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              {pagination.per_page} per page
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent>
-                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 50, page: 1 }))}>
-                              50 per page
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 100, page: 1 }))}>
-                              100 per page
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 200, page: 1 }))}>
-                              200 per page
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: 500, page: 1 }))}>
-                              500 per page
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => setPagination(prev => ({ ...prev, per_page: pagination.total || 1000, page: 1 }))}>
-                              Show All ({pagination.total})
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                    {pagination.pages > 1 && (
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPagination(prev => ({ ...prev, page: Math.max(1, prev.page - 1) }))}
-                          disabled={pagination.page === 1 || loading}
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                          Previous
-                        </Button>
-                        <div className="flex items-center gap-1">
-                          {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
-                            let pageNum;
-                            if (pagination.pages <= 5) {
-                              pageNum = i + 1;
-                            } else if (pagination.page <= 3) {
-                              pageNum = i + 1;
-                            } else if (pagination.page >= pagination.pages - 2) {
-                              pageNum = pagination.pages - 4 + i;
-                            } else {
-                              pageNum = pagination.page - 2 + i;
-                            }
-                            return (
-                              <Button
-                                key={pageNum}
-                                variant={pagination.page === pageNum ? "default" : "outline"}
-                                size="sm"
-                                onClick={() => setPagination(prev => ({ ...prev, page: pageNum }))}
-                                disabled={loading}
-                                className="w-10"
-                              >
-                                {pageNum}
-                              </Button>
-                            );
-                          })}
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPagination(prev => ({ ...prev, page: Math.min(prev.pages, prev.page + 1) }))}
-                          disabled={pagination.page === pagination.pages || loading}
-                        >
-                          Next
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="requests" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <UserCheck className="w-5 h-5" />
-                My Access Requests
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {/* Loading State */}
-              {requestsLoading && (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  <span className="ml-3 text-muted-foreground">Loading requests...</span>
-                </div>
-              )}
-
-              {/* Empty State */}
-              {!requestsLoading && myRequests.length === 0 && (
-                <Alert>
-                  <Info className="h-4 w-4" />
-                  <AlertTitle>No requests found</AlertTitle>
-                  <AlertDescription>
-                    You haven't submitted any access requests yet.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* Requests List */}
-              {!requestsLoading && myRequests.length > 0 && (
-                <div className="space-y-4">
-                  {myRequests.map((request) => (
-                    <Card key={request._id} className="border-l-4 border-l-blue-500">
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h3 className="font-medium text-lg mb-1">
-                              {request.offer_details?.name || request.offer_id}
-                            </h3>
-                            <div className="text-sm text-muted-foreground mb-2">
-                              Offer ID: {request.offer_id} • Payout: ${request.offer_details?.payout}
-                            </div>
-                            {request.message && (
-                              <div className="text-sm mb-2">
-                                <span className="font-medium">Message:</span> {request.message}
-                              </div>
-                            )}
-                            <div className="text-xs text-muted-foreground">
-                              Requested: {new Date(request.requested_at).toLocaleDateString()}
-                            </div>
-                          </div>
-                          <div className="flex flex-col items-end gap-2">
-                            {request.status === 'pending' && (
-                              <Badge variant="outline" className="text-yellow-600 border-yellow-600">
-                                <Clock className="w-3 h-3 mr-1" />
-                                Pending
-                              </Badge>
-                            )}
-                            {request.status === 'approved' && (
-                              <Badge variant="outline" className="text-green-600 border-green-600">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                Approved
-                              </Badge>
-                            )}
-                            {request.status === 'rejected' && (
-                              <Badge variant="outline" className="text-red-600 border-red-600">
-                                <XCircle className="w-3 h-3 mr-1" />
-                                Rejected
-                              </Badge>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="myoffers" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-green-600" />
-                My Offers
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Filter Controls */}
-              <div className="flex flex-wrap gap-4 items-center">
-                <div className="flex-1 min-w-[200px] relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search your offers..."
-                    value={myOffersSearchTerm}
-                    onChange={(e) => setMyOffersSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                <Select value={myOffersSearchBy} onValueChange={setMyOffersSearchBy}>
-                  <SelectTrigger className="w-32">
-                    <SelectValue placeholder="Search by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="name">Name</SelectItem>
-                    <SelectItem value="id">Offer ID</SelectItem>
-                    <SelectItem value="vertical">Vertical</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={myOffersVerticalFilter} onValueChange={setMyOffersVerticalFilter}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Category" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    <SelectItem value="all">All Categories</SelectItem>
-                    <SelectItem value="HEALTH">💊 Health</SelectItem>
-                    <SelectItem value="SURVEY">📋 Survey</SelectItem>
-                    <SelectItem value="SWEEPSTAKES">🎰 Sweepstakes</SelectItem>
-                    <SelectItem value="EDUCATION">📚 Education</SelectItem>
-                    <SelectItem value="INSURANCE">🛡️ Insurance</SelectItem>
-                    <SelectItem value="LOAN">💳 Loan</SelectItem>
-                    <SelectItem value="FINANCE">💰 Finance</SelectItem>
-                    <SelectItem value="DATING">❤️ Dating</SelectItem>
-                    <SelectItem value="FREE_TRIAL">🎁 Free Trial</SelectItem>
-                    <SelectItem value="INSTALLS">📲 Installs</SelectItem>
-                    <SelectItem value="GAMES_INSTALL">🎮 Games Install</SelectItem>
-                    <SelectItem value="OTHER">📦 Other</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={myOffersSortBy} onValueChange={setMyOffersSortBy}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Sort by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="newest">Newest First</SelectItem>
-                    <SelectItem value="oldest">Oldest First</SelectItem>
-                    <SelectItem value="id_asc">ID (A → Z)</SelectItem>
-                    <SelectItem value="id_desc">ID (Z → A)</SelectItem>
-                    <SelectItem value="payout_high">Payout (Highest)</SelectItem>
-                    <SelectItem value="payout_low">Payout (Lowest)</SelectItem>
-                    <SelectItem value="title_az">Title (A → Z)</SelectItem>
-                    <SelectItem value="title_za">Title (Z → A)</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={myOffersCountryFilter} onValueChange={setMyOffersCountryFilter}>
-                  <SelectTrigger className="w-40">
-                    <SelectValue placeholder="Country" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    <SelectItem value="all">All Countries</SelectItem>
-                    <SelectItem value="US">🇺🇸 United States</SelectItem>
-                    <SelectItem value="GB">🇬🇧 United Kingdom</SelectItem>
-                    <SelectItem value="CA">🇨🇦 Canada</SelectItem>
-                    <SelectItem value="AU">🇦🇺 Australia</SelectItem>
-                    <SelectItem value="DE">🇩🇪 Germany</SelectItem>
-                    <SelectItem value="FR">🇫🇷 France</SelectItem>
-                    <SelectItem value="ES">🇪🇸 Spain</SelectItem>
-                    <SelectItem value="IT">🇮🇹 Italy</SelectItem>
-                    <SelectItem value="NL">🇳🇱 Netherlands</SelectItem>
-                    <SelectItem value="BE">🇧🇪 Belgium</SelectItem>
-                    <SelectItem value="AT">🇦🇹 Austria</SelectItem>
-                    <SelectItem value="CH">🇨🇭 Switzerland</SelectItem>
-                    <SelectItem value="SE">🇸🇪 Sweden</SelectItem>
-                    <SelectItem value="NO">🇳🇴 Norway</SelectItem>
-                    <SelectItem value="DK">🇩🇰 Denmark</SelectItem>
-                    <SelectItem value="FI">🇫🇮 Finland</SelectItem>
-                    <SelectItem value="PL">🇵🇱 Poland</SelectItem>
-                    <SelectItem value="BR">🇧🇷 Brazil</SelectItem>
-                    <SelectItem value="MX">🇲🇽 Mexico</SelectItem>
-                    <SelectItem value="IN">🇮🇳 India</SelectItem>
-                    <SelectItem value="JP">🇯🇵 Japan</SelectItem>
-                    <SelectItem value="KR">🇰🇷 South Korea</SelectItem>
-                    <SelectItem value="SG">🇸🇬 Singapore</SelectItem>
-                    <SelectItem value="NZ">🇳🇿 New Zealand</SelectItem>
-                    <SelectItem value="ZA">🇿🇦 South Africa</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button onClick={fetchMyOffers} variant="outline" size="sm">
-                  Refresh
-                </Button>
-                <div className="flex items-center border rounded-md">
-                  <Button
-                    variant={myOffersViewMode === 'card' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setMyOffersViewMode('card')}
-                    className="rounded-r-none"
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant={myOffersViewMode === 'table' ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setMyOffersViewMode('table')}
-                    className="rounded-l-none"
-                  >
-                    <List className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-
-              {/* Loading State */}
-              {myOffersLoading && (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                  <span className="ml-3 text-muted-foreground">Loading your offers...</span>
-                </div>
-              )}
-
-              {/* Empty State */}
-              {!myOffersLoading && filteredMyOffers.length === 0 && (
-                <Alert>
-                  <Info className="h-4 w-4" />
-                  <AlertTitle>No offers found</AlertTitle>
-                  <AlertDescription>
-                    {myOffersSearchTerm || myOffersVerticalFilter !== 'all' || myOffersCountryFilter !== 'all'
-                      ? 'No offers match your filter criteria.'
-                      : "You don't have access to any offers yet. Browse available offers and request access to get started."}
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {/* My Offers Display */}
-              {!myOffersLoading && filteredMyOffers.length > 0 && (
-                <>
-                  {myOffersViewMode === 'card' ? (
-                    /* Card Grid View */
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {filteredMyOffers.map((offer) => (
-                        <OfferCardWithApproval
-                          key={offer.offer_id}
-                          offer={offer}
-                          onViewDetails={handleViewDetails}
-                          onAccessGranted={handleAccessGranted}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    /* Table View */
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Image</TableHead>
-                            <TableHead>Offer ID</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Vertical</TableHead>
-                            <TableHead>Countries</TableHead>
-                            <TableHead>Payout</TableHead>
-                            <TableHead>Actions</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {filteredMyOffers.map((offer) => (
-                            <TableRow key={offer.offer_id}>
-                              <TableCell>
-                                <img
-                                  src={getOfferImage(offer as any)}
-                                  alt={offer.name}
-                                  className="w-12 h-12 object-cover rounded border"
-                                  onError={(e) => {
-                                    const target = e.target as HTMLImageElement;
-                                    // Try to use a placeholder instead of hiding
-                                    target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
-                                  }}
-                                />
-                              </TableCell>
-                              <TableCell className="font-mono text-sm">{offer.offer_id}</TableCell>
-                              <TableCell>
-                                <div className="max-w-[200px]">
-                                  <div className="font-medium truncate">{offer.name}</div>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant="outline">
-                                  {(offer as any).vertical || offer.category || 'Other'}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-1 flex-wrap max-w-[120px]">
-                                  {((offer as any).countries || []).slice(0, 3).map((country: string) => (
-                                    <Badge key={country} variant="secondary" className="text-xs">
-                                      {country}
-                                    </Badge>
-                                  ))}
-                                  {((offer as any).countries || []).length > 3 && (
-                                    <Badge variant="secondary" className="text-xs">
-                                      +{((offer as any).countries || []).length - 3}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="font-medium text-green-600">
-                                ${offer.payout?.toFixed(2) || '0.00'}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleViewDetails(offer)}
-                                  >
-                                    <Eye className="h-4 w-4 mr-1" />
-                                    Details
-                                  </Button>
-                                  <Button
-                                    variant="default"
-                                    size="sm"
-                                    onClick={() => {
-                                      const hostname = window.location.hostname;
-                                      let baseUrl = 'http://localhost:5000';
-                                      if (hostname.includes('moustacheleads.com') || hostname.includes('vercel.app') || hostname.includes('onrender.com')) {
-                                        baseUrl = 'https://offers.moustacheleads.com';
-                                      }
-                                      let userId = '';
-                                      try {
-                                        const userStr = localStorage.getItem('user');
-                                        if (userStr) {
-                                          const user = JSON.parse(userStr);
-                                          userId = user._id || user.id || '';
-                                        }
-                                      } catch (e) {}
-                                      const trackingUrl = `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1=default`;
-                                      window.open(trackingUrl, '_blank');
-                                    }}
-                                    className="bg-green-600 hover:bg-green-700"
-                                  >
-                                    <ExternalLink className="h-4 w-4 mr-1" />
-                                    Run
-                                  </Button>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
-
-                  {/* Pagination Controls */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Show:</span>
-                      <Select 
-                        value={myOffersPerPage.toString()} 
-                        onValueChange={(val) => setMyOffersPerPage(val === 'all' ? -1 : parseInt(val))}
-                      >
-                        <SelectTrigger className="w-24">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="20">20</SelectItem>
-                          <SelectItem value="50">50</SelectItem>
-                          <SelectItem value="100">100</SelectItem>
-                          <SelectItem value="200">200</SelectItem>
-                          <SelectItem value="-1">All</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <span className="text-sm text-muted-foreground">per page</span>
-                    </div>
-                    
-                    <div className="text-sm text-muted-foreground">
-                      Showing {myOffersPerPage === -1 ? filteredMyOffersAll.length : Math.min((myOffersCurrentPage - 1) * myOffersPerPage + 1, filteredMyOffersAll.length)}-{myOffersPerPage === -1 ? filteredMyOffersAll.length : Math.min(myOffersCurrentPage * myOffersPerPage, filteredMyOffersAll.length)} of {filteredMyOffersAll.length} offers
-                    </div>
-                    
-                    {myOffersPerPage !== -1 && myOffersTotalPages > 1 && (
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setMyOffersCurrentPage(1)}
-                          disabled={myOffersCurrentPage === 1}
-                        >
-                          First
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setMyOffersCurrentPage(p => Math.max(1, p - 1))}
-                          disabled={myOffersCurrentPage === 1}
-                        >
-                          <ChevronLeft className="h-4 w-4" />
-                        </Button>
-                        <span className="text-sm px-2">
-                          Page {myOffersCurrentPage} of {myOffersTotalPages}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setMyOffersCurrentPage(p => Math.min(myOffersTotalPages, p + 1))}
-                          disabled={myOffersCurrentPage === myOffersTotalPages}
-                        >
-                          <ChevronRight className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setMyOffersCurrentPage(myOffersTotalPages)}
-                          disabled={myOffersCurrentPage === myOffersTotalPages}
-                        >
-                          Last
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Offer Details Modal */}
-      <OfferDetailsModalNew
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        offer={selectedOffer}
-      />
-    </div>
-  );
-};
-
-const PublisherOffers = () => {
   return (
-    <PlacementRequired>
-      <PublisherOffersContent />
-    </PlacementRequired>
+    <TooltipProvider>
+      <div className="p-4 space-y-3">
+        {/* Top bar: dropdown + search + filter icon */}
+        <div className="flex items-center gap-2">
+          <Select value={viewMode} onValueChange={(v: any) => { setViewMode(v); setPage(1); }}>
+            <SelectTrigger className="w-[180px] h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="available">Available Offers</SelectItem>
+              <SelectItem value="requests">My Requests</SelectItem>
+              <SelectItem value="my_offers">My Offers</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search offers..."
+              value={searchTerm}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+              className="pl-8 h-9 text-sm"
+            />
+          </div>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant={showFilters ? "default" : "outline"} size="sm" className="h-9 w-9 p-0" onClick={() => setShowFilters(!showFilters)}>
+                <Filter className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Filters</TooltipContent>
+          </Tooltip>
+
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {filteredOffers.length} offer{filteredOffers.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+
+        {/* Collapsible filters */}
+        {showFilters && (
+          <div className="flex items-center gap-2 flex-wrap animate-in slide-in-from-top-2 duration-200">
+            <Select value={countryFilter} onValueChange={(v) => { setCountryFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[140px] h-8 text-xs">
+                <SelectValue placeholder="Country" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Countries</SelectItem>
+                {uniqueCountries.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    <span className="flex items-center gap-1">
+                      <img src={getFlag(c)} alt={c} className="w-4 h-3" /> {c}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={verticalFilter} onValueChange={(v) => { setVerticalFilter(v); setPage(1); }}>
+              <SelectTrigger className="w-[140px] h-8 text-xs">
+                <SelectValue placeholder="Vertical" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Verticals</SelectItem>
+                {uniqueVerticals.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-[140px] h-8 text-xs">
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest</SelectItem>
+                <SelectItem value="payout_high">Payout: High→Low</SelectItem>
+                <SelectItem value="payout_low">Payout: Low→High</SelectItem>
+                <SelectItem value="name">Name A-Z</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {(countryFilter !== "all" || verticalFilter !== "all") && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => { setCountryFilter("all"); setVerticalFilter("all"); }}>
+                Clear
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* REQUESTS VIEW */}
+        {viewMode === "requests" && (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow className="text-xs">
+                  <TableHead className="py-2">Offer</TableHead>
+                  <TableHead className="py-2">Payout</TableHead>
+                  <TableHead className="py-2">Status</TableHead>
+                  <TableHead className="py-2">Requested</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {requestsLoading ? (
+                  <TableRow><TableCell colSpan={4} className="text-center py-8"><Loader2 className="h-5 w-5 animate-spin mx-auto" /></TableCell></TableRow>
+                ) : myRequests.length === 0 ? (
+                  <TableRow><TableCell colSpan={4} className="text-center py-8 text-sm text-muted-foreground">No requests yet</TableCell></TableRow>
+                ) : (
+                  myRequests.map((req) => (
+                    <TableRow key={req._id || req.offer_id} className="text-sm">
+                      <TableCell className="py-2 font-medium">{req.offer_name || req.offer_id}</TableCell>
+                      <TableCell className="py-2">${(req.payout || 0).toFixed(2)}</TableCell>
+                      <TableCell className="py-2">{statusBadge(req.status)}</TableCell>
+                      <TableCell className="py-2 text-xs text-muted-foreground">{req.requested_at ? new Date(req.requested_at).toLocaleDateString() : "-"}</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {/* OFFERS TABLE (available + my_offers) */}
+        {viewMode !== "requests" && (
+          <>
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : error ? (
+              <div className="text-center py-16 text-sm text-red-500">{error}</div>
+            ) : paginatedOffers.length === 0 ? (
+              <div className="text-center py-16 text-sm text-muted-foreground">No offers found</div>
+            ) : (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="text-xs">
+                      <TableHead className="py-2 w-[50px]"></TableHead>
+                      <TableHead className="py-2">Offer</TableHead>
+                      <TableHead className="py-2">Payout</TableHead>
+                      <TableHead className="py-2">Countries</TableHead>
+                      <TableHead className="py-2">Network</TableHead>
+                      <TableHead className="py-2">Status</TableHead>
+                      <TableHead className="py-2 text-right">Action</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedOffers.map((offer) => {
+                      const hasAccess = offer.has_access;
+                      const isPending = offer.request_status === "pending";
+                      return (
+                        <TableRow key={offer.offer_id} className="text-sm hover:bg-muted/50">
+                          {/* Thumbnail */}
+                          <TableCell className="py-1.5 pr-0">
+                            <img
+                              src={getOfferImage(offer as any)}
+                              alt=""
+                              className="w-9 h-9 rounded object-cover border"
+                              onError={(e) => { (e.target as HTMLImageElement).src = "/category-images/other.png"; }}
+                            />
+                          </TableCell>
+
+                          {/* Name (clickable → details modal) */}
+                          <TableCell className="py-1.5">
+                            <button
+                              className="text-left hover:text-blue-600 hover:underline transition-colors font-medium text-sm leading-tight"
+                              onClick={() => handleViewDetails(offer)}
+                            >
+                              {offer.name}
+                            </button>
+                            <div className="text-[10px] text-muted-foreground font-mono">{offer.offer_id}</div>
+                          </TableCell>
+
+                          {/* Payout */}
+                          <TableCell className="py-1.5">
+                            <span className="font-semibold text-green-600">${offer.payout.toFixed(2)}</span>
+                          </TableCell>
+
+                          {/* Countries as flags */}
+                          <TableCell className="py-1.5">
+                            {renderFlags(offer.countries)}
+                          </TableCell>
+
+                          {/* Network */}
+                          <TableCell className="py-1.5 text-xs text-muted-foreground">{offer.network || "-"}</TableCell>
+
+                          {/* Status */}
+                          <TableCell className="py-1.5">
+                            {hasAccess ? (
+                              <Badge className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0">Active</Badge>
+                            ) : isPending ? (
+                              <Badge variant="outline" className="text-yellow-600 border-yellow-400 text-[10px] px-1.5 py-0">Pending</Badge>
+                            ) : offer.request_status === "rejected" ? (
+                              <Badge variant="outline" className="text-red-600 border-red-400 text-[10px] px-1.5 py-0">Rejected</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">Available</Badge>
+                            )}
+                          </TableCell>
+
+                          {/* Action */}
+                          <TableCell className="py-1.5 text-right">
+                            {hasAccess ? (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs"
+                                onClick={() => {
+                                  trackDashboardClick(offer.offer_id);
+                                  handleViewDetails(offer);
+                                }}
+                              >
+                                <ExternalLink className="h-3 w-3 mr-1" />
+                                Open
+                              </Button>
+                            ) : isPending ? (
+                              <Button size="sm" variant="outline" className="h-7 text-xs" disabled>
+                                <Clock className="h-3 w-3 mr-1" />
+                                Pending
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                                onClick={() => handleApplyClick(offer)}
+                              >
+                                <Send className="h-3 w-3 mr-1" />
+                                Apply
+                              </Button>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs text-muted-foreground">
+                  Page {page} of {totalPages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* OFFER DETAILS MODAL */}
+        <OfferDetailsModalNew
+          open={detailsModalOpen}
+          onOpenChange={setDetailsModalOpen}
+          offer={selectedOffer}
+          onAccessGranted={handleAccessGranted}
+        />
+
+        {/* APPLY POPUP */}
+        <Dialog open={applyPopupOpen} onOpenChange={setApplyPopupOpen}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                <Send className="h-5 w-5 text-blue-500" />
+                Apply for Offer
+              </DialogTitle>
+              <DialogDescription>
+                {applyOffer?.name}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-muted-foreground">
+                Would you like to submit a placement proof? Publishers with proofs get faster approvals and higher scores.
+              </p>
+              <div className="flex flex-col gap-2">
+                <Button
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  onClick={() => handleSendRequest(true)}
+                >
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Submit Placement Proof
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => handleSendRequest(false)}
+                  disabled={applyLoading}
+                >
+                  {applyLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Skip & Send Request
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* PLACEMENT PROOF POPUP */}
+        <PlacementProofPopup
+          open={proofPopupOpen}
+          onOpenChange={(open) => {
+            if (!open) handleProofSkip();
+            else setProofPopupOpen(true);
+          }}
+          offer={proofOffer}
+          onSubmitted={handleProofSubmitted}
+        />
+
+        {/* SUCCESS ANIMATION POPUP */}
+        <Dialog open={successPopupOpen} onOpenChange={setSuccessPopupOpen}>
+          <DialogContent className="max-w-xs text-center">
+            <div className="flex flex-col items-center py-6 gap-3">
+              <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center animate-in zoom-in-50 duration-300">
+                <CheckCircle className="h-10 w-10 text-green-500" />
+              </div>
+              <p className="text-lg font-semibold animate-in fade-in duration-500">Request Sent</p>
+              <p className="text-sm text-muted-foreground">Your request has been submitted. You'll be notified once it's reviewed.</p>
+              <Button className="mt-2" onClick={() => setSuccessPopupOpen(false)}>Done</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </TooltipProvider>
   );
 };
+
+// Wrap with PlacementRequired
+const PublisherOffers = () => (
+  <PlacementRequired>
+    <PublisherOffersContent />
+  </PlacementRequired>
+);
 
 export default PublisherOffers;

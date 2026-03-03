@@ -8,7 +8,7 @@ export const SUBDOMAINS = {
 } as const;
 
 // Note: Postback URLs are backend endpoints, not frontend subdomains
-// They use the backend domain: https://moustacheleads-backend.onrender.com/postback/{key}
+// They use the backend domain: https://api.moustacheleads.com/postback/{key}
 
 // Get current subdomain
 export const getCurrentSubdomain = (): string | null => {
