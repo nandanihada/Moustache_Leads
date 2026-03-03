@@ -19,9 +19,11 @@ import {
   Eye,
   MoreHorizontal,
   TrendingUp,
-  Users,
   FileText,
-  AlertCircle
+  Camera,
+  Star,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { API_BASE_URL } from '../services/apiConfig';
@@ -41,6 +43,8 @@ interface AccessRequest {
   rejected_at?: string;
   approval_notes?: string;
   rejection_reason?: string;
+  has_placement_proof?: boolean;
+  proof_status?: string;
   offer_details?: {
     name: string;
     payout: number;
@@ -71,10 +75,29 @@ interface RequestStats {
   }>;
 }
 
+interface PlacementProof {
+  _id: string;
+  user_id: string;
+  offer_id: string;
+  offer_name: string;
+  placement_url: string;
+  traffic_source: string;
+  description: string;
+  image_urls: string[];
+  status: 'pending' | 'approved' | 'rejected';
+  submitted_at: string;
+  user_info?: { username: string; email: string; name: string };
+  admin_notes?: string;
+  score?: number;
+}
+
 const AdminOfferAccessRequests: React.FC = () => {
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [stats, setStats] = useState<RequestStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('requests');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<AccessRequest | null>(null);
   const [actionDialog, setActionDialog] = useState<{
     open: boolean;
@@ -82,6 +105,50 @@ const AdminOfferAccessRequests: React.FC = () => {
     request?: AccessRequest;
   }>({ open: false, type: 'approve' });
   const [actionNotes, setActionNotes] = useState('');
+
+  // Placement proofs state
+  const [proofs, setProofs] = useState<PlacementProof[]>([]);
+  const [proofsLoading, setProofsLoading] = useState(false);
+  const [proofStatusFilter, setProofStatusFilter] = useState('all');
+  const [selectedProof, setSelectedProof] = useState<PlacementProof | null>(null);
+  const [proofDialog, setProofDialog] = useState(false);
+  const [proofReviewNotes, setProofReviewNotes] = useState('');
+  const [proofScore, setProofScore] = useState(3);
+
+  const fetchProofs = async () => {
+    setProofsLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE_URL}/api/placement-proofs/admin/all?page=1&per_page=100&status=${proofStatusFilter}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      setProofs(data.proofs || []);
+    } catch {
+      toast.error('Failed to load placement proofs');
+    } finally {
+      setProofsLoading(false);
+    }
+  };
+
+  const handleReviewProof = async (proofId: string, status: 'approved' | 'rejected') => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_BASE_URL}/api/placement-proofs/admin/${proofId}/review`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, admin_notes: proofReviewNotes, score: proofScore }),
+      });
+      toast.success(`Proof ${status}`);
+      setProofDialog(false);
+      setSelectedProof(null);
+      setProofReviewNotes('');
+      fetchProofs();
+    } catch {
+      toast.error('Failed to review proof');
+    }
+  };
+
   const [filters, setFilters] = useState({
     status: 'all',
     search: '',
@@ -93,6 +160,7 @@ const AdminOfferAccessRequests: React.FC = () => {
     date_to: '',
     category: '',
     device: '',
+    has_proof: '',
     page: 1,
     per_page: 20
   });
@@ -113,7 +181,8 @@ const AdminOfferAccessRequests: React.FC = () => {
         ...(filters.date_from && { date_from: filters.date_from }),
         ...(filters.date_to && { date_to: filters.date_to }),
         ...(filters.category && { category: filters.category }),
-        ...(filters.device && { device: filters.device })
+        ...(filters.device && { device: filters.device }),
+        ...(filters.has_proof && { has_proof: filters.has_proof }),
       });
 
       const response = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests?${queryParams}`, {
@@ -243,6 +312,10 @@ const AdminOfferAccessRequests: React.FC = () => {
     Promise.all([fetchRequests(), fetchStats()]).finally(() => setLoading(false));
   }, [filters]);
 
+  useEffect(() => {
+    if (activeTab === 'proofs') fetchProofs();
+  }, [activeTab, proofStatusFilter]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -257,14 +330,18 @@ const AdminOfferAccessRequests: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Offer Access Requests</h1>
-          <p className="text-muted-foreground">
-            Manage publisher access requests for offers
-          </p>
+          <p className="text-muted-foreground">Manage publisher access requests for offers</p>
         </div>
+        {stats && (
+          <Button variant="outline" size="sm" onClick={() => setShowStats(v => !v)} className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4" />
+            Stats {showStats ? '▲' : '▼'}
+          </Button>
+        )}
       </div>
 
-      {/* Statistics Cards */}
-      {stats && (
+      {/* Statistics Cards - collapsible */}
+      {stats && showStats && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -305,15 +382,35 @@ const AdminOfferAccessRequests: React.FC = () => {
         </div>
       )}
 
-      {/* Advanced Filters */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Filter className="h-5 w-5" />
-            Advanced Filters
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="requests" className="flex items-center gap-2">
+            <FileText className="h-4 w-4" /> Access Requests
+          </TabsTrigger>
+          <TabsTrigger value="proofs" className="flex items-center gap-2">
+            <Camera className="h-4 w-4" /> Placement Proofs
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ── ACCESS REQUESTS TAB ── */}
+        <TabsContent value="requests" className="space-y-4 mt-4">
+      {/* Advanced Filters - collapsible */}
+      <div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowFilters(v => !v)}
+          className="flex items-center gap-2"
+        >
+          <Filter className="h-4 w-4" />
+          Filters
+          {showFilters ? <span className="text-xs text-muted-foreground">▲</span> : <span className="text-xs text-muted-foreground">▼</span>}
+        </Button>
+
+        {showFilters && (
+        <Card className="mt-2">
+        <CardContent className="pt-4 space-y-4">
           {/* Row 1: Search and Status */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
@@ -440,6 +537,22 @@ const AdminOfferAccessRequests: React.FC = () => {
                 onChange={(e) => setFilters({ ...filters, date_to: e.target.value, page: 1 })}
               />
             </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Placement Proof</label>
+              <Select
+                value={filters.has_proof || 'all-proof'}
+                onValueChange={(value) => setFilters({ ...filters, has_proof: value === 'all-proof' ? '' : value, page: 1 })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="All Requests" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all-proof">All Requests</SelectItem>
+                  <SelectItem value="yes">✅ With Proof</SelectItem>
+                  <SelectItem value="no">❌ Without Proof</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-end gap-2">
               <Button
                 variant="outline"
@@ -454,6 +567,7 @@ const AdminOfferAccessRequests: React.FC = () => {
                   date_to: '',
                   category: '',
                   device: '',
+                  has_proof: '',
                   page: 1,
                   per_page: 20
                 })}
@@ -465,6 +579,8 @@ const AdminOfferAccessRequests: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+        )}
+      </div>
 
       {/* Requests Table */}
       <Card>
@@ -481,6 +597,7 @@ const AdminOfferAccessRequests: React.FC = () => {
               <TableRow>
                 <TableHead className="whitespace-nowrap">Publisher</TableHead>
                 <TableHead className="whitespace-nowrap">Offer</TableHead>
+                <TableHead className="whitespace-nowrap">Proof</TableHead>
                 <TableHead className="whitespace-nowrap">Status</TableHead>
                 <TableHead className="whitespace-nowrap">Requested</TableHead>
                 <TableHead className="whitespace-nowrap">Message</TableHead>
@@ -503,6 +620,17 @@ const AdminOfferAccessRequests: React.FC = () => {
                         ${request.offer_details?.payout} • {request.offer_details?.network}
                       </div>
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    {request.has_placement_proof ? (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                        ✅ Submitted
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                        — None
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>{getStatusBadge(request.status)}</TableCell>
                   <TableCell>{formatDate(request.requested_at)}</TableCell>
@@ -563,8 +691,150 @@ const AdminOfferAccessRequests: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
 
-      {/* Action Dialog */}
+        {/* ── PLACEMENT PROOFS TAB ── */}
+        <TabsContent value="proofs" className="space-y-4 mt-4">
+          <div className="flex items-center gap-3">
+            <Select value={proofStatusFilter} onValueChange={setProofStatusFilter}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Proofs</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-sm text-muted-foreground">{proofs.length} proof(s)</span>
+          </div>
+          <Card>
+            <CardContent className="p-0">
+              {proofsLoading ? (
+                <div className="flex items-center justify-center h-32">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-900" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Publisher</TableHead>
+                      <TableHead>Offer</TableHead>
+                      <TableHead>Traffic Source</TableHead>
+                      <TableHead>Images</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Submitted</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {proofs.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No proofs found</TableCell>
+                      </TableRow>
+                    ) : proofs.map((proof) => (
+                      <TableRow key={proof._id}>
+                        <TableCell>
+                          <div className="font-medium">{proof.user_info?.username || proof.user_id}</div>
+                          <div className="text-xs text-muted-foreground">{proof.user_info?.email}</div>
+                        </TableCell>
+                        <TableCell><div className="font-medium">{proof.offer_name || proof.offer_id}</div></TableCell>
+                        <TableCell><span className="capitalize text-sm">{proof.traffic_source || '—'}</span></TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {(proof.image_urls || []).slice(0, 3).map((url, i) => (
+                              <img key={i} src={`${API_BASE_URL}/api/placement-proofs/image/${url.split('/').pop()}`} alt="" className="w-8 h-8 rounded object-cover border" />
+                            ))}
+                            {(proof.image_urls || []).length === 0 && <span className="text-xs text-muted-foreground">None</span>}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {proof.status === 'pending' && <Badge variant="outline" className="text-yellow-600 border-yellow-600"><Clock className="w-3 h-3 mr-1" />Pending</Badge>}
+                          {proof.status === 'approved' && <Badge variant="outline" className="text-green-600 border-green-600"><CheckCircle className="w-3 h-3 mr-1" />Approved</Badge>}
+                          {proof.status === 'rejected' && <Badge variant="outline" className="text-red-600 border-red-600"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>}
+                        </TableCell>
+                        <TableCell className="text-sm">{formatDate(proof.submitted_at)}</TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="sm" onClick={() => { setSelectedProof(proof); setProofDialog(true); }}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Proof Review Dialog */}
+      <Dialog open={proofDialog} onOpenChange={setProofDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Camera className="h-4 w-4" /> Placement Proof</DialogTitle>
+          </DialogHeader>
+          {selectedProof && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><Label>Publisher</Label><p>{selectedProof.user_info?.username || selectedProof.user_id}</p></div>
+                <div><Label>Offer</Label><p>{selectedProof.offer_name}</p></div>
+                <div><Label>Traffic Source</Label><p className="capitalize">{selectedProof.traffic_source || '—'}</p></div>
+                <div><Label>Status</Label><p className="capitalize">{selectedProof.status}</p></div>
+              </div>
+              {selectedProof.placement_url && (
+                <div><Label>Placement URL</Label>
+                  <a href={selectedProof.placement_url} target="_blank" rel="noreferrer" className="text-sm text-blue-600 underline break-all">{selectedProof.placement_url}</a>
+                </div>
+              )}
+              {selectedProof.description && (
+                <div><Label>Notes</Label><p className="text-sm p-2 bg-gray-50 rounded">{selectedProof.description}</p></div>
+              )}
+              {(selectedProof.image_urls || []).length > 0 && (
+                <div>
+                  <Label>Screenshots</Label>
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {selectedProof.image_urls.map((url, i) => (
+                      <a key={i} href={`${API_BASE_URL}/api/placement-proofs/image/${url.split('/').pop()}`} target="_blank" rel="noreferrer">
+                        <img src={`${API_BASE_URL}/api/placement-proofs/image/${url.split('/').pop()}`} alt="" className="w-24 h-24 rounded object-cover border hover:opacity-80" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {selectedProof.status === 'pending' && (
+                <>
+                  <div>
+                    <Label>Score (1-5)</Label>
+                    <div className="flex gap-1 mt-1">
+                      {[1,2,3,4,5].map(s => (
+                        <button key={s} onClick={() => setProofScore(s)}>
+                          <Star className={`h-6 w-6 ${s <= proofScore ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300'}`} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Admin Notes</Label>
+                    <Textarea value={proofReviewNotes} onChange={e => setProofReviewNotes(e.target.value)} placeholder="Optional notes..." className="mt-1" rows={2} />
+                  </div>
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setProofDialog(false)}>Cancel</Button>
+                    <Button variant="destructive" onClick={() => handleReviewProof(selectedProof._id, 'rejected')}>
+                      <ThumbsDown className="h-4 w-4 mr-1" /> Reject
+                    </Button>
+                    <Button className="bg-green-600 hover:bg-green-700" onClick={() => handleReviewProof(selectedProof._id, 'approved')}>
+                      <ThumbsUp className="h-4 w-4 mr-1" /> Approve
+                    </Button>
+                  </DialogFooter>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog open={actionDialog.open} onOpenChange={(open) => setActionDialog({ ...actionDialog, open })}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>

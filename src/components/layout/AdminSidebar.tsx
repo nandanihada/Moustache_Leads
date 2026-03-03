@@ -20,8 +20,7 @@ import {
   ChevronDown,
   Building2,
   Sparkles,
-  Mail,
-  Camera
+  Mail
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -60,7 +59,6 @@ const adminMenuStructure = [
       { title: "Subadmin Management", url: "/admin/subadmin-management", icon: Shield, tab: "subadmin-management" },
       { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
       { title: "Placement Approval", url: "/admin/placement-approval", icon: CheckSquare, tab: "placement-approval" },
-      { title: "Placement Proofs", url: "/admin/placement-proofs", icon: Camera, tab: "placement-proofs" },
     ]
   },
   {

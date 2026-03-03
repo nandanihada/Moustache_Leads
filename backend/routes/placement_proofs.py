@@ -90,7 +90,7 @@ def submit_proof():
         if error:
             return jsonify({'error': error}), 400
 
-        return safe_json_response(proof), 201
+        return safe_json_response(proof, 201)
 
     except Exception as e:
         logger.error(f"Submit proof error: {e}", exc_info=True)
@@ -155,7 +155,7 @@ def get_all_proofs():
         # Enrich with user info
         from database import db_instance
         users_collection = db_instance.get_collection('users')
-        if users_collection:
+        if users_collection is not None:
             user_ids = list(set(p['user_id'] for p in proofs))
             from bson import ObjectId
             users = {}

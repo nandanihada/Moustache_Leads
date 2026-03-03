@@ -381,10 +381,12 @@ const EventModal = ({ eventData, isEditing, isOpen, onClose, onSubmit }) => {
 const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = false }) => {
   // isPlatformLocked determines if the user can still change the platform type
   const isPlatformLocked = useMemo(() => !isNew && !!data.placementIdentifier, [isNew, data.placementIdentifier]);
+  const [showPlatformSelect, setShowPlatformSelect] = useState(!data.platformType);
 
   const onSelectPlatform = (platform) => {
       if (!isPlatformLocked) {
         onChange('platformType', platform);
+        setShowPlatformSelect(false);
       }
   };
 
@@ -442,16 +444,38 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="lg:col-span-2 space-y-3">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <div className="lg:col-span-2 space-y-2.5">
 
-        {/* Platform Selection Section */}
-        <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg p-3 border border-gray-100">
-          <div className="mb-2">
-            <h3 className="text-sm font-semibold text-gray-900">Select Platform</h3>
+        {/* Platform Selection Section - Collapsible */}
+        {data.platformType && !showPlatformSelect ? (
+          <button
+            onClick={() => !isPlatformLocked && setShowPlatformSelect(true)}
+            disabled={isPlatformLocked}
+            className={`w-full flex items-center justify-between p-2 rounded-lg border transition-all ${
+              isPlatformLocked 
+                ? 'bg-gray-50 border-gray-200 cursor-not-allowed' 
+                : 'bg-white border-gray-200 hover:border-gray-300 cursor-pointer'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {(data.platformType || '').toLowerCase() === 'android' ? <Smartphone className="h-4 w-4 text-emerald-600" /> :
+               (data.platformType || '').toLowerCase() === 'ios' ? <Smartphone className="h-4 w-4 text-blue-600" /> :
+               <Monitor className="h-4 w-4 text-purple-600" />}
+              <span className="text-sm font-medium text-gray-900 capitalize">{data.platformType}</span>
+            </div>
+            {!isPlatformLocked && (
+              <Edit className="h-3.5 w-3.5 text-gray-400" />
+            )}
+          </button>
+        ) : (
+          <div className="bg-gradient-to-br from-gray-50 to-white rounded-lg p-2.5 border border-gray-100">
+            <div className="mb-2">
+              <h3 className="text-xs font-semibold text-gray-900">Select Platform</h3>
+            </div>
+            {renderPlatformSelection()}
           </div>
-          {renderPlatformSelection()}
-        </div>
+        )}
         
         {/* Core Configuration Card */}
         <div className="bg-white rounded-lg p-3 border border-gray-100 hover:border-gray-200 transition-all duration-300">
@@ -571,18 +595,18 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
           <button 
             onClick={onSubmit} 
             disabled={loading}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium text-sm transition-all duration-300 ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-medium text-xs transition-all duration-300 ${
               loading 
                 ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
                 : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm hover:shadow-md'
             }`}
           >
             {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <>
-                {data.placementIdentifier ? <Edit className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                <span>{data.placementIdentifier ? 'Save Changes' : 'Create Placement'}</span>
+                {data.placementIdentifier ? <Edit className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                <span>{data.placementIdentifier ? 'Save' : 'Create'}</span>
               </>
             )}
           </button>
@@ -1430,7 +1454,7 @@ export const Placements = () => {
     return (
       <button
         onClick={() => !isDisabled && setActiveTab(tabKey)}
-        className={`flex items-center justify-center space-x-2 py-2.5 px-4 rounded-lg transition-all duration-200 text-sm font-medium ${
+        className={`flex items-center justify-center space-x-1.5 py-1.5 px-3 rounded-md transition-all duration-200 text-xs font-medium ${
           activeTab === tabKey
             ? 'bg-white text-gray-900 shadow-sm'
             : isDisabled
@@ -1440,9 +1464,9 @@ export const Placements = () => {
         disabled={isDisabled}
         title={label}
       >
-        <Icon className="h-4 w-4" />
+        <Icon className="h-3.5 w-3.5" />
         <span className="hidden sm:inline">{label}</span>
-        {isLocked && <Clock className="h-3 w-3 ml-0.5 text-amber-500" />}
+        {isLocked && <Clock className="h-2.5 w-2.5 ml-0.5 text-amber-500" />}
       </button>
     );
   };
@@ -1462,50 +1486,47 @@ export const Placements = () => {
     </button>
   );
 
+  // State for collapsible sections
+  const [showPlacements, setShowPlacements] = useState(false);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
-      <div className="max-w-[1400px] mx-auto px-6 py-8">
-        {/* Authentication Status */}
-        <div className="mb-6">
-          {!localStorage.getItem('token') ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center space-x-2.5">
-              <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0" />
-              <p className="text-sm text-amber-800">Login required to manage placements. Showing demo data.</p>
-            </div>
-          ) : (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center space-x-2.5">
-              <CheckCircle className="h-4 w-4 text-emerald-600 flex-shrink-0" />
-              <p className="text-sm text-emerald-800">Connected — manage your placements below.</p>
-            </div>
-          )}
-        </div>
-
-        {/* Top Navigation - Placements Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-1">Placements</h1>
-            <p className="text-gray-600">Manage and monitor your offerwall placements</p>
+      <div className="max-w-[1400px] mx-auto px-6 py-4">
+        {/* Compact Header */}
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Placements</h1>
+            
+            {/* Collapsible Placements Icon */}
+            {placements.length > 0 && (
+              <button
+                onClick={() => setShowPlacements(!showPlacements)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white border border-gray-200 hover:border-gray-300 transition-all text-sm"
+                title="View placements"
+              >
+                <Layout className="h-4 w-4 text-gray-600" />
+                <span className="text-gray-700 font-medium">{placements.length}</span>
+              </button>
+            )}
           </div>
+          
           <button
             onClick={() => setIsNewPlacement(true)}
-            className={`inline-flex items-center px-5 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 ${
-              isNewPlacement 
-                ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                : 'bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
-            }`}
+            className="inline-flex items-center px-3 py-1.5 rounded-lg font-medium text-sm transition-all duration-200 bg-blue-600 text-white hover:bg-blue-700"
           >
-            <Plus className="h-4 w-4 mr-2" />
-            Add New Placement
+            <Plus className="h-4 w-4 mr-1.5" />
+            Add New
           </button>
         </div>
 
-        {/* Placement Tabs - Symmetric Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
+        {/* Collapsible Placement Cards */}
+        {showPlacements && placements.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 mb-4 animate-in slide-in-from-top-2 duration-200">
             {loading ? (
-              <div className="col-span-full flex justify-center py-4">
-                <LoadingSpinner size="sm" text="Loading placements..." />
+              <div className="col-span-full flex justify-center py-2">
+                <LoadingSpinner size="sm" text="Loading..." />
               </div>
-            ) : placements.length > 0 ? (
+            ) : (
               placements.map((placement, index) => {
                 const isSelected = !isNewPlacement && selectedPlacementIndex === index;
                 const platformColors = {
@@ -1521,49 +1542,44 @@ export const Placements = () => {
                     onClick={() => {
                       setIsNewPlacement(false);
                       setSelectedPlacementIndex(index);
+                      setShowPlacements(false);
                     }}
-                    className={`p-3.5 rounded-xl transition-all duration-200 border text-center ${
+                    className={`p-2.5 rounded-lg transition-all duration-200 border text-center ${
                       isSelected
-                        ? `${colors.activeBg} ${colors.activeBorder} text-white shadow-md` 
-                        : `${colors.bg} ${colors.border} ${colors.text} hover:shadow-md hover:scale-[1.02]`
+                        ? `${colors.activeBg} ${colors.activeBorder} text-white shadow-sm` 
+                        : `${colors.bg} ${colors.border} ${colors.text} hover:shadow-sm hover:scale-[1.02]`
                     }`}
                   >
-                    <div className={`flex items-center justify-center mb-2 ${isSelected ? 'text-white' : colors.icon}`}>
-                      {placement.platformType === 'Android' ? <Smartphone className="h-5 w-5" /> :
-                       placement.platformType === 'iOS' ? <Smartphone className="h-5 w-5" /> :
-                       <Monitor className="h-5 w-5" />}
+                    <div className={`flex items-center justify-center mb-1.5 ${isSelected ? 'text-white' : colors.icon}`}>
+                      {placement.platformType === 'Android' ? <Smartphone className="h-4 w-4" /> :
+                       placement.platformType === 'iOS' ? <Smartphone className="h-4 w-4" /> :
+                       <Monitor className="h-4 w-4" />}
                     </div>
-                    <p className="font-semibold text-xs truncate">{placement.platformName || placement.offerwallTitle}</p>
+                    <p className="font-semibold text-[10px] truncate">{placement.platformName || placement.offerwallTitle}</p>
                   </button>
                 );
               })
-            ) : !error && localStorage.getItem('token') ? (
-              <div className="col-span-full text-center py-4 text-gray-500 text-sm italic">
-                No placements yet. Create your first one!
-              </div>
-            ) : null}
-            {error && (
-              <div className="col-span-full text-center py-4 text-red-500 text-sm">Error: {error}</div>
             )}
-        </div>
+          </div>
+        )}
 
-        {/* Section Header */}
-        <div className="mb-6">
-          <p className="text-gray-600">
-            {isNewPlacement ? 'Define the platform type and core settings for your new offerwall.' : `Manage and monitor the configuration for your existing placement.`}
-          </p>
-        </div>
+        {error && !localStorage.getItem('token') && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center space-x-2 mb-4">
+            <AlertCircle className="h-3.5 w-3.5 text-amber-600 flex-shrink-0" />
+            <p className="text-xs text-amber-800">Login required to manage placements</p>
+          </div>
+        )}
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 bg-gray-100 p-1.5 rounded-xl">
-          <TabButton tabKey="placement" Icon={Grid} label="Placement Details" />
-          <TabButton tabKey="events" Icon={Calendar} label="Event Management" />
-          <TabButton tabKey="integration" Icon={Code} label="Iframe Integration" />
-          <TabButton tabKey="testing" Icon={Play} label="Postback Testing" />
+        <div className="flex gap-1.5 bg-gray-100 p-1 rounded-lg mb-3">
+          <TabButton tabKey="placement" Icon={Grid} label="Details" />
+          <TabButton tabKey="events" Icon={Calendar} label="Events" />
+          <TabButton tabKey="integration" Icon={Code} label="Integration" />
+          <TabButton tabKey="testing" Icon={Play} label="Testing" />
         </div>
 
         {/* Tab Content */}
-        <div className="pt-6">
+        <div className="pt-3">
             {renderActiveTab()}
         </div>
       </div>

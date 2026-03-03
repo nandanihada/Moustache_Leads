@@ -74,6 +74,10 @@ def get_all_access_requests():
         requests_collection = db_instance.get_collection('affiliate_requests')
         offers_collection = db_instance.get_collection('offers')
         users_collection = db_instance.get_collection('users')
+        proofs_collection = db_instance.get_collection('placement_proofs')
+        
+        # Placement proof filter
+        has_proof = request.args.get('has_proof', '')  # 'yes', 'no', or ''
         
         # Get total count
         total = requests_collection.count_documents(query)
@@ -126,9 +130,26 @@ def get_all_access_requests():
                     'email': user.get('email'),
                     'account_type': user.get('account_type', 'basic')
                 }
+            
+            # Check if user submitted placement proof for this offer
+            proof = None
+            if proofs_collection is not None:
+                proof = proofs_collection.find_one({
+                    'user_id': req['user_id'],
+                    'offer_id': req['offer_id']
+                })
+            req['has_placement_proof'] = proof is not None
+            if proof:
+                req['proof_status'] = proof.get('status', 'pending')
         
         # Filter out requests that didn't match secondary filters
         filtered_requests = [r for r in requests if 'offer_details' in r and 'user_details' in r]
+        
+        # Apply placement proof filter
+        if has_proof == 'yes':
+            filtered_requests = [r for r in filtered_requests if r.get('has_placement_proof')]
+        elif has_proof == 'no':
+            filtered_requests = [r for r in filtered_requests if not r.get('has_placement_proof')]
         
         return safe_json_response({
             'requests': filtered_requests,

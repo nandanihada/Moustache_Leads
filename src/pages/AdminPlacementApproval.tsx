@@ -117,6 +117,7 @@ const AdminPlacementApproval = () => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [blockReason, setBlockReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [editForm, setEditForm] = useState({
     firstName: '',
     lastName: '',
@@ -496,15 +497,15 @@ const AdminPlacementApproval = () => {
         </TabsList>
 
         <TabsContent value="pending" className="space-y-6">
-          {/* Advanced Filters for Pending */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Filter className="h-5 w-5" />
-                Advanced Filters
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
+          {/* Advanced Filters for Pending - collapsible */}
+          <div>
+            <Button variant="outline" size="sm" onClick={() => setShowFilters(v => !v)} className="flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Filters {showFilters ? '▲' : '▼'}
+            </Button>
+            {showFilters && (
+          <Card className="mt-2">
+            <CardContent className="pt-4 space-y-4">
               {/* Row 1: Search and Status */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
@@ -602,6 +603,8 @@ const AdminPlacementApproval = () => {
               </div>
             </CardContent>
           </Card>
+            )}
+          </div>
 
           {/* Pending Placements Table */}
           <Card>
