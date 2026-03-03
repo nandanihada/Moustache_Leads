@@ -119,16 +119,12 @@ def get_dashboard_stats():
         
         logger.info(f"👆 Total clicks: {total_clicks} (offerwall: {offerwall_clicks}, dashboard: {dashboard_clicks})")
         
-        # 3. Get Active Offers Count - Count total active offers available in the system
+        # 3. Get Active Offers Count - Count all offers with status='active'
         active_offers_count = 0
         if offers_collection is not None:
-            # Count all active offers in the system
+            # Count all active offers (simplified - only check status)
             active_offers_count = offers_collection.count_documents({
-                '$or': [
-                    {'status': 'active'},
-                    {'status': 'Active'},
-                    {'is_active': True}
-                ]
+                'status': 'active'
             })
         
         logger.info(f"🎁 Total active offers in system: {active_offers_count}")

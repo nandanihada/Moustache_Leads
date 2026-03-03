@@ -75,7 +75,7 @@ const PublisherOffersContent = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 500, search: "" });
+      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 10000, search: "" });
       setOffers(res.offers || []);
     } catch (err: any) {
       setError(err.message || "Failed to load offers");
@@ -88,7 +88,7 @@ const PublisherOffersContent = () => {
   const fetchMyRequests = async () => {
     setRequestsLoading(true);
     try {
-      const res = await publisherOfferApi.getMyAccessRequests({ page: 1, per_page: 500 });
+      const res = await publisherOfferApi.getMyAccessRequests({ page: 1, per_page: 10000 });
       setMyRequests(res.requests || []);
     } catch (err: any) {
       console.error("Failed to load requests:", err);
@@ -101,7 +101,7 @@ const PublisherOffersContent = () => {
   const fetchMyOffers = async () => {
     setMyOffersLoading(true);
     try {
-      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 500 });
+      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 10000 });
       const approved = (res.offers || []).filter((o) => o.has_access);
       setMyOffers(approved);
     } catch (err: any) {

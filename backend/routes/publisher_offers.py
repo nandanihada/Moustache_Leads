@@ -37,26 +37,14 @@ def get_available_offers():
         status = request.args.get('status', 'active')
         search = request.args.get('search', '')
         
-        # Build query for active offers
+        # Build query for active offers - SIMPLIFIED: Only check status
         offers_collection = db_instance.get_collection('offers')
         
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
         
         query = {
-            'status': status,
-            'is_active': True,
-            '$or': [
-                {'approval_status': {'$in': ['active', 'pending']}},
-                {'approval_status': {'$exists': False}}
-            ],
-            # Only show offers marked for offerwall (or not explicitly hidden)
-            '$and': [
-                {'$or': [
-                    {'show_in_offerwall': True},
-                    {'show_in_offerwall': {'$exists': False}}
-                ]}
-            ]
+            'status': status
         }
         
         # Add search if provided
@@ -69,21 +57,7 @@ def get_available_offers():
             
             query = {
                 'status': status,
-                'is_active': True,
-                '$and': [
-                    {
-                        '$or': [
-                            {'approval_status': {'$in': ['active', 'pending']}},
-                            {'approval_status': {'$exists': False}}
-                        ]
-                    },
-                    {'$or': search_conditions},
-                    # Only show offers marked for offerwall (or not explicitly hidden)
-                    {'$or': [
-                        {'show_in_offerwall': True},
-                        {'show_in_offerwall': {'$exists': False}}
-                    ]}
-                ]
+                '$or': search_conditions
             }
         
         # Get total count
