@@ -127,6 +127,7 @@ def track_offer_click(offer_id):
         click_data = {
             'click_id': click_id,
             'offer_id': offer_id,
+            'offer_name': offer.get('name', 'Unknown Offer'),
             'user_id': user_id,  # Publisher who shared the link
             'affiliate_id': user_id,  # Same as user_id for consistency
             'placement_id': sub1,  # Placement/offerwall ID (usually in sub1)
@@ -139,12 +140,43 @@ def track_offer_click(offer_id):
             'sub_id4': sub4,
             'sub_id5': sub5,
             'click_time': datetime.utcnow(),
-            'timestamp': datetime.utcnow(),  # Add timestamp for sorting
+            'timestamp': datetime.utcnow(),
             'converted': False,
-            'country': 'Unknown',  # Will be enhanced later
-            'device_type': 'unknown',  # Will be enhanced later
-            'browser': 'unknown'  # Will be enhanced later
+            'country': 'Unknown',
+            'device_type': 'unknown',
+            'browser': 'unknown'
         }
+        
+        # Enrich with device detection from user agent
+        ua_lower = user_agent.lower()
+        if any(m in ua_lower for m in ['mobile', 'android', 'iphone', 'ipad']):
+            click_data['device_type'] = 'mobile'
+        elif 'tablet' in ua_lower:
+            click_data['device_type'] = 'tablet'
+        else:
+            click_data['device_type'] = 'desktop'
+        
+        if 'chrome' in ua_lower and 'edg' not in ua_lower:
+            click_data['browser'] = 'Chrome'
+        elif 'firefox' in ua_lower:
+            click_data['browser'] = 'Firefox'
+        elif 'safari' in ua_lower and 'chrome' not in ua_lower:
+            click_data['browser'] = 'Safari'
+        elif 'edg' in ua_lower:
+            click_data['browser'] = 'Edge'
+        
+        # Enrich with geo data from IP
+        try:
+            from services.ipinfo_service import get_ipinfo_service
+            ipinfo_svc = get_ipinfo_service()
+            ip_data = ipinfo_svc.lookup_ip(ip_address)
+            if ip_data:
+                click_data['country'] = ip_data.get('country', 'Unknown')
+                click_data['country_code'] = ip_data.get('country_code', '')
+                click_data['city'] = ip_data.get('city', '')
+                click_data['region'] = ip_data.get('region', '')
+        except Exception as geo_err:
+            logger.warning(f"⚠️ Geo lookup failed for {ip_address}: {geo_err}")
         
         # Save click directly to database
         clicks_collection = db_instance.get_collection('clicks')

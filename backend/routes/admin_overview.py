@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 
 admin_overview_bp = Blueprint('admin_overview', __name__)
 
+# Module-level time range that gets set per-request
+_current_time_range = '24h'
+
 def get_collection(collection_name):
     """Get collection from database instance"""
     from database import db_instance
@@ -24,15 +27,28 @@ def get_collection(collection_name):
 
 
 def get_24h_window():
-    """Get rolling 24-hour window timestamps"""
-    now = datetime.utcnow()
-    return now - timedelta(hours=24), now
+    """Get rolling time window based on current request's time_range"""
+    return get_time_window(_current_time_range)
 
 
 def get_7d_window():
     """Get rolling 7-day window timestamps"""
     now = datetime.utcnow()
     return now - timedelta(days=7), now
+
+
+def get_time_window(time_range='24h'):
+    """Get rolling time window based on range parameter"""
+    now = datetime.utcnow()
+    ranges = {
+        '30m': timedelta(minutes=30),
+        '1h': timedelta(hours=1),
+        '6h': timedelta(hours=6),
+        '24h': timedelta(hours=24),
+        '7d': timedelta(days=7),
+    }
+    delta = ranges.get(time_range, timedelta(hours=24))
+    return now - delta, now
 
 
 # ============================================================================
@@ -473,33 +489,60 @@ def get_iframes_installed():
 # ============================================================================
 def get_total_clicks():
     """
-    Get total clicks from the main clicks collection.
-    Uses 'clicks' collection as the primary source.
+    Get total clicks from ALL click collections with source breakdown.
+    Collections: clicks (tracking links), offerwall_clicks, offerwall_clicks_detailed, dashboard_clicks
     """
     try:
-        clicks = get_collection('clicks')
-        
         start_24h, now = get_24h_window()
         
-        if clicks is None:
-            return {'total': 0, 'last_24h': 0}
-        
-        # Total clicks
-        total = clicks.count_documents({})
-        
-        # Clicks in last 24h
-        last_24h = clicks.count_documents({
+        time_filter_or = {
             '$or': [
                 {'timestamp': {'$gte': start_24h}},
                 {'clicked_at': {'$gte': start_24h}},
                 {'created_at': {'$gte': start_24h}}
             ]
-        })
+        }
         
-        return {'total': total, 'last_24h': last_24h}
+        total = 0
+        last_24h = 0
+        breakdown = {
+            'tracking_links': {'total': 0, 'last_24h': 0},
+            'offerwall': {'total': 0, 'last_24h': 0},
+            'dashboard': {'total': 0, 'last_24h': 0},
+        }
+        
+        # 1. Tracking link clicks (clicks collection)
+        clicks_col = get_collection('clicks')
+        if clicks_col is not None:
+            t = clicks_col.count_documents({})
+            l = clicks_col.count_documents(time_filter_or)
+            breakdown['tracking_links'] = {'total': t, 'last_24h': l}
+            total += t
+            last_24h += l
+        
+        # 2. Offerwall clicks - deduplicate between offerwall_clicks and offerwall_clicks_detailed
+        # Use offerwall_clicks as the primary (basic tracker writes here)
+        ow_clicks_col = get_collection('offerwall_clicks')
+        if ow_clicks_col is not None:
+            t = ow_clicks_col.count_documents({})
+            l = ow_clicks_col.count_documents(time_filter_or)
+            breakdown['offerwall'] = {'total': t, 'last_24h': l}
+            total += t
+            last_24h += l
+        
+        # 3. Dashboard clicks
+        dash_clicks_col = get_collection('dashboard_clicks')
+        if dash_clicks_col is not None:
+            t = dash_clicks_col.count_documents({})
+            l = dash_clicks_col.count_documents(time_filter_or)
+            breakdown['dashboard'] = {'total': t, 'last_24h': l}
+            total += t
+            last_24h += l
+        
+        return {'total': total, 'last_24h': last_24h, 'breakdown': breakdown}
     except Exception as e:
         logger.error(f"Error getting total clicks: {e}")
-        return {'total': 0, 'last_24h': 0}
+        return {'total': 0, 'last_24h': 0, 'breakdown': {}}
 
 
 # ============================================================================
@@ -507,42 +550,61 @@ def get_total_clicks():
 # ============================================================================
 def get_unique_clicks():
     """
-    Get unique clicks in last 24h.
-    Unique = unique user_id + offer_id combination from clicks collection.
+    Get unique clicks in last 24h with per-source breakdown.
+    Unique = unique user_id + offer_id combination across all click collections.
     """
     try:
-        clicks = get_collection('clicks')
-        
         start_24h, now = get_24h_window()
         
-        if clicks is None:
-            return {'last_24h': 0}
-        
-        # Count unique user_id + offer_id combinations in last 24h
-        pipeline = [
-            {'$match': {
+        time_match = {
+            '$match': {
                 '$or': [
                     {'timestamp': {'$gte': start_24h}},
                     {'clicked_at': {'$gte': start_24h}},
                     {'created_at': {'$gte': start_24h}}
                 ]
-            }},
-            {'$group': {
-                '_id': {
-                    'user_id': '$user_id',
-                    'offer_id': '$offer_id'
-                }
-            }},
-            {'$count': 'unique_clicks'}
-        ]
+            }
+        }
         
-        result = list(clicks.aggregate(pipeline))
-        unique_24h = result[0]['unique_clicks'] if result else 0
+        source_map = {
+            'clicks': 'tracking_links',
+            'offerwall_clicks': 'offerwall',
+            'dashboard_clicks': 'dashboard',
+        }
         
-        return {'last_24h': unique_24h}
+        all_unique_pairs = set()
+        breakdown = {
+            'tracking_links': 0,
+            'offerwall': 0,
+            'dashboard': 0,
+        }
+        
+        for col_name, source_label in source_map.items():
+            col = get_collection(col_name)
+            if col is None:
+                continue
+            pipeline = [
+                time_match,
+                {'$group': {
+                    '_id': {
+                        'user_id': '$user_id',
+                        'offer_id': '$offer_id'
+                    }
+                }}
+            ]
+            source_pairs = set()
+            for doc in col.aggregate(pipeline):
+                uid = doc['_id'].get('user_id') or ''
+                oid = doc['_id'].get('offer_id') or ''
+                pair = (uid, oid)
+                source_pairs.add(pair)
+                all_unique_pairs.add(pair)
+            breakdown[source_label] = len(source_pairs)
+        
+        return {'last_24h': len(all_unique_pairs), 'breakdown': breakdown}
     except Exception as e:
         logger.error(f"Error getting unique clicks: {e}")
-        return {'last_24h': 0}
+        return {'last_24h': 0, 'breakdown': {}}
 
 
 # ============================================================================
@@ -766,8 +828,16 @@ def get_overview_stats():
     
     Admin sees: All 16 boxes
     Sub-admin sees: Boxes 2-13 (excludes Error Summary, Fraud Users, Revenue, Reversals, Postback Failures)
+    
+    Query params:
+      time_range: 30m, 1h, 6h, 24h (default), 7d
     """
     try:
+        global _current_time_range
+        _current_time_range = request.args.get('time_range', '24h')
+        if _current_time_range not in ('30m', '1h', '6h', '24h', '7d'):
+            _current_time_range = '24h'
+        
         user = request.current_user
         user_role = user.get('role', 'user')
         
@@ -787,6 +857,7 @@ def get_overview_stats():
             'success': True,
             'last_updated': last_updated,
             'user_role': user_role,
+            'time_range': _current_time_range,
             'stats': {}
         }
         
@@ -920,3 +991,110 @@ def get_single_box_stats(box_name):
             'success': False,
             'error': str(e)
         }), 500
+
+
+@admin_overview_bp.route('/api/admin/overview-stats/clicks/details', methods=['GET'])
+@token_required
+def get_click_details_log():
+    """
+    Get recent click log with source differentiation.
+    Returns clicks from all collections with a 'source' label.
+    """
+    try:
+        user = request.current_user
+        user_role = user.get('role', 'user')
+        if user_role not in ['admin', 'subadmin']:
+            return jsonify({'error': 'Admin or subadmin access required'}), 403
+
+        limit = int(request.args.get('limit', 50))
+        source_filter = request.args.get('source', 'all')  # all, tracking_links, offerwall, dashboard
+
+        # Support time_range parameter
+        global _current_time_range
+        _current_time_range = request.args.get('time_range', '24h')
+        if _current_time_range not in ('30m', '1h', '6h', '24h', '7d'):
+            _current_time_range = '24h'
+
+        start_24h, now = get_24h_window()
+        time_filter = {
+            '$or': [
+                {'timestamp': {'$gte': start_24h}},
+                {'clicked_at': {'$gte': start_24h}},
+                {'created_at': {'$gte': start_24h}}
+            ]
+        }
+
+        all_clicks = []
+
+        # Helper to extract common fields from different click formats
+        def format_click(click, source):
+            ts = click.get('timestamp') or click.get('clicked_at') or click.get('created_at')
+            ts_str = ts.isoformat() if ts else None
+
+            # Device info
+            device = click.get('device', {})
+            if isinstance(device, dict):
+                device_type = device.get('type', 'unknown')
+            else:
+                device_type = click.get('device_type', 'unknown')
+
+            # Geo info
+            geo = click.get('geo', {})
+            if isinstance(geo, dict):
+                country = geo.get('country', 'Unknown')
+            else:
+                country = click.get('country', 'Unknown')
+
+            # Offer name
+            offer_name = (click.get('offer_name') or
+                         click.get('data', {}).get('offer_name') if isinstance(click.get('data'), dict) else None) or 'Unknown Offer'
+
+            return {
+                'click_id': click.get('click_id', str(click.get('_id', ''))),
+                'source': source,
+                'user_id': click.get('user_id', 'Unknown'),
+                'offer_id': click.get('offer_id', 'Unknown'),
+                'offer_name': offer_name,
+                'timestamp': ts_str,
+                'device_type': device_type,
+                'country': country,
+                'user_email': click.get('user_email', ''),
+            }
+
+        # 1. Tracking link clicks
+        if source_filter in ('all', 'tracking_links'):
+            col = get_collection('clicks')
+            if col is not None:
+                docs = list(col.find(time_filter).sort('timestamp', -1).limit(limit))
+                for d in docs:
+                    all_clicks.append(format_click(d, 'tracking_links'))
+
+        # 2. Offerwall clicks
+        if source_filter in ('all', 'offerwall'):
+            col = get_collection('offerwall_clicks')
+            if col is not None:
+                docs = list(col.find(time_filter).sort('timestamp', -1).limit(limit))
+                for d in docs:
+                    all_clicks.append(format_click(d, 'offerwall'))
+
+        # 3. Dashboard clicks
+        if source_filter in ('all', 'dashboard'):
+            col = get_collection('dashboard_clicks')
+            if col is not None:
+                docs = list(col.find(time_filter).sort('timestamp', -1).limit(limit))
+                for d in docs:
+                    all_clicks.append(format_click(d, 'dashboard'))
+
+        # Sort by timestamp descending
+        all_clicks.sort(key=lambda x: x['timestamp'] or '', reverse=True)
+        all_clicks = all_clicks[:limit]
+
+        return jsonify({
+            'success': True,
+            'total': len(all_clicks),
+            'data': all_clicks
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting click details log: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

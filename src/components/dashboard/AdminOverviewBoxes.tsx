@@ -38,9 +38,15 @@ import {
   List,
   Clock
 } from 'lucide-react';
-import { adminOverviewApi, OverviewStats, ErrorSummary } from '@/services/adminOverviewApi';
+import { adminOverviewApi, OverviewStats, ErrorSummary, ClickDetailEntry } from '@/services/adminOverviewApi';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 type ViewMode = 'boxes' | 'table';
 
@@ -81,13 +87,18 @@ const AdminOverviewBoxes: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<string>('');
   const [userRole, setUserRole] = useState<string>('');
+  const [clickDetailOpen, setClickDetailOpen] = useState(false);
+  const [clickDetails, setClickDetails] = useState<ClickDetailEntry[]>([]);
+  const [clickDetailLoading, setClickDetailLoading] = useState(false);
+  const [clickSourceFilter, setClickSourceFilter] = useState<string>('all');
+  const [timeRange, setTimeRange] = useState<string>('24h');
   const { user } = useAuth();
 
   const fetchStats = useCallback(async () => {
     try {
       setLoading(true);
       console.log('Fetching overview stats...');
-      const response = await adminOverviewApi.getOverviewStats();
+      const response = await adminOverviewApi.getOverviewStats(timeRange);
       console.log('Overview stats response:', response);
       if (response.success) {
         setStats(response.stats);
@@ -104,7 +115,7 @@ const AdminOverviewBoxes: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [timeRange]);
 
   useEffect(() => {
     fetchStats();
@@ -113,7 +124,37 @@ const AdminOverviewBoxes: React.FC = () => {
     return () => clearInterval(interval);
   }, [fetchStats]);
 
+  const fetchClickDetails = useCallback(async (source: string = 'all') => {
+    try {
+      setClickDetailLoading(true);
+      const response = await adminOverviewApi.getClickDetails(source, 50, timeRange);
+      if (response.success) {
+        setClickDetails(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching click details:', error);
+    } finally {
+      setClickDetailLoading(false);
+    }
+  }, [timeRange]);
+
+  const handleClickCardClick = () => {
+    setClickDetailOpen(true);
+    setClickSourceFilter('all');
+    fetchClickDetails('all');
+  };
+
+  const handleSourceFilterChange = (source: string) => {
+    setClickSourceFilter(source);
+    fetchClickDetails(source);
+  };
+
   const isAdmin = userRole === 'admin' || user?.role === 'admin';
+
+  const timeRangeLabel = (range: string) => {
+    const labels: Record<string, string> = { '30m': 'last 30 min', '1h': 'last 1 hour', '6h': 'last 6 hours', '24h': 'last 24h', '7d': 'last 7 days' };
+    return labels[range] || 'last 24h';
+  };
 
   const formatValue = (value: number | undefined, isCurrency?: boolean): string => {
     if (value === undefined || value === null) return '0';
@@ -211,9 +252,19 @@ const AdminOverviewBoxes: React.FC = () => {
     const Icon = config.icon;
     const total = getStatValue(config.key, 'total');
     const last24h = getStatValue(config.key, 'last_24h');
+
+    const isClicksCard = config.key === 'clicks';
+    const isUniqueClicksCard = config.key === 'unique_clicks';
+    const isClickable = isClicksCard || isUniqueClicksCard;
+    const breakdown = isClicksCard && stats?.clicks ? (stats.clicks as any).breakdown : null;
+    const uniqueBreakdown = isUniqueClicksCard && stats?.unique_clicks ? (stats.unique_clicks as any).breakdown : null;
     
     return (
-      <Card key={config.key} className={`${config.bgColor}/30 border-${config.color.replace('text-', '')}/20`}>
+      <Card
+        key={config.key}
+        className={`${config.bgColor}/30 border-${config.color.replace('text-', '')}/20 ${isClickable ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+        onClick={isClicksCard ? handleClickCardClick : isUniqueClicksCard ? handleClickCardClick : undefined}
+      >
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">{config.title}</CardTitle>
           <div className={`p-2 rounded-lg ${config.bgColor}`}>
@@ -223,18 +274,56 @@ const AdminOverviewBoxes: React.FC = () => {
         <CardContent>
           {config.showTotal ? (
             <>
-              <div className="text-2xl font-bold">{formatValue(total, config.isCurrency)}</div>
+              <div className="text-2xl font-bold">{formatValue(last24h, config.isCurrency)}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                <span className={last24h > 0 ? 'text-green-600' : 'text-muted-foreground'}>
-                  +{formatValue(last24h, config.isCurrency)}
-                </span>
-                {' '}in last 24h
+                in {timeRangeLabel(timeRange)} · <span className="text-foreground/60">Total: {formatValue(total, config.isCurrency)}</span>
               </p>
+              {isClicksCard && breakdown && (
+                <div className="mt-2 pt-2 border-t space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Tracking Links</span>
+                    <span>
+                      <span className="font-medium">{formatValue(breakdown.tracking_links?.last_24h || 0)}</span>
+                      <span className="text-muted-foreground ml-1">/ {formatValue(breakdown.tracking_links?.total || 0)}</span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Offerwall</span>
+                    <span>
+                      <span className="font-medium">{formatValue(breakdown.offerwall?.last_24h || 0)}</span>
+                      <span className="text-muted-foreground ml-1">/ {formatValue(breakdown.offerwall?.total || 0)}</span>
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Dashboard</span>
+                    <span>
+                      <span className="font-medium">{formatValue(breakdown.dashboard?.last_24h || 0)}</span>
+                      <span className="text-muted-foreground ml-1">/ {formatValue(breakdown.dashboard?.total || 0)}</span>
+                    </span>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <>
               <div className="text-2xl font-bold">{formatValue(last24h)}</div>
-              <p className="text-xs text-muted-foreground mt-1">Last 24 hours</p>
+              <p className="text-xs text-muted-foreground mt-1">{timeRangeLabel(timeRange).charAt(0).toUpperCase() + timeRangeLabel(timeRange).slice(1)}</p>
+              {isUniqueClicksCard && uniqueBreakdown && (
+                <div className="mt-2 pt-2 border-t space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Tracking Links</span>
+                    <span className="font-medium">{formatValue(uniqueBreakdown.tracking_links || 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Offerwall</span>
+                    <span className="font-medium">{formatValue(uniqueBreakdown.offerwall || 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">Dashboard</span>
+                    <span className="font-medium">{formatValue(uniqueBreakdown.dashboard || 0)}</span>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </CardContent>
@@ -267,7 +356,7 @@ const AdminOverviewBoxes: React.FC = () => {
             <TableRow>
               <TableHead className="min-w-[180px]">Metric</TableHead>
               <TableHead className="text-right min-w-[100px]">Total</TableHead>
-              <TableHead className="text-right min-w-[100px]">Last 24h</TableHead>
+              <TableHead className="text-right min-w-[100px]">{timeRangeLabel(timeRange).charAt(0).toUpperCase() + timeRangeLabel(timeRange).slice(1)}</TableHead>
               <TableHead className="text-center min-w-[80px]">Visibility</TableHead>
             </TableRow>
           </TableHeader>
@@ -351,6 +440,19 @@ const AdminOverviewBoxes: React.FC = () => {
           {loading && <RefreshCw className="h-3 w-3 animate-spin ml-2 flex-shrink-0" />}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Time Range Selector */}
+          {(['30m', '1h', '6h', '24h', '7d'] as const).map((range) => (
+            <Button
+              key={range}
+              variant={timeRange === range ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTimeRange(range)}
+              className="px-2 text-xs"
+            >
+              {range === '30m' ? '30m' : range === '1h' ? '1h' : range === '6h' ? '6h' : range === '24h' ? '24h' : '7d'}
+            </Button>
+          ))}
+          <div className="w-px h-6 bg-border mx-1" />
           <Button
             variant={viewMode === 'boxes' ? 'default' : 'outline'}
             size="sm"
@@ -376,6 +478,75 @@ const AdminOverviewBoxes: React.FC = () => {
 
       {/* Content based on view mode */}
       {viewMode === 'boxes' ? renderBoxView() : renderTableView()}
+
+      {/* Click Details Modal */}
+      <Dialog open={clickDetailOpen} onOpenChange={setClickDetailOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Click Details Log ({timeRangeLabel(timeRange).charAt(0).toUpperCase() + timeRangeLabel(timeRange).slice(1)})</DialogTitle>
+          </DialogHeader>
+          <div className="flex gap-2 mb-4 flex-wrap">
+            {['all', 'tracking_links', 'offerwall', 'dashboard'].map((src) => (
+              <Button
+                key={src}
+                size="sm"
+                variant={clickSourceFilter === src ? 'default' : 'outline'}
+                onClick={() => handleSourceFilterChange(src)}
+              >
+                {src === 'all' ? 'All Sources' : src === 'tracking_links' ? 'Tracking Links' : src === 'offerwall' ? 'Offerwall' : 'Dashboard'}
+              </Button>
+            ))}
+          </div>
+          {clickDetailLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Loading...</span>
+            </div>
+          ) : clickDetails.length === 0 ? (
+            <p className="text-center text-muted-foreground py-8">No clicks found for this filter.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Source</TableHead>
+                    <TableHead>User</TableHead>
+                    <TableHead>Offer</TableHead>
+                    <TableHead>Device</TableHead>
+                    <TableHead>Country</TableHead>
+                    <TableHead>Time</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clickDetails.map((click) => (
+                    <TableRow key={click.click_id}>
+                      <TableCell>
+                        <Badge variant={
+                          click.source === 'offerwall' ? 'default' :
+                          click.source === 'dashboard' ? 'secondary' : 'outline'
+                        }>
+                          {click.source === 'tracking_links' ? 'Tracking' : click.source === 'offerwall' ? 'Offerwall' : 'Dashboard'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs font-mono max-w-[120px] truncate" title={click.user_id}>
+                        {click.user_email || click.user_id?.slice(0, 12) + '...'}
+                      </TableCell>
+                      <TableCell className="text-xs max-w-[150px] truncate" title={click.offer_name}>
+                        {click.offer_name}
+                      </TableCell>
+                      <TableCell className="text-xs">{click.device_type}</TableCell>
+                      <TableCell className="text-xs">{click.country}</TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">
+                        {click.timestamp ? new Date(click.timestamp).toLocaleString() : '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

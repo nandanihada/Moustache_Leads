@@ -37,6 +37,11 @@ export interface RevenueBox {
 
 export interface UniqueClicksBox {
   last_24h: number;
+  breakdown?: {
+    tracking_links: number;
+    offerwall: number;
+    dashboard: number;
+  };
 }
 
 export interface OverviewStats {
@@ -49,7 +54,7 @@ export interface OverviewStats {
   requested_offers: StatBox;
   active_placements: StatBox;
   iframes_installed: StatBox;
-  clicks: StatBox;
+  clicks: StatBox & { breakdown?: ClickBreakdown };
   unique_clicks: UniqueClicksBox;
   suspicious_clicks: UniqueClicksBox;
   conversions: StatBox;
@@ -58,10 +63,29 @@ export interface OverviewStats {
   postback_failures?: StatBox;
 }
 
+export interface ClickBreakdown {
+  tracking_links: StatBox;
+  offerwall: StatBox;
+  dashboard: StatBox;
+}
+
+export interface ClickDetailEntry {
+  click_id: string;
+  source: 'tracking_links' | 'offerwall' | 'dashboard';
+  user_id: string;
+  offer_id: string;
+  offer_name: string;
+  timestamp: string;
+  device_type: string;
+  country: string;
+  user_email: string;
+}
+
 export interface OverviewResponse {
   success: boolean;
   last_updated: string;
   user_role: string;
+  time_range?: string;
   stats: OverviewStats;
 }
 
@@ -79,8 +103,8 @@ export const adminOverviewApi = {
   /**
    * Get all overview statistics
    */
-  async getOverviewStats(): Promise<OverviewResponse> {
-    const response = await api.get('/admin/overview-stats');
+  async getOverviewStats(timeRange: string = '24h'): Promise<OverviewResponse> {
+    const response = await api.get('/admin/overview-stats', { params: { time_range: timeRange } });
     return response.data;
   },
 
@@ -89,6 +113,14 @@ export const adminOverviewApi = {
    */
   async getSingleBoxStats(boxName: string): Promise<SingleBoxResponse> {
     const response = await api.get(`/admin/overview-stats/${boxName}`);
+    return response.data;
+  },
+
+  /**
+   * Get click detail log with source differentiation
+   */
+  async getClickDetails(source: string = 'all', limit: number = 50, timeRange: string = '24h'): Promise<{ success: boolean; total: number; data: ClickDetailEntry[] }> {
+    const response = await api.get(`/admin/overview-stats/clicks/details`, { params: { source, limit, time_range: timeRange } });
     return response.data;
   }
 };
