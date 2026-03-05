@@ -86,7 +86,7 @@ class OfferwallTracking:
 
     def record_click(self, session_id: str, offer_id: str, placement_id: str,
                     publisher_id: str, user_id: str, click_data: Dict) -> Tuple[str, Optional[str]]:
-        """Record offer click with fraud detection"""
+        """Record offer click with fraud detection and device/geo enrichment"""
         try:
             # Check for duplicate clicks (within 5 seconds)
             five_seconds_ago = datetime.datetime.utcnow() - datetime.timedelta(seconds=5)
@@ -100,14 +100,91 @@ class OfferwallTracking:
                 return None, "Duplicate click detected"
             
             click_id = str(uuid.uuid4())
+            
+            # Parse device info from user_agent
+            user_agent = click_data.get('user_agent') or ''
+            ua_lower = user_agent.lower()
+            
+            device_type = 'desktop'
+            if any(m in ua_lower for m in ['mobile', 'android', 'iphone', 'ipad']):
+                device_type = 'mobile'
+            elif 'tablet' in ua_lower:
+                device_type = 'tablet'
+            
+            browser = 'unknown'
+            if 'chrome' in ua_lower and 'edg' not in ua_lower:
+                browser = 'Chrome'
+            elif 'firefox' in ua_lower:
+                browser = 'Firefox'
+            elif 'safari' in ua_lower and 'chrome' not in ua_lower:
+                browser = 'Safari'
+            elif 'edg' in ua_lower:
+                browser = 'Edge'
+            
+            os_name = 'unknown'
+            if 'windows' in ua_lower:
+                os_name = 'Windows'
+            elif 'mac' in ua_lower:
+                os_name = 'macOS'
+            elif 'linux' in ua_lower and 'android' not in ua_lower:
+                os_name = 'Linux'
+            elif 'android' in ua_lower:
+                os_name = 'Android'
+            elif 'iphone' in ua_lower or 'ipad' in ua_lower:
+                os_name = 'iOS'
+            
+            device_info = {
+                'type': device_type,
+                'browser': browser,
+                'os': os_name,
+            }
+            
+            # Get geo/network info from IP
+            geo_info = {}
+            network_info = {}
+            try:
+                from flask import request as flask_request
+                x_forwarded_for = flask_request.headers.get('X-Forwarded-For', '')
+                if x_forwarded_for:
+                    ip_address = x_forwarded_for.split(',')[0].strip()
+                else:
+                    ip_address = flask_request.remote_addr or '0.0.0.0'
+                
+                network_info = {'ip_address': ip_address}
+                
+                from services.ipinfo_service import get_ipinfo_service
+                ipinfo_service = get_ipinfo_service()
+                ip_data = ipinfo_service.lookup_ip(ip_address)
+                if ip_data:
+                    geo_info = {
+                        'country': ip_data.get('country', ''),
+                        'country_code': ip_data.get('country_code', ''),
+                        'region': ip_data.get('region', ''),
+                        'city': ip_data.get('city', ''),
+                    }
+                    vpn_detection = ip_data.get('vpn_detection', {})
+                    network_info.update({
+                        'asn': ip_data.get('asn', ''),
+                        'isp': ip_data.get('isp', ''),
+                        'organization': ip_data.get('org', ''),
+                        'vpn_detected': vpn_detection.get('is_vpn', False),
+                        'proxy_detected': vpn_detection.get('is_proxy', False),
+                    })
+            except Exception as e:
+                logger.warning(f"Could not enrich click with geo/network data: {e}")
+            
             click_doc = {
                 'click_id': click_id,
                 'session_id': session_id,
                 'offer_id': offer_id,
+                'offer_name': click_data.get('offer_name', 'Unknown Offer'),
                 'placement_id': placement_id,
                 'publisher_id': publisher_id,
                 'user_id': user_id,
                 'timestamp': datetime.datetime.utcnow(),
+                'device': device_info,
+                'geo': geo_info,
+                'network': network_info,
                 'data': click_data,
                 'fraud_score': 0,
                 'status': 'valid'

@@ -594,10 +594,9 @@ def get_click_history():
         if offer_id:
             filters['offer_id'] = offer_id
         
-        # Get all click collections
+        # Get offerwall click collections (NOT simple tracking - those are affiliate link clicks)
         clicks_detailed_col = db_instance.get_collection('offerwall_clicks_detailed')
         clicks_offerwall_col = db_instance.get_collection('offerwall_clicks')
-        clicks_simple_col = db_instance.get_collection('clicks')  # Simple tracking clicks
         
         all_clicks = []
         
@@ -614,21 +613,6 @@ def get_click_history():
                                    .sort('timestamp', -1)
                                    .limit(limit))
             all_clicks.extend(offerwall_clicks)
-        
-        # 3. Get clicks from simple tracking (clicks collection)
-        if clicks_simple_col is not None:
-            simple_filters = {}
-            if user_id:
-                simple_filters['user_id'] = user_id
-            if publisher_id:
-                simple_filters['affiliate_id'] = publisher_id  # Simple tracking uses affiliate_id
-            if offer_id:
-                simple_filters['offer_id'] = offer_id
-            
-            simple_clicks = list(clicks_simple_col.find(simple_filters)
-                                .sort('timestamp', -1)
-                                .limit(limit))
-            all_clicks.extend(simple_clicks)
         
         # Remove duplicates by click_id and sort by timestamp
         seen_click_ids = set()

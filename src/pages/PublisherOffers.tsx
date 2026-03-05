@@ -172,11 +172,18 @@ const PublisherOffersContent = () => {
   const totalPages = Math.ceil(filteredOffers.length / perPage);
 
   // Track dashboard click
-  const trackDashboardClick = async (offerId: string) => {
+  const trackDashboardClick = async (offer: PublisherOffer) => {
     try {
-      await fetch(`${API_BASE_URL}/api/publisher/offers/${offerId}/track-click`, {
+      await fetch(`${API_BASE_URL}/api/dashboard/track-click`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}`, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          offer_id: offer.offer_id,
+          offer_name: offer.name,
+          user_id: user?.id || '',
+          user_email: user?.email || '',
+          user_role: user?.role || '',
+        }),
       });
     } catch {}
   };
@@ -555,7 +562,7 @@ const PublisherOffersContent = () => {
                           <TableCell className="py-2.5 pr-4 text-right">
                             {hasAccess ? (
                               <Button size="sm" variant="outline" className="h-7 text-xs rounded-full px-3 border-purple-200 text-purple-600 hover:bg-purple-50"
-                                onClick={() => { trackDashboardClick(offer.offer_id); handleViewDetails(offer); }}>
+                                onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}>
                                 <ExternalLink className="h-3 w-3 mr-1" />Open
                               </Button>
                             ) : isPending ? (
@@ -647,7 +654,7 @@ const PublisherOffersContent = () => {
                               size="sm"
                               variant="outline"
                               className="w-full h-8 text-xs rounded-full border-purple-200 text-purple-600 hover:bg-purple-50"
-                              onClick={() => { trackDashboardClick(offer.offer_id); handleViewDetails(offer); }}
+                              onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}
                             >
                               <ExternalLink className="h-3 w-3 mr-1" />Open Offer
                             </Button>
