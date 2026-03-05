@@ -1029,7 +1029,8 @@ def get_click_details_log():
         # Helper to extract common fields from different click formats
         def format_click(click, source):
             ts = click.get('timestamp') or click.get('clicked_at') or click.get('created_at')
-            ts_str = ts.isoformat() if ts else None
+            # Append 'Z' so JS Date() knows it's UTC (Python's isoformat() omits timezone on naive datetimes)
+            ts_str = (ts.isoformat() + 'Z') if ts else None
 
             # Device info
             device = click.get('device', {})
@@ -1045,9 +1046,32 @@ def get_click_details_log():
             else:
                 country = click.get('country', 'Unknown')
 
-            # Offer name
-            offer_name = (click.get('offer_name') or
-                         click.get('data', {}).get('offer_name') if isinstance(click.get('data'), dict) else None) or 'Unknown Offer'
+            # Offer name — check top-level first, then nested data dict
+            offer_name = click.get('offer_name') or ''
+            if not offer_name and isinstance(click.get('data'), dict):
+                offer_name = click['data'].get('offer_name') or ''
+
+            # Fallback: look up offer name from offers collection by offer_id
+            if not offer_name:
+                offer_id = click.get('offer_id')
+                if offer_id:
+                    try:
+                        offers_col = get_collection('offers')
+                        if offers_col is not None:
+                            from bson import ObjectId
+                            # Try ObjectId lookup first, then string match
+                            offer_doc = None
+                            try:
+                                offer_doc = offers_col.find_one({'_id': ObjectId(offer_id)}, {'name': 1})
+                            except Exception:
+                                offer_doc = offers_col.find_one({'offer_id': offer_id}, {'name': 1})
+                            if offer_doc:
+                                offer_name = offer_doc.get('name', '')
+                    except Exception:
+                        pass
+
+            if not offer_name:
+                offer_name = 'Unknown Offer'
 
             return {
                 'click_id': click.get('click_id', str(click.get('_id', ''))),
