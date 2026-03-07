@@ -7,6 +7,8 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 logger = logging.getLogger(__name__)
 
@@ -162,30 +164,37 @@ class ScheduledEmailService:
                 subject = email.get('subject', 'No Subject')
                 
                 try:
-                    # Send to all recipients
+                    # Send to all recipients via BCC (single email, not individual)
                     recipients = email.get('recipients', [])
                     body = email.get('body', '')
                     
+                    if not recipients:
+                        ScheduledEmail.mark_sent(email_id)
+                        continue
+                    
+                    batch_size = 50
                     success_count = 0
                     fail_count = 0
                     
-                    for recipient in recipients:
+                    for i in range(0, len(recipients), batch_size):
+                        batch = recipients[i:i + batch_size]
                         try:
-                            # Use the email service's internal send method
-                            result = email_service._send_email(
-                                to_email=recipient,
-                                subject=subject,
-                                html_content=body
-                            )
-                            if result:
-                                success_count += 1
-                                logger.info(f"✅ Sent email to {recipient}: {subject}")
+                            msg = MIMEMultipart('alternative')
+                            msg['Subject'] = subject
+                            msg['From'] = email_service.from_email
+                            msg['To'] = email_service.from_email
+                            msg['Bcc'] = ', '.join(batch)
+                            msg.attach(MIMEText(body, 'html'))
+                            
+                            if email_service._send_email_smtp(msg):
+                                success_count += len(batch)
+                                logger.info(f"✅ BCC batch sent to {len(batch)} recipients: {subject}")
                             else:
-                                fail_count += 1
-                                logger.error(f"❌ Failed to send email to {recipient}")
+                                fail_count += len(batch)
+                                logger.error(f"❌ BCC batch failed for {len(batch)} recipients")
                         except Exception as send_error:
-                            fail_count += 1
-                            logger.error(f"❌ Failed to send email to {recipient}: {send_error}")
+                            fail_count += len(batch)
+                            logger.error(f"❌ BCC batch error: {send_error}")
                     
                     # Update email status based on results
                     if fail_count == 0:
@@ -228,22 +237,31 @@ class ScheduledEmailService:
             subject = email.get('subject', 'No Subject')
             body = email.get('body', '')
             
+            if not recipients:
+                ScheduledEmail.mark_sent(email_id)
+                return {'success': True, 'message': 'No recipients'}
+            
+            # Send via BCC (single email, not individual)
+            batch_size = 50
             success_count = 0
             errors = []
             
-            for recipient in recipients:
+            for i in range(0, len(recipients), batch_size):
+                batch = recipients[i:i + batch_size]
                 try:
-                    result = email_service._send_email(
-                        to_email=recipient,
-                        subject=subject,
-                        html_content=body
-                    )
-                    if result:
-                        success_count += 1
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = subject
+                    msg['From'] = email_service.from_email
+                    msg['To'] = email_service.from_email
+                    msg['Bcc'] = ', '.join(batch)
+                    msg.attach(MIMEText(body, 'html'))
+                    
+                    if email_service._send_email_smtp(msg):
+                        success_count += len(batch)
                     else:
-                        errors.append(f"{recipient}: Send failed")
+                        errors.append(f"BCC batch of {len(batch)} failed")
                 except Exception as e:
-                    errors.append(f"{recipient}: {str(e)}")
+                    errors.append(f"BCC batch error: {str(e)}")
             
             if success_count == len(recipients):
                 ScheduledEmail.mark_sent(email_id)

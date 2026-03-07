@@ -297,7 +297,7 @@ class EmailService:
         return html
     
     def send_new_offer_notification(self, offer_data: Dict, recipients: List[str]) -> Dict:
-        """Send new offer notification to multiple recipients"""
+        """Send new offer notification to all recipients in a single BCC email"""
         if not self.is_configured:
             logger.warning("⚠️ Email service not configured. Skipping email notifications.")
             return {'total': len(recipients), 'sent': 0, 'failed': len(recipients), 'error': 'Email service not configured'}
@@ -312,18 +312,42 @@ class EmailService:
         
         html_content = self._create_new_offer_email_html(offer_data)
         
+        logger.info(f"📧 Sending single BCC email to {len(recipients)} recipients...")
+        
+        # Send as a single email with all recipients in BCC
+        # Process in batches of 50 to avoid SMTP limits
+        batch_size = 50
         sent_count = 0
         failed_count = 0
         
-        logger.info(f"📧 Sending new offer notification to {len(recipients)} recipients...")
+        for i in range(0, len(recipients), batch_size):
+            batch = recipients[i:i + batch_size]
+            try:
+                msg = MIMEMultipart('alternative')
+                msg['Subject'] = subject
+                msg['From'] = self.from_email
+                msg['To'] = self.from_email  # Send to self
+                msg['Bcc'] = ', '.join(batch)
+                
+                html_part = MIMEText(html_content, 'html')
+                msg.attach(html_part)
+                
+                if self.email_debug:
+                    logger.info(f"📧 [DEBUG MODE] Would BCC email to {len(batch)} recipients")
+                    sent_count += len(batch)
+                    continue
+                
+                if self._send_email_smtp(msg):
+                    sent_count += len(batch)
+                    logger.info(f"✅ BCC batch sent to {len(batch)} recipients")
+                else:
+                    failed_count += len(batch)
+                    logger.error(f"❌ BCC batch failed for {len(batch)} recipients")
+            except Exception as e:
+                failed_count += len(batch)
+                logger.error(f"❌ BCC batch error: {str(e)}")
         
-        for recipient in recipients:
-            if self._send_email(recipient, subject, html_content):
-                sent_count += 1
-            else:
-                failed_count += 1
-        
-        logger.info(f"📊 Email notification results: {sent_count} sent, {failed_count} failed")
+        logger.info(f"📊 Email notification results: {sent_count} sent, {failed_count} failed (via BCC)")
         return {'total': len(recipients), 'sent': sent_count, 'failed': failed_count, 'offer_name': offer_name}
     
     def send_new_offer_notification_async(self, offer_data: Dict, recipients: List[str]) -> None:
@@ -338,7 +362,166 @@ class EmailService:
         thread = threading.Thread(target=send_in_background, daemon=False)
         thread.start()
         logger.info(f"📧 Email notification started in background thread for {len(recipients)} recipients")
-    
+
+    def _create_batch_offers_email_html(self, offers_list: List[Dict]) -> str:
+        """Create HTML email template for multiple new offers notification (batch)"""
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        current_day = days[datetime.now().weekday()]
+        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+        count = len(offers_list)
+
+        # Build offer cards HTML
+        offer_cards = ''
+        for offer in offers_list:
+            name = offer.get('name', 'New Offer')
+            category = offer.get('category', offer.get('vertical', 'General'))
+            payout = offer.get('payout', 0)
+            currency = offer.get('currency', 'USD')
+            offer_cards += f"""
+                <tr>
+                    <td style="padding: 12px 20px; border-bottom: 1px solid #e5e7eb;">
+                        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                            <tr>
+                                <td style="width: 70%;">
+                                    <p style="margin: 0 0 4px 0; color: #111827; font-size: 16px; font-weight: 600;">{name}</p>
+                                    <span style="display: inline-block; background: #eef2ff; color: #6366f1; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 500;">📁 {category}</span>
+                                </td>
+                                <td style="width: 30%; text-align: right;">
+                                    <p style="margin: 0; color: #059669; font-size: 18px; font-weight: 700;">{currency} {payout}</p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>"""
+
+        html = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Offers Available</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #f4f6f9;">
+    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f6f9; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+                    <tr>
+                        <td style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 40px 20px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700;">Hey All! 👋</h1>
+                            <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 18px; opacity: 0.95;">Happy {current_day}!</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <p style="text-align: center; font-size: 20px; color: #1f2937; font-weight: 600; margin: 0 0 10px 0;">
+                                🚀 {count} New Offer{'s' if count > 1 else ''} Just Added!
+                            </p>
+                            <p style="text-align: center; font-size: 14px; color: #6b7280; margin: 0 0 30px 0;">
+                                Push more traffic on these offers
+                            </p>
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f9fafb; border-radius: 12px; overflow: hidden; margin: 20px 0;">
+                                {offer_cards}
+                            </table>
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{frontend_url}/offers" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(99,102,241,0.4);">CHECK ALL OFFERS →</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top: 40px; padding-top: 30px; border-top: 2px solid #e5e7eb;">
+                                <tr>
+                                    <td align="center">
+                                        <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 16px;">Thanks!</p>
+                                        <p style="margin: 0; color: #111827; font-size: 18px; font-weight: 600;">Have a great work! 💼</p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color: #1f2937; padding: 30px; text-align: center;">
+                            <p style="margin: 0 0 15px 0; color: #ffffff; font-size: 20px; font-weight: 700;">MustacheLeads</p>
+                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This email was sent to you because you are a registered publisher.</p>
+                            <p style="margin: 20px 0 0 0; color: #6b7280; font-size: 12px;">&copy; {datetime.now().year} MustacheLeads. All rights reserved.</p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>
+"""
+        return html
+
+    def send_batch_new_offers_notification(self, offers_list: List[Dict], recipients: List[str]) -> Dict:
+        """Send a single email listing all new offers to all recipients via BCC"""
+        if not self.is_configured:
+            logger.warning("⚠️ Email service not configured. Skipping batch email.")
+            return {'total': len(recipients), 'sent': 0, 'failed': len(recipients), 'error': 'Email service not configured'}
+
+        if not recipients or not offers_list:
+            return {'total': 0, 'sent': 0, 'failed': 0}
+
+        count = len(offers_list)
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        current_day = days[datetime.now().weekday()]
+        subject = f"🚀 Happy {current_day}! {count} New Offer{'s' if count > 1 else ''} Added - Push More Traffic!"
+
+        html_content = self._create_batch_offers_email_html(offers_list)
+
+        logger.info(f"📧 Sending batch email ({count} offers) to {len(recipients)} recipients via BCC...")
+
+        batch_size = 50
+        sent_count = 0
+        failed_count = 0
+
+        for i in range(0, len(recipients), batch_size):
+            batch = recipients[i:i + batch_size]
+            try:
+                msg = MIMEMultipart('alternative')
+                msg['Subject'] = subject
+                msg['From'] = self.from_email
+                msg['To'] = self.from_email
+                msg['Bcc'] = ', '.join(batch)
+
+                html_part = MIMEText(html_content, 'html')
+                msg.attach(html_part)
+
+                if self.email_debug:
+                    logger.info(f"📧 [DEBUG MODE] Would BCC batch email to {len(batch)} recipients")
+                    sent_count += len(batch)
+                    continue
+
+                if self._send_email_smtp(msg):
+                    sent_count += len(batch)
+                    logger.info(f"✅ Batch BCC sent to {len(batch)} recipients")
+                else:
+                    failed_count += len(batch)
+                    logger.error(f"❌ Batch BCC failed for {len(batch)} recipients")
+            except Exception as e:
+                failed_count += len(batch)
+                logger.error(f"❌ Batch BCC error: {str(e)}")
+
+        logger.info(f"📊 Batch email results: {sent_count} sent, {failed_count} failed")
+        return {'total': len(recipients), 'sent': sent_count, 'failed': failed_count, 'offer_count': count}
+
+    def send_batch_new_offers_notification_async(self, offers_list: List[Dict], recipients: List[str]) -> None:
+        """Send batch new offers notification asynchronously"""
+        def send_in_background():
+            try:
+                result = self.send_batch_new_offers_notification(offers_list, recipients)
+                logger.info(f"✅ Background batch email complete: {result}")
+            except Exception as e:
+                logger.error(f"❌ Error in background batch email: {str(e)}")
+
+        thread = threading.Thread(target=send_in_background, daemon=False)
+        thread.start()
+        logger.info(f"📧 Batch email started in background for {len(offers_list)} offers to {len(recipients)} recipients")
+
     def send_offer_update_notification(self, offer_data: Dict, recipients: List[str], update_type: str = 'promo_code') -> Dict:
         """Send offer update notification to multiple recipients"""
         if not self.is_configured:
@@ -559,6 +742,74 @@ class EmailService:
 """
         return self._send_email(recipient_email, subject, html_content)
     
+    def send_promo_code_assigned_to_offer_bcc(self, recipients: List[str], offer_name: str, code: str, bonus_amount: float, bonus_type: str, offer_id: str = '') -> Dict:
+        """Send promo code notification to all recipients via single BCC email"""
+        if not self.is_configured or not recipients:
+            return {'sent': 0, 'failed': len(recipients) if recipients else 0}
+
+        bonus_text = f"{bonus_amount}%" if bonus_type == "percentage" else f"${bonus_amount:.2f}"
+        subject = f"🎉 New Bonus Available on {offer_name}! ({code} - {bonus_text})"
+        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+
+        html_content = f"""
+<html>
+<body style="font-family: Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 20px;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f3f4f6;">
+        <tr><td align="center" style="padding: 20px;">
+            <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                <tr><td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; text-align: center; border-radius: 8px 8px 0 0;">
+                    <h1 style="color: white; margin: 0; font-size: 28px;">🎉 New Bonus Available!</h1>
+                </td></tr>
+                <tr><td style="padding: 40px 30px;">
+                    <p style="color: #374151; font-size: 16px;">Great news! A new bonus is now available:</p>
+                    <table width="100%" style="background-color: #f9fafb; border-left: 4px solid #667eea; margin: 20px 0;">
+                        <tr><td style="padding: 20px;">
+                            <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 12px; text-transform: uppercase;">Offer</p>
+                            <p style="margin: 0 0 20px 0; color: #1f2937; font-size: 18px; font-weight: bold;">{offer_name}</p>
+                            <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 12px; text-transform: uppercase;">Promo Code</p>
+                            <p style="margin: 0 0 20px 0; color: #667eea; font-size: 24px; font-weight: bold; font-family: monospace;">{code}</p>
+                            <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 12px; text-transform: uppercase;">Bonus</p>
+                            <p style="margin: 0; color: #059669; font-size: 20px; font-weight: bold;">{bonus_text}</p>
+                        </td></tr>
+                    </table>
+                    <table width="100%" style="margin: 30px 0;"><tr><td align="center">
+                        <a href="{frontend_url}/offers" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Offer</a>
+                    </td></tr></table>
+                </td></tr>
+                <tr><td style="background-color: #f9fafb; padding: 20px 30px; border-top: 1px solid #e5e7eb; border-radius: 0 0 8px 8px; text-align: center;">
+                    <p style="margin: 0; color: #9ca3af; font-size: 13px;">MustacheLeads</p>
+                </td></tr>
+            </table>
+        </td></tr>
+    </table>
+</body>
+</html>
+"""
+        batch_size = 50
+        sent_count = 0
+        failed_count = 0
+
+        for i in range(0, len(recipients), batch_size):
+            batch = recipients[i:i + batch_size]
+            try:
+                msg = MIMEMultipart('alternative')
+                msg['Subject'] = subject
+                msg['From'] = self.from_email
+                msg['To'] = self.from_email
+                msg['Bcc'] = ', '.join(batch)
+                msg.attach(MIMEText(html_content, 'html'))
+
+                if self._send_email_smtp(msg):
+                    sent_count += len(batch)
+                else:
+                    failed_count += len(batch)
+            except Exception as e:
+                failed_count += len(batch)
+                logger.error(f"❌ Promo BCC error: {str(e)}")
+
+        logger.info(f"📧 Promo code BCC: {sent_count} sent, {failed_count} failed")
+        return {'sent': sent_count, 'failed': failed_count}
+
     def send_new_promo_code_available(self, recipient_email: str, code: str, bonus_amount: float, bonus_type: str, description: str = '') -> bool:
         """Send notification when new promo code is created"""
         if not self.is_configured:

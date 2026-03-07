@@ -61,6 +61,7 @@ const PublisherOffersContent = () => {
   const [proofPopupOpen, setProofPopupOpen] = useState(false);
   const [proofOffer, setProofOffer] = useState<{ offer_id: string; name: string } | null>(null);
   const [successPopupOpen, setSuccessPopupOpen] = useState(false);
+  const [lastApplyWasInstant, setLastApplyWasInstant] = useState(false);
 
   // Display mode
   const [displayMode, setDisplayMode] = useState<"table" | "grid">("table");
@@ -213,13 +214,43 @@ const PublisherOffersContent = () => {
     // Send request without proof
     setApplyLoading(true);
     try {
-      await publisherOfferApi.requestOfferAccess(applyOffer.offer_id, "");
+      console.log('🔍 Requesting access for offer:', applyOffer.offer_id);
+      const result = await publisherOfferApi.requestOfferAccess(applyOffer.offer_id, "");
+      console.log('🔍 Access request result:', JSON.stringify(result));
+      const wasInstant = result.status === 'approved';
       setApplyPopupOpen(false);
+      setLastApplyWasInstant(wasInstant);
       setSuccessPopupOpen(true);
+      
+      // For instant approval, immediately update local state so button changes to "Open"
+      if (wasInstant) {
+        setOffers(prev => prev.map(o => 
+          o.offer_id === applyOffer.offer_id 
+            ? { ...o, has_access: true, request_status: 'approved' } 
+            : o
+        ));
+        setMyOffers(prev => {
+          const exists = prev.some(o => o.offer_id === applyOffer.offer_id);
+          if (!exists) return [...prev, { ...applyOffer, has_access: true, request_status: 'approved' }];
+          return prev;
+        });
+      }
+      
       fetchMyRequests();
       fetchOffers();
     } catch (err: any) {
-      toast({ title: "Failed", description: err.response?.data?.error || err.message, variant: "destructive" });
+      console.log('🔍 Access request error:', err.response?.status, JSON.stringify(err.response?.data));
+      const errData = err.response?.data;
+      // If already pending/approved, treat as success and refresh
+      if (errData?.status === 'pending' || errData?.status === 'approved') {
+        setApplyPopupOpen(false);
+        setLastApplyWasInstant(errData.status === 'approved');
+        setSuccessPopupOpen(true);
+        fetchMyRequests();
+        fetchOffers();
+      } else {
+        toast({ title: "Failed", description: errData?.error || err.message, variant: "destructive" });
+      }
     } finally {
       setApplyLoading(false);
     }
@@ -461,8 +492,8 @@ const PublisherOffersContent = () => {
                 ) : (
                   myRequests.map((req) => (
                     <TableRow key={req._id || req.offer_id} className="text-sm hover:bg-purple-50/40 transition-colors">
-                      <TableCell className="py-2.5 font-medium">{req.offer_name || req.offer_id}</TableCell>
-                      <TableCell className="py-2.5 font-semibold text-green-600">${(req.payout || 0).toFixed(2)}</TableCell>
+                      <TableCell className="py-2.5 font-medium">{req.offer_details?.name || req.offer_name || req.offer_id}</TableCell>
+                      <TableCell className="py-2.5 font-semibold text-green-600">${(req.offer_details?.payout ? (req.offer_details.payout * 0.8) : (req.payout || 0)).toFixed(2)}</TableCell>
                       <TableCell className="py-2.5">{statusBadge(req.status)}</TableCell>
                       <TableCell className="py-2.5 text-xs text-muted-foreground">{req.requested_at ? new Date(req.requested_at).toLocaleDateString() : "-"}</TableCell>
                     </TableRow>
@@ -746,8 +777,14 @@ const PublisherOffersContent = () => {
               <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center animate-in zoom-in-50 duration-300">
                 <CheckCircle className="h-10 w-10 text-green-500" />
               </div>
-              <p className="text-lg font-semibold animate-in fade-in duration-500">Request Sent</p>
-              <p className="text-sm text-muted-foreground">Your request has been submitted. You'll be notified once it's reviewed.</p>
+              <p className="text-lg font-semibold animate-in fade-in duration-500">
+                {lastApplyWasInstant ? 'Access Granted' : 'Request Sent'}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {lastApplyWasInstant
+                  ? 'You now have access to this offer. You can open it from your offers.'
+                  : "Your request has been submitted. You'll be notified once it's reviewed."}
+              </p>
               <Button className="mt-2" onClick={() => setSuccessPopupOpen(false)}>Done</Button>
             </div>
           </DialogContent>

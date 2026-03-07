@@ -487,28 +487,44 @@ def send_email_now(email_id):
         if not email_service.is_configured:
             return jsonify({'error': 'Email service not configured'}), 500
         
-        # Send the email
+        # Send the email via BCC (single email, not individual)
         try:
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            
+            recipients = email.get('recipients', [])
+            subject = email.get('subject', 'No Subject')
+            body = email.get('body', '')
+            
+            if not recipients:
+                ScheduledEmail.mark_sent(email_id)
+                return jsonify({'message': 'No recipients'}), 200
+            
+            batch_size = 50
             success_count = 0
             fail_count = 0
-            for recipient in email.get('recipients', []):
+            
+            for i in range(0, len(recipients), batch_size):
+                batch = recipients[i:i + batch_size]
                 try:
-                    result = email_service._send_email(
-                        to_email=recipient,
-                        subject=email.get('subject'),
-                        html_content=email.get('body')
-                    )
-                    if result:
-                        success_count += 1
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = subject
+                    msg['From'] = email_service.from_email
+                    msg['To'] = email_service.from_email
+                    msg['Bcc'] = ', '.join(batch)
+                    msg.attach(MIMEText(body, 'html'))
+                    
+                    if email_service._send_email_smtp(msg):
+                        success_count += len(batch)
                     else:
-                        fail_count += 1
+                        fail_count += len(batch)
                 except Exception as e:
-                    fail_count += 1
-                    logger.error(f"Failed to send to {recipient}: {e}")
+                    fail_count += len(batch)
+                    logger.error(f"BCC batch error: {e}")
             
             if success_count > 0:
                 ScheduledEmail.mark_sent(email_id)
-                return jsonify({'message': f'Email sent successfully to {success_count} recipients'}), 200
+                return jsonify({'message': f'Email sent successfully to {success_count} recipients via BCC'}), 200
             else:
                 ScheduledEmail.mark_failed(email_id, f'Failed to send to all {fail_count} recipients')
                 return jsonify({'error': 'Failed to send email to any recipient'}), 500

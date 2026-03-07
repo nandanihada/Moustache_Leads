@@ -108,6 +108,7 @@ class PlacementProof:
                     'status': status,
                     'admin_notes': admin_notes,
                     'score_awarded': score,
+                    'reviewed_at': datetime.utcnow(),
                     'updated_at': datetime.utcnow()
                 }},
                 return_document=True

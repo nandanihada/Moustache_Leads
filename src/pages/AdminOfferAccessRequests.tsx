@@ -86,6 +86,7 @@ interface PlacementProof {
   image_urls: string[];
   status: 'pending' | 'approved' | 'rejected';
   submitted_at: string;
+  reviewed_at?: string;
   user_info?: { username: string; email: string; name: string };
   admin_notes?: string;
   score?: number;
@@ -600,6 +601,7 @@ const AdminOfferAccessRequests: React.FC = () => {
                 <TableHead className="whitespace-nowrap">Proof</TableHead>
                 <TableHead className="whitespace-nowrap">Status</TableHead>
                 <TableHead className="whitespace-nowrap">Requested</TableHead>
+                <TableHead className="whitespace-nowrap">Approved At</TableHead>
                 <TableHead className="whitespace-nowrap">Message</TableHead>
                 <TableHead className="whitespace-nowrap">Actions</TableHead>
               </TableRow>
@@ -634,6 +636,7 @@ const AdminOfferAccessRequests: React.FC = () => {
                   </TableCell>
                   <TableCell>{getStatusBadge(request.status)}</TableCell>
                   <TableCell>{formatDate(request.requested_at)}</TableCell>
+                  <TableCell>{request.approved_at ? formatDate(request.approved_at) : '—'}</TableCell>
                   <TableCell>
                     <div className="max-w-[200px] truncate" title={request.message}>
                       {request.message || 'No message'}
@@ -725,13 +728,14 @@ const AdminOfferAccessRequests: React.FC = () => {
                       <TableHead>Images</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Submitted</TableHead>
+                      <TableHead>Reviewed At</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {proofs.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">No proofs found</TableCell>
+                        <TableCell colSpan={8} className="text-center text-muted-foreground py-8">No proofs found</TableCell>
                       </TableRow>
                     ) : proofs.map((proof) => (
                       <TableRow key={proof._id}>
@@ -755,6 +759,7 @@ const AdminOfferAccessRequests: React.FC = () => {
                           {proof.status === 'rejected' && <Badge variant="outline" className="text-red-600 border-red-600"><XCircle className="w-3 h-3 mr-1" />Rejected</Badge>}
                         </TableCell>
                         <TableCell className="text-sm">{formatDate(proof.submitted_at)}</TableCell>
+                        <TableCell className="text-sm">{proof.reviewed_at ? formatDate(proof.reviewed_at) : '—'}</TableCell>
                         <TableCell>
                           <Button variant="ghost" size="sm" onClick={() => { setSelectedProof(proof); setProofDialog(true); }}>
                             <Eye className="h-4 w-4" />

@@ -148,17 +148,9 @@ def get_available_offers():
                 
                 # Get approval settings
                 approval_settings = offer.get('approval_settings', {}) or {}
-                approval_type = approval_settings.get('type', 'auto_approve')
+                # Check both approval_settings.type AND top-level approval_type for robustness
+                approval_type = approval_settings.get('type') or offer.get('approval_type', 'auto_approve')
                 affiliates = offer.get('affiliates', 'all')
-                
-                # If affiliates is 'request', force manual approval
-                if affiliates == 'request':
-                    approval_type = 'manual'
-                
-                # Check access using cached data (no DB query)
-                has_access, access_reason = _check_offer_access_fast(
-                    offer, user_id, user_is_active, user_is_premium, requests_by_offer
-                )
                 
                 # Check if user has pending request (from cache)
                 existing_request = requests_by_offer.get(offer.get('offer_id'))
@@ -171,6 +163,19 @@ def get_available_offers():
                 
                 if existing_request:
                     request_status = existing_request.get('status', 'pending')
+                
+                # ALL offers require user to click Apply first.
+                # has_access is ONLY true if user has an approved request in affiliate_requests.
+                # For auto_approve offers, clicking Apply auto-approves instantly in the backend.
+                if existing_request and existing_request.get('status') == 'approved':
+                    has_access = True
+                    access_reason = 'Access approved'
+                elif existing_request and existing_request.get('status') == 'pending':
+                    has_access = False
+                    access_reason = 'Access request pending'
+                else:
+                    has_access = False
+                    access_reason = 'Apply required'
                 
                 if affiliates == 'all' and approval_type == 'auto_approve':
                     is_locked = False
@@ -412,7 +417,9 @@ def request_offer_access(offer_id):
         # Request access through access control service
         result = access_service.request_offer_access(offer_id, user.get('_id'), message)
         
-        if 'error' in result:
+        logger.info(f"📊 Access request result for offer {offer_id}: status={result.get('status')} error={result.get('error')}")
+        
+        if 'error' in result and result.get('status') not in ('pending', 'approved'):
             return jsonify(result), 400
         
         logger.info(f"✅ Access request submitted for offer {offer_id}")

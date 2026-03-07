@@ -11,6 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useToast } from '@/hooks/use-toast';
 import { apiImportService, PreviewOffer, ImportSummary } from '@/services/apiImportService';
 import { Loader2, Eye, EyeOff, CheckCircle2, XCircle, AlertCircle, Download } from 'lucide-react';
+import { API_BASE_URL } from '@/services/apiConfig';
 
 interface ApiImportModalProps {
   open: boolean;
@@ -49,6 +50,37 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const [autoApproveDelay, setAutoApproveDelay] = useState<number>(0);
   const [autoApproveDelayUnit, setAutoApproveDelayUnit] = useState<string>('minutes');
   const [showInOfferwall, setShowInOfferwall] = useState<boolean>(true);
+  
+  // Email notification options
+  const [sendEmail, setSendEmail] = useState<boolean>(false);
+  const [emailRecipients, setEmailRecipients] = useState<string>('all_publishers');
+  const [emailSchedule, setEmailSchedule] = useState<string>('now');
+  const [emailScheduleTime, setEmailScheduleTime] = useState<string>('');
+  const [offersPerEmail, setOffersPerEmail] = useState<number>(0);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [publishersList, setPublishersList] = useState<Array<{_id: string; username: string; email: string}>>([]);
+  const [publisherSearch, setPublisherSearch] = useState('');
+  const [loadingPublishers, setLoadingPublishers] = useState(false);
+
+  const fetchPublishers = async () => {
+    if (publishersList.length > 0) return;
+    setLoadingPublishers(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE_URL}/api/auth/admin/users?status=approved`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      const users = (data.users || []).map((u: any) => ({
+        _id: u._id || u.id,
+        username: u.username || u.first_name || '',
+        email: u.email || ''
+      }));
+      setPublishersList(users);
+    } catch { /* ignore */ } finally {
+      setLoadingPublishers(false);
+    }
+  };
   
   // Import progress
   const [importProgress, setImportProgress] = useState(0);
@@ -163,6 +195,12 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
           approval_type: approvalType,
           auto_approve_delay: delayInMinutes,
           require_approval: approvalType !== 'auto_approve',
+          send_email: sendEmail,
+          email_recipients: emailRecipients,
+          email_schedule: emailSchedule,
+          email_schedule_time: emailScheduleTime,
+          offers_per_email: offersPerEmail,
+          selected_user_ids: emailRecipients === 'specific_users' ? selectedUserIds : [],
         },
       });
       
@@ -429,6 +467,122 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               <p className="text-xs text-muted-foreground ml-6">
                 If unchecked, offers will be imported but hidden from the offerwall until manually enabled
               </p>
+              
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="send-email-api"
+                  checked={sendEmail}
+                  onCheckedChange={(checked) => setSendEmail(checked as boolean)}
+                />
+                <label htmlFor="send-email-api" className="text-sm cursor-pointer">
+                  📧 Send email notification to publishers
+                </label>
+              </div>
+              
+              {sendEmail && (
+                <div className="space-y-3 ml-6 pl-3 border-l-2 border-blue-200">
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Send To</Label>
+                    <Select value={emailRecipients} onValueChange={(v) => { setEmailRecipients(v); if (v === 'specific_users') fetchPublishers(); }}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all_publishers">👥 All Publishers</SelectItem>
+                        <SelectItem value="active_publishers">✅ Active Publishers Only</SelectItem>
+                        <SelectItem value="specific_users">🎯 Select Specific Users</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  {emailRecipients === 'specific_users' && (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Select Users ({selectedUserIds.length} selected)</Label>
+                      <Input
+                        placeholder="Search by name or email..."
+                        value={publisherSearch}
+                        onChange={(e) => setPublisherSearch(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                      <div className="max-h-32 overflow-y-auto border rounded p-1 bg-white space-y-0.5">
+                        {loadingPublishers ? (
+                          <p className="text-xs text-center py-2 text-muted-foreground">Loading...</p>
+                        ) : publishersList
+                          .filter(u => !publisherSearch || u.username.toLowerCase().includes(publisherSearch.toLowerCase()) || u.email.toLowerCase().includes(publisherSearch.toLowerCase()))
+                          .map(u => (
+                            <label key={u._id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 rounded cursor-pointer text-xs">
+                              <input
+                                type="checkbox"
+                                checked={selectedUserIds.includes(u._id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) setSelectedUserIds(prev => [...prev, u._id]);
+                                  else setSelectedUserIds(prev => prev.filter(id => id !== u._id));
+                                }}
+                                className="h-3 w-3"
+                              />
+                              <span>{u.username}</span>
+                              <span className="text-muted-foreground">{u.email}</span>
+                            </label>
+                          ))
+                        }
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">When to Send</Label>
+                    <Select value={emailSchedule} onValueChange={setEmailSchedule}>
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="now">⚡ Send Immediately</SelectItem>
+                        <SelectItem value="scheduled">🕐 Schedule for Later</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  {emailSchedule === 'scheduled' && (
+                    <div className="space-y-1">
+                      <Label className="text-xs font-medium">Schedule Date & Time</Label>
+                      <Input
+                        type="datetime-local"
+                        value={emailScheduleTime}
+                        onChange={(e) => setEmailScheduleTime(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  )}
+                  
+                  <div className="space-y-1">
+                    <Label className="text-xs font-medium">Offers per Email</Label>
+                    <Select 
+                      value={offersPerEmail.toString()} 
+                      onValueChange={(v) => setOffersPerEmail(parseInt(v))}
+                    >
+                      <SelectTrigger className="h-8 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="0">📦 All offers in one email</SelectItem>
+                        <SelectItem value="5">5 offers per email</SelectItem>
+                        <SelectItem value="10">10 offers per email</SelectItem>
+                        <SelectItem value="20">20 offers per email</SelectItem>
+                        <SelectItem value="50">50 offers per email</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      All users receive the same email via BCC (single send, no spam risk)
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              {!sendEmail && (
+                <p className="text-xs text-muted-foreground ml-6">
+                  No email will be sent to publishers about these offers
+                </p>
+              )}
               
               <div className="border-t pt-3 mt-3">
                 <h5 className="font-medium text-sm mb-3">Approval Workflow</h5>

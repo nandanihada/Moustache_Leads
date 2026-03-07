@@ -142,6 +142,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 }) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [sendEmail, setSendEmail] = useState(true);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedAllowedCountries, setSelectedAllowedCountries] = useState<string[]>([]);  // NEW: For geo-restriction
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -464,7 +465,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         fallback_redirect_url: fallbackRedirect.url,
         fallback_redirect_timer: fallbackRedirect.timer,
         // 🔥 PROMO CODE ASSIGNMENT
-        promo_code_id: selectedPromoCode || undefined
+        promo_code_id: selectedPromoCode || undefined,
+        // 📧 EMAIL NOTIFICATION TOGGLE
+        send_email: sendEmail
       };
 
       // Remove partner_id if it's empty
@@ -2263,13 +2266,24 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
             </TabsContent>
           </Tabs >
 
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={loading}>
-              {loading ? 'Creating...' : 'Create Offer'}
-            </Button>
+          <div className="flex items-center justify-between gap-2 pt-4 border-t">
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={sendEmail}
+                onChange={(e) => setSendEmail(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+              />
+              <span className="text-muted-foreground">Send email notification to publishers</span>
+            </label>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={loading}>
+                {loading ? 'Creating...' : 'Create Offer'}
+              </Button>
+            </div>
           </div>
         </form >
       </DialogContent >

@@ -69,6 +69,7 @@ const adminMenuStructure = [
       { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
       { title: "Missing Offers", url: "/admin/missing-offers", icon: AlertTriangle, tab: "missing-offers" },
       { title: "Offer Insights", url: "/admin/offer-insights", icon: Sparkles, tab: "offer-insights" },
+      { title: "Email Activity", url: "/admin/email-activity", icon: Mail, tab: "email-activity" },
       { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
       { title: "Gift Cards", url: "/admin/gift-cards", icon: Gift, tab: "gift-cards" },
     ]

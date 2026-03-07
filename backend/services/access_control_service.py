@@ -142,10 +142,14 @@ class AccessControlService:
             dict: Request result
         """
         try:
-            # Check if offer exists and requires requests
+            # Check if offer exists - try with is_active first, then without
             offer = self.offers_collection.find_one({'offer_id': offer_id, 'is_active': True})
             if not offer:
-                return {'error': 'Offer not found'}
+                # Try without is_active filter (some offers may not have this field)
+                offer = self.offers_collection.find_one({'offer_id': offer_id})
+                if not offer:
+                    return {'error': 'Offer not found'}
+                self.logger.info(f"⚠️ Offer {offer_id} found but is_active={offer.get('is_active')}")
             
             # Check offer status - allow if status is 'active' or approval_status is 'active' or not set
             offer_status = offer.get('status', 'active')
@@ -155,21 +159,29 @@ class AccessControlService:
             if offer_status not in ['active', None, ''] and approval_status not in ['active', None, '']:
                 return {'error': f'Offer is currently {offer_status}'}
             
-            # Check if offer requires approval
-            approval_settings = offer.get('approval_settings', {})
-            approval_type = approval_settings.get('type', 'manual')  # Default to manual approval
+            # Determine approval type from ALL possible sources in the DB
+            approval_settings = offer.get('approval_settings') or {}
+            if isinstance(approval_settings, str):
+                approval_settings = {}  # Handle corrupted data
             
-            # Check the affiliates field - if it's 'request', it means manual approval is required
-            affiliates_setting = offer.get('affiliates', 'all')
+            # Check every possible location for approval_type
+            approval_type = (
+                approval_settings.get('type') or 
+                offer.get('approval_type') or 
+                offer.get('approval_settings', {}).get('type') or
+                'manual'  # Final fallback
+            )
             
-            # Only auto-approve if:
-            # 1. approval_type is explicitly set to 'auto_approve' AND
-            # 2. affiliates is NOT 'request' (which means manual approval)
-            if approval_type == 'auto_approve' and affiliates_setting != 'request':
-                # Auto-approve immediately
-                return self._auto_approve_request(offer_id, user_id, message, offer)
-            
-            # Check if request already exists - check both string and ObjectId formats
+            self.logger.info(
+                f"🔍 OFFER ACCESS DEBUG: offer_id={offer_id} "
+                f"approval_type_resolved={approval_type} "
+                f"approval_settings={approval_settings} "
+                f"top_level_approval_type={offer.get('approval_type')} "
+                f"affiliates={offer.get('affiliates')} "
+                f"offer_keys={list(offer.keys())}"
+            )
+
+            # Check if request already exists first (before auto-approve check)
             user_id_str = str(user_id)
             existing_query = {
                 'offer_id': offer_id,
@@ -190,9 +202,26 @@ class AccessControlService:
                     ])
             except:
                 pass
-            
+
             existing_request = self.affiliate_requests_collection.find_one(existing_query)
-            
+
+            # For auto_approve: always ensure the request ends up approved
+            if approval_type == 'auto_approve':
+                if existing_request:
+                    existing_status = existing_request.get('status', 'pending')
+                    if existing_status == 'approved':
+                        return {'message': 'Access already granted', 'status': 'approved', 'request': existing_request}
+                    # Upgrade any pending/rejected request to approved immediately
+                    self.affiliate_requests_collection.update_one(
+                        {'_id': existing_request['_id']},
+                        {'$set': {'status': 'approved', 'approved_at': datetime.utcnow(), 'approved_by': 'system'}}
+                    )
+                    existing_request['status'] = 'approved'
+                    self.logger.info(f"✅ Upgraded existing request to approved for offer {offer_id}")
+                    return {'message': 'Access granted immediately', 'status': 'approved', 'request': existing_request}
+                # No existing request — create and auto-approve
+                return self._auto_approve_request(offer_id, user_id, message, offer)
+
             if existing_request:
                 existing_status = existing_request.get('status', 'pending')
                 # If already approved, return success with the status

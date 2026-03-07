@@ -50,6 +50,7 @@ import RedeemGiftCard from "./pages/RedeemGiftCard";
 import AdminGiftCardManagement from "./pages/AdminGiftCardManagement";
 import AdminMissingOffers from "./pages/AdminMissingOffers";
 import AdminOfferInsights from "./pages/AdminOfferInsights";
+import AdminEmailActivityLogs from "./pages/AdminEmailActivityLogs";
 import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
 import AdminPlacementProofs from "./pages/AdminPlacementProofs";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
@@ -143,6 +144,7 @@ const App = () => (
                 <Route path="offers" element={<AdminOffers />} />
                 <Route path="missing-offers" element={<AdminMissingOffers />} />
                 <Route path="offer-insights" element={<AdminOfferInsights />} />
+                <Route path="email-activity" element={<AdminEmailActivityLogs />} />
                 <Route path="promo-codes" element={<AdminPromoCodeManagement />} />
                 <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
                 <Route path="placement-approval" element={<AdminPlacementApproval />} />

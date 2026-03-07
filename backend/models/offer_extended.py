@@ -312,11 +312,25 @@ class OfferExtended:
                 'duplicate_conversion_rule': offer_data.get('duplicate_conversion_rule', 'allow'),
                 
                 # SECTION 5: ACCESS & AFFILIATES
-                'affiliates': offer_data.get('affiliates', 'all'),
+                # 🔥 AUTO-SET AFFILIATES TO 'REQUEST' IF APPROVAL REQUIRED
+                'affiliates': 'request' if (offer_data.get('require_approval') or offer_data.get('approval_type') in ['time_based', 'manual']) else offer_data.get('affiliates', 'all'),
                 'access_type': offer_data.get('access_type', 'public'),
                 'selected_users': offer_data.get('selected_users', []),
                 'manager': offer_data.get('manager', '').strip(),
                 'approval_notes': offer_data.get('approval_notes', '').strip(),
+                
+                # SECTION 5.1: APPROVAL WORKFLOW SETTINGS
+                'approval_type': offer_data.get('approval_type', 'auto_approve'),
+                'approval_status': offer_data.get('approval_status', 'active'),
+                'approval_settings': {
+                    'type': offer_data.get('approval_type', 'auto_approve'),
+                    'auto_approve_delay': offer_data.get('auto_approve_delay', 0),
+                    'require_approval': offer_data.get('require_approval', False),
+                    'approval_message': offer_data.get('approval_message', '').strip() if offer_data.get('approval_message') else '',
+                    'max_inactive_days': offer_data.get('max_inactive_days', 30)
+                },
+                'approved_by': offer_data.get('approved_by', '').strip() if offer_data.get('approved_by') else '',
+                'approval_date': offer_data.get('approval_date'),
                 
                 # SECTION 6: CREATIVES & VISUALS
                 'creative_type': offer_data.get('creative_type', 'image'),

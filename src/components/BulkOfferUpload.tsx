@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { bulkOfferApi } from '@/services/bulkOfferApi';
+import { API_BASE_URL } from '@/services/apiConfig';
 
 interface BulkOfferUploadProps {
     open: boolean;
@@ -133,6 +134,37 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
     const [autoApproveDelayUnit, setAutoApproveDelayUnit] = useState<string>('minutes');
     const [showInOfferwall, setShowInOfferwall] = useState<boolean>(true);
     const [skipDuplicates, setSkipDuplicates] = useState<boolean>(true);
+    
+    // Email notification options
+    const [sendEmail, setSendEmail] = useState<boolean>(false);
+    const [emailRecipients, setEmailRecipients] = useState<string>('all_publishers');
+    const [emailSchedule, setEmailSchedule] = useState<string>('now');
+    const [emailScheduleTime, setEmailScheduleTime] = useState<string>('');
+    const [offersPerEmail, setOffersPerEmail] = useState<number>(0); // 0 = all in one email
+    const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+    const [publishersList, setPublishersList] = useState<Array<{_id: string; username: string; email: string}>>([]);
+    const [publisherSearch, setPublisherSearch] = useState('');
+    const [loadingPublishers, setLoadingPublishers] = useState(false);
+
+    const fetchPublishers = async () => {
+        if (publishersList.length > 0) return;
+        setLoadingPublishers(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_BASE_URL}/api/auth/admin/users?status=approved`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            const users = (data.users || []).map((u: any) => ({
+                _id: u._id || u.id,
+                username: u.username || u.first_name || '',
+                email: u.email || ''
+            }));
+            setPublishersList(users);
+        } catch { /* ignore */ } finally {
+            setLoadingPublishers(false);
+        }
+    };
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -239,6 +271,12 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 default_timer: defaultTimer,
                 duplicate_strategy: skipDuplicates ? 'skip' : 'create_new',
                 skip_invalid_rows: skipInvalidRows,
+                send_email: sendEmail,
+                email_recipients: emailRecipients,
+                email_schedule: emailSchedule,
+                email_schedule_time: emailScheduleTime,
+                offers_per_email: offersPerEmail,
+                selected_user_ids: emailRecipients === 'specific_users' ? selectedUserIds : [],
             };
 
             if (uploadMode === 'file' && selectedFile) {
@@ -523,6 +561,128 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                             <p className="text-xs text-muted-foreground">
                                 If checked, offers that already exist (same campaign ID, name+network, or URL) will be skipped. Uncheck to allow duplicates.
                             </p>
+                            
+                            {/* Send Email Notification Option */}
+                            <div className="flex items-center space-x-2 p-2 bg-white rounded border">
+                                <input
+                                    type="checkbox"
+                                    id="send-email-bulk"
+                                    checked={sendEmail}
+                                    onChange={(e) => setSendEmail(e.target.checked)}
+                                    className="h-4 w-4 rounded border-gray-300"
+                                />
+                                <label htmlFor="send-email-bulk" className="text-sm cursor-pointer">
+                                    📧 Send email notification to publishers
+                                </label>
+                            </div>
+                            
+                            {sendEmail && (
+                                <div className="space-y-3 ml-2 pl-3 border-l-2 border-blue-200">
+                                    {/* To Whom */}
+                                    <div className="space-y-1">
+                                        <Label className="text-xs font-medium">Send To</Label>
+                                        <Select value={emailRecipients} onValueChange={(v) => { setEmailRecipients(v); if (v === 'specific_users') fetchPublishers(); }}>
+                                            <SelectTrigger className="h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="all_publishers">👥 All Publishers</SelectItem>
+                                                <SelectItem value="active_publishers">✅ Active Publishers Only</SelectItem>
+                                                <SelectItem value="specific_users">🎯 Select Specific Users</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    
+                                    {emailRecipients === 'specific_users' && (
+                                        <div className="space-y-1">
+                                            <Label className="text-xs font-medium">Select Users ({selectedUserIds.length} selected)</Label>
+                                            <Input
+                                                placeholder="Search by name or email..."
+                                                value={publisherSearch}
+                                                onChange={(e) => setPublisherSearch(e.target.value)}
+                                                className="h-8 text-sm"
+                                            />
+                                            <div className="max-h-32 overflow-y-auto border rounded p-1 bg-white space-y-0.5">
+                                                {loadingPublishers ? (
+                                                    <p className="text-xs text-center py-2 text-muted-foreground">Loading...</p>
+                                                ) : publishersList
+                                                    .filter(u => !publisherSearch || u.username.toLowerCase().includes(publisherSearch.toLowerCase()) || u.email.toLowerCase().includes(publisherSearch.toLowerCase()))
+                                                    .map(u => (
+                                                        <label key={u._id} className="flex items-center gap-2 px-2 py-1 hover:bg-gray-50 rounded cursor-pointer text-xs">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedUserIds.includes(u._id)}
+                                                                onChange={(e) => {
+                                                                    if (e.target.checked) setSelectedUserIds(prev => [...prev, u._id]);
+                                                                    else setSelectedUserIds(prev => prev.filter(id => id !== u._id));
+                                                                }}
+                                                                className="h-3 w-3"
+                                                            />
+                                                            <span>{u.username}</span>
+                                                            <span className="text-muted-foreground">{u.email}</span>
+                                                        </label>
+                                                    ))
+                                                }
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* When to Send */}
+                                    <div className="space-y-1">
+                                        <Label className="text-xs font-medium">When to Send</Label>
+                                        <Select value={emailSchedule} onValueChange={setEmailSchedule}>
+                                            <SelectTrigger className="h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="now">⚡ Send Immediately</SelectItem>
+                                                <SelectItem value="scheduled">🕐 Schedule for Later</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    
+                                    {emailSchedule === 'scheduled' && (
+                                        <div className="space-y-1">
+                                            <Label className="text-xs font-medium">Schedule Date & Time</Label>
+                                            <Input
+                                                type="datetime-local"
+                                                value={emailScheduleTime}
+                                                onChange={(e) => setEmailScheduleTime(e.target.value)}
+                                                className="h-8 text-sm"
+                                            />
+                                        </div>
+                                    )}
+                                    
+                                    {/* Offers per Email */}
+                                    <div className="space-y-1">
+                                        <Label className="text-xs font-medium">Offers per Email</Label>
+                                        <Select 
+                                            value={offersPerEmail.toString()} 
+                                            onValueChange={(v) => setOffersPerEmail(parseInt(v))}
+                                        >
+                                            <SelectTrigger className="h-8 text-sm">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="0">📦 All offers in one email</SelectItem>
+                                                <SelectItem value="5">5 offers per email</SelectItem>
+                                                <SelectItem value="10">10 offers per email</SelectItem>
+                                                <SelectItem value="20">20 offers per email</SelectItem>
+                                                <SelectItem value="50">50 offers per email</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-xs text-muted-foreground">
+                                            All users receive the same email via BCC (single send, no spam risk)
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {!sendEmail && (
+                                <p className="text-xs text-muted-foreground">
+                                    No email will be sent to publishers about these offers
+                                </p>
+                            )}
                             
                             <div className="space-y-2">
                                 <Label htmlFor="bulk-approval-type">Approval Type</Label>

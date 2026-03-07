@@ -154,87 +154,110 @@ def create_offer():
                     promo_code = None
                 
                 if promo_code:
-                    # Send email to all publishers
-                    publishers = users_collection.find({'role': 'publisher'})
-                    email_service = get_email_service()
+                    # Send BCC email to all publishers (single email, not individual)
+                    publishers = list(users_collection.find(
+                        {'role': 'publisher', 'email': {'$exists': True, '$ne': ''}},
+                        {'email': 1}
+                    ))
+                    publisher_emails = [p['email'] for p in publishers if p.get('email')]
                     
-                    email_count = 0
-                    for publisher in publishers:
-                        if publisher.get('email'):
-                            try:
-                                email_service.send_promo_code_assigned_to_offer(
-                                    recipient_email=publisher['email'],
-                                    offer_name=offer_data.get('name', 'Unknown Offer'),
-                                    code=promo_code['code'],
-                                    bonus_amount=promo_code['bonus_amount'],
-                                    bonus_type=promo_code['bonus_type'],
-                                    offer_id=str(offer_data['offer_id'])
-                                )
-                                email_count += 1
-                            except Exception as e:
-                                logging.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+                    if publisher_emails:
+                        email_service = get_email_service()
+                        import threading
+                        def send_promo_bcc():
+                            email_service.send_promo_code_assigned_to_offer_bcc(
+                                recipients=publisher_emails,
+                                offer_name=offer_data.get('name', 'Unknown Offer'),
+                                code=promo_code['code'],
+                                bonus_amount=promo_code['bonus_amount'],
+                                bonus_type=promo_code['bonus_type'],
+                                offer_id=str(offer_data['offer_id'])
+                            )
+                        threading.Thread(target=send_promo_bcc, daemon=True).start()
                     
                     logging.info(f"✅ Promo code {promo_code['code']} assigned to offer {offer_data.get('name')}")
-                    logging.info(f"📧 Emails sent to {email_count} publishers")
+                    logging.info(f"📧 BCC email queued for {len(publisher_emails)} publishers")
             except Exception as e:
                 logging.error(f"Failed to send promo code assignment emails: {str(e)}")
         
         logging.info("✅ Now triggering email notifications...")
         
-        # Send email notifications to all users and publishers (non-blocking)
-        try:
-            logging.info("📧 Preparing to send email notifications to all users and publishers...")
-            logging.info(f"📧 Offer data for email: {offer_data.get('name', 'Unknown')}")
-            
-            # Get all users and publishers from database
-            users_collection = db_instance.get_collection('users')
-            if users_collection is not None:
-                # Get all users with email (includes both publishers and regular users)
-                all_users = list(users_collection.find(
-                    {'email': {'$exists': True, '$ne': ''}},
-                    {'email': 1, 'username': 1, 'role': 1}
-                ))
+        # Check if admin wants to send email notifications (default: True for backward compat)
+        send_email = data.get('send_email', True)
+        
+        if not send_email:
+            logging.info("📧 Email notifications skipped (send_email=false)")
+        else:
+            # Send email notifications to all users and publishers (non-blocking)
+            try:
+                logging.info("📧 Preparing to send email notifications to all users and publishers...")
+                logging.info(f"📧 Offer data for email: {offer_data.get('name', 'Unknown')}")
                 
-                logging.info(f"📧 Total users in database: {len(all_users)}")
-                
-                # Extract email addresses
-                all_emails = [
-                    user.get('email') for user in all_users 
-                    if user.get('email')
-                ]
-                
-                # Count by role for logging
-                publishers = [u for u in all_users if u.get('role') == 'publisher']
-                other_users = [u for u in all_users if u.get('role') != 'publisher']
-                
-                logging.info(f"📧 Publishers with valid emails: {len(publishers)}")
-                logging.info(f"📧 Other users with valid emails: {len(other_users)}")
-                logging.info(f"📧 Total recipients: {len(all_emails)}")
-                
-                for email in all_emails:
-                    logging.info(f"   📧 Will send to: {email}")
-                
-                if all_emails:
-                    logging.info(f"📧 Found {len(all_emails)} total emails - STARTING EMAIL SEND")
+                # Get all users and publishers from database
+                users_collection = db_instance.get_collection('users')
+                if users_collection is not None:
+                    # Get users who have new_offers email preference enabled (or not set = default True)
+                    all_users = list(users_collection.find(
+                        {
+                            'email': {'$exists': True, '$ne': ''},
+                            '$or': [
+                                {'email_preferences.new_offers': True},
+                                {'email_preferences.new_offers': {'$exists': False}},
+                                {'email_preferences': {'$exists': False}}
+                            ]
+                        },
+                        {'email': 1, 'username': 1, 'role': 1}
+                    ))
                     
-                    # Send emails asynchronously (non-blocking)
-                    email_service = get_email_service()
-                    logging.info(f"📧 Email service configured: {email_service.is_configured}")
+                    logging.info(f"📧 Total eligible users: {len(all_users)}")
                     
-                    email_service.send_new_offer_notification_async(
-                        offer_data=offer_data,
-                        recipients=all_emails
-                    )
+                    # Extract email addresses
+                    all_emails = [
+                        user.get('email') for user in all_users 
+                        if user.get('email')
+                    ]
                     
-                    logging.info("✅ Email notification process started in background")
+                    if all_emails:
+                        logging.info(f"📧 Sending single BCC email to {len(all_emails)} recipients")
+                        
+                        # Send single BCC email asynchronously (non-blocking)
+                        email_service = get_email_service()
+                        email_service.send_new_offer_notification_async(
+                            offer_data=offer_data,
+                            recipients=all_emails
+                        )
+                        
+                        logging.info("✅ Email notification process started in background")
+                        
+                        # Log email activity for single offer creation
+                        try:
+                            email_logs_col = db_instance.get_collection('email_activity_logs')
+                            if email_logs_col is not None:
+                                email_logs_col.insert_one({
+                                    'action': 'sent',
+                                    'source': 'single_offer',
+                                    'offer_ids': [offer_data.get('offer_id', '')],
+                                    'offer_names': [offer_data.get('name', 'Unknown')],
+                                    'offer_count': 1,
+                                    'recipient_type': 'all_publishers',
+                                    'recipient_count': len(all_emails),
+                                    'batch_count': 1,
+                                    'offers_per_email': 1,
+                                    'scheduled_time': None,
+                                    'admin_id': str(user['_id']),
+                                    'admin_username': user.get('username', 'admin'),
+                                    'created_at': datetime.utcnow()
+                                })
+                        except Exception as log_err:
+                            logging.error(f"❌ Email activity log error: {log_err}")
+                    else:
+                        logging.warning("⚠️ No user emails found - NO EMAILS WILL BE SENT")
                 else:
-                    logging.warning("⚠️ No user emails found - NO EMAILS WILL BE SENT")
-            else:
-                logging.warning("⚠️ Could not access users collection for email notifications")
-                
-        except Exception as email_error:
-            # Don't fail offer creation if email fails
-            logging.error(f"❌ Email notification error (non-critical): {str(email_error)}", exc_info=True)
+                    logging.warning("⚠️ Could not access users collection for email notifications")
+                    
+            except Exception as email_error:
+                # Don't fail offer creation if email fails
+                logging.error(f"❌ Email notification error (non-critical): {str(email_error)}", exc_info=True)
         
         return safe_json_response({
             'message': 'Offer created successfully',
@@ -418,24 +441,28 @@ def update_offer(offer_id):
             approval_type = data.get('approval_type', 'auto_approve')
             require_approval = data.get('require_approval', False)
             
+            # Always update approval_settings when approval_type is provided
+            if 'approval_settings' not in data:
+                data['approval_settings'] = {}
+            
+            data['approval_settings']['type'] = approval_type
+            data['approval_settings']['require_approval'] = require_approval
+            
+            if 'auto_approve_delay' in data:
+                data['approval_settings']['auto_approve_delay'] = data['auto_approve_delay']
+            if 'approval_message' in data:
+                data['approval_settings']['approval_message'] = data['approval_message']
+            if 'max_inactive_days' in data:
+                data['approval_settings']['max_inactive_days'] = data['max_inactive_days']
+            
             # If approval is required, set affiliates to 'request'
             if require_approval or approval_type in ['time_based', 'manual']:
                 data['affiliates'] = 'request'
                 logging.info(f"🔒 Approval workflow enabled - Setting affiliates to 'request' for offer {offer_id}")
-                
-                # Also update approval_settings
-                if 'approval_settings' not in data:
-                    data['approval_settings'] = {}
-                
-                data['approval_settings']['type'] = approval_type
-                data['approval_settings']['require_approval'] = require_approval
-                
-                if 'auto_approve_delay' in data:
-                    data['approval_settings']['auto_approve_delay'] = data['auto_approve_delay']
-                if 'approval_message' in data:
-                    data['approval_settings']['approval_message'] = data['approval_message']
-                if 'max_inactive_days' in data:
-                    data['approval_settings']['max_inactive_days'] = data['max_inactive_days']
+            elif approval_type == 'auto_approve':
+                # For auto_approve, set affiliates to 'all' (no manual gating needed)
+                data['affiliates'] = 'all'
+                logging.info(f"🔓 Auto-approve workflow - Setting affiliates to 'all' for offer {offer_id}")
         
         # Check if promo code is being assigned/updated
         promo_code_id = data.get('promo_code_id')
@@ -500,28 +527,29 @@ def update_offer(offer_id):
                     promo_code = None
                 
                 if promo_code:
-                    # Send email to all publishers
-                    publishers = users_collection.find({'role': 'publisher'})
-                    email_service = get_email_service()
+                    # Send BCC email to all publishers (single email, not individual)
+                    publishers = list(users_collection.find(
+                        {'role': 'publisher', 'email': {'$exists': True, '$ne': ''}},
+                        {'email': 1}
+                    ))
+                    publisher_emails = [p['email'] for p in publishers if p.get('email')]
                     
-                    email_count = 0
-                    for publisher in publishers:
-                        if publisher.get('email'):
-                            try:
-                                email_service.send_promo_code_assigned_to_offer(
-                                    recipient_email=publisher['email'],
-                                    offer_name=updated_offer.get('name', 'Unknown Offer'),
-                                    code=promo_code['code'],
-                                    bonus_amount=promo_code['bonus_amount'],
-                                    bonus_type=promo_code['bonus_type'],
-                                    offer_id=str(offer_id)
-                                )
-                                email_count += 1
-                            except Exception as e:
-                                logging.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+                    if publisher_emails:
+                        email_service = get_email_service()
+                        import threading
+                        def send_promo_bcc_update():
+                            email_service.send_promo_code_assigned_to_offer_bcc(
+                                recipients=publisher_emails,
+                                offer_name=updated_offer.get('name', 'Unknown Offer'),
+                                code=promo_code['code'],
+                                bonus_amount=promo_code['bonus_amount'],
+                                bonus_type=promo_code['bonus_type'],
+                                offer_id=str(offer_id)
+                            )
+                        threading.Thread(target=send_promo_bcc_update, daemon=True).start()
                     
                     logging.info(f"✅ Promo code {promo_code['code']} assigned to offer {updated_offer.get('name')}")
-                    logging.info(f"📧 Emails sent to {email_count} publishers")
+                    logging.info(f"📧 BCC email queued for {len(publisher_emails)} publishers")
             except Exception as e:
                 logging.error(f"Failed to send promo code assignment emails: {str(e)}")
         
@@ -1102,34 +1130,35 @@ def assign_promo_code_to_offer(offer_id):
             }
         )
         
-        # Send email to all publishers
-        publishers = users_collection.find({'role': 'publisher'})
-        email_service = get_email_service()
+        # Send BCC email to all publishers (single email, not individual)
+        publishers = list(users_collection.find(
+            {'role': 'publisher', 'email': {'$exists': True, '$ne': ''}},
+            {'email': 1}
+        ))
+        publisher_emails = [p['email'] for p in publishers if p.get('email')]
         
-        email_count = 0
-        for publisher in publishers:
-            if publisher.get('email'):
-                try:
-                    email_service.send_promo_code_assigned_to_offer(
-                        recipient_email=publisher['email'],
-                        offer_name=offer['name'],
-                        code=promo_code['code'],
-                        bonus_amount=promo_code['bonus_amount'],
-                        bonus_type=promo_code['bonus_type'],
-                        offer_id=str(offer_id)
-                    )
-                    email_count += 1
-                except Exception as e:
-                    logging.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+        if publisher_emails:
+            email_service = get_email_service()
+            import threading
+            def send_promo_bcc_assign():
+                email_service.send_promo_code_assigned_to_offer_bcc(
+                    recipients=publisher_emails,
+                    offer_name=offer['name'],
+                    code=promo_code['code'],
+                    bonus_amount=promo_code['bonus_amount'],
+                    bonus_type=promo_code['bonus_type'],
+                    offer_id=str(offer_id)
+                )
+            threading.Thread(target=send_promo_bcc_assign, daemon=True).start()
         
         logging.info(f"✅ Promo code {promo_code['code']} assigned to offer {offer['name']}")
-        logging.info(f"📧 Emails sent to {email_count} publishers")
+        logging.info(f"📧 BCC email queued for {len(publisher_emails)} publishers")
         
         return jsonify({
-            'message': f'Promo code assigned and emails sent to {email_count} publishers',
+            'message': f'Promo code assigned and email sent to {len(publisher_emails)} publishers',
             'offer_id': str(offer_id),
             'promo_code': promo_code['code'],
-            'emails_sent': email_count
+            'emails_sent': len(publisher_emails)
         }), 200
         
     except Exception as e:
@@ -1347,6 +1376,129 @@ def bulk_upload_offers():
                 response_data['message'] = f'Created {len(created_offer_ids)} offers, skipped {len(skipped_duplicates)} duplicates, {len(creation_errors)} failed'
             else:
                 response_data['message'] = f'Created {len(created_offer_ids)} offers, {len(creation_errors)} failed'
+        
+        # Send batch email notification if enabled and offers were created
+        send_email = options.get('send_email', False)
+        if send_email and created_offer_ids:
+            try:
+                from services.email_service import get_email_service
+                users_collection = db_instance.get_collection('users')
+                if users_collection is not None:
+                    # Build recipient filter based on email_recipients option
+                    email_recipients_type = options.get('email_recipients', 'all_publishers')
+                    selected_user_ids = options.get('selected_user_ids', [])
+                    
+                    if email_recipients_type == 'specific_users' and selected_user_ids:
+                        # Fetch specific users by ID
+                        from bson import ObjectId as ObjId
+                        obj_ids = []
+                        for uid in selected_user_ids:
+                            try:
+                                obj_ids.append(ObjId(uid))
+                            except:
+                                pass
+                        all_users = list(users_collection.find(
+                            {'_id': {'$in': obj_ids}, 'email': {'$exists': True, '$ne': ''}},
+                            {'email': 1}
+                        ))
+                    else:
+                        user_filter = {
+                            'email': {'$exists': True, '$ne': ''},
+                            '$or': [
+                                {'email_preferences.new_offers': True},
+                                {'email_preferences.new_offers': {'$exists': False}},
+                                {'email_preferences': {'$exists': False}}
+                            ]
+                        }
+                        if email_recipients_type == 'active_publishers':
+                            user_filter['role'] = 'publisher'
+                            user_filter['status'] = {'$in': ['active', 'approved']}
+                        all_users = list(users_collection.find(user_filter, {'email': 1}))
+                    
+                    all_emails = [u.get('email') for u in all_users if u.get('email')]
+                    
+                    if all_emails:
+                        # Fetch the created offers from DB for email content
+                        offers_col = db_instance.get_collection('offers')
+                        created_offers = list(offers_col.find(
+                            {'offer_id': {'$in': created_offer_ids}},
+                            {'name': 1, 'category': 1, 'vertical': 1, 'payout': 1, 'currency': 1}
+                        ))
+                        
+                        email_service = get_email_service()
+                        
+                        # Check if scheduling is requested
+                        email_schedule = options.get('email_schedule', 'now')
+                        email_schedule_time = options.get('email_schedule_time', '')
+                        offers_per_email = int(options.get('offers_per_email', 0))
+                        
+                        # Split offers into batches if offers_per_email > 0
+                        if offers_per_email > 0 and len(created_offers) > offers_per_email:
+                            offer_batches = [created_offers[i:i+offers_per_email] for i in range(0, len(created_offers), offers_per_email)]
+                        else:
+                            offer_batches = [created_offers]
+                        
+                        email_action = 'sent'
+                        if email_schedule == 'scheduled' and email_schedule_time:
+                            email_action = 'scheduled'
+                            # Schedule emails for later
+                            from datetime import datetime as dt
+                            try:
+                                scheduled_time = dt.fromisoformat(email_schedule_time)
+                                scheduled_emails_col = db_instance.get_collection('scheduled_emails')
+                                for batch_idx, batch in enumerate(offer_batches):
+                                    offer_names = [o.get('name', 'New Offer') for o in batch]
+                                    scheduled_emails_col.insert_one({
+                                        'type': 'batch_new_offers',
+                                        'offers': batch,
+                                        'recipients': all_emails,
+                                        'scheduled_at': scheduled_time,
+                                        'status': 'pending',
+                                        'batch_index': batch_idx + 1,
+                                        'total_batches': len(offer_batches),
+                                        'created_at': datetime.utcnow(),
+                                        'created_by': str(user['_id'])
+                                    })
+                                logging.info(f"📧 Scheduled {len(offer_batches)} email batch(es) for {email_schedule_time}")
+                            except Exception as sched_err:
+                                logging.error(f"❌ Failed to schedule email: {sched_err}")
+                                email_action = 'sent'
+                                # Fallback to sending now
+                                for batch in offer_batches:
+                                    email_service.send_batch_new_offers_notification_async(batch, all_emails)
+                        else:
+                            # Send immediately
+                            for batch in offer_batches:
+                                email_service.send_batch_new_offers_notification_async(batch, all_emails)
+                        
+                        # Log email activity
+                        try:
+                            email_logs_col = db_instance.get_collection('email_activity_logs')
+                            if email_logs_col is not None:
+                                offer_names = [o.get('name', 'Unknown') for o in created_offers]
+                                email_logs_col.insert_one({
+                                    'action': email_action,
+                                    'source': 'bulk_upload',
+                                    'offer_ids': created_offer_ids,
+                                    'offer_names': offer_names,
+                                    'offer_count': len(created_offers),
+                                    'recipient_type': email_recipients_type,
+                                    'recipient_count': len(all_emails),
+                                    'batch_count': len(offer_batches),
+                                    'offers_per_email': offers_per_email,
+                                    'scheduled_time': email_schedule_time if email_action == 'scheduled' else None,
+                                    'admin_id': str(user['_id']),
+                                    'admin_username': user.get('username', 'admin'),
+                                    'created_at': datetime.utcnow()
+                                })
+                        except Exception as log_err:
+                            logging.error(f"❌ Email activity log error: {log_err}")
+                        
+                        logging.info(f"📧 Email triggered: {len(offer_batches)} batch(es), {len(created_offers)} offers, {len(all_emails)} recipients")
+            except Exception as email_error:
+                logging.error(f"❌ Batch email error (non-critical): {str(email_error)}")
+        elif not send_email:
+            logging.info("📧 Email notifications skipped (send_email=false)")
         
         return jsonify(response_data), 201 if created_offer_ids else 200
         
@@ -1690,6 +1842,120 @@ def import_api_offers():
         
         logging.info(f"✅ API Import complete: {result['stats']['created']} imported in {result['stats']['elapsed_seconds']}s")
         
+        # Send batch email notification if enabled and offers were created
+        send_email = options.get('send_email', False)
+        if send_email and result['created_ids']:
+            try:
+                from services.email_service import get_email_service
+                users_collection = db_instance.get_collection('users')
+                if users_collection is not None:
+                    email_recipients_type = options.get('email_recipients', 'all_publishers')
+                    selected_user_ids = options.get('selected_user_ids', [])
+                    
+                    if email_recipients_type == 'specific_users' and selected_user_ids:
+                        from bson import ObjectId as ObjId
+                        obj_ids = []
+                        for uid in selected_user_ids:
+                            try:
+                                obj_ids.append(ObjId(uid))
+                            except:
+                                pass
+                        all_users = list(users_collection.find(
+                            {'_id': {'$in': obj_ids}, 'email': {'$exists': True, '$ne': ''}},
+                            {'email': 1}
+                        ))
+                    else:
+                        user_filter = {
+                            'email': {'$exists': True, '$ne': ''},
+                            '$or': [
+                                {'email_preferences.new_offers': True},
+                                {'email_preferences.new_offers': {'$exists': False}},
+                                {'email_preferences': {'$exists': False}}
+                            ]
+                        }
+                        if email_recipients_type == 'active_publishers':
+                            user_filter['role'] = 'publisher'
+                            user_filter['status'] = {'$in': ['active', 'approved']}
+                        all_users = list(users_collection.find(user_filter, {'email': 1}))
+                    
+                    all_emails = [u.get('email') for u in all_users if u.get('email')]
+                    
+                    if all_emails:
+                        offers_col = db_instance.get_collection('offers')
+                        created_offers = list(offers_col.find(
+                            {'offer_id': {'$in': result['created_ids']}},
+                            {'name': 1, 'category': 1, 'vertical': 1, 'payout': 1, 'currency': 1}
+                        ))
+                        
+                        email_service = get_email_service()
+                        
+                        email_schedule = options.get('email_schedule', 'now')
+                        email_schedule_time = options.get('email_schedule_time', '')
+                        offers_per_email = int(options.get('offers_per_email', 0))
+                        
+                        if offers_per_email > 0 and len(created_offers) > offers_per_email:
+                            offer_batches = [created_offers[i:i+offers_per_email] for i in range(0, len(created_offers), offers_per_email)]
+                        else:
+                            offer_batches = [created_offers]
+                        
+                        email_action = 'sent'
+                        if email_schedule == 'scheduled' and email_schedule_time:
+                            email_action = 'scheduled'
+                            from datetime import datetime as dt
+                            try:
+                                scheduled_time = dt.fromisoformat(email_schedule_time)
+                                scheduled_emails_col = db_instance.get_collection('scheduled_emails')
+                                for batch_idx, batch in enumerate(offer_batches):
+                                    scheduled_emails_col.insert_one({
+                                        'type': 'batch_new_offers',
+                                        'offers': batch,
+                                        'recipients': all_emails,
+                                        'scheduled_at': scheduled_time,
+                                        'status': 'pending',
+                                        'batch_index': batch_idx + 1,
+                                        'total_batches': len(offer_batches),
+                                        'created_at': datetime.utcnow(),
+                                        'created_by': str(request.current_user.get('_id', 'admin'))
+                                    })
+                                logging.info(f"📧 Scheduled {len(offer_batches)} email batch(es) for {email_schedule_time}")
+                            except Exception as sched_err:
+                                logging.error(f"❌ Failed to schedule email: {sched_err}")
+                                email_action = 'sent'
+                                for batch in offer_batches:
+                                    email_service.send_batch_new_offers_notification_async(batch, all_emails)
+                        else:
+                            for batch in offer_batches:
+                                email_service.send_batch_new_offers_notification_async(batch, all_emails)
+                        
+                        # Log email activity
+                        try:
+                            email_logs_col = db_instance.get_collection('email_activity_logs')
+                            if email_logs_col is not None:
+                                offer_names = [o.get('name', 'Unknown') for o in created_offers]
+                                email_logs_col.insert_one({
+                                    'action': email_action,
+                                    'source': 'api_import',
+                                    'offer_ids': result['created_ids'],
+                                    'offer_names': offer_names,
+                                    'offer_count': len(created_offers),
+                                    'recipient_type': email_recipients_type,
+                                    'recipient_count': len(all_emails),
+                                    'batch_count': len(offer_batches),
+                                    'offers_per_email': offers_per_email,
+                                    'scheduled_time': email_schedule_time if email_action == 'scheduled' else None,
+                                    'admin_id': str(request.current_user.get('_id', 'admin')),
+                                    'admin_username': request.current_user.get('username', 'admin'),
+                                    'created_at': datetime.utcnow()
+                                })
+                        except Exception as log_err:
+                            logging.error(f"❌ Email activity log error: {log_err}")
+                        
+                        logging.info(f"📧 Email triggered: {len(offer_batches)} batch(es), {len(created_offers)} API-imported offers")
+            except Exception as email_error:
+                logging.error(f"❌ Batch email error (non-critical): {str(email_error)}")
+        elif not send_email:
+            logging.info("📧 Email notifications skipped (send_email=false)")
+        
         return jsonify(response_data), 200
         
     except Exception as e:
@@ -2016,3 +2282,49 @@ def count_offers_without_images():
     except Exception as e:
         logging.error(f"Count offers without images error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to count offers: {str(e)}'}), 500
+
+
+# ==================== EMAIL ACTIVITY LOGS ====================
+
+@admin_offers_bp.route('/offers/email-activity-logs', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_email_activity_logs():
+    """Get email activity logs for offer-related emails"""
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        source_filter = request.args.get('source', '')  # bulk_upload, api_import, single_offer
+
+        email_logs_col = db_instance.get_collection('email_activity_logs')
+        if email_logs_col is None:
+            return jsonify({'logs': [], 'total': 0, 'page': page, 'per_page': per_page}), 200
+
+        query = {}
+        if source_filter:
+            query['source'] = source_filter
+
+        total = email_logs_col.count_documents(query)
+        logs = list(
+            email_logs_col.find(query)
+            .sort('created_at', -1)
+            .skip((page - 1) * per_page)
+            .limit(per_page)
+        )
+
+        for log in logs:
+            log['_id'] = str(log['_id'])
+            if log.get('created_at'):
+                log['created_at'] = log['created_at'].isoformat()
+
+        return jsonify({
+            'logs': logs,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'pages': (total + per_page - 1) // per_page
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Get email activity logs error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get email activity logs: {str(e)}'}), 500
