@@ -64,6 +64,8 @@ export interface PublisherOffer {
   network: string;
   countries: string[];
   category?: string;
+  vertical?: string;
+  device_targeting?: string;
   thumbnail_url?: string;
   image_url?: string;
   target_url?: string; // Only available if user has access

@@ -372,6 +372,12 @@ def register():
             if role in allowed_roles:
                 optional_fields['role'] = role
         
+        # Consent fields
+        optional_fields['terms_accepted'] = bool(data.get('terms_accepted', False))
+        optional_fields['terms_accepted_at'] = datetime.utcnow() if data.get('terms_accepted') else None
+        optional_fields['newsletter_consent'] = bool(data.get('newsletter_consent', False))
+        optional_fields['newsletter_consent_at'] = datetime.utcnow() if data.get('newsletter_consent') else None
+        
         # Create user
         user_model = User()
         user_data, error = user_model.create_user(username, email, password, **optional_fields)
@@ -1034,6 +1040,102 @@ def reject_user(user_id):
     except Exception as e:
         logging.error(f"Error rejecting user: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to reject user: {str(e)}'}), 500
+
+
+@auth_bp.route('/admin/users/bulk-approve', methods=['POST'])
+@token_required
+def bulk_approve_users():
+    """Bulk approve multiple user accounts (admin only)"""
+    try:
+        admin_user = request.current_user
+        if admin_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json() or {}
+        user_ids = data.get('user_ids', [])
+
+        if not user_ids:
+            return jsonify({'error': 'No user IDs provided'}), 400
+
+        user_model = User()
+        verification_service = get_email_verification_service()
+        results = {'approved': 0, 'failed': 0, 'errors': []}
+
+        for uid in user_ids:
+            try:
+                user_data = user_model.find_by_id(uid)
+                if not user_data:
+                    results['failed'] += 1
+                    results['errors'].append(f'{uid}: User not found')
+                    continue
+
+                success, message = user_model.approve_user(uid, str(admin_user['_id']))
+                if success:
+                    results['approved'] += 1
+                    # Send activation email
+                    try:
+                        email = user_data.get('email')
+                        name = user_data.get('first_name') or user_data.get('username', 'User')
+                        if verification_service.is_configured:
+                            verification_service.send_account_activated_email(email, name)
+                    except Exception:
+                        pass
+                else:
+                    results['failed'] += 1
+                    results['errors'].append(f'{uid}: {message}')
+            except Exception as e:
+                results['failed'] += 1
+                results['errors'].append(f'{uid}: {str(e)}')
+
+        return jsonify({
+            'message': f'Bulk approval complete: {results["approved"]} approved, {results["failed"]} failed',
+            'results': results
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Bulk approve error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Bulk approve failed: {str(e)}'}), 500
+
+
+@auth_bp.route('/admin/users/bulk-reject', methods=['POST'])
+@token_required
+def bulk_reject_users():
+    """Bulk reject multiple user accounts (admin only)"""
+    try:
+        admin_user = request.current_user
+        if admin_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json() or {}
+        user_ids = data.get('user_ids', [])
+        reason = data.get('reason', 'Bulk rejection')
+
+        if not user_ids:
+            return jsonify({'error': 'No user IDs provided'}), 400
+
+        user_model = User()
+        results = {'rejected': 0, 'failed': 0, 'errors': []}
+
+        for uid in user_ids:
+            try:
+                success, message = user_model.reject_user(uid, str(admin_user['_id']), reason)
+                if success:
+                    results['rejected'] += 1
+                else:
+                    results['failed'] += 1
+                    results['errors'].append(f'{uid}: {message}')
+            except Exception as e:
+                results['failed'] += 1
+                results['errors'].append(f'{uid}: {str(e)}')
+
+        return jsonify({
+            'message': f'Bulk rejection complete: {results["rejected"]} rejected, {results["failed"]} failed',
+            'results': results
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Bulk reject error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Bulk reject failed: {str(e)}'}), 500
 
 
 @auth_bp.route('/admin/auto-approve-check', methods=['POST'])

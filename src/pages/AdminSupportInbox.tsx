@@ -1,0 +1,258 @@
+import React, { useEffect, useState } from 'react';
+import { MessageCircle, Send, RefreshCw, Mail, MailOpen, Clock, CheckCircle } from 'lucide-react';
+import { supportApi, SupportMessage } from '@/services/supportApi';
+import { toast } from 'sonner';
+
+const fmt = (iso: string) =>
+  new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+
+const StatusBadge: React.FC<{ status: SupportMessage['status'] }> = ({ status }) => {
+  const map = {
+    open: 'bg-yellow-100 text-yellow-700',
+    replied: 'bg-green-100 text-green-700',
+    closed: 'bg-gray-100 text-gray-600',
+  };
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${map[status]}`}>
+      {status}
+    </span>
+  );
+};
+
+const AdminSupportInbox: React.FC = () => {
+  const [messages, setMessages] = useState<SupportMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<'all' | 'open' | 'replied'>('all');
+  const [selected, setSelected] = useState<SupportMessage | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replying, setReplying] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await supportApi.adminGetAll(filter);
+      if (res.success) setMessages(res.messages);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [filter]);
+
+  const openMessage = async (msg: SupportMessage) => {
+    setSelected(msg);
+    setReplyText('');
+    if (!msg.read_by_admin) {
+      await supportApi.adminMarkRead(msg._id);
+      setMessages(prev => prev.map(m => m._id === msg._id ? { ...m, read_by_admin: true } : m));
+    }
+  };
+
+  const handleReply = async () => {
+    if (!selected || !replyText.trim()) return;
+    setReplying(true);
+    try {
+      const res = await supportApi.adminReply(selected._id, replyText);
+      if (res.success) {
+        toast.success('Reply sent');
+        setReplyText('');
+        setSelected(res.message);
+        setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
+      } else {
+        toast.error(res.error || 'Failed to send reply');
+      }
+    } finally {
+      setReplying(false);
+    }
+  };
+
+  const unread = messages.filter(m => !m.read_by_admin).length;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <MessageCircle className="w-6 h-6 text-primary" />
+            Support Inbox
+            {unread > 0 && (
+              <span className="ml-2 bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                {unread} new
+              </span>
+            )}
+          </h1>
+          <p className="text-muted-foreground text-sm mt-1">View and reply to publisher support messages</p>
+        </div>
+        <button
+          onClick={load}
+          className="flex items-center gap-2 text-sm border border-border rounded-lg px-3 py-2 hover:bg-muted transition-colors"
+        >
+          <RefreshCw className="w-4 h-4" /> Refresh
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Total', value: messages.length, icon: MessageCircle, color: 'text-blue-600' },
+          { label: 'Open', value: messages.filter(m => m.status === 'open').length, icon: Clock, color: 'text-yellow-600' },
+          { label: 'Replied', value: messages.filter(m => m.status === 'replied').length, icon: CheckCircle, color: 'text-green-600' },
+        ].map(s => (
+          <div key={s.label} className="bg-card border border-border rounded-xl p-4 flex items-center gap-3">
+            <s.icon className={`w-8 h-8 ${s.color}`} />
+            <div>
+              <p className="text-2xl font-bold text-foreground">{s.value}</p>
+              <p className="text-xs text-muted-foreground">{s.label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Main layout */}
+      <div className="flex gap-4 h-[600px]">
+        {/* Message list */}
+        <div className="w-80 flex-shrink-0 flex flex-col border border-border rounded-xl overflow-hidden bg-card">
+          {/* Filter tabs */}
+          <div className="flex border-b border-border">
+            {(['all', 'open', 'replied'] as const).map(f => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`flex-1 py-2 text-xs font-medium capitalize transition-colors ${
+                  filter === f
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+
+          {/* List */}
+          <div className="flex-1 overflow-y-auto divide-y divide-border">
+            {loading ? (
+              <div className="p-4 text-sm text-muted-foreground text-center">Loading...</div>
+            ) : messages.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground text-sm">No messages</div>
+            ) : (
+              messages.map(msg => (
+                <button
+                  key={msg._id}
+                  onClick={() => openMessage(msg)}
+                  className={`w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors ${
+                    selected?._id === msg._id ? 'bg-primary/5 border-l-2 border-primary' : ''
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        {!msg.read_by_admin
+                          ? <Mail className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                          : <MailOpen className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                        }
+                        <p className={`text-sm truncate ${!msg.read_by_admin ? 'font-semibold' : 'font-medium'}`}>
+                          {msg.username || msg.email}
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.subject}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{fmt(msg.created_at)}</p>
+                    </div>
+                    <StatusBadge status={msg.status} />
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Detail / reply panel */}
+        <div className="flex-1 flex flex-col border border-border rounded-xl overflow-hidden bg-card">
+          {!selected ? (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground">
+              <div className="text-center">
+                <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Select a message to view</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Message header */}
+              <div className="px-6 py-4 border-b border-border">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="font-semibold text-foreground">{selected.subject}</h2>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                      From: <span className="font-medium text-foreground">{selected.username}</span>
+                      {' '}·{' '}
+                      <a href={`mailto:${selected.email}`} className="text-primary hover:underline">{selected.email}</a>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{fmt(selected.created_at)}</p>
+                  </div>
+                  <StatusBadge status={selected.status} />
+                </div>
+              </div>
+
+              {/* Thread */}
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+                {/* Original message */}
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    {(selected.username || 'U')[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 bg-muted/40 rounded-xl rounded-tl-none px-4 py-3">
+                    <p className="text-xs font-semibold text-muted-foreground mb-1">{selected.username}</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">{selected.body}</p>
+                    <p className="text-xs text-muted-foreground mt-2">{fmt(selected.created_at)}</p>
+                  </div>
+                </div>
+
+                {/* Replies */}
+                {selected.replies.map(reply => (
+                  <div key={reply._id} className="flex gap-3 justify-end">
+                    <div className="flex-1 max-w-[85%] bg-primary/10 border border-primary/20 rounded-xl rounded-tr-none px-4 py-3">
+                      <p className="text-xs font-semibold text-primary mb-1">MoustacheLeads (Admin)</p>
+                      <p className="text-sm text-foreground whitespace-pre-wrap">{reply.text}</p>
+                      <p className="text-xs text-muted-foreground mt-2">{fmt(reply.created_at)}</p>
+                    </div>
+                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground flex-shrink-0">
+                      A
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Reply box */}
+              <div className="px-6 py-4 border-t border-border bg-muted/20">
+                <div className="flex gap-3">
+                  <textarea
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    placeholder="Type your reply..."
+                    rows={3}
+                    className="flex-1 text-sm border border-border rounded-xl px-4 py-3 bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleReply();
+                    }}
+                  />
+                  <button
+                    onClick={handleReply}
+                    disabled={replying || !replyText.trim()}
+                    className="self-end flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-xl text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  >
+                    <Send className="w-4 h-4" />
+                    {replying ? 'Sending...' : 'Reply'}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Ctrl+Enter to send</p>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AdminSupportInbox;

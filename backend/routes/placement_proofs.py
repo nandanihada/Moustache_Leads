@@ -209,6 +209,47 @@ def review_proof(proof_id):
         return jsonify({'error': str(e)}), 500
 
 
+@placement_proofs_bp.route('/admin/bulk-review', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_review_proofs():
+    """Bulk review multiple placement proofs (approve/reject)"""
+    try:
+        data = request.get_json()
+        proof_ids = data.get('proof_ids', [])
+        status = data.get('status')
+        admin_notes = data.get('admin_notes', '')
+        score = int(data.get('score', 0))
+
+        if status not in ['approved', 'rejected']:
+            return jsonify({'error': 'Status must be approved or rejected'}), 400
+
+        if not proof_ids:
+            return jsonify({'error': 'No proof IDs provided'}), 400
+
+        results = {'processed': 0, 'failed': 0, 'errors': []}
+
+        for pid in proof_ids:
+            try:
+                proof, error = proof_model.update_proof_status(pid, status, admin_notes, score)
+                if error:
+                    results['failed'] += 1
+                    results['errors'].append(f'{pid}: {error}')
+                else:
+                    results['processed'] += 1
+            except Exception as e:
+                results['failed'] += 1
+                results['errors'].append(f'{pid}: {str(e)}')
+
+        return safe_json_response({
+            'message': f'Bulk review complete: {results["processed"]} {status}, {results["failed"]} failed',
+            'results': results
+        })
+    except Exception as e:
+        logger.error(f"Bulk review proofs error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @placement_proofs_bp.route('/image/<filename>', methods=['GET'])
 def serve_proof_image(filename):
     """Serve a proof image file"""

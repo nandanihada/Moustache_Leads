@@ -16,6 +16,8 @@ export default function Register() {
     postbackUrl: "",
     password: "",
     confirmPassword: "",
+    termsAccepted: false,
+    newsletterConsent: false,
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -42,6 +44,11 @@ export default function Register() {
     // Validation
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
       alert("Please fill in all required fields");
+      return;
+    }
+
+    if (!formData.termsAccepted) {
+      alert("You must accept the Terms & Conditions to register");
       return;
     }
 
@@ -75,7 +82,9 @@ export default function Register() {
           company_name: formData.companyName,
           website: formData.website,
           postback_url: formData.postbackUrl,
-          role: 'partner' // Set role as partner
+          role: 'partner',
+          terms_accepted: formData.termsAccepted,
+          newsletter_consent: formData.newsletterConsent,
         }),
       });
       
@@ -289,6 +298,36 @@ export default function Register() {
                   {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
+            </div>
+
+            {/* Consent Checkboxes */}
+            <div className="space-y-3 mt-2">
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={formData.termsAccepted}
+                  onChange={(e) => setFormData({ ...formData, termsAccepted: e.target.checked })}
+                  className="mt-1 h-4 w-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-300 group-hover:text-gray-200 transition-colors">
+                  I accept the{" "}
+                  <Link to="/terms" target="_blank" className="text-blue-400 hover:text-blue-300 underline">Terms & Conditions</Link>
+                  {" "}and{" "}
+                  <Link to="/privacy" target="_blank" className="text-blue-400 hover:text-blue-300 underline">Privacy Policy</Link>
+                  {" "}*
+                </span>
+              </label>
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={formData.newsletterConsent}
+                  onChange={(e) => setFormData({ ...formData, newsletterConsent: e.target.checked })}
+                  className="mt-1 h-4 w-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-300 group-hover:text-gray-200 transition-colors">
+                  I agree to receive email newsletters, offer updates, and promotional communications. You can unsubscribe at any time.
+                </span>
+              </label>
             </div>
 
             {/* Submit Button */}

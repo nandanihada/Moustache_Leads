@@ -70,6 +70,12 @@ def register_publisher():
         # Set role as partner by default for publishers
         optional_fields['role'] = data.get('role', 'partner')
         
+        # Consent fields
+        optional_fields['terms_accepted'] = bool(data.get('terms_accepted', False))
+        optional_fields['terms_accepted_at'] = datetime.utcnow() if data.get('terms_accepted') else None
+        optional_fields['newsletter_consent'] = bool(data.get('newsletter_consent', False))
+        optional_fields['newsletter_consent_at'] = datetime.utcnow() if data.get('newsletter_consent') else None
+        
         # Create user
         user_model = User()
         user_data, error = user_model.create_user(username, email, password, **optional_fields)

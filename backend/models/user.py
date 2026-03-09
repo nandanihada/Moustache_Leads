@@ -79,6 +79,12 @@ class User:
         if kwargs.get('postback_method'):
             user_data['postback_method'] = kwargs.get('postback_method', 'GET')
         
+        # Consent fields
+        user_data['terms_accepted'] = kwargs.get('terms_accepted', False)
+        user_data['terms_accepted_at'] = kwargs.get('terms_accepted_at', None)
+        user_data['newsletter_consent'] = kwargs.get('newsletter_consent', False)
+        user_data['newsletter_consent_at'] = kwargs.get('newsletter_consent_at', None)
+        
         try:
             result = self.collection.insert_one(user_data)
             user_data['_id'] = result.inserted_id

@@ -525,7 +525,8 @@ const PublisherOffersContent = () => {
                       <TableHead className="py-3 text-xs font-semibold text-purple-700 uppercase tracking-wider">Offer</TableHead>
                       <TableHead className="py-3 text-xs font-semibold text-purple-700 uppercase tracking-wider w-[80px]">Payout</TableHead>
                       <TableHead className="py-3 text-xs font-semibold text-purple-700 uppercase tracking-wider">Countries</TableHead>
-                      <TableHead className="py-3 text-xs font-semibold text-purple-700 uppercase tracking-wider w-[80px]">Date</TableHead>
+                      <TableHead className="py-3 text-xs font-semibold text-purple-700 uppercase tracking-wider w-[90px]">Category</TableHead>
+                      <TableHead className="py-3 text-xs font-semibold text-purple-700 uppercase tracking-wider w-[80px]">Device</TableHead>
                       <TableHead className="py-3 text-xs font-semibold text-purple-700 uppercase tracking-wider w-[80px]">Status</TableHead>
                       <TableHead className="py-3 pr-4 text-xs font-semibold text-purple-700 uppercase tracking-wider text-right w-[90px]">Action</TableHead>
                     </TableRow>
@@ -569,10 +570,17 @@ const PublisherOffersContent = () => {
                           {/* Countries */}
                           <TableCell className="py-2.5">{renderFlags(offer.countries)}</TableCell>
 
-                          {/* Date */}
+                          {/* Category */}
                           <TableCell className="py-2.5">
-                            <span className="text-xs text-muted-foreground">
-                              {offer.created_at ? new Date(offer.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                            <span className="text-xs capitalize text-muted-foreground">
+                              {(offer as any).category || (offer as any).vertical || '—'}
+                            </span>
+                          </TableCell>
+
+                          {/* Device */}
+                          <TableCell className="py-2.5">
+                            <span className="text-xs capitalize text-muted-foreground">
+                              {(offer as any).device_targeting || 'all'}
                             </span>
                           </TableCell>
 

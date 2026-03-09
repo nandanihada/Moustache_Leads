@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import {
   Search,
@@ -24,6 +25,7 @@ import {
   Star,
   ThumbsUp,
   ThumbsDown,
+  Loader2,
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { API_BASE_URL } from '../services/apiConfig';
@@ -116,6 +118,14 @@ const AdminOfferAccessRequests: React.FC = () => {
   const [proofReviewNotes, setProofReviewNotes] = useState('');
   const [proofScore, setProofScore] = useState(3);
 
+  // Bulk selection state
+  const [selectedRequestIds, setSelectedRequestIds] = useState<Set<string>>(new Set());
+  const [selectedProofIds, setSelectedProofIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkRejectDialog, setBulkRejectDialog] = useState(false);
+  const [bulkRejectReason, setBulkRejectReason] = useState('');
+  const [bulkRejectType, setBulkRejectType] = useState<'requests' | 'proofs'>('requests');
+
   const fetchProofs = async () => {
     setProofsLoading(true);
     try {
@@ -149,6 +159,99 @@ const AdminOfferAccessRequests: React.FC = () => {
       toast.error('Failed to review proof');
     }
   };
+
+  // Bulk operations for access requests
+  const handleBulkApproveRequests = async (ids?: string[]) => {
+    const requestIds = ids || Array.from(selectedRequestIds);
+    if (requestIds.length === 0) return;
+    try {
+      setBulkLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_ids: requestIds })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast.success(data.message);
+      setSelectedRequestIds(new Set());
+      fetchRequests();
+      fetchStats();
+    } catch (error: any) {
+      toast.error(error.message || 'Bulk approve failed');
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkRejectRequests = async () => {
+    if (selectedRequestIds.size === 0) return;
+    try {
+      setBulkLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-reject`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request_ids: Array.from(selectedRequestIds), reason: bulkRejectReason })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast.success(data.message);
+      setSelectedRequestIds(new Set());
+      setBulkRejectDialog(false);
+      setBulkRejectReason('');
+      fetchRequests();
+      fetchStats();
+    } catch (error: any) {
+      toast.error(error.message || 'Bulk reject failed');
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkReviewProofs = async (status: 'approved' | 'rejected') => {
+    if (selectedProofIds.size === 0) return;
+    try {
+      setBulkLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/placement-proofs/admin/bulk-review`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proof_ids: Array.from(selectedProofIds), status, admin_notes: '', score: 3 })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast.success(data.message);
+      setSelectedProofIds(new Set());
+      fetchProofs();
+    } catch (error: any) {
+      toast.error(error.message || 'Bulk review failed');
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const toggleRequestSelect = (id: string) => {
+    setSelectedRequestIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleProofSelect = (id: string) => {
+    setSelectedProofIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const pendingRequests = requests.filter(r => r.status === 'pending');
+  const pendingProofs = proofs.filter(p => p.status === 'pending');
+  const allPendingRequestsSelected = pendingRequests.length > 0 && pendingRequests.every(r => selectedRequestIds.has(r.request_id));
+  const allPendingProofsSelected = pendingProofs.length > 0 && pendingProofs.every(p => selectedProofIds.has(p._id));
 
   const [filters, setFilters] = useState({
     status: 'all',
@@ -586,16 +689,50 @@ const AdminOfferAccessRequests: React.FC = () => {
       {/* Requests Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Access Requests</CardTitle>
-          <CardDescription>
-            {requests.length} request(s) found
-          </CardDescription>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle>Access Requests</CardTitle>
+              <CardDescription>{requests.length} request(s) found</CardDescription>
+            </div>
+            {pendingRequests.length > 0 && (
+              <div className="flex gap-2 items-center">
+                {selectedRequestIds.size > 0 && (
+                  <>
+                    <span className="text-sm text-muted-foreground">{selectedRequestIds.size} selected</span>
+                    <Button size="sm" variant="outline" className="text-green-600 hover:bg-green-50" onClick={() => handleBulkApproveRequests()} disabled={bulkLoading}>
+                      {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                      Approve Selected
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => { setBulkRejectType('requests'); setBulkRejectReason(''); setBulkRejectDialog(true); }} disabled={bulkLoading}>
+                      <XCircle className="h-4 w-4 mr-1" />Reject Selected
+                    </Button>
+                  </>
+                )}
+                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={() => handleBulkApproveRequests(pendingRequests.map(r => r.request_id))} disabled={bulkLoading}>
+                  {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                  Approve All ({pendingRequests.length})
+                </Button>
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto -mx-4 sm:mx-0">
           <Table>
             <TableHeader>
               <TableRow>
+                {pendingRequests.length > 0 && (
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allPendingRequestsSelected}
+                      onCheckedChange={() => {
+                        if (allPendingRequestsSelected) setSelectedRequestIds(new Set());
+                        else setSelectedRequestIds(new Set(pendingRequests.map(r => r.request_id)));
+                      }}
+                      aria-label="Select all"
+                    />
+                  </TableHead>
+                )}
                 <TableHead className="whitespace-nowrap">Publisher</TableHead>
                 <TableHead className="whitespace-nowrap">Offer</TableHead>
                 <TableHead className="whitespace-nowrap">Proof</TableHead>
@@ -608,7 +745,14 @@ const AdminOfferAccessRequests: React.FC = () => {
             </TableHeader>
             <TableBody>
               {requests.map((request) => (
-                <TableRow key={request._id}>
+                <TableRow key={request._id} className={selectedRequestIds.has(request.request_id) ? "bg-blue-50" : ""}>
+                  {pendingRequests.length > 0 && (
+                    <TableCell>
+                      {request.status === 'pending' && (
+                        <Checkbox checked={selectedRequestIds.has(request.request_id)} onCheckedChange={() => toggleRequestSelect(request.request_id)} aria-label={`Select ${request.username}`} />
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell>
                     <div>
                       <div className="font-medium">{request.username}</div>
@@ -698,7 +842,7 @@ const AdminOfferAccessRequests: React.FC = () => {
 
         {/* ── PLACEMENT PROOFS TAB ── */}
         <TabsContent value="proofs" className="space-y-4 mt-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Select value={proofStatusFilter} onValueChange={setProofStatusFilter}>
               <SelectTrigger className="w-40">
                 <SelectValue />
@@ -711,6 +855,46 @@ const AdminOfferAccessRequests: React.FC = () => {
               </SelectContent>
             </Select>
             <span className="text-sm text-muted-foreground">{proofs.length} proof(s)</span>
+            {pendingProofs.length > 0 && (
+              <div className="flex gap-2 items-center ml-auto">
+                {selectedProofIds.size > 0 && (
+                  <>
+                    <span className="text-sm text-muted-foreground">{selectedProofIds.size} selected</span>
+                    <Button size="sm" variant="outline" className="text-green-600 hover:bg-green-50" onClick={() => handleBulkReviewProofs('approved')} disabled={bulkLoading}>
+                      {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <ThumbsUp className="h-4 w-4 mr-1" />}
+                      Approve Selected
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => handleBulkReviewProofs('rejected')} disabled={bulkLoading}>
+                      <ThumbsDown className="h-4 w-4 mr-1" />Reject Selected
+                    </Button>
+                  </>
+                )}
+                <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={async () => {
+                  const allIds = pendingProofs.map(p => p._id);
+                  try {
+                    setBulkLoading(true);
+                    const token = localStorage.getItem('token');
+                    const response = await fetch(`${API_BASE_URL}/api/placement-proofs/admin/bulk-review`, {
+                      method: 'PUT',
+                      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ proof_ids: allIds, status: 'approved', admin_notes: '', score: 3 })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error);
+                    toast.success(data.message);
+                    setSelectedProofIds(new Set());
+                    fetchProofs();
+                  } catch (error: any) {
+                    toast.error(error.message || 'Approve all failed');
+                  } finally {
+                    setBulkLoading(false);
+                  }
+                }} disabled={bulkLoading}>
+                  {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                  Approve All ({pendingProofs.length})
+                </Button>
+              </div>
+            )}
           </div>
           <Card>
             <CardContent className="p-0">
@@ -722,6 +906,18 @@ const AdminOfferAccessRequests: React.FC = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {pendingProofs.length > 0 && (
+                        <TableHead className="w-10">
+                          <Checkbox
+                            checked={allPendingProofsSelected}
+                            onCheckedChange={() => {
+                              if (allPendingProofsSelected) setSelectedProofIds(new Set());
+                              else setSelectedProofIds(new Set(pendingProofs.map(p => p._id)));
+                            }}
+                            aria-label="Select all proofs"
+                          />
+                        </TableHead>
+                      )}
                       <TableHead>Publisher</TableHead>
                       <TableHead>Offer</TableHead>
                       <TableHead>Traffic Source</TableHead>
@@ -738,7 +934,14 @@ const AdminOfferAccessRequests: React.FC = () => {
                         <TableCell colSpan={8} className="text-center text-muted-foreground py-8">No proofs found</TableCell>
                       </TableRow>
                     ) : proofs.map((proof) => (
-                      <TableRow key={proof._id}>
+                      <TableRow key={proof._id} className={selectedProofIds.has(proof._id) ? "bg-blue-50" : ""}>
+                        {pendingProofs.length > 0 && (
+                          <TableCell>
+                            {proof.status === 'pending' && (
+                              <Checkbox checked={selectedProofIds.has(proof._id)} onCheckedChange={() => toggleProofSelect(proof._id)} aria-label={`Select proof`} />
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="font-medium">{proof.user_info?.username || proof.user_id}</div>
                           <div className="text-xs text-muted-foreground">{proof.user_info?.email}</div>
@@ -930,6 +1133,27 @@ const AdminOfferAccessRequests: React.FC = () => {
                 Reject Request
               </Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Reject Dialog */}
+      <Dialog open={bulkRejectDialog} onOpenChange={setBulkRejectDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Reject</DialogTitle>
+            <DialogDescription>Reject {bulkRejectType === 'requests' ? selectedRequestIds.size : selectedProofIds.size} selected item(s)?</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label>Reason for rejection</Label>
+            <Textarea value={bulkRejectReason} onChange={e => setBulkRejectReason(e.target.value)} placeholder="Enter reason..." className="mt-1" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkRejectDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleBulkRejectRequests} disabled={bulkLoading}>
+              {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Reject All
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

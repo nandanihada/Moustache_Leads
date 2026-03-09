@@ -557,43 +557,26 @@ const Offerwall: React.FC<OfferwallProps> = ({
           </div>
         </div>
 
-        {/* Category Filters (Multi-Select) */}
-        <div className="mb-8 overflow-x-auto scrollbar-hide">
-          <div className="flex gap-3 pb-2 justify-center flex-wrap px-4">
-            {CATEGORIES.map((cat) => {
-              const isSelected = selectedCategories.includes(cat.id);
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => toggleCategory(cat.id)}
-                  className={`flex items-center gap-2 px-5 py-3 rounded-2xl font-semibold whitespace-nowrap transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg scale-105'
-                      : 'bg-white/10 text-gray-300 hover:bg-white/20 border border-white/10 hover:scale-105'
-                  }`}
-                >
-                  <span>{cat.icon}</span>
-                  <span className="text-sm">{cat.name}</span>
-                  {isSelected && cat.id !== 'all' && (
-                    <span className="ml-1 text-xs bg-white/20 rounded-full px-1.5">✓</span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          {selectedCategories.length > 1 && !selectedCategories.includes('all') && (
-            <div className="text-center mt-2">
-              <span className="text-purple-300 text-sm">
-                {selectedCategories.length} categories selected
-              </span>
-              <button
-                onClick={() => setSelectedCategories(['all'])}
-                className="ml-2 text-purple-400 hover:text-purple-300 text-sm underline"
-              >
-                Clear
-              </button>
+        {/* Category Filter Dropdown */}
+        <div className="mb-8 flex justify-center px-4">
+          <div className="relative w-full max-w-xs">
+            <select
+              value={selectedCategories.includes('all') ? 'all' : selectedCategories[0]}
+              onChange={(e) => toggleCategory(e.target.value)}
+              className="w-full appearance-none bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-2xl px-5 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer pr-10"
+            >
+              {CATEGORIES.map((cat) => (
+                <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
+                  {cat.icon} {cat.name}
+                </option>
+              ))}
+            </select>
+            <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-purple-300">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
             </div>
-          )}
+          </div>
         </div>
 
         {/* Sort & Results Count */}

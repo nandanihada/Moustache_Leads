@@ -72,7 +72,8 @@ def get_available_offers():
             'affiliates': 1, 'selected_users': 1, 'is_active': 1,
             'target_url': 1, 'masked_url': 1, 'show_in_offerwall': 1,
             'promo_code': 1, 'promo_code_id': 1, 'bonus_amount': 1, 'bonus_type': 1,
-            'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1
+            'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1,
+            'device_targeting': 1,
         }
         
         # Get paginated results with projection
@@ -224,6 +225,7 @@ def get_available_offers():
                     'description': offer.get('description', ''),
                     'category': offer.get('category', 'general'),
                     'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
+                    'device_targeting': offer.get('device_targeting', 'all'),
                     'payout': publisher_payout,
                     'currency': offer.get('currency', 'USD'),
                     'network': offer.get('network', 'Unknown'),

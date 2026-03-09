@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { API_BASE_URL } from "@/services/apiConfig";
 
@@ -39,6 +40,10 @@ interface User {
   email_verified: boolean;
   created_at: string;
   account_status_updated_at?: string;
+  terms_accepted?: boolean;
+  terms_accepted_at?: string;
+  newsletter_consent?: boolean;
+  newsletter_consent_at?: string;
 }
 
 interface UserCounts {
@@ -55,9 +60,12 @@ const Users = () => {
   const [counts, setCounts] = useState<UserCounts>({ pending: 0, approved: 0, rejected: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [bulkRejectDialogOpen, setBulkRejectDialogOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const { toast } = useToast();
 
   const fetchUsers = async (status?: string) => {
@@ -75,20 +83,15 @@ const Users = () => {
         }
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch users');
-      }
+      if (!response.ok) throw new Error('Failed to fetch users');
 
       const data = await response.json();
       setUsers(data.users || []);
       setCounts(data.counts || { pending: 0, approved: 0, rejected: 0, total: 0 });
+      setSelectedIds(new Set());
     } catch (error) {
       console.error('Error fetching users:', error);
-      toast({
-        title: "Error",
-        description: "Failed to fetch users",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: "Failed to fetch users", variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -103,43 +106,21 @@ const Users = () => {
     try {
       setActionLoading(userId);
       const token = localStorage.getItem('token');
-      
       const response = await fetch(`${API_BASE_URL}/api/auth/admin/users/${userId}/approve`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
       });
-
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to approve user');
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to approve user');
-      }
-
-      // Show appropriate message based on email status
-      if (data.email_sent) {
-        toast({
-          title: "User Approved",
-          description: "User has been approved and activation email sent.",
-        });
-      } else {
-        toast({
-          title: "User Approved",
-          description: `User approved but email failed: ${data.email_error || 'Unknown error'}`,
-          variant: "destructive"
-        });
-      }
-
-      // Refresh users list
+      toast({
+        title: "User Approved",
+        description: data.email_sent ? "User approved and activation email sent." : `User approved but email failed: ${data.email_error || 'Unknown error'}`,
+        variant: data.email_sent ? "default" : "destructive"
+      });
       fetchUsers(activeTab === 'all' ? undefined : activeTab);
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to approve user",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: error.message || "Failed to approve user", variant: "destructive" });
     } finally {
       setActionLoading(null);
     }
@@ -153,43 +134,114 @@ const Users = () => {
 
   const handleReject = async () => {
     if (!selectedUser) return;
-
     try {
       setActionLoading(selectedUser._id);
       const token = localStorage.getItem('token');
-      
       const response = await fetch(`${API_BASE_URL}/api/auth/admin/users/${selectedUser._id}/reject`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason: rejectReason })
       });
-
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to reject user');
       }
-
-      toast({
-        title: "User Rejected",
-        description: "User application has been rejected.",
-      });
-
+      toast({ title: "User Rejected", description: "User application has been rejected." });
       setRejectDialogOpen(false);
       setSelectedUser(null);
-      
-      // Refresh users list
       fetchUsers(activeTab === 'all' ? undefined : activeTab);
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to reject user",
-        variant: "destructive"
-      });
+      toast({ title: "Error", description: error.message || "Failed to reject user", variant: "destructive" });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // Bulk operations
+  const handleBulkApprove = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      setBulkLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/users/bulk-approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_ids: Array.from(selectedIds) })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Bulk approve failed');
+      toast({ title: "Bulk Approve", description: data.message });
+      setSelectedIds(new Set());
+      fetchUsers(activeTab === 'all' ? undefined : activeTab);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleBulkReject = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      setBulkLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/users/bulk-reject`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_ids: Array.from(selectedIds), reason: rejectReason })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Bulk reject failed');
+      toast({ title: "Bulk Reject", description: data.message });
+      setBulkRejectDialogOpen(false);
+      setRejectReason("");
+      setSelectedIds(new Set());
+      fetchUsers(activeTab === 'all' ? undefined : activeTab);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const handleApproveAll = async () => {
+    const pendingUsers = filteredUsers.filter(u => u.account_status === 'pending_approval');
+    if (pendingUsers.length === 0) return;
+    const ids = pendingUsers.map(u => u._id);
+    try {
+      setBulkLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/users/bulk-approve`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_ids: ids })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Approve all failed');
+      toast({ title: "Approve All", description: data.message });
+      setSelectedIds(new Set());
+      fetchUsers(activeTab === 'all' ? undefined : activeTab);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const pendingIds = filteredUsers.filter(u => u.account_status === 'pending_approval').map(u => u._id);
+    if (pendingIds.every(id => selectedIds.has(id))) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pendingIds));
     }
   };
 
@@ -199,6 +251,9 @@ const Users = () => {
            user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
            user._id.toLowerCase().includes(searchTerm.toLowerCase());
   });
+
+  const pendingInView = filteredUsers.filter(u => u.account_status === 'pending_approval');
+  const allPendingSelected = pendingInView.length > 0 && pendingInView.every(u => selectedIds.has(u._id));
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -215,11 +270,7 @@ const Users = () => {
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
     return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
     });
   };
 
@@ -283,18 +334,16 @@ const Users = () => {
           <CardTitle>User Management</CardTitle>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); setSelectedIds(new Set()); }} className="space-y-4">
             <TabsList>
-              <TabsTrigger value="pending_approval">
-                Pending ({counts.pending})
-              </TabsTrigger>
+              <TabsTrigger value="pending_approval">Pending ({counts.pending})</TabsTrigger>
               <TabsTrigger value="approved">Approved ({counts.approved})</TabsTrigger>
               <TabsTrigger value="rejected">Rejected ({counts.rejected})</TabsTrigger>
               <TabsTrigger value="all">All Users</TabsTrigger>
             </TabsList>
 
-            <div className="flex gap-4 items-center">
-              <div className="flex-1 relative">
+            <div className="flex gap-4 items-center flex-wrap">
+              <div className="flex-1 relative min-w-[200px]">
                 <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search users by name, email, or ID..."
@@ -303,6 +352,27 @@ const Users = () => {
                   className="pl-10"
                 />
               </div>
+              {/* Bulk action buttons */}
+              {pendingInView.length > 0 && (
+                <div className="flex gap-2 items-center">
+                  {selectedIds.size > 0 && (
+                    <>
+                      <span className="text-sm text-muted-foreground">{selectedIds.size} selected</span>
+                      <Button size="sm" variant="outline" className="text-green-600 hover:bg-green-50" onClick={handleBulkApprove} disabled={bulkLoading}>
+                        {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <UserCheck className="h-4 w-4 mr-1" />}
+                        Approve Selected
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-red-600 hover:bg-red-50" onClick={() => { setRejectReason(""); setBulkRejectDialogOpen(true); }} disabled={bulkLoading}>
+                        <UserX className="h-4 w-4 mr-1" />Reject Selected
+                      </Button>
+                    </>
+                  )}
+                  <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={handleApproveAll} disabled={bulkLoading}>
+                    {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <CheckCircle className="h-4 w-4 mr-1" />}
+                    Approve All ({pendingInView.length})
+                  </Button>
+                </div>
+              )}
             </div>
 
             <TabsContent value={activeTab} className="space-y-4">
@@ -311,25 +381,36 @@ const Users = () => {
                   <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
                 </div>
               ) : filteredUsers.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  No users found
-                </div>
+                <div className="text-center py-12 text-muted-foreground">No users found</div>
               ) : (
                 <div className="overflow-x-auto -mx-4 sm:mx-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      {pendingInView.length > 0 && (
+                        <TableHead className="w-10">
+                          <Checkbox checked={allPendingSelected} onCheckedChange={toggleSelectAll} aria-label="Select all" />
+                        </TableHead>
+                      )}
                       <TableHead className="whitespace-nowrap">User</TableHead>
                       <TableHead className="whitespace-nowrap">Contact</TableHead>
                       <TableHead className="whitespace-nowrap">Status</TableHead>
                       <TableHead className="whitespace-nowrap">Email Verified</TableHead>
+                      <TableHead className="whitespace-nowrap">Consent</TableHead>
                       <TableHead className="whitespace-nowrap">Join Date</TableHead>
                       <TableHead className="whitespace-nowrap">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredUsers.map((user) => (
-                      <TableRow key={user._id}>
+                      <TableRow key={user._id} className={selectedIds.has(user._id) ? "bg-blue-50" : ""}>
+                        {pendingInView.length > 0 && (
+                          <TableCell>
+                            {user.account_status === 'pending_approval' && (
+                              <Checkbox checked={selectedIds.has(user._id)} onCheckedChange={() => toggleSelect(user._id)} aria-label={`Select ${user.username}`} />
+                            )}
+                          </TableCell>
+                        )}
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <Avatar>
@@ -340,14 +421,10 @@ const Users = () => {
                             </Avatar>
                             <div>
                               <p className="font-medium">
-                                {user.first_name && user.last_name 
-                                  ? `${user.first_name} ${user.last_name}`
-                                  : user.username}
+                                {user.first_name && user.last_name ? `${user.first_name} ${user.last_name}` : user.username}
                               </p>
                               <p className="text-sm text-muted-foreground">@{user.username}</p>
-                              {user.company_name && (
-                                <p className="text-xs text-muted-foreground">{user.company_name}</p>
-                              )}
+                              {user.company_name && <p className="text-xs text-muted-foreground">{user.company_name}</p>}
                             </div>
                           </div>
                         </TableCell>
@@ -357,66 +434,51 @@ const Users = () => {
                               <Mail className="h-4 w-4 text-muted-foreground" />
                               <span>{user.email}</span>
                             </div>
-                            {user.website && (
-                              <div className="text-xs text-muted-foreground">
-                                {user.website}
-                              </div>
-                            )}
+                            {user.website && <div className="text-xs text-muted-foreground">{user.website}</div>}
                           </div>
                         </TableCell>
-                        <TableCell>
-                          {getStatusBadge(user.account_status)}
-                        </TableCell>
+                        <TableCell>{getStatusBadge(user.account_status)}</TableCell>
                         <TableCell>
                           {user.email_verified ? (
-                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                              <CheckCircle className="w-3 h-3 mr-1" />Verified
-                            </Badge>
+                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100"><CheckCircle className="w-3 h-3 mr-1" />Verified</Badge>
                           ) : (
-                            <Badge variant="secondary">
-                              <Clock className="w-3 h-3 mr-1" />Pending
-                            </Badge>
+                            <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />Pending</Badge>
                           )}
                         </TableCell>
-                        <TableCell className="text-sm">
-                          {formatDate(user.created_at)}
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <div className="flex items-center gap-1 text-xs" title={user.terms_accepted_at ? `Accepted: ${formatDate(user.terms_accepted_at)}` : 'Not accepted'}>
+                              {user.terms_accepted ? (
+                                <Badge variant="outline" className="text-green-600 border-green-300 text-xs py-0"><CheckCircle className="w-3 h-3 mr-1" />T&C</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-gray-400 border-gray-300 text-xs py-0"><XCircle className="w-3 h-3 mr-1" />T&C</Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 text-xs" title={user.newsletter_consent_at ? `Consented: ${formatDate(user.newsletter_consent_at)}` : 'No consent'}>
+                              {user.newsletter_consent ? (
+                                <Badge variant="outline" className="text-blue-600 border-blue-300 text-xs py-0"><MailCheck className="w-3 h-3 mr-1" />Newsletter</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-gray-400 border-gray-300 text-xs py-0"><MailX className="w-3 h-3 mr-1" />Newsletter</Badge>
+                              )}
+                            </div>
+                          </div>
                         </TableCell>
+                        <TableCell className="text-sm">{formatDate(user.created_at)}</TableCell>
                         <TableCell>
                           <div className="flex gap-2">
                             {user.account_status === "pending_approval" && (
                               <>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                  onClick={() => handleApprove(user._id)}
-                                  disabled={actionLoading === user._id}
-                                >
-                                  {actionLoading === user._id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <UserCheck className="h-4 w-4" />
-                                  )}
+                                <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleApprove(user._id)} disabled={actionLoading === user._id}>
+                                  {actionLoading === user._id ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
                                   <span className="ml-1">Approve</span>
                                 </Button>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => openRejectDialog(user)}
-                                  disabled={actionLoading === user._id}
-                                >
-                                  <UserX className="h-4 w-4" />
-                                  <span className="ml-1">Reject</span>
+                                <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => openRejectDialog(user)} disabled={actionLoading === user._id}>
+                                  <UserX className="h-4 w-4" /><span className="ml-1">Reject</span>
                                 </Button>
                               </>
                             )}
-                            {user.account_status === "approved" && (
-                              <Badge variant="outline" className="text-green-600">Active</Badge>
-                            )}
-                            {user.account_status === "rejected" && (
-                              <Badge variant="outline" className="text-red-600">Rejected</Badge>
-                            )}
+                            {user.account_status === "approved" && <Badge variant="outline" className="text-green-600">Active</Badge>}
+                            {user.account_status === "rejected" && <Badge variant="outline" className="text-red-600">Rejected</Badge>}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -430,39 +492,47 @@ const Users = () => {
         </CardContent>
       </Card>
 
-      {/* Reject Dialog */}
+      {/* Single Reject Dialog */}
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Reject User Application</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to reject {selectedUser?.username}'s application?
-            </DialogDescription>
+            <DialogDescription>Are you sure you want to reject {selectedUser?.username}'s application?</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">Reason for rejection (optional)</label>
-              <Textarea
-                placeholder="Enter reason for rejection..."
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                className="mt-2"
-              />
+              <Textarea placeholder="Enter reason for rejection..." value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} className="mt-2" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button 
-              variant="destructive" 
-              onClick={handleReject}
-              disabled={actionLoading === selectedUser?._id}
-            >
-              {actionLoading === selectedUser?._id ? (
-                <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              ) : null}
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleReject} disabled={actionLoading === selectedUser?._id}>
+              {actionLoading === selectedUser?._id ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Reject User
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Reject Dialog */}
+      <Dialog open={bulkRejectDialogOpen} onOpenChange={setBulkRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Reject Users</DialogTitle>
+            <DialogDescription>Reject {selectedIds.size} selected user(s)?</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Reason for rejection (optional)</label>
+              <Textarea placeholder="Enter reason for rejection..." value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} className="mt-2" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkRejectDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleBulkReject} disabled={bulkLoading}>
+              {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Reject {selectedIds.size} Users
             </Button>
           </DialogFooter>
         </DialogContent>

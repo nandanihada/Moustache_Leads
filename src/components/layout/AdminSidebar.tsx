@@ -103,6 +103,13 @@ const adminMenuStructure = [
       { title: "Test Postback", url: "/admin/test-postback", icon: Zap, tab: "test-postback" },
     ]
   },
+  {
+    title: "Support",
+    url: "/admin/support-inbox",
+    icon: Mail,
+    tab: "support-inbox",
+    type: "single" as const,
+  },
 ];
 
 export function AdminSidebar() {

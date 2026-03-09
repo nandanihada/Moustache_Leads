@@ -350,6 +350,183 @@ def reject_access_request(request_id):
         logging.error(f"Reject access request error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to reject request: {str(e)}'}), 500
 
+@admin_offer_requests_bp.route('/offer-access-requests/bulk-approve', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def bulk_approve_access_requests():
+    """Bulk approve multiple access requests"""
+    try:
+        from bson import ObjectId
+
+        data = request.get_json() or {}
+        request_ids = data.get('request_ids', [])
+        notes = data.get('notes', '')
+        user = request.current_user
+
+        if not request_ids:
+            return jsonify({'error': 'No request IDs provided'}), 400
+
+        requests_collection = db_instance.get_collection('affiliate_requests')
+        results = {'approved': 0, 'failed': 0, 'errors': []}
+
+        for rid in request_ids:
+            try:
+                access_request = requests_collection.find_one({'request_id': rid})
+                if not access_request:
+                    try:
+                        access_request = requests_collection.find_one({'_id': ObjectId(rid)})
+                    except:
+                        pass
+
+                if not access_request:
+                    results['failed'] += 1
+                    results['errors'].append(f'{rid}: Not found')
+                    continue
+
+                actual_request_id = access_request.get('request_id') or str(access_request['_id'])
+                result = access_service.approve_access_request_by_id(
+                    actual_request_id,
+                    access_request['offer_id']
+                )
+
+                if 'error' in result:
+                    results['failed'] += 1
+                    results['errors'].append(f'{rid}: {result["error"]}')
+                    continue
+
+                requests_collection.update_one(
+                    {'_id': access_request['_id']},
+                    {'$set': {
+                        'approved_by': str(user['_id']),
+                        'approved_by_username': user.get('username'),
+                        'approval_notes': notes,
+                        'updated_at': datetime.utcnow()
+                    }}
+                )
+                results['approved'] += 1
+
+                # Send email notification
+                try:
+                    users_collection = db_instance.get_collection('users')
+                    publisher = users_collection.find_one({'_id': access_request.get('user_id')})
+                    if publisher and publisher.get('email'):
+                        offers_collection = db_instance.get_collection('offers')
+                        offer = offers_collection.find_one({'offer_id': access_request.get('offer_id')})
+                        offer_name = offer.get('name', 'Unknown Offer') if offer else 'Unknown Offer'
+                        email_service = get_email_service()
+                        email_service.send_approval_notification_async(
+                            recipient_email=publisher['email'],
+                            offer_name=offer_name,
+                            status='approved',
+                            reason='',
+                            offer_id=str(access_request.get('offer_id', ''))
+                        )
+                except Exception:
+                    pass
+
+            except Exception as e:
+                results['failed'] += 1
+                results['errors'].append(f'{rid}: {str(e)}')
+
+        return jsonify({
+            'message': f'Bulk approval complete: {results["approved"]} approved, {results["failed"]} failed',
+            'results': results
+        })
+
+    except Exception as e:
+        logging.error(f"Bulk approve error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Bulk approve failed: {str(e)}'}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/bulk-reject', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def bulk_reject_access_requests():
+    """Bulk reject multiple access requests"""
+    try:
+        from bson import ObjectId
+
+        data = request.get_json() or {}
+        request_ids = data.get('request_ids', [])
+        reason = data.get('reason', 'Bulk rejection')
+        user = request.current_user
+
+        if not request_ids:
+            return jsonify({'error': 'No request IDs provided'}), 400
+
+        requests_collection = db_instance.get_collection('affiliate_requests')
+        results = {'rejected': 0, 'failed': 0, 'errors': []}
+
+        for rid in request_ids:
+            try:
+                access_request = requests_collection.find_one({'request_id': rid})
+                if not access_request:
+                    try:
+                        access_request = requests_collection.find_one({'_id': ObjectId(rid)})
+                    except:
+                        pass
+
+                if not access_request:
+                    results['failed'] += 1
+                    results['errors'].append(f'{rid}: Not found')
+                    continue
+
+                actual_request_id = access_request.get('request_id') or str(access_request['_id'])
+                result = access_service.reject_access_request_by_id(
+                    actual_request_id,
+                    access_request['offer_id'],
+                    reason
+                )
+
+                if 'error' in result:
+                    results['failed'] += 1
+                    results['errors'].append(f'{rid}: {result["error"]}')
+                    continue
+
+                requests_collection.update_one(
+                    {'_id': access_request['_id']},
+                    {'$set': {
+                        'rejected_by': str(user['_id']),
+                        'rejected_by_username': user.get('username'),
+                        'rejection_reason': reason,
+                        'updated_at': datetime.utcnow()
+                    }}
+                )
+                results['rejected'] += 1
+
+                # Send email notification
+                try:
+                    users_collection = db_instance.get_collection('users')
+                    publisher = users_collection.find_one({'_id': access_request.get('user_id')})
+                    if publisher and publisher.get('email'):
+                        offers_collection = db_instance.get_collection('offers')
+                        offer = offers_collection.find_one({'offer_id': access_request.get('offer_id')})
+                        offer_name = offer.get('name', 'Unknown Offer') if offer else 'Unknown Offer'
+                        email_service = get_email_service()
+                        email_service.send_approval_notification_async(
+                            recipient_email=publisher['email'],
+                            offer_name=offer_name,
+                            status='rejected',
+                            reason=reason,
+                            offer_id=str(access_request.get('offer_id', ''))
+                        )
+                except Exception:
+                    pass
+
+            except Exception as e:
+                results['failed'] += 1
+                results['errors'].append(f'{rid}: {str(e)}')
+
+        return jsonify({
+            'message': f'Bulk rejection complete: {results["rejected"]} rejected, {results["failed"]} failed',
+            'results': results
+        })
+
+    except Exception as e:
+        logging.error(f"Bulk reject error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Bulk reject failed: {str(e)}'}), 500
+
+
 @admin_offer_requests_bp.route('/offer-access-requests/stats', methods=['GET'])
 @token_required
 @subadmin_or_admin_required('offer-access-requests')
