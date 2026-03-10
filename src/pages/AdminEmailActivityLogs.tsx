@@ -69,6 +69,8 @@ const AdminEmailActivityLogs: React.FC = () => {
       case 'bulk_upload': return <Badge variant="outline" className="text-blue-600 border-blue-600">Bulk Upload</Badge>;
       case 'api_import': return <Badge variant="outline" className="text-purple-600 border-purple-600">API Import</Badge>;
       case 'single_offer': return <Badge variant="outline" className="text-green-600 border-green-600">Single Offer</Badge>;
+      case 'support_reply': return <Badge variant="outline" className="text-orange-600 border-orange-600">Support Reply</Badge>;
+      case 'support_broadcast': return <Badge variant="outline" className="text-pink-600 border-pink-600">Support Broadcast</Badge>;
       default: return <Badge variant="outline">{source}</Badge>;
     }
   };
@@ -83,6 +85,7 @@ const AdminEmailActivityLogs: React.FC = () => {
       case 'all_publishers': return '👥 All Publishers';
       case 'active_publishers': return '✅ Active Only';
       case 'specific_users': return '🎯 Specific Users';
+      case 'all_users': return '👥 All Users';
       default: return type;
     }
   };
@@ -93,7 +96,7 @@ const AdminEmailActivityLogs: React.FC = () => {
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <Mail className="h-7 w-7" /> Email Activity Logs
         </h1>
-        <p className="text-muted-foreground">Track all offer-related email activity</p>
+        <p className="text-muted-foreground">Track all email activity across the platform</p>
       </div>
 
       <div className="flex items-center gap-3">
@@ -106,6 +109,8 @@ const AdminEmailActivityLogs: React.FC = () => {
             <SelectItem value="single_offer">Single Offer</SelectItem>
             <SelectItem value="bulk_upload">Bulk Upload</SelectItem>
             <SelectItem value="api_import">API Import</SelectItem>
+            <SelectItem value="support_reply">Support Reply</SelectItem>
+            <SelectItem value="support_broadcast">Support Broadcast</SelectItem>
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground">{total} log(s)</span>

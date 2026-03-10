@@ -18,6 +18,7 @@ import {
   Trophy,
   ChevronRight,
   ChevronDown,
+  MessageCircle,
   LucideIcon
 } from "lucide-react";
 import { NavLink, useNavigate, Link, useLocation } from "react-router-dom";
@@ -107,6 +108,12 @@ const menuStructure: MenuItem[] = [
       { title: "Payments", url: "/dashboard/payments", icon: CreditCard, requiresPlacement: true },
       { title: "Settings", url: "/dashboard/settings", icon: Settings },
     ]
+  },
+  {
+    title: "Support",
+    url: "/dashboard/support",
+    icon: MessageCircle,
+    type: "single",
   },
 ];
 

@@ -66,6 +66,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Store in both cookies (for cross-subdomain) and localStorage (for backward compatibility)
     setAuthToken(newToken);
     setAuthUser(newUser);
+    // Mark that this is a fresh login so the support popup fires
+    sessionStorage.setItem('just_logged_in', '1');
+    sessionStorage.removeItem(`support_popup_shown_${newUser.id}`);
   };
 
   const logout = async () => {
@@ -93,6 +96,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearAuth();
     clearPlacementCache(); // Clear placement cache on logout
     localStorage.removeItem('session_id');
+    // Reset support popup so it fires again on next login
+    sessionStorage.removeItem('support_reply_checked');
   };
 
   // Check if account is approved (admins are always approved)

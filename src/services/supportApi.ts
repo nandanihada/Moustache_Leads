@@ -30,6 +30,16 @@ export interface SupportMessage {
 
 export const supportApi = {
   // Publisher
+  checkUnreadReplies: async (): Promise<{ success: boolean; unread_count: number; preview: string | null }> => {
+    const res = await fetch(`${base()}/api/support/unread-replies`, { headers: headers() });
+    return res.json();
+  },
+
+  markRepliesRead: async () => {
+    const res = await fetch(`${base()}/api/support/mark-read`, { method: 'PUT', headers: headers() });
+    return res.json();
+  },
+
   sendMessage: async (subject: string, body: string) => {
     const res = await fetch(`${base()}/api/support/messages`, {
       method: 'POST',
@@ -63,6 +73,20 @@ export const supportApi = {
     const res = await fetch(`${base()}/api/admin/support/messages/${messageId}/read`, {
       method: 'PUT',
       headers: headers(),
+    });
+    return res.json();
+  },
+
+  adminGetUsers: async (): Promise<{ success: boolean; users: { _id: string; username: string; email: string }[] }> => {
+    const res = await fetch(`${base()}/api/admin/support/users`, { headers: headers() });
+    return res.json();
+  },
+
+  adminBroadcast: async (subject: string, body: string, recipientIds: string[] | null) => {
+    const res = await fetch(`${base()}/api/admin/support/broadcast`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ subject, body, recipient_ids: recipientIds }),
     });
     return res.json();
   },

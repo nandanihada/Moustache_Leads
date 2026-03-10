@@ -54,6 +54,7 @@ import AdminEmailActivityLogs from "./pages/AdminEmailActivityLogs";
 import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
 import AdminPlacementProofs from "./pages/AdminPlacementProofs";
 import AdminSupportInbox from "./pages/AdminSupportInbox";
+import SupportPage from "./pages/SupportPage";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
 import AdvertiserCampaigns from "./pages/AdvertiserCampaigns";
 import AdvertiserLayout from "./components/layout/AdvertiserLayout";
@@ -129,6 +130,7 @@ const App = () => (
                 <Route path="rewards" element={<UserRewardsDashboard />} />
                 <Route path="campaign-builder" element={<CampaignBuilder />} />
                 <Route path="ascend" element={<AscendIframe />} />
+                <Route path="support" element={<SupportPage />} />
               </Route>
 
               {/* Admin Dashboard routes */}

@@ -4,7 +4,7 @@ import { AppSidebar } from "./AppSidebar";
 import { TopBar } from "./TopBar";
 import { useActivityTracking } from "@/hooks/useActivityTracking";
 import NotificationBar from "@/components/NotificationBar";
-import { SupportWidget } from "@/components/SupportWidget";
+import { SupportReplyPopup } from "@/components/SupportReplyPopup";
 
 const DashboardLayout = () => {
   // Automatically track page visits and send heartbeats
@@ -22,7 +22,7 @@ const DashboardLayout = () => {
               <Outlet />
             </div>
           </main>
-          <SupportWidget />
+          <SupportReplyPopup />
         </div>
       </div>
     </SidebarProvider>
