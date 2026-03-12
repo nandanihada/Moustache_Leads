@@ -39,23 +39,26 @@ def create_partner():
         import secrets
         unique_key = secrets.token_urlsafe(24)
         
-        # Get parameter mappings from request
+        # Get parameter mappings from request (postback params: their_param -> our_param)
         parameter_mapping = data.get('parameter_mapping', {})
+        
+        # Get offer URL params: list of {our_field, their_param} dicts
+        # e.g. [{"our_field": "user_id", "their_param": "sub1"}, ...]
+        offer_url_params = data.get('offer_url_params', [])
+        
+        # Network domain for auto-detection on offer import
+        network_domain = data.get('network_domain', '').strip().lower()
         
         # Build postback URL with parameters
         base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
         
         # Add parameters to URL if mappings exist
+        # Format: our_field={their_param} — partner replaces {their_param} with real value and sends to us
         if parameter_mapping:
             params = []
             for their_param, our_param in parameter_mapping.items():
-                # Use their parameter name in the URL with a macro
-                params.append(f"{their_param}={{{their_param}}}")
-            
-            if params:
-                postback_receiver_url = f"{base_url}?{'&'.join(params)}"
-            else:
-                postback_receiver_url = base_url
+                params.append(f"{our_param}={{{their_param}}}")
+            postback_receiver_url = f"{base_url}?{'&'.join(params)}" if params else base_url
         else:
             postback_receiver_url = base_url
         
@@ -63,13 +66,15 @@ def create_partner():
         partner_doc = {
             'partner_id': str(uuid.uuid4()),
             'partner_name': data['partner_name'].strip(),
-            'postback_url': data.get('postback_url', 'https://placeholder.com'),  # Not used for upward partners
+            'postback_url': data.get('postback_url', 'https://placeholder.com'),
             'method': data.get('method', 'GET'),
             'status': data.get('status', 'active'),
             'description': data.get('description', '').strip(),
             'unique_postback_key': unique_key,
             'postback_receiver_url': postback_receiver_url,
-            'parameter_mapping': parameter_mapping,  # Store the mapping
+            'parameter_mapping': parameter_mapping,
+            'offer_url_params': offer_url_params,   # NEW: params to append to offer URLs
+            'network_domain': network_domain,        # NEW: domain for auto-detection
             'created_by': str(request.current_user['_id']),
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow()
@@ -171,11 +176,14 @@ def update_partner(partner_id):
         }
         
         # Update allowed fields
-        allowed_fields = ['partner_name', 'postback_url', 'method', 'status', 'description', 'parameter_mapping']
+        allowed_fields = ['partner_name', 'postback_url', 'method', 'status', 'description',
+                          'parameter_mapping', 'offer_url_params', 'network_domain']
         for field in allowed_fields:
             if field in data:
-                if field == 'parameter_mapping':
+                if field in ('parameter_mapping', 'offer_url_params'):
                     update_doc[field] = data[field]
+                elif field == 'network_domain':
+                    update_doc[field] = data[field].strip().lower()
                 else:
                     update_doc[field] = data[field].strip() if isinstance(data[field], str) else data[field]
         
@@ -186,17 +194,9 @@ def update_partner(partner_id):
             
             if unique_key:
                 base_url = f"https://postback.moustacheleads.com/postback/{unique_key}"
-                
-                # Add parameters to URL if mappings exist
                 if parameter_mapping:
-                    params = []
-                    for their_param, our_param in parameter_mapping.items():
-                        params.append(f"{their_param}={{{their_param}}}")
-                    
-                    if params:
-                        update_doc['postback_receiver_url'] = f"{base_url}?{'&'.join(params)}"
-                    else:
-                        update_doc['postback_receiver_url'] = base_url
+                    params = [f"{our_param}={{{their_param}}}" for their_param, our_param in parameter_mapping.items()]
+                    update_doc['postback_receiver_url'] = f"{base_url}?{'&'.join(params)}" if params else base_url
                 else:
                     update_doc['postback_receiver_url'] = base_url
         

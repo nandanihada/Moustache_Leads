@@ -680,6 +680,10 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     # This must be done after defaults are applied to ensure network field exists
     result = process_offer_tracking_link(result)
     
+    # Auto-inject Upward Partner offer URL params based on domain matching
+    from services.tracking_link_generator import apply_network_offer_params
+    result = apply_network_offer_params(result)
+    
     return result
 
 

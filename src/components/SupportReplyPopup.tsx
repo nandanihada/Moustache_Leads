@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import React, { useEffect, useState } from 'react';
 import { MessageCircle, X, ArrowRight } from 'lucide-react';
 import { supportApi } from '@/services/supportApi';
 import { useNavigate } from 'react-router-dom';

@@ -3,6 +3,11 @@ import axios from 'axios';
 import { API_BASE_URL as BASE_URL } from './apiConfig';
 const API_BASE_URL = `${BASE_URL}/api/admin`;
 
+export interface OfferUrlParam {
+  our_field: string;   // e.g. "user_id", "payout", "transaction_id"
+  their_param: string; // e.g. "sub1", "payout_amount", "transaction_id"
+}
+
 export interface Partner {
   _id?: string;
   partner_id: string;
@@ -17,6 +22,9 @@ export interface Partner {
   unique_postback_key?: string;
   postback_receiver_url?: string;
   parameter_mapping?: Record<string, string>;
+  // NEW: Offer URL auto-param injection
+  offer_url_params?: OfferUrlParam[];
+  network_domain?: string;
 }
 
 export interface CreatePartnerData {
@@ -26,6 +34,9 @@ export interface CreatePartnerData {
   status?: 'active' | 'inactive';
   description?: string;
   parameter_mapping?: Record<string, string>;
+  // NEW
+  offer_url_params?: OfferUrlParam[];
+  network_domain?: string;
 }
 
 export interface TestPostbackResponse {

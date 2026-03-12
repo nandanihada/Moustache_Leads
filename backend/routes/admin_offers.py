@@ -90,6 +90,21 @@ def create_offer():
         if error:
             return jsonify({'error': error}), 400
         
+        # 🔥 AUTO-INJECT network offer URL params if a matching Upward Partner exists
+        try:
+            from services.tracking_link_generator import apply_network_offer_params
+            original_url = offer_data.get('target_url', '')
+            offer_data = apply_network_offer_params(offer_data)
+            if offer_data.get('target_url') != original_url:
+                offer_collection = db_instance.get_collection('offers')
+                offer_collection.update_one(
+                    {'offer_id': offer_data['offer_id']},
+                    {'$set': {'target_url': offer_data['target_url']}}
+                )
+                logging.info(f"✅ Network params injected into offer URL: {offer_data['target_url']}")
+        except Exception as e:
+            logging.error(f"❌ Network param injection error (non-critical): {str(e)}")
+        
         logging.info("✅ Offer created successfully, now creating masked link...")
         
         # 🔥 AUTO-GENERATE MASKED LINK
@@ -510,6 +525,21 @@ def update_offer(offer_id):
             updated_offer = extended_offer_model.get_offer_by_id(offer_id)
         else:
             updated_offer = offer_model.get_offer_by_id(offer_id)
+        
+        # 🔥 AUTO-INJECT network offer URL params if a matching Upward Partner exists
+        try:
+            from services.tracking_link_generator import apply_network_offer_params
+            original_url = updated_offer.get('target_url', '')
+            updated_offer = apply_network_offer_params(updated_offer)
+            if updated_offer.get('target_url') != original_url:
+                offer_collection = db_instance.get_collection('offers')
+                offer_collection.update_one(
+                    {'offer_id': offer_id},
+                    {'$set': {'target_url': updated_offer['target_url']}}
+                )
+                logging.info(f"✅ Network params injected into updated offer URL: {updated_offer['target_url']}")
+        except Exception as e:
+            logging.error(f"❌ Network param injection error on update (non-critical): {str(e)}")
         
         # Send email if promo code was assigned or changed
         if promo_code_id and promo_code_id != old_promo_code_id:

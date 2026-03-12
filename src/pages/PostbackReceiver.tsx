@@ -24,6 +24,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { postbackReceiverApi, ReceivedPostback } from '@/services/postbackReceiverApi';
@@ -41,7 +48,9 @@ import {
   Key,
   Plus,
   TestTube,
-  Trash2
+  Trash2,
+  Filter,
+  X
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -95,6 +104,26 @@ const PostbackReceiver: React.FC = () => {
   const [parameterMappings, setParameterMappings] = useState<Record<string, string>>({});
   const [isDeletingPartner, setIsDeletingPartner] = useState<string | null>(null);
 
+  // Filter state — Received Postbacks
+  const [showReceivedFilters, setShowReceivedFilters] = useState(false);
+  const [receivedSearch, setReceivedSearch] = useState('');
+  const [receivedPartnerFilter, setReceivedPartnerFilter] = useState('');
+  const [receivedCountryFilter, setReceivedCountryFilter] = useState('');
+  const [receivedIpFilter, setReceivedIpFilter] = useState('');
+  const [receivedDateFrom, setReceivedDateFrom] = useState('');
+  const [receivedDateTo, setReceivedDateTo] = useState('');
+  const [receivedPageSize, setReceivedPageSize] = useState(20);
+
+  // Filter state — Forwarded Postbacks
+  const [showForwardedFilters, setShowForwardedFilters] = useState(false);
+  const [forwardedSearch, setForwardedSearch] = useState('');
+  const [forwardedPartnerFilter, setForwardedPartnerFilter] = useState('');
+  const [forwardedCountryFilter, setForwardedCountryFilter] = useState('');
+  const [forwardedIpFilter, setForwardedIpFilter] = useState('');
+  const [forwardedDateFrom, setForwardedDateFrom] = useState('');
+  const [forwardedDateTo, setForwardedDateTo] = useState('');
+  const [forwardedPageSize, setForwardedPageSize] = useState(20);
+
   // Predefined parameters
   const predefinedParameters = [
     { key: 'username', label: 'Username', placeholder: '{username}' },
@@ -109,23 +138,23 @@ const PostbackReceiver: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [receivedPage, forwardedPage]);
+  }, [receivedPage, forwardedPage, receivedPageSize, forwardedPageSize]);
 
   const loadData = async () => {
     try {
       setLoading(true);
       const [partnersData, postbacksData, forwardedData] = await Promise.all([
         partnerApi.getPartners(),
-        postbackReceiverApi.getReceivedPostbacks({ limit: 20, offset: (receivedPage - 1) * 20 }),
-        forwardedPostbackApi.getForwardedPostbacks({ limit: 20, offset: (forwardedPage - 1) * 20 })
+        postbackReceiverApi.getReceivedPostbacks({ limit: receivedPageSize, offset: (receivedPage - 1) * receivedPageSize }),
+        forwardedPostbackApi.getForwardedPostbacks({ limit: forwardedPageSize, offset: (forwardedPage - 1) * forwardedPageSize })
       ]);
       setPartners(partnersData.partners);
       setReceivedPostbacks(postbacksData.logs);
       setReceivedTotal(postbacksData.total);
-      setReceivedTotalPages(Math.ceil(postbacksData.total / 20));
+      setReceivedTotalPages(Math.ceil(postbacksData.total / receivedPageSize));
       setForwardedPostbacks(forwardedData.logs);
       setForwardedTotal(forwardedData.total);
-      setForwardedTotalPages(Math.ceil(forwardedData.total / 20));
+      setForwardedTotalPages(Math.ceil(forwardedData.total / forwardedPageSize));
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -347,6 +376,36 @@ const PostbackReceiver: React.FC = () => {
       ...prev,
       [ourParam]: partnerParam
     }));
+  };
+
+  // Client-side filtering helpers
+  const filteredReceivedPostbacks = receivedPostbacks.filter(p => {
+    const search = receivedSearch.toLowerCase();
+    if (search && !p.partner_name?.toLowerCase().includes(search) && !p.ip_address?.toLowerCase().includes(search) && !JSON.stringify(p.query_params).toLowerCase().includes(search)) return false;
+    if (receivedPartnerFilter && p.partner_id !== receivedPartnerFilter) return false;
+    if (receivedIpFilter && !p.ip_address?.toLowerCase().includes(receivedIpFilter.toLowerCase())) return false;
+    if (receivedDateFrom && new Date(p.timestamp) < new Date(receivedDateFrom)) return false;
+    if (receivedDateTo && new Date(p.timestamp) > new Date(receivedDateTo + 'T23:59:59')) return false;
+    return true;
+  });
+
+  const filteredForwardedPostbacks = forwardedPostbacks.filter(p => {
+    const search = forwardedSearch.toLowerCase();
+    if (search && !p.publisher_name?.toLowerCase().includes(search) && !p.username?.toLowerCase().includes(search)) return false;
+    if (forwardedPartnerFilter && p.publisher_id !== forwardedPartnerFilter) return false;
+    if (forwardedDateFrom && new Date(p.timestamp) < new Date(forwardedDateFrom)) return false;
+    if (forwardedDateTo && new Date(p.timestamp) > new Date(forwardedDateTo + 'T23:59:59')) return false;
+    return true;
+  });
+
+  const clearReceivedFilters = () => {
+    setReceivedSearch(''); setReceivedPartnerFilter(''); setReceivedCountryFilter('');
+    setReceivedIpFilter(''); setReceivedDateFrom(''); setReceivedDateTo('');
+  };
+
+  const clearForwardedFilters = () => {
+    setForwardedSearch(''); setForwardedPartnerFilter(''); setForwardedCountryFilter('');
+    setForwardedIpFilter(''); setForwardedDateFrom(''); setForwardedDateTo('');
   };
 
   // Bulk selection handlers
@@ -747,23 +806,12 @@ const PostbackReceiver: React.FC = () => {
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle>Received Postbacks ({receivedTotal})</CardTitle>
-                  <CardDescription>
-                    View all incoming postback requests
-                  </CardDescription>
+                  <CardDescription>View all incoming postback requests</CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                   {selectedReceivedIds.length > 0 && (
-                    <Button
-                      variant="destructive"
-                      onClick={handleBulkDeleteReceivedPostbacks}
-                      disabled={isDeleting}
-                      size="sm"
-                    >
-                      {isDeleting ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4 mr-2" />
-                      )}
+                    <Button variant="destructive" onClick={handleBulkDeleteReceivedPostbacks} disabled={isDeleting} size="sm">
+                      {isDeleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
                       Delete ({selectedReceivedIds.length})
                     </Button>
                   )}
@@ -771,8 +819,95 @@ const PostbackReceiver: React.FC = () => {
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Refresh
                   </Button>
+                  <Button
+                    variant={showReceivedFilters ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowReceivedFilters(v => !v)}
+                  >
+                    <Filter className="h-4 w-4 mr-1" />
+                    Filters
+                    {(receivedSearch || receivedPartnerFilter || receivedIpFilter || receivedDateFrom || receivedDateTo) && (
+                      <span className="ml-1 bg-blue-500 text-white rounded-full w-2 h-2 inline-block" />
+                    )}
+                  </Button>
                 </div>
               </div>
+
+              {/* Collapsible Filter Panel */}
+              {showReceivedFilters && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Search</Label>
+                      <Input
+                        placeholder="Partner, IP, params..."
+                        value={receivedSearch}
+                        onChange={e => setReceivedSearch(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Partner</Label>
+                      <Select value={receivedPartnerFilter || 'all'} onValueChange={v => setReceivedPartnerFilter(v === 'all' ? '' : v)}>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="All partners" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All partners</SelectItem>
+                          {partners.map(p => (
+                            <SelectItem key={p.partner_id} value={p.partner_id}>{p.partner_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">IP Address</Label>
+                      <Input
+                        placeholder="Filter by IP..."
+                        value={receivedIpFilter}
+                        onChange={e => setReceivedIpFilter(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Per Page</Label>
+                      <Select value={String(receivedPageSize)} onValueChange={v => { setReceivedPageSize(Number(v)); setReceivedPage(1); }}>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="20">20</SelectItem>
+                          <SelectItem value="50">50</SelectItem>
+                          <SelectItem value="100">100</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Date From</Label>
+                      <Input
+                        type="date"
+                        value={receivedDateFrom}
+                        onChange={e => setReceivedDateFrom(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Date To</Label>
+                      <Input
+                        type="date"
+                        value={receivedDateTo}
+                        onChange={e => setReceivedDateTo(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button variant="ghost" size="sm" onClick={clearReceivedFilters} className="text-xs text-gray-500">
+                      <X className="h-3 w-3 mr-1" /> Clear filters
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -787,7 +922,7 @@ const PostbackReceiver: React.FC = () => {
                         <TableHead className="w-12">
                           <input
                             type="checkbox"
-                            checked={receivedPostbacks.length > 0 && selectedReceivedIds.length === receivedPostbacks.length}
+                            checked={filteredReceivedPostbacks.length > 0 && selectedReceivedIds.length === filteredReceivedPostbacks.length}
                             onChange={handleSelectAllReceivedPostbacks}
                             className="rounded border-gray-300"
                           />
@@ -801,14 +936,14 @@ const PostbackReceiver: React.FC = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {receivedPostbacks.length === 0 ? (
+                      {filteredReceivedPostbacks.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={7} className="text-center text-gray-500">
-                            No postbacks received yet
+                            No postbacks found
                           </TableCell>
                         </TableRow>
                       ) : (
-                        receivedPostbacks.map((postback) => (
+                        filteredReceivedPostbacks.map((postback) => (
                           <TableRow key={postback._id}>
                             <TableCell>
                               <input
@@ -818,9 +953,7 @@ const PostbackReceiver: React.FC = () => {
                                 className="rounded border-gray-300"
                               />
                             </TableCell>
-                            <TableCell className="text-sm">
-                              {formatTimestamp(postback.timestamp)}
-                            </TableCell>
+                            <TableCell className="text-sm">{formatTimestamp(postback.timestamp)}</TableCell>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{postback.partner_name}</div>
@@ -833,19 +966,11 @@ const PostbackReceiver: React.FC = () => {
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <div className="text-xs">
-                                {Object.keys(postback.query_params).length} params
-                              </div>
+                              <div className="text-xs">{Object.keys(postback.query_params).length} params</div>
                             </TableCell>
-                            <TableCell className="text-sm">
-                              {postback.ip_address}
-                            </TableCell>
+                            <TableCell className="text-sm">{postback.ip_address}</TableCell>
                             <TableCell className="text-right">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => viewPostbackDetail(postback)}
-                              >
+                              <Button variant="ghost" size="sm" onClick={() => viewPostbackDetail(postback)}>
                                 <Eye className="h-4 w-4" />
                               </Button>
                             </TableCell>
@@ -858,23 +983,11 @@ const PostbackReceiver: React.FC = () => {
                   {/* Pagination */}
                   {receivedTotalPages > 1 && (
                     <div className="flex justify-center items-center gap-2 mt-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setReceivedPage(Math.max(1, receivedPage - 1))}
-                        disabled={receivedPage === 1}
-                      >
+                      <Button variant="outline" size="sm" onClick={() => setReceivedPage(Math.max(1, receivedPage - 1))} disabled={receivedPage === 1}>
                         Previous
                       </Button>
-                      <span className="text-sm">
-                        Page {receivedPage} of {receivedTotalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setReceivedPage(Math.min(receivedTotalPages, receivedPage + 1))}
-                        disabled={receivedPage === receivedTotalPages}
-                      >
+                      <span className="text-sm">Page {receivedPage} of {receivedTotalPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setReceivedPage(Math.min(receivedTotalPages, receivedPage + 1))} disabled={receivedPage === receivedTotalPages}>
                         Next
                       </Button>
                     </div>
@@ -892,23 +1005,12 @@ const PostbackReceiver: React.FC = () => {
               <div className="flex justify-between items-center">
                 <div>
                   <CardTitle>Forwarded Postbacks ({forwardedTotal})</CardTitle>
-                  <CardDescription>
-                    Postbacks forwarded to downward partners with enriched data (username + points)
-                  </CardDescription>
+                  <CardDescription>Postbacks forwarded to downward partners with enriched data (username + points)</CardDescription>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-center">
                   {selectedForwardedIds.length > 0 && (
-                    <Button
-                      variant="destructive"
-                      onClick={handleBulkDeleteForwardedPostbacks}
-                      disabled={isDeleting}
-                      size="sm"
-                    >
-                      {isDeleting ? (
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      ) : (
-                        <Trash2 className="h-4 w-4 mr-2" />
-                      )}
+                    <Button variant="destructive" onClick={handleBulkDeleteForwardedPostbacks} disabled={isDeleting} size="sm">
+                      {isDeleting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
                       Delete ({selectedForwardedIds.length})
                     </Button>
                   )}
@@ -916,8 +1018,86 @@ const PostbackReceiver: React.FC = () => {
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Refresh
                   </Button>
+                  <Button
+                    variant={showForwardedFilters ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowForwardedFilters(v => !v)}
+                  >
+                    <Filter className="h-4 w-4 mr-1" />
+                    Filters
+                    {(forwardedSearch || forwardedPartnerFilter || forwardedDateFrom || forwardedDateTo) && (
+                      <span className="ml-1 bg-blue-500 text-white rounded-full w-2 h-2 inline-block" />
+                    )}
+                  </Button>
                 </div>
               </div>
+
+              {/* Collapsible Filter Panel */}
+              {showForwardedFilters && (
+                <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Search</Label>
+                      <Input
+                        placeholder="Publisher, username..."
+                        value={forwardedSearch}
+                        onChange={e => setForwardedSearch(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Partner</Label>
+                      <Select value={forwardedPartnerFilter || 'all'} onValueChange={v => setForwardedPartnerFilter(v === 'all' ? '' : v)}>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue placeholder="All partners" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All partners</SelectItem>
+                          {partners.map(p => (
+                            <SelectItem key={p.partner_id} value={p.partner_id}>{p.partner_name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Per Page</Label>
+                      <Select value={String(forwardedPageSize)} onValueChange={v => { setForwardedPageSize(Number(v)); setForwardedPage(1); }}>
+                        <SelectTrigger className="h-8 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="20">20</SelectItem>
+                          <SelectItem value="50">50</SelectItem>
+                          <SelectItem value="100">100</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Date From</Label>
+                      <Input
+                        type="date"
+                        value={forwardedDateFrom}
+                        onChange={e => setForwardedDateFrom(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-gray-500 mb-1 block">Date To</Label>
+                      <Input
+                        type="date"
+                        value={forwardedDateTo}
+                        onChange={e => setForwardedDateTo(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button variant="ghost" size="sm" onClick={clearForwardedFilters} className="text-xs text-gray-500">
+                      <X className="h-3 w-3 mr-1" /> Clear filters
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardHeader>
             <CardContent>
               {loading ? (
@@ -932,7 +1112,7 @@ const PostbackReceiver: React.FC = () => {
                         <TableHead className="w-12">
                           <input
                             type="checkbox"
-                            checked={forwardedPostbacks.length > 0 && selectedForwardedIds.length === forwardedPostbacks.length}
+                            checked={filteredForwardedPostbacks.length > 0 && selectedForwardedIds.length === filteredForwardedPostbacks.length}
                             onChange={handleSelectAllForwardedPostbacks}
                             className="rounded border-gray-300"
                           />
@@ -946,14 +1126,14 @@ const PostbackReceiver: React.FC = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {forwardedPostbacks.length === 0 ? (
+                      {filteredForwardedPostbacks.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={7} className="text-center text-gray-500">
-                            No forwarded postbacks yet
+                            No forwarded postbacks found
                           </TableCell>
                         </TableRow>
                       ) : (
-                        forwardedPostbacks.map((postback) => (
+                        filteredForwardedPostbacks.map((postback) => (
                           <TableRow key={postback._id}>
                             <TableCell>
                               <input
@@ -963,9 +1143,7 @@ const PostbackReceiver: React.FC = () => {
                                 className="rounded border-gray-300"
                               />
                             </TableCell>
-                            <TableCell className="text-sm">
-                              {formatTimestamp(postback.timestamp)}
-                            </TableCell>
+                            <TableCell className="text-sm">{formatTimestamp(postback.timestamp)}</TableCell>
                             <TableCell>
                               <div>
                                 <div className="font-medium">{postback.publisher_name}</div>
@@ -973,14 +1151,10 @@ const PostbackReceiver: React.FC = () => {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <code className="text-xs bg-gray-100 px-2 py-1 rounded">
-                                {postback.username}
-                              </code>
+                              <code className="text-xs bg-gray-100 px-2 py-1 rounded">{postback.username}</code>
                             </TableCell>
                             <TableCell>
-                              <Badge variant="secondary">
-                                {postback.points} pts
-                              </Badge>
+                              <Badge variant="secondary">{postback.points} pts</Badge>
                             </TableCell>
                             <TableCell>
                               {postback.forward_status === 'success' ? (
@@ -1016,23 +1190,11 @@ const PostbackReceiver: React.FC = () => {
                   {/* Pagination */}
                   {forwardedTotalPages > 1 && (
                     <div className="flex justify-center items-center gap-2 mt-4">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setForwardedPage(Math.max(1, forwardedPage - 1))}
-                        disabled={forwardedPage === 1}
-                      >
+                      <Button variant="outline" size="sm" onClick={() => setForwardedPage(Math.max(1, forwardedPage - 1))} disabled={forwardedPage === 1}>
                         Previous
                       </Button>
-                      <span className="text-sm">
-                        Page {forwardedPage} of {forwardedTotalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setForwardedPage(Math.min(forwardedTotalPages, forwardedPage + 1))}
-                        disabled={forwardedPage === forwardedTotalPages}
-                      >
+                      <span className="text-sm">Page {forwardedPage} of {forwardedTotalPages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setForwardedPage(Math.min(forwardedTotalPages, forwardedPage + 1))} disabled={forwardedPage === forwardedTotalPages}>
                         Next
                       </Button>
                     </div>

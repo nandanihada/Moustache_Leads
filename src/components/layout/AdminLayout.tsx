@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "./AdminSidebar";
 import { TopBar } from "./TopBar";
+import AdminSupportNotification from "@/components/AdminSupportNotification";
 
 const AdminLayout = () => {
   return (
@@ -17,6 +18,7 @@ const AdminLayout = () => {
           </main>
         </div>
       </div>
+      <AdminSupportNotification />
     </SidebarProvider>
   );
 };

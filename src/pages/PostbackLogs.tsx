@@ -22,7 +22,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useToast } from '@/hooks/use-toast';
 import { postbackLogsApi, PostbackLog, PostbackStats } from '@/services/postbackLogsApi';
 import { partnerApi } from '@/services/partnerApi';
-import { RefreshCw, Filter, CheckCircle, XCircle, Loader2, Eye, RotateCcw, Trash2 } from 'lucide-react';
+import { RefreshCw, Filter, CheckCircle, XCircle, Loader2, Eye, RotateCcw, Trash2, Search } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -62,8 +62,13 @@ const PostbackLogs: React.FC = () => {
     status: 'all',
     partner_id: 'all',
     date_from: '',
-    date_to: ''
+    date_to: '',
+    search: '',
+    ip: '',
+    country: ''
   });
+  const [pageSize, setPageSize] = useState(20);
+  const [forwardedPageSize, setForwardedPageSize] = useState(20);
 
   const fetchLogs = async () => {
     try {
@@ -73,11 +78,14 @@ const PostbackLogs: React.FC = () => {
         status: filters.status === 'all' ? '' : filters.status,
         partner_id: filters.partner_id === 'all' ? '' : filters.partner_id,
         date_from: filters.date_from,
-        date_to: filters.date_to
+        date_to: filters.date_to,
+        search: filters.search,
+        ip: filters.ip,
+        country: filters.country
       };
       const data = await postbackLogsApi.getPostbackLogs({
         page,
-        limit: 20,
+        limit: pageSize,
         ...apiFilters
       });
       setLogs(data.logs);
@@ -125,7 +133,7 @@ const PostbackLogs: React.FC = () => {
       
       const params = new URLSearchParams({
         page: forwardedPage.toString(),
-        limit: '20',
+        limit: forwardedPageSize.toString(),
         hours: '168' // Last 7 days
       });
       
@@ -180,7 +188,10 @@ const PostbackLogs: React.FC = () => {
       status: 'all',
       partner_id: 'all',
       date_from: '',
-      date_to: ''
+      date_to: '',
+      search: '',
+      ip: '',
+      country: ''
     });
     setPage(1);
     setForwardedPage(1);
@@ -417,6 +428,18 @@ const PostbackLogs: React.FC = () => {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
+              <Label>Search</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Offer ID, user..."
+                  value={filters.search}
+                  onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                  className="pl-8"
+                />
+              </div>
+            </div>
+            <div>
               <Label>Status</Label>
               <Select value={filters.status} onValueChange={(value) => setFilters({ ...filters, status: value })}>
                 <SelectTrigger>
@@ -429,7 +452,6 @@ const PostbackLogs: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-
             <div>
               <Label>Partner</Label>
               <Select value={filters.partner_id} onValueChange={(value) => setFilters({ ...filters, partner_id: value })}>
@@ -446,7 +468,22 @@ const PostbackLogs: React.FC = () => {
                 </SelectContent>
               </Select>
             </div>
-
+            <div>
+              <Label>IP Address</Label>
+              <Input
+                placeholder="e.g. 192.168.1.1"
+                value={filters.ip}
+                onChange={(e) => setFilters({ ...filters, ip: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Country</Label>
+              <Input
+                placeholder="e.g. US, IN, GB"
+                value={filters.country}
+                onChange={(e) => setFilters({ ...filters, country: e.target.value })}
+              />
+            </div>
             <div>
               <Label>Date From</Label>
               <Input
@@ -455,7 +492,6 @@ const PostbackLogs: React.FC = () => {
                 onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
               />
             </div>
-
             <div>
               <Label>Date To</Label>
               <Input
@@ -463,6 +499,19 @@ const PostbackLogs: React.FC = () => {
                 value={filters.date_to}
                 onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
               />
+            </div>
+            <div>
+              <Label>Per Page</Label>
+              <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="mt-4">
@@ -611,6 +660,80 @@ const PostbackLogs: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="forwarded">
+          {/* Forwarded Filters */}
+          <Card className="mb-6">
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Filter className="mr-2 h-5 w-5" />
+                Filters
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <Label>Search</Label>
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Partner name..."
+                      value={filters.search}
+                      onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+                      className="pl-8"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Partner</Label>
+                  <Select value={filters.partner_id} onValueChange={(value) => setFilters({ ...filters, partner_id: value })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="All partners" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      {partners.map((partner) => (
+                        <SelectItem key={partner.partner_id} value={partner.partner_id}>
+                          {partner.partner_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Date From</Label>
+                  <Input
+                    type="date"
+                    value={filters.date_from}
+                    onChange={(e) => setFilters({ ...filters, date_from: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Date To</Label>
+                  <Input
+                    type="date"
+                    value={filters.date_to}
+                    onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Per Page</Label>
+                  <Select value={String(forwardedPageSize)} onValueChange={(v) => { setForwardedPageSize(Number(v)); setForwardedPage(1); }}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                      <SelectItem value="100">100</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="mt-4">
+                <Button variant="outline" onClick={resetFilters}>Reset Filters</Button>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <div className="flex justify-between items-center">
@@ -666,7 +789,14 @@ const PostbackLogs: React.FC = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {forwardedLogs.map((log: any) => (
+                      {(() => {
+                        const filtered = forwardedLogs.filter(log => {
+                          const s = filters.search.toLowerCase();
+                          if (s && !((log.partner_name || '').toLowerCase().includes(s) || (log.partner_email || '').toLowerCase().includes(s))) return false;
+                          if (filters.partner_id !== 'all' && log.partner_id !== filters.partner_id) return false;
+                          return true;
+                        });
+                        return filtered.map((log: any) => (
                         <TableRow key={log._id}>
                           <TableCell>
                             <input
@@ -708,7 +838,8 @@ const PostbackLogs: React.FC = () => {
                             </Button>
                           </TableCell>
                         </TableRow>
-                      ))}
+                      ));
+                      })()}
                     </TableBody>
                   </Table>
 

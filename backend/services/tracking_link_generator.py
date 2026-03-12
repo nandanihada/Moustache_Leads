@@ -3,10 +3,13 @@ Tracking Link Generator Service
 
 Generates proper tracking links for networks that don't provide them in their API/data.
 Currently supports: CPA Merchant, ChameleonAds, LeadAds
+
+Also handles automatic offer URL parameter injection based on Upward Partner network_domain config.
 """
 
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import logging
+from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
 
 logger = logging.getLogger(__name__)
 
@@ -169,4 +172,133 @@ def process_offer_tracking_link(offer_data: dict, network_identifier: Optional[s
         offer_data['target_url'] = tracking_link
         logger.info(f"Updated target_url for offer {offer_id} from network {network}")
     
+    return offer_data
+
+
+def get_partner_by_domain(offer_url: str) -> Optional[Dict]:
+    """
+    Look up an Upward Partner by matching the offer URL domain against network_domain.
+
+    Args:
+        offer_url: The raw offer URL (e.g. https://www.adtogametrkk.com/...)
+
+    Returns:
+        Partner document dict if found, else None
+    """
+    if not offer_url:
+        return None
+
+    try:
+        from database import db_instance
+        parsed = urlparse(offer_url)
+        # Strip www. prefix for matching
+        hostname = parsed.hostname or ''
+        hostname = hostname.lstrip('www.')
+
+        if not hostname:
+            return None
+
+        partners_collection = db_instance.get_collection('partners')
+        # Match if stored network_domain is contained in the hostname or vice versa
+        partners = list(partners_collection.find({
+            'status': 'active',
+            'network_domain': {'$ne': ''},
+            'offer_url_params': {'$exists': True, '$ne': []}
+        }))
+
+        for partner in partners:
+            domain = partner.get('network_domain', '').lstrip('www.')
+            if domain and (domain in hostname or hostname in domain):
+                return partner
+
+        return None
+    except Exception as e:
+        logger.error(f"Error looking up partner by domain: {str(e)}")
+        return None
+
+
+def inject_offer_url_params(offer_url: str, offer_url_params: List[Dict]) -> str:
+    """
+    Append network-specific parameters to an offer URL.
+
+    offer_url_params is a list of dicts: [{"our_field": "user_id", "their_param": "sub1"}, ...]
+    Each entry appends ?their_param={our_field} to the URL.
+
+    Args:
+        offer_url: Raw offer URL
+        offer_url_params: List of param mapping dicts from the partner config
+
+    Returns:
+        URL with params appended (e.g. https://...?sub1={user_id}&payout={payout})
+    """
+    if not offer_url or not offer_url_params:
+        return offer_url
+
+    try:
+        parsed = urlparse(offer_url)
+        existing_params = parse_qs(parsed.query, keep_blank_values=True)
+
+        new_params = {}
+        for mapping in offer_url_params:
+            their_param = mapping.get('their_param', '').strip()
+            our_field = mapping.get('our_field', '').strip()
+            if their_param and our_field:
+                # Only add if not already present in the URL
+                if their_param not in existing_params:
+                    new_params[their_param] = f'{{{our_field}}}'
+
+        if not new_params:
+            return offer_url
+
+        # Build new query string preserving existing params
+        all_params = {}
+        for k, v in existing_params.items():
+            all_params[k] = v[0] if len(v) == 1 else v
+        all_params.update(new_params)
+
+        new_query = urlencode(all_params)
+        new_parsed = parsed._replace(query=new_query)
+        result = urlunparse(new_parsed)
+        logger.info(f"Injected offer URL params: {list(new_params.keys())} → {result}")
+        return result
+    except Exception as e:
+        logger.error(f"Error injecting offer URL params: {str(e)}")
+        return offer_url
+
+
+def apply_network_offer_params(offer_data: dict) -> dict:
+    """
+    Auto-detect the Upward Partner for an offer based on its target_url domain,
+    then inject the configured offer_url_params into the target_url.
+
+    This is called during bulk import, API import, and manual offer creation.
+
+    Args:
+        offer_data: Offer dict with at least 'target_url'
+
+    Returns:
+        Updated offer_data with modified target_url if a matching partner was found
+    """
+    target_url = offer_data.get('target_url', '')
+    if not target_url:
+        return offer_data
+
+    partner = get_partner_by_domain(target_url)
+    if not partner:
+        return offer_data
+
+    offer_url_params = partner.get('offer_url_params', [])
+    if not offer_url_params:
+        return offer_data
+
+    updated_url = inject_offer_url_params(target_url, offer_url_params)
+    if updated_url != target_url:
+        offer_data['target_url'] = updated_url
+        offer_data['_upward_partner_id'] = partner.get('partner_id', '')
+        offer_data['_upward_partner_name'] = partner.get('partner_name', '')
+        logger.info(
+            f"Auto-applied network params for partner '{partner.get('partner_name')}' "
+            f"to offer URL: {updated_url}"
+        )
+
     return offer_data
