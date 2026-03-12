@@ -20,95 +20,138 @@ def get_all_access_requests():
     """Get all offer access requests with advanced filtering"""
     try:
         from datetime import datetime as dt
-        
+        from bson import ObjectId
+
         # Get query parameters
         status = request.args.get('status', 'all')
         offer_id = request.args.get('offer_id', '')
-        offer_name = request.args.get('offer_name', '')
+        offer_name_filter = request.args.get('offer_name', '')
         user_id = request.args.get('user_id', '')
-        user_name = request.args.get('user_name', '')
+        user_name_filter = request.args.get('user_name', '')
         date_from = request.args.get('date_from', '')
         date_to = request.args.get('date_to', '')
         category = request.args.get('category', '')
         device = request.args.get('device', '')
         search = request.args.get('search', '')
-        page = int(request.args.get('page', 1))
+        has_proof = request.args.get('has_proof', '')
+        page = max(1, int(request.args.get('page', 1)))
         per_page = min(int(request.args.get('per_page', 20)), 100)
-        
-        # Build query
+
+        requests_collection = db_instance.get_collection('affiliate_requests')
+        offers_collection = db_instance.get_collection('offers')
+        users_collection = db_instance.get_collection('users')
+        proofs_collection = db_instance.get_collection('placement_proofs')
+
+        # --- Resolve offer_ids that match name/category/device filters up front ---
+        offer_filter_active = bool(offer_name_filter or category or (device and device != 'all'))
+        matching_offer_ids = None
+        if offer_filter_active:
+            offer_query = {}
+            if offer_name_filter:
+                offer_query['name'] = {'$regex': offer_name_filter, '$options': 'i'}
+            if category:
+                offer_query['category'] = category
+            if device and device != 'all':
+                offer_query['device_targeting'] = device
+            matching_offer_ids = [
+                o['offer_id'] for o in offers_collection.find(offer_query, {'offer_id': 1})
+            ]
+
+        # --- Resolve user_ids that match user_name filter up front ---
+        user_filter_active = bool(user_name_filter)
+        matching_user_ids = None
+        if user_filter_active:
+            matching_users = list(users_collection.find(
+                {'username': {'$regex': user_name_filter, '$options': 'i'}},
+                {'_id': 1}
+            ))
+            matching_user_ids = [str(u['_id']) for u in matching_users]
+
+        # --- Build main MongoDB query ---
         query = {}
-        
-        # Status filter
+
         if status != 'all':
             query['status'] = status
-        
-        # Offer ID filter
+
         if offer_id:
             query['offer_id'] = {'$regex': offer_id, '$options': 'i'}
-        
-        # User ID filter
+
         if user_id:
             query['user_id'] = user_id
-        
-        # Date range filter
+
         if date_from or date_to:
             date_query = {}
             if date_from:
                 date_query['$gte'] = dt.fromisoformat(date_from)
             if date_to:
-                # Add one day to include the entire day
                 date_to_dt = dt.fromisoformat(date_to)
                 date_query['$lte'] = date_to_dt.replace(hour=23, minute=59, second=59)
-            if date_query:
-                query['requested_at'] = date_query
-        
-        # General search filter (searches username, email, offer_id)
+            query['requested_at'] = date_query
+
         if search:
             query['$or'] = [
                 {'username': {'$regex': search, '$options': 'i'}},
                 {'email': {'$regex': search, '$options': 'i'}},
                 {'offer_id': {'$regex': search, '$options': 'i'}}
             ]
-        
-        # Get requests collection
-        requests_collection = db_instance.get_collection('affiliate_requests')
-        offers_collection = db_instance.get_collection('offers')
-        users_collection = db_instance.get_collection('users')
-        proofs_collection = db_instance.get_collection('placement_proofs')
-        
-        # Placement proof filter
-        has_proof = request.args.get('has_proof', '')  # 'yes', 'no', or ''
-        
-        # Get total count
-        total = requests_collection.count_documents(query)
-        
-        # Get requests with pagination
-        skip = (page - 1) * per_page
-        requests = list(requests_collection.find(query)
-                       .sort('requested_at', -1)
-                       .skip(skip)
-                       .limit(per_page))
-        
-        # Enrich requests with offer and user information
-        for req in requests:
-            # Convert ObjectId to string
-            req['_id'] = str(req['_id'])
-            
-            # Get offer details
-            offer = offers_collection.find_one({'offer_id': req['offer_id']})
+
+        if matching_offer_ids is not None:
+            query['offer_id'] = {'$in': matching_offer_ids}
+
+        if matching_user_ids is not None:
+            query['user_id'] = {'$in': matching_user_ids}
+
+        # --- Handle has_proof filter: resolve offer_ids with proofs per user ---
+        # This is done after main query if needed (post-fetch), but we fetch ALL matching
+        # first then paginate — only when has_proof filter is active do we need all records.
+        # For normal cases, paginate at DB level.
+
+        if has_proof:
+            # Fetch all matching (no skip/limit) then filter by proof, then paginate in Python
+            all_reqs = list(requests_collection.find(query).sort('requested_at', -1))
+
+            # Enrich and filter by proof
+            enriched = []
+            for req in all_reqs:
+                req['_id'] = str(req['_id'])
+                proof = proofs_collection.find_one({'user_id': req['user_id'], 'offer_id': req['offer_id']})
+                req['has_placement_proof'] = proof is not None
+                if proof:
+                    req['proof_status'] = proof.get('status', 'pending')
+                if has_proof == 'yes' and not req['has_placement_proof']:
+                    continue
+                if has_proof == 'no' and req['has_placement_proof']:
+                    continue
+                enriched.append(req)
+
+            total = len(enriched)
+            skip = (page - 1) * per_page
+            page_reqs = enriched[skip: skip + per_page]
+        else:
+            # Paginate at DB level — correct and fast
+            total = requests_collection.count_documents(query)
+            skip = (page - 1) * per_page
+            page_reqs = list(requests_collection.find(query)
+                             .sort('requested_at', -1)
+                             .skip(skip)
+                             .limit(per_page))
+            for req in page_reqs:
+                req['_id'] = str(req['_id'])
+                proof = proofs_collection.find_one({'user_id': req['user_id'], 'offer_id': req['offer_id']})
+                req['has_placement_proof'] = proof is not None
+                if proof:
+                    req['proof_status'] = proof.get('status', 'pending')
+
+        # --- Enrich with offer and user details ---
+        offer_cache = {}
+        user_cache = {}
+
+        for req in page_reqs:
+            oid = req.get('offer_id')
+            if oid not in offer_cache:
+                offer_cache[oid] = offers_collection.find_one({'offer_id': oid})
+            offer = offer_cache[oid]
             if offer:
-                # Check if offer matches name filter
-                if offer_name and offer_name.lower() not in offer.get('name', '').lower():
-                    continue
-                
-                # Check if offer matches category filter
-                if category and offer.get('category', '') != category:
-                    continue
-                
-                # Check if offer matches device filter
-                if device and offer.get('device_targeting', 'all') != device and device != 'all':
-                    continue
-                
                 req['offer_details'] = {
                     'name': offer.get('name'),
                     'payout': offer.get('payout'),
@@ -117,50 +160,33 @@ def get_all_access_requests():
                     'device_targeting': offer.get('device_targeting', 'all'),
                     'approval_settings': offer.get('approval_settings', {})
                 }
-            
-            # Get user details
-            user = users_collection.find_one({'_id': req['user_id']})
+
+            uid = req.get('user_id')
+            if uid not in user_cache:
+                try:
+                    user_cache[uid] = users_collection.find_one({'_id': ObjectId(uid)})
+                except Exception:
+                    user_cache[uid] = users_collection.find_one({'_id': uid})
+            user = user_cache[uid]
             if user:
-                # Check if user matches name filter
-                if user_name and user_name.lower() not in user.get('username', '').lower():
-                    continue
-                
                 req['user_details'] = {
                     'username': user.get('username'),
                     'email': user.get('email'),
                     'account_type': user.get('account_type', 'basic')
                 }
-            
-            # Check if user submitted placement proof for this offer
-            proof = None
-            if proofs_collection is not None:
-                proof = proofs_collection.find_one({
-                    'user_id': req['user_id'],
-                    'offer_id': req['offer_id']
-                })
-            req['has_placement_proof'] = proof is not None
-            if proof:
-                req['proof_status'] = proof.get('status', 'pending')
-        
-        # Filter out requests that didn't match secondary filters
-        filtered_requests = [r for r in requests if 'offer_details' in r and 'user_details' in r]
-        
-        # Apply placement proof filter
-        if has_proof == 'yes':
-            filtered_requests = [r for r in filtered_requests if r.get('has_placement_proof')]
-        elif has_proof == 'no':
-            filtered_requests = [r for r in filtered_requests if not r.get('has_placement_proof')]
-        
+
+        pages = max(1, (total + per_page - 1) // per_page)
+
         return safe_json_response({
-            'requests': filtered_requests,
+            'requests': page_reqs,
             'pagination': {
                 'page': page,
                 'per_page': per_page,
-                'total': len(filtered_requests),
-                'pages': (len(filtered_requests) + per_page - 1) // per_page
+                'total': total,
+                'pages': pages
             }
         })
-        
+
     except Exception as e:
         logging.error(f"Get access requests error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get access requests: {str(e)}'}), 500

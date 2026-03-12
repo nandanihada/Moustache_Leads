@@ -98,6 +98,7 @@ const AdminOfferAccessRequests: React.FC = () => {
   const [requests, setRequests] = useState<AccessRequest[]>([]);
   const [stats, setStats] = useState<RequestStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pagination, setPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 1 });
   const [activeTab, setActiveTab] = useState('requests');
   const [showFilters, setShowFilters] = useState(false);
   const [showStats, setShowStats] = useState(false);
@@ -269,6 +270,8 @@ const AdminOfferAccessRequests: React.FC = () => {
     per_page: 20
   });
 
+  const setPage = (p: number) => setFilters(f => ({ ...f, page: p }));
+
   // Fetch access requests
   const fetchRequests = async () => {
     try {
@@ -302,6 +305,7 @@ const AdminOfferAccessRequests: React.FC = () => {
 
       const data = await response.json();
       setRequests(data.requests || []);
+      if (data.pagination) setPagination(data.pagination);
     } catch (error) {
       console.error('Error fetching requests:', error);
       toast.error('Failed to load access requests');
@@ -690,9 +694,28 @@ const AdminOfferAccessRequests: React.FC = () => {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <div>
-              <CardTitle>Access Requests</CardTitle>
-              <CardDescription>{requests.length} request(s) found</CardDescription>
+            <div className="flex items-center gap-4">
+              <div>
+                <CardTitle>Access Requests</CardTitle>
+                <CardDescription>{pagination.total} request(s) found</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground whitespace-nowrap">Rows per page:</span>
+                <Select
+                  value={filters.per_page.toString()}
+                  onValueChange={(val) => setFilters(f => ({ ...f, per_page: parseInt(val), page: 1 }))}
+                >
+                  <SelectTrigger className="w-20 h-8 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {pendingRequests.length > 0 && (
               <div className="flex gap-2 items-center">
@@ -838,6 +861,61 @@ const AdminOfferAccessRequests: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {pagination.pages > 1 && (
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-sm text-muted-foreground">
+            Showing {((pagination.page - 1) * pagination.per_page) + 1}–{Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} requests
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(1)}
+              disabled={pagination.page === 1}
+            >«</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(pagination.page - 1)}
+              disabled={pagination.page === 1}
+            >‹ Prev</Button>
+            {Array.from({ length: pagination.pages }, (_, i) => i + 1)
+              .filter(p => p === 1 || p === pagination.pages || Math.abs(p - pagination.page) <= 2)
+              .reduce<(number | '...')[]>((acc, p, idx, arr) => {
+                if (idx > 0 && typeof arr[idx - 1] === 'number' && (p as number) - (arr[idx - 1] as number) > 1) acc.push('...');
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((p, i) =>
+                p === '...' ? (
+                  <span key={`ellipsis-${i}`} className="px-2 text-muted-foreground">…</span>
+                ) : (
+                  <Button
+                    key={p}
+                    variant={pagination.page === p ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setPage(p as number)}
+                    className="w-8"
+                  >{p}</Button>
+                )
+              )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(pagination.page + 1)}
+              disabled={pagination.page === pagination.pages}
+            >Next ›</Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(pagination.pages)}
+              disabled={pagination.page === pagination.pages}
+            >»</Button>
+          </div>
+        </div>
+      )}
         </TabsContent>
 
         {/* ── PLACEMENT PROOFS TAB ── */}

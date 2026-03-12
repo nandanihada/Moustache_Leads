@@ -46,6 +46,14 @@ const StatCard: React.FC<{ icon: React.ReactNode; value: string; label: string; 
   </div>
 );
 
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: '$', EUR: '€', GBP: '£', INR: '₹', JPY: '¥',
+  CNY: '¥', RUB: '₽', BRL: 'R$', CAD: 'C$', AUD: 'A$',
+  CHF: 'CHF ', SEK: 'kr', PLN: 'zł', ILS: '₪', KRW: '₩', THB: '฿',
+};
+const getCurrencySymbol = (currency?: string) =>
+  CURRENCY_SYMBOLS[(currency || 'USD').toUpperCase()] ?? '$';
+
 const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
   open, onOpenChange, offer, onAccessGranted: _onAccessGranted,
 }) => {
@@ -206,7 +214,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                 <h2 className="text-xl font-bold text-white leading-tight">{offer.name}</h2>
                 <div className="flex items-center gap-3 mt-2 flex-wrap">
                   <span className="text-2xl font-bold text-emerald-400">
-                    ${offer.payout.toFixed(2)} <span className="text-sm font-normal text-white/50">{offer.currency || 'USD'}</span>
+                    {getCurrencySymbol(offer.currency)}{offer.payout.toFixed(2)} <span className="text-sm font-normal text-white/50">{offer.currency || 'USD'}</span>
                   </span>
                   {(offer as any).conversion_type && (
                     <span className="text-xs px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/30">
@@ -353,7 +361,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-white/50">Payout</span>
-                  <span className="text-sm font-bold text-emerald-400">${offer.payout.toFixed(2)} {offer.currency || 'USD'}</span>
+                  <span className="text-sm font-bold text-emerald-400">{getCurrencySymbol(offer.currency)}{offer.payout.toFixed(2)} {offer.currency || 'USD'}</span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-white/50">Conversion Type</span>
