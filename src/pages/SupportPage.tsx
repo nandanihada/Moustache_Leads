@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { MessageCircle, Send, Plus, RefreshCw, Clock, CheckCircle2, ArrowLeft } from 'lucide-react';
 import { supportApi, SupportMessage } from '@/services/supportApi';
+import { getApiBaseUrl } from '@/services/apiConfig';
+import { getAuthToken } from '@/utils/cookies';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -70,7 +72,12 @@ const SupportPage: React.FC = () => {
     if (!selected || !replyText.trim()) return;
     setReplying(true);
     try {
-      const res = await supportApi.userReply(selected._id, replyText);
+      const token = getAuthToken();
+      const res = await fetch(`${getApiBaseUrl()}/api/support/messages/${selected._id}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ reply: replyText }),
+      }).then(r => r.json());
       if (res.success) {
         toast.success('Reply sent');
         setReplyText('');
@@ -83,12 +90,16 @@ const SupportPage: React.FC = () => {
   const handleClose = async () => {
     if (!selected) return;
     try {
-      const res = await supportApi.userCloseTicket(selected._id);
+      const token = getAuthToken();
+      const res = await fetch(`${getApiBaseUrl()}/api/support/messages/${selected._id}/close`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      }).then(r => r.json());
       if (res.success) {
         toast.success('Conversation closed');
         setSelected(res.message);
         setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
-      }
+      } else { toast.error(res.error || 'Failed to close'); }
     } catch { toast.error('Failed to close'); }
   };
 

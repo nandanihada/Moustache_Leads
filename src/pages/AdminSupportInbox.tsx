@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { MessageCircle, Send, RefreshCw, Mail, MailOpen, Clock, CheckCircle, PenSquare, X, Users, User, Search, XCircle, ArrowLeft } from 'lucide-react';
 import { supportApi, SupportMessage, SupportCounts } from '@/services/supportApi';
+import { getApiBaseUrl } from '@/services/apiConfig';
+import { getAuthToken } from '@/utils/cookies';
 import { toast } from 'sonner';
 
 const fmt = (iso: string) =>
@@ -101,12 +103,18 @@ const AdminSupportInbox: React.FC = () => {
   const handleClose = async () => {
     if (!selected) return;
     try {
-      const res = await supportApi.adminCloseTicket(selected._id);
+      const token = getAuthToken();
+      const res = await fetch(`${getApiBaseUrl()}/api/admin/support/messages/${selected._id}/close`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      }).then(r => r.json());
       if (res.success) {
         toast.success('Ticket closed');
         setSelected(res.message);
         setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
         setCounts(prev => ({ ...prev, closed: prev.closed + 1 }));
+      } else {
+        toast.error(res.error || 'Failed to close');
       }
     } catch { toast.error('Failed to close'); }
   };
@@ -326,7 +334,8 @@ const AdminSupportInbox: React.FC = () => {
 
               {/* Chat thread */}
               <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
-                {/* User's original message */}
+                {/* User's original message — skip for broadcasts since body = first reply */}
+                {!selected.is_broadcast && (
                 <div className="flex gap-3">
                   <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold flex-shrink-0">
                     {(selected.username || 'U')[0].toUpperCase()}
@@ -341,6 +350,7 @@ const AdminSupportInbox: React.FC = () => {
                     </div>
                   </div>
                 </div>
+                )}
 
                 {/* Replies */}
                 {selected.replies.map(reply => {
