@@ -38,7 +38,9 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { getApiBaseUrl } from "@/services/apiConfig";
+import { getAuthToken } from "@/utils/cookies";
 
 // Type definitions for menu structure
 interface SubTab {
@@ -129,6 +131,9 @@ export function AppSidebar() {
     canAccessPlatform
   } = useRequireApprovedPlacement();
 
+  const [supportUnread, setSupportUnread] = useState(0);
+  const [supportTotal, setSupportTotal] = useState(0);
+
   // Track which main tabs are expanded
   const [expandedTabs, setExpandedTabs] = useState<string[]>(() => {
     // Auto-expand the tab containing the current route
@@ -138,6 +143,23 @@ export function AppSidebar() {
     );
     return expandedTab ? [expandedTab.title] : [];
   });
+
+  // Fetch support unread count
+  useEffect(() => {
+    const fetchUnread = () => {
+      const token = getAuthToken();
+      if (!token) return;
+      fetch(`${getApiBaseUrl()}/api/support/unread-count`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.json())
+        .then(res => { if (res.success) { setSupportUnread(res.unread_count); setSupportTotal(res.total_messages || 0); } })
+        .catch(() => {});
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Close mobile sidebar when navigating
   const closeMobileSidebar = () => {
@@ -264,13 +286,13 @@ export function AppSidebar() {
             <SidebarMenu>
               {menuStructure.map((item) => {
                 if (item.type === 'single') {
-                  // Single menu item (Dashboard)
+                  // Single menu item (Dashboard, Support)
                   return (
                     <SidebarMenuItem key={item.title}>
                       <SidebarMenuButton asChild>
                         <NavLink
                           to={item.url!}
-                          end
+                          end={item.url === '/dashboard'}
                           onClick={closeMobileSidebar}
                           className={({ isActive }) =>
                             `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${isActive
@@ -281,6 +303,20 @@ export function AppSidebar() {
                         >
                           <item.icon className="h-5 w-5" />
                           <span className="font-medium">{item.title}</span>
+                          {item.title === 'Support' && (
+                            <span className="ml-auto flex items-center gap-1">
+                              {supportTotal > 0 && (
+                                <span className="bg-muted text-muted-foreground text-[10px] font-medium min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5">
+                                  {supportTotal}
+                                </span>
+                              )}
+                              {supportUnread > 0 && (
+                                <span className="bg-red-500 text-white text-[10px] font-bold min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5">
+                                  {supportUnread}
+                                </span>
+                              )}
+                            </span>
+                          )}
                         </NavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

@@ -39,6 +39,8 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useEffect, useState } from "react";
 import subadminService from "@/services/subadminService";
+import { getApiBaseUrl } from "@/services/apiConfig";
+import { getAuthToken } from "@/utils/cookies";
 
 // Hierarchical admin menu structure
 const adminMenuStructure = [
@@ -119,6 +121,8 @@ export function AdminSidebar() {
   const { isMobile, setOpenMobile } = useSidebar();
   const [allowedTabs, setAllowedTabs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [supportUnread, setSupportUnread] = useState(0);
+  const [supportTotal, setSupportTotal] = useState(0);
 
   // Track which main tabs are expanded
   const [expandedTabs, setExpandedTabs] = useState<string[]>(() => {
@@ -136,6 +140,23 @@ export function AdminSidebar() {
       setOpenMobile(false);
     }
   };
+
+  // Fetch admin support unread count
+  useEffect(() => {
+    const fetchUnread = () => {
+      const token = getAuthToken();
+      if (!token) return;
+      fetch(`${getApiBaseUrl()}/api/admin/support/unread-count`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.json())
+        .then(res => { if (res.success) { setSupportUnread(res.unread_count); setSupportTotal(res.total_messages || 0); } })
+        .catch(() => {});
+    };
+    fetchUnread();
+    const interval = setInterval(fetchUnread, 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const fetchPermissions = async () => {
@@ -239,6 +260,20 @@ export function AdminSidebar() {
                           >
                             <item.icon className="h-5 w-5" />
                             <span className="font-medium">{item.title}</span>
+                            {item.tab === 'support-inbox' && (
+                              <span className="ml-auto flex items-center gap-1">
+                                {supportTotal > 0 && (
+                                  <span className="bg-muted text-muted-foreground text-[10px] font-medium min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5">
+                                    {supportTotal}
+                                  </span>
+                                )}
+                                {supportUnread > 0 && (
+                                  <span className="bg-red-500 text-white text-[10px] font-bold min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5">
+                                    {supportUnread}
+                                  </span>
+                                )}
+                              </span>
+                            )}
                           </NavLink>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

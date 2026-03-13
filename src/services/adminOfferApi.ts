@@ -616,6 +616,42 @@ class AdminOfferApi {
 
     return this.handleResponse(response);
   }
+
+  // ============================================
+  // RUNNING OFFERS METHODS
+  // ============================================
+
+  async getRunningOffers(params?: {
+    page?: number;
+    per_page?: number;
+    search?: string;
+    hours?: number;
+  }): Promise<{
+    offers: (Offer & { recent_clicks?: number })[];
+    running_count: number;
+    pagination: { page: number; per_page: number; total: number; pages: number };
+  }> {
+    const qp = new URLSearchParams();
+    if (params?.page) qp.append('page', params.page.toString());
+    if (params?.per_page) qp.append('per_page', params.per_page.toString());
+    if (params?.search) qp.append('search', params.search);
+    if (params?.hours) qp.append('hours', params.hours.toString());
+
+    const response = await fetch(`${API_BASE_URL}/offers/running?${qp}`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async checkRunningOffers(offerIds: string[]): Promise<{ running_ids: string[] }> {
+    const response = await fetch(`${API_BASE_URL}/offers/check-running`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offer_ids: offerIds }),
+    });
+    return this.handleResponse(response);
+  }
 }
 
 export const adminOfferApi = new AdminOfferApi();

@@ -332,6 +332,126 @@ def export_offers():
         logging.error(f"Export offers error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to export offers: {str(e)}'}), 500
 
+
+@admin_offers_bp.route('/offers/running', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_running_offers():
+    """Get offers that have received clicks in the last 24 hours (actively used by users)."""
+    try:
+        from datetime import timedelta
+        page = int(request.args.get('page', 1))
+        per_page = min(int(request.args.get('per_page', 20)), 100)
+        search = request.args.get('search', '').strip()
+        hours = int(request.args.get('hours', 24))
+
+        cutoff = datetime.utcnow() - timedelta(hours=hours)
+
+        # Gather distinct offer_ids with recent clicks from all click collections
+        running_ids = set()
+        click_counts = {}
+
+        for col_name in ('clicks', 'offerwall_clicks', 'offerwall_clicks_detailed'):
+            col = db_instance.get_collection(col_name)
+            if col is None:
+                continue
+            try:
+                pipeline = [
+                    {'$match': {'timestamp': {'$gte': cutoff}}},
+                    {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
+                ]
+                for doc in col.aggregate(pipeline):
+                    oid = doc['_id']
+                    if oid:
+                        running_ids.add(str(oid))
+                        click_counts[str(oid)] = click_counts.get(str(oid), 0) + doc['count']
+            except Exception as e:
+                logging.warning(f"Running offers - failed to query {col_name}: {e}")
+
+        if not running_ids:
+            return jsonify({
+                'offers': [],
+                'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}
+            })
+
+        # Build query for matching offers
+        offers_col = db_instance.get_collection('offers')
+        query = {
+            'offer_id': {'$in': list(running_ids)},
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+        }
+        if search:
+            import re
+            query['$and'] = [{'$or': [
+                {'name': {'$regex': re.escape(search), '$options': 'i'}},
+                {'offer_id': {'$regex': re.escape(search), '$options': 'i'}},
+                {'network': {'$regex': re.escape(search), '$options': 'i'}},
+            ]}]
+
+        total = offers_col.count_documents(query)
+        skip = (page - 1) * per_page
+        docs = list(offers_col.find(query).sort('created_at', -1).skip(skip).limit(per_page))
+
+        from utils.json_serializer import serialize_for_json
+        offers = []
+        for doc in docs:
+            doc['_id'] = str(doc['_id'])
+            doc['recent_clicks'] = click_counts.get(doc.get('offer_id', ''), 0)
+            offers.append(serialize_for_json(doc))
+
+        # Sort by recent clicks descending
+        offers.sort(key=lambda o: o.get('recent_clicks', 0), reverse=True)
+
+        return jsonify({
+            'offers': offers,
+            'running_count': len(running_ids),
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page
+            }
+        })
+
+    except Exception as e:
+        logging.error(f"Running offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get running offers: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/check-running', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def check_offers_running():
+    """Check if specific offer_ids have recent clicks (used before delete to warn admin)."""
+    try:
+        from datetime import timedelta
+        data = request.get_json() or {}
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids:
+            return jsonify({'running_ids': []})
+
+        cutoff = datetime.utcnow() - timedelta(hours=24)
+        running_ids = set()
+
+        for col_name in ('clicks', 'offerwall_clicks', 'offerwall_clicks_detailed'):
+            col = db_instance.get_collection(col_name)
+            if col is None:
+                continue
+            try:
+                found = col.distinct('offer_id', {
+                    'offer_id': {'$in': offer_ids},
+                    'timestamp': {'$gte': cutoff}
+                })
+                running_ids.update(str(x) for x in found if x)
+            except Exception:
+                pass
+
+        return jsonify({'running_ids': list(running_ids)})
+    except Exception as e:
+        logging.error(f"Check running error: {e}")
+        return jsonify({'running_ids': []})
+
+
 @admin_offers_bp.route('/offers', methods=['GET'])
 @token_required
 @subadmin_or_admin_required('offers')

@@ -1,4 +1,4 @@
-import { Bell, Moon, Sun, User, X } from "lucide-react";
+import { Bell, Moon, Sun, User, X, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "next-themes";
 import { useNavigate } from "react-router-dom";
@@ -19,6 +19,7 @@ import {
   getNotificationIcon 
 } from "@/components/NotificationBar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { getAuthToken } from "@/utils/cookies";
 
 export function TopBar() {
   const { theme, setTheme } = useTheme();
@@ -28,6 +29,7 @@ export function TopBar() {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const [earnings, setEarnings] = useState<{ monthly: number; nextPayout: string } | null>(null);
   const [hasApprovedPlacement, setHasApprovedPlacement] = useState(false);
+  const [supportNotification, setSupportNotification] = useState<{ count: number; preview: string | null } | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -52,9 +54,30 @@ export function TopBar() {
     }
   }, []);
 
+  const fetchSupportNotification = useCallback(async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      const res = await fetch(`${API_BASE_URL}/api/support/unread-replies`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      }).then(r => r.json());
+      if (res.success && res.unread_count > 0) {
+        setSupportNotification({ count: res.unread_count, preview: res.preview });
+      } else {
+        setSupportNotification(null);
+      }
+    } catch {
+      // silent
+    }
+  }, []);
+
   useEffect(() => {
     if (user) {
       checkPlacementAndFetchData();
+      fetchSupportNotification();
+      // Poll support notifications every 60s
+      const interval = setInterval(fetchSupportNotification, 60_000);
+      return () => clearInterval(interval);
     }
   }, [user]);
 
@@ -114,9 +137,16 @@ export function TopBar() {
     setNotifications(prev => prev.filter(n => n.id !== notificationId));
   };
 
+  const totalNotificationCount = notifications.length + (supportNotification ? 1 : 0);
+
+  const handleDismissSupportNotification = () => {
+    setSupportNotification(null);
+  };
+
   const handleDismissAll = () => {
     notifications.forEach(n => markNotificationAsSeen(n.id));
     setNotifications([]);
+    setSupportNotification(null);
     setIsNotificationOpen(false);
   };
 
@@ -171,14 +201,15 @@ export function TopBar() {
             // Refresh notifications when dropdown is opened
             if (open) {
               fetchNotifications();
+              fetchSupportNotification();
             }
           }}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />
-                {notifications.length > 0 && (
+                {totalNotificationCount > 0 && (
                   <Badge className="absolute -top-1 -right-1 h-5 w-5 rounded-full p-0 text-xs flex items-center justify-center">
-                    {notifications.length}
+                    {totalNotificationCount}
                   </Badge>
                 )}
               </Button>
@@ -186,23 +217,58 @@ export function TopBar() {
             <DropdownMenuContent align="end" className="w-80 p-0">
               <div className="flex items-center justify-between px-4 py-3 border-b">
                 <span className="font-semibold text-sm">Notifications</span>
-                {notifications.length > 0 && (
+                {totalNotificationCount > 0 && (
                   <Button 
                     variant="ghost" 
                     size="sm" 
                     className="text-xs h-auto py-1 px-2"
-                    onClick={handleDismissAll}
+                    onClick={() => {
+                      handleDismissAll();
+                      handleDismissSupportNotification();
+                    }}
                   >
                     Clear all
                   </Button>
                 )}
               </div>
-              {notifications.length === 0 ? (
+              {totalNotificationCount === 0 ? (
                 <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                   No new notifications
                 </div>
               ) : (
                 <div className="max-h-80 overflow-y-auto">
+                  {/* Support reply notification */}
+                  {supportNotification && (
+                    <div 
+                      className="flex items-start gap-3 px-4 py-3 hover:bg-muted/50 border-b cursor-pointer bg-primary/5"
+                      onClick={() => {
+                        handleDismissSupportNotification();
+                        setIsNotificationOpen(false);
+                        navigate('/dashboard/support');
+                      }}
+                    >
+                      <div className="mt-0.5">
+                        <MessageCircle className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium">Admin: New reply in support</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {supportNotification.preview || `You have ${supportNotification.count} unread support ${supportNotification.count === 1 ? 'reply' : 'replies'}`}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 shrink-0"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDismissSupportNotification();
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
                   {notifications.map((notification) => (
                     <div 
                       key={notification.id} 

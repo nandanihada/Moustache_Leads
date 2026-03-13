@@ -36,17 +36,32 @@ def _log_email_activity(source: str, recipient_count: int, admin_user: dict = No
         logging.getLogger(__name__).error(f"Email activity log insert failed: {e}")
 
 
-def _send_support_notification_email(to_email: str, username: str) -> None:
+def _send_support_notification_email(to_email: str, username: str, is_admin_reply: bool = True) -> None:
     """Send a non-blocking email notifying user they have a new support reply."""
     def _send():
         try:
             email_service = get_email_service()
-            html = f"""<!DOCTYPE html>
+            frontend_url = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
+            if is_admin_reply:
+                subject = "You have a new message from support"
+                html = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
-<p style="font-size:16px;color:#333;">{username}, you have received one message from support.</p>
+<div style="max-width:500px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<h2 style="margin:0 0 16px;color:#111;">Hello {username},</h2>
+<p style="font-size:15px;color:#333;line-height:1.6;">Our team has replied to your support request.</p>
+<p style="font-size:15px;color:#333;line-height:1.6;">Login to your dashboard to view the reply.</p>
+<a href="{frontend_url}/dashboard/support" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Reply</a>
+</div>
 </body></html>"""
-            email_service._send_email(to_email, "New message from MoustacheLeads Support", html)
+            else:
+                subject = "New support ticket received"
+                html = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
+<p style="font-size:16px;color:#333;">New support message from {username}.</p>
+</body></html>"""
+            email_service._send_email(to_email, subject, html)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Support notification email failed: {e}")
@@ -91,12 +106,72 @@ def send_message():
         'created_at': datetime.utcnow(),
         'updated_at': datetime.utcnow(),
         'read_by_admin': False,
-        'read_by_user': True,   # user just wrote it, so they've "read" it
+        'read_by_user': True,
     }
     result = _col().insert_one(doc)
     doc['_id'] = str(result.inserted_id)
     doc['user_id'] = str(doc['user_id'])
     return jsonify({'success': True, 'message': doc}), 201
+
+
+# ── Publisher: reply to a conversation ─────────────────────────────────────────
+@support_bp.route('/api/support/messages/<message_id>/reply', methods=['POST'])
+@token_required
+def user_reply(message_id):
+    user = request.current_user
+    data = request.get_json() or {}
+    reply_text = (data.get('reply') or '').strip()
+    if not reply_text:
+        return jsonify({'error': 'Reply text is required'}), 400
+
+    # Verify ownership
+    doc = _col().find_one({'_id': ObjectId(message_id), 'user_id': ObjectId(str(user['_id']))})
+    if not doc:
+        return jsonify({'error': 'Message not found'}), 404
+
+    if doc.get('status') == 'closed':
+        return jsonify({'error': 'This conversation is closed'}), 400
+
+    reply = {
+        '_id': ObjectId(),
+        'text': reply_text,
+        'from': 'user',
+        'created_at': datetime.utcnow(),
+    }
+
+    _col().update_one(
+        {'_id': ObjectId(message_id)},
+        {
+            '$push': {'replies': reply},
+            '$set': {
+                'status': 'open',
+                'updated_at': datetime.utcnow(),
+                'read_by_admin': False,
+                'read_by_user': True,
+            }
+        }
+    )
+
+    updated = _col().find_one({'_id': ObjectId(message_id)})
+    return jsonify({'success': True, 'message': _serialize(updated)})
+
+
+# ── Publisher: get unread count for sidebar badge ──────────────────────────────
+@support_bp.route('/api/support/unread-count', methods=['GET'])
+@token_required
+def get_unread_count():
+    user = request.current_user
+    uid = ObjectId(str(user['_id']))
+    count = _col().count_documents({
+        'user_id': uid,
+        'status': {'$in': ['replied']},
+        '$or': [
+            {'read_by_user': False},
+            {'read_by_user': {'$exists': False}}
+        ]
+    })
+    total = _col().count_documents({'user_id': uid})
+    return jsonify({'success': True, 'unread_count': count, 'total_messages': total})
 
 
 # ── Publisher: get own messages ─────────────────────────────────────────────────
@@ -164,8 +239,36 @@ def admin_get_all_messages():
     if status_filter and status_filter != 'all':
         query['status'] = status_filter
 
-    docs = list(_col().find(query, sort=[('created_at', -1)]))
-    return jsonify({'success': True, 'messages': [_serialize(d) for d in docs]})
+    docs = list(_col().find(query, sort=[('updated_at', -1)]))
+
+    # Compute counts for all statuses
+    total = _col().count_documents({})
+    new_count = _col().count_documents({'status': 'open', 'read_by_admin': False})
+    open_count = _col().count_documents({'status': 'open'})
+    replied_count = _col().count_documents({'status': 'replied'})
+    closed_count = _col().count_documents({'status': 'closed'})
+
+    return jsonify({
+        'success': True,
+        'messages': [_serialize(d) for d in docs],
+        'counts': {
+            'total': total,
+            'new': new_count,
+            'open': open_count,
+            'replied': replied_count,
+            'closed': closed_count,
+        }
+    })
+
+
+# ── Admin: unread count for sidebar badge ──────────────────────────────────────
+@support_bp.route('/api/admin/support/unread-count', methods=['GET'])
+@token_required
+@admin_required
+def admin_unread_count():
+    count = _col().count_documents({'read_by_admin': False, 'status': {'$ne': 'closed'}})
+    total = _col().count_documents({})
+    return jsonify({'success': True, 'unread_count': count, 'total_messages': total})
 
 
 # ── Admin: reply to a message ───────────────────────────────────────────────────
@@ -222,6 +325,36 @@ def admin_mark_read(message_id):
         {'$set': {'read_by_admin': True}}
     )
     return jsonify({'success': True})
+
+
+# ── Close ticket (admin or user) ───────────────────────────────────────────────
+@support_bp.route('/api/admin/support/messages/<message_id>/close', methods=['PUT'])
+@token_required
+@admin_required
+def admin_close_ticket(message_id):
+    result = _col().update_one(
+        {'_id': ObjectId(message_id)},
+        {'$set': {'status': 'closed', 'updated_at': datetime.utcnow()}}
+    )
+    if result.matched_count == 0:
+        return jsonify({'error': 'Message not found'}), 404
+    doc = _col().find_one({'_id': ObjectId(message_id)})
+    return jsonify({'success': True, 'message': _serialize(doc)})
+
+
+@support_bp.route('/api/support/messages/<message_id>/close', methods=['PUT'])
+@token_required
+def user_close_ticket(message_id):
+    user = request.current_user
+    doc = _col().find_one({'_id': ObjectId(message_id), 'user_id': ObjectId(str(user['_id']))})
+    if not doc:
+        return jsonify({'error': 'Message not found'}), 404
+    _col().update_one(
+        {'_id': ObjectId(message_id)},
+        {'$set': {'status': 'closed', 'updated_at': datetime.utcnow()}}
+    )
+    updated = _col().find_one({'_id': ObjectId(message_id)})
+    return jsonify({'success': True, 'message': _serialize(updated)})
 
 
 # ── Admin: get all publishers (for recipient selector) ─────────────────────────
