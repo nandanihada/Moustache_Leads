@@ -1316,6 +1316,11 @@ def bulk_upload_offers():
         
         logging.info(f"✅ Validated: {len(valid_rows)} valid, {len(error_rows)} errors, {len(missing_offers_rows)} missing data")
         
+        # Debug: Log target_url for first few valid rows to verify param injection
+        for i, row in enumerate(valid_rows[:3]):
+            logging.info(f"🔍 Valid row {i+1} target_url: {row.get('target_url', 'N/A')}")
+            logging.info(f"🔍 Valid row {i+1} _upward_partner_name: {row.get('_upward_partner_name', 'none')}")
+        
         # Apply approval settings to all valid rows (override spreadsheet values if options provided)
         if options.get('approval_type'):
             for row in valid_rows:
@@ -1846,6 +1851,17 @@ def import_api_offers():
                 })
         
         logging.info(f"✅ Mapped {len(mapped_offers)} offers, {len(mapping_errors)} mapping errors")
+        
+        # Step 1.5: Apply Upward Partner network params to all mapped offers
+        from services.tracking_link_generator import apply_network_offer_params
+        params_injected = 0
+        for offer in mapped_offers:
+            original_url = offer.get('target_url', '')
+            offer.update(apply_network_offer_params(offer))
+            if offer.get('target_url', '') != original_url:
+                params_injected += 1
+        if params_injected > 0:
+            logging.info(f"🔗 Injected partner params into {params_injected} offer URLs")
         
         # Step 2: Use optimized bulk processor
         bulk_processor = get_bulk_offer_processor(db_instance)

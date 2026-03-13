@@ -193,27 +193,83 @@ def get_partner_by_domain(offer_url: str) -> Optional[Dict]:
         parsed = urlparse(offer_url)
         # Strip www. prefix for matching
         hostname = parsed.hostname or ''
-        hostname = hostname.lstrip('www.')
+        hostname = hostname.lower().lstrip('www.')
 
         if not hostname:
             return None
 
         partners_collection = db_instance.get_collection('partners')
-        # Match if stored network_domain is contained in the hostname or vice versa
+        # Fetch ALL partners that have a network_domain set (no status filter — inactive partners
+        # may still have offers being imported; also don't require offer_url_params to exist)
         partners = list(partners_collection.find({
-            'status': 'active',
-            'network_domain': {'$ne': ''},
-            'offer_url_params': {'$exists': True, '$ne': []}
+            'network_domain': {'$exists': True, '$ne': ''}
         }))
 
+        logger.info(f"Domain lookup: hostname='{hostname}', checking {len(partners)} partners")
+
         for partner in partners:
-            domain = partner.get('network_domain', '').lstrip('www.')
-            if domain and (domain in hostname or hostname in domain):
+            domain = partner.get('network_domain', '').lower().lstrip('www.')
+            if not domain:
+                continue
+            # Match if either contains the other (handles subdomains)
+            if domain in hostname or hostname in domain:
+                logger.info(f"Matched partner '{partner.get('partner_name')}' via domain '{domain}' for URL '{offer_url}'")
                 return partner
 
+        logger.info(f"No partner matched for hostname '{hostname}'")
         return None
     except Exception as e:
         logger.error(f"Error looking up partner by domain: {str(e)}")
+        return None
+
+
+def get_partner_by_name(network_name: str) -> Optional[Dict]:
+    """
+    Look up an Upward Partner by matching the partner_name against the offer's network name.
+    This is a fallback when domain-based matching fails.
+
+    Args:
+        network_name: The network name from the offer (e.g. 'cpamerchant')
+
+    Returns:
+        Partner document dict if found, else None
+    """
+    if not network_name:
+        return None
+
+    try:
+        import re as _re
+        from database import db_instance
+        partners_collection = db_instance.get_collection('partners')
+        normalized = network_name.lower().strip()
+
+        # Try exact match on partner_name (case-insensitive)
+        partner = partners_collection.find_one({
+            'partner_name': {'$regex': f'^{_re.escape(normalized)}$', '$options': 'i'}
+        })
+
+        if partner:
+            logger.info(f"Matched partner '{partner.get('partner_name')}' by name for network '{network_name}'")
+            return partner
+
+        # Try partial match
+        partners = list(partners_collection.find({
+            'partner_name': {'$exists': True, '$ne': ''}
+        }))
+
+        for p in partners:
+            pname = p.get('partner_name', '').lower().strip()
+            if not pname:
+                continue
+            # Match if either contains the other
+            if normalized in pname or pname in normalized:
+                logger.info(f"Matched partner '{p.get('partner_name')}' by partial name for network '{network_name}'")
+                return p
+
+        logger.info(f"No partner matched by name for network '{network_name}'")
+        return None
+    except Exception as e:
+        logger.error(f"Error looking up partner by name: {str(e)}")
         return None
 
 
@@ -251,12 +307,22 @@ def inject_offer_url_params(offer_url: str, offer_url_params: List[Dict]) -> str
             return offer_url
 
         # Build new query string preserving existing params
+        # We build manually instead of using urlencode() to keep macro braces
+        # like {user_id} as literal characters (not %7B/%7D encoded)
         all_params = {}
         for k, v in existing_params.items():
             all_params[k] = v[0] if len(v) == 1 else v
         all_params.update(new_params)
 
-        new_query = urlencode(all_params)
+        query_parts = []
+        for k, v in all_params.items():
+            if isinstance(v, list):
+                for item in v:
+                    query_parts.append(f"{k}={item}")
+            else:
+                query_parts.append(f"{k}={v}")
+        new_query = '&'.join(query_parts)
+
         new_parsed = parsed._replace(query=new_query)
         result = urlunparse(new_parsed)
         logger.info(f"Injected offer URL params: {list(new_params.keys())} → {result}")
@@ -281,15 +347,53 @@ def apply_network_offer_params(offer_data: dict) -> dict:
     """
     target_url = offer_data.get('target_url', '')
     if not target_url:
+        logger.info("apply_network_offer_params: No target_url in offer data — skipping")
         return offer_data
 
+    logger.info(f"apply_network_offer_params: Processing target_url='{target_url}'")
+
+    # Try domain-based lookup first
     partner = get_partner_by_domain(target_url)
+
+    # Fallback: if no domain match, try matching by network name
     if not partner:
+        network_name = offer_data.get('network', '')
+        if network_name:
+            partner = get_partner_by_name(network_name)
+
+    if not partner:
+        logger.info(f"apply_network_offer_params: No partner matched for URL '{target_url}'")
         return offer_data
 
     offer_url_params = partner.get('offer_url_params', [])
+    logger.info(
+        f"apply_network_offer_params: Partner '{partner.get('partner_name')}' matched. "
+        f"offer_url_params={offer_url_params}, "
+        f"parameter_mapping={partner.get('parameter_mapping', {})}"
+    )
+
     if not offer_url_params:
-        return offer_data
+        # FALLBACK: If offer_url_params is empty but parameter_mapping exists,
+        # auto-derive offer_url_params from parameter_mapping.
+        # parameter_mapping format: { "their_param": "our_field", ... }
+        # offer_url_params format: [{ "our_field": "...", "their_param": "..." }, ...]
+        parameter_mapping = partner.get('parameter_mapping', {})
+        if parameter_mapping:
+            offer_url_params = [
+                {'our_field': our_field, 'their_param': their_param}
+                for their_param, our_field in parameter_mapping.items()
+                if our_field and their_param
+            ]
+            logger.info(
+                f"apply_network_offer_params: Auto-derived offer_url_params from parameter_mapping: {offer_url_params}"
+            )
+        
+        if not offer_url_params:
+            logger.info(
+                f"Partner '{partner.get('partner_name')}' matched but has no offer_url_params "
+                f"and no parameter_mapping configured — skipping injection"
+            )
+            return offer_data
 
     updated_url = inject_offer_url_params(target_url, offer_url_params)
     if updated_url != target_url:
@@ -297,8 +401,12 @@ def apply_network_offer_params(offer_data: dict) -> dict:
         offer_data['_upward_partner_id'] = partner.get('partner_id', '')
         offer_data['_upward_partner_name'] = partner.get('partner_name', '')
         logger.info(
-            f"Auto-applied network params for partner '{partner.get('partner_name')}' "
+            f"✅ Auto-applied network params for partner '{partner.get('partner_name')}' "
             f"to offer URL: {updated_url}"
+        )
+    else:
+        logger.info(
+            f"Partner '{partner.get('partner_name')}' matched but all params already present in URL — no change"
         )
 
     return offer_data

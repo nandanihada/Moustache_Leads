@@ -40,127 +40,13 @@ def _send_support_notification_email(to_email: str, username: str) -> None:
     """Send a non-blocking email notifying user they have a new support reply."""
     def _send():
         try:
-            frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
-            dashboard_url = f"{frontend_url}/dashboard/support"
             email_service = get_email_service()
-
-            logo_url = f"{frontend_url}/logo.png"
-            year = datetime.utcnow().year
-
             html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>We got back to you — MoustacheLeads Support</title>
-</head>
-<body style="margin:0;padding:0;background-color:#0f0f0f;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0f0f0f;padding:40px 0;">
-    <tr>
-      <td align="center">
-        <table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%;">
-
-          <!-- Logo header -->
-          <tr>
-            <td align="center" style="padding:0 0 28px 0;">
-              <img src="{logo_url}" alt="MoustacheLeads" width="160" style="display:block;height:auto;" />
-            </td>
-          </tr>
-
-          <!-- Card -->
-          <tr>
-            <td style="background-color:#1a1a1a;border-radius:16px;overflow:hidden;border:1px solid #2a2a2a;">
-
-              <!-- Amber top bar -->
-              <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td style="background:linear-gradient(90deg,#f59e0b,#d97706);height:4px;font-size:0;line-height:0;">&nbsp;</td>
-                </tr>
-              </table>
-
-              <!-- Body -->
-              <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                <tr>
-                  <td style="padding:48px 44px 40px 44px;">
-
-                    <!-- Icon badge -->
-                    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 28px auto;">
-                      <tr>
-                        <td align="center" style="background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:50%;width:56px;height:56px;font-size:26px;line-height:56px;text-align:center;">
-                          💬
-                        </td>
-                      </tr>
-                    </table>
-
-                    <!-- Headline -->
-                    <p style="margin:0 0 8px 0;text-align:center;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">
-                      We got back to you, {username}
-                    </p>
-                    <p style="margin:0 0 32px 0;text-align:center;font-size:15px;color:#9ca3af;line-height:1.6;">
-                      Our support team has responded to your message.<br>
-                      Head over to your dashboard to continue the conversation.
-                    </p>
-
-                    <!-- Divider -->
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 32px 0;">
-                      <tr><td style="border-top:1px solid #2a2a2a;font-size:0;line-height:0;">&nbsp;</td></tr>
-                    </table>
-
-                    <!-- Info blurb -->
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#111111;border-radius:10px;margin:0 0 32px 0;">
-                      <tr>
-                        <td style="padding:20px 24px;">
-                          <p style="margin:0 0 6px 0;font-size:12px;font-weight:600;color:#f59e0b;text-transform:uppercase;letter-spacing:1px;">From the Support Team</p>
-                          <p style="margin:0;font-size:14px;color:#d1d5db;line-height:1.7;">
-                            We've reviewed your query and left a response waiting for you. Log in to your dashboard to read it and reply if needed — we're here to help.
-                          </p>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <!-- CTA button -->
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td align="center">
-                          <a href="{dashboard_url}" style="display:inline-block;background:linear-gradient(135deg,#f59e0b,#d97706);color:#000000;padding:15px 52px;text-decoration:none;border-radius:50px;font-weight:700;font-size:15px;letter-spacing:0.3px;">
-                            View My Response →
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <!-- Fallback link -->
-                    <p style="margin:24px 0 0 0;text-align:center;font-size:12px;color:#4b5563;">
-                      Button not working? <a href="{dashboard_url}" style="color:#f59e0b;text-decoration:underline;">Click here</a>
-                    </p>
-
-                  </td>
-                </tr>
-              </table>
-
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="padding:28px 0 0 0;text-align:center;">
-              <p style="margin:0 0 6px 0;font-size:13px;color:#6b7280;">
-                You're receiving this because you have an open support ticket with MoustacheLeads.
-              </p>
-              <p style="margin:0;font-size:12px;color:#374151;">
-                © {year} MoustacheLeads. All rights reserved.
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>"""
-
-            email_service._send_email(to_email, "You have a new reply from MoustacheLeads Support", html)
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
+<p style="font-size:16px;color:#333;">{username}, you have received one message from support.</p>
+</body></html>"""
+            email_service._send_email(to_email, "New message from MoustacheLeads Support", html)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Support notification email failed: {e}")

@@ -5,6 +5,7 @@ to avoid Render/Gunicorn worker timeouts (30 second limit)
 """
 
 import logging
+import re
 from datetime import datetime
 from typing import Dict, List, Tuple, Any, Optional
 from bson import ObjectId
@@ -73,8 +74,8 @@ class BulkOfferProcessor:
         # For name+network, we need individual conditions
         for nn in names_networks[:500]:  # Limit to prevent query size issues
             or_conditions.append({
-                'name': {'$regex': f'^{nn["name"]}$', '$options': 'i'},
-                'network': {'$regex': f'^{nn["network"]}$', '$options': 'i'}
+                'name': {'$regex': f'^{re.escape(nn["name"])}$', '$options': 'i'},
+                'network': {'$regex': f'^{re.escape(nn["network"])}$', '$options': 'i'}
             })
         
         if not or_conditions:

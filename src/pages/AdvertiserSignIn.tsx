@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import UserTypeToggle from "../components/UserTypeToggle";
 import { AuthLoadingOverlay } from "../components/LoadingSpinner";
+import { toast } from "sonner";
 
 export default function AdvertiserSignIn() {
   const [email, setEmail] = useState("");
@@ -11,6 +12,10 @@ export default function AdvertiserSignIn() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
   const navigate = useNavigate();
   const { login } = useAuth();
 
@@ -54,6 +59,30 @@ export default function AdvertiserSignIn() {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       handleLogin();
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!forgotEmail.trim()) return toast.error('Please enter your email');
+    setForgotLoading(true);
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      const res = await fetch(`${API_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setForgotSent(true);
+        toast.success('Reset link sent if account exists');
+      } else {
+        toast.error(data.error || 'Something went wrong');
+      }
+    } catch {
+      toast.error('Network error. Please try again.');
+    } finally {
+      setForgotLoading(false);
     }
   };
 
@@ -135,7 +164,7 @@ export default function AdvertiserSignIn() {
                 <input id="remember-me" type="checkbox" className="h-4 w-4 rounded border-white/20 bg-white/10 text-cyan-500 focus:ring-cyan-500" />
                 <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-300">Remember me</label>
               </div>
-              <a href="#" className="text-sm text-cyan-400 hover:text-cyan-300 font-medium transition-colors">Forgot password?</a>
+              <button onClick={() => { setShowForgot(true); setForgotSent(false); setForgotEmail(''); }} className="text-sm text-cyan-400 hover:text-cyan-300 font-medium transition-colors">Forgot password?</button>
             </div>
 
             <button
@@ -159,6 +188,47 @@ export default function AdvertiserSignIn() {
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="bg-slate-900 border border-white/20 rounded-2xl p-8 w-full max-w-md shadow-2xl">
+            {forgotSent ? (
+              <div className="text-center space-y-4">
+                <div className="w-14 h-14 mx-auto rounded-full bg-green-500/20 flex items-center justify-center text-2xl">✉️</div>
+                <h3 className="text-xl font-bold text-white">Check your email</h3>
+                <p className="text-gray-400 text-sm">If an account exists with that email, you'll receive a password reset link.</p>
+                <button onClick={() => setShowForgot(false)} className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-semibold rounded-xl">
+                  Back to Login
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <button onClick={() => setShowForgot(false)} className="flex items-center gap-1 text-gray-400 hover:text-white text-sm transition-colors">
+                  <ArrowLeft className="w-4 h-4" /> Back to login
+                </button>
+                <h3 className="text-xl font-bold text-white">Forgot Password</h3>
+                <p className="text-gray-400 text-sm">Enter your email and we'll send you a reset link.</p>
+                <input
+                  type="email"
+                  value={forgotEmail}
+                  onChange={e => setForgotEmail(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleForgotPassword()}
+                  placeholder="Enter your email"
+                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+                <button
+                  onClick={handleForgotPassword}
+                  disabled={forgotLoading}
+                  className="w-full py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-semibold rounded-xl disabled:opacity-50 transition-all"
+                >
+                  {forgotLoading ? 'Sending...' : 'Send Reset Link'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <style>{`
         @keyframes blob {

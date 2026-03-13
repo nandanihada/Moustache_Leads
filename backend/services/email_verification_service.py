@@ -279,7 +279,7 @@ MoustacheLeads Team
             r = rc.find_one({'token': token})
             if not r or r.get('used') or datetime.utcnow() > r.get('expires_at'):
                 return False, None, None
-            rc.update_one({'token': token}, {'set': {'used': True}})
+            rc.update_one({'token': token}, {'$set': {'used': True}})
             return True, r.get('email'), r.get('user_id')
         except:
             return False, None, None

@@ -120,6 +120,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
     const [googleSheetUrl, setGoogleSheetUrl] = useState('');
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
+    const [importStep, setImportStep] = useState<string>('');
     const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
     const [isDragging, setIsDragging] = useState(false);
     
@@ -251,6 +252,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
 
         setIsUploading(true);
         setUploadProgress(0);
+        setImportStep('');
         
         // Don't clear uploadResult if we're retrying with skip_invalid_rows
         if (!skipInvalidRows) {
@@ -281,14 +283,38 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
 
             if (uploadMode === 'file' && selectedFile) {
                 // Simulate progress
-                setUploadProgress(30);
+                setUploadProgress(20);
+                setImportStep('📂 Reading file...');
+                await new Promise(r => setTimeout(r, 400));
+                setUploadProgress(40);
+                setImportStep('🔍 Validating rows...');
+                await new Promise(r => setTimeout(r, 300));
+                setUploadProgress(55);
+                setImportStep('🌐 Checking partner networks...');
+                await new Promise(r => setTimeout(r, 300));
+                setUploadProgress(70);
+                setImportStep('🔗 Injecting tracking parameters...');
                 result = await bulkOfferApi.uploadFile(selectedFile, uploadOptions);
             } else {
-                setUploadProgress(30);
+                setUploadProgress(20);
+                setImportStep('🌐 Fetching Google Sheet...');
+                await new Promise(r => setTimeout(r, 500));
+                setUploadProgress(40);
+                setImportStep('🔍 Validating rows...');
+                await new Promise(r => setTimeout(r, 300));
+                setUploadProgress(55);
+                setImportStep('🌐 Checking partner networks...');
+                await new Promise(r => setTimeout(r, 300));
+                setUploadProgress(70);
+                setImportStep('🔗 Injecting tracking parameters...');
                 result = await bulkOfferApi.uploadFromGoogleSheets(googleSheetUrl, uploadOptions);
             }
 
+            setUploadProgress(90);
+            setImportStep('💾 Saving offers to database...');
+            await new Promise(r => setTimeout(r, 300));
             setUploadProgress(100);
+            setImportStep('✅ Import complete!');
             setUploadResult(result);
 
             if (result.success && result.created_count > 0) {
@@ -318,6 +344,8 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 missing_offers: error.missing_offers,
                 message: error.message
             });
+            setImportStep('');
+            setUploadProgress(0);
 
             // Check if error has validation details
             if (error.validation_errors || error.validation_feedback || error.missing_offers) {
@@ -352,6 +380,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
         setGoogleSheetUrl('');
         setUploadResult(null);
         setUploadProgress(0);
+        setImportStep('');
         onOpenChange(false);
     };
 
@@ -761,12 +790,38 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
 
                     {/* Upload Progress */}
                     {isUploading && (
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium">Uploading...</span>
-                                <span className="text-sm text-gray-500">{uploadProgress}%</span>
+                        <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                            <div className="flex items-center gap-2">
+                                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                                <span className="text-sm font-medium text-blue-800">
+                                    {importStep || 'Processing...'}
+                                </span>
                             </div>
-                            <Progress value={uploadProgress} />
+                            <Progress value={uploadProgress} className="h-2" />
+                            <div className="flex justify-between text-xs text-blue-600">
+                                <span>Step {Math.ceil(uploadProgress / 20)} of 5</span>
+                                <span>{uploadProgress}%</span>
+                            </div>
+                            <div className="grid grid-cols-5 gap-1 mt-1">
+                                {[
+                                    { pct: 20, label: 'Read' },
+                                    { pct: 40, label: 'Validate' },
+                                    { pct: 55, label: 'Partners' },
+                                    { pct: 70, label: 'Params' },
+                                    { pct: 100, label: 'Save' },
+                                ].map((s) => (
+                                    <div
+                                        key={s.label}
+                                        className={`text-center text-xs py-1 rounded transition-all ${
+                                            uploadProgress >= s.pct
+                                                ? 'bg-blue-600 text-white font-medium'
+                                                : 'bg-blue-100 text-blue-400'
+                                        }`}
+                                    >
+                                        {s.label}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
 

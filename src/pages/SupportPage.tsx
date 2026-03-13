@@ -179,42 +179,47 @@ const SupportPage: React.FC = () => {
                 </div>
               </button>
 
-              {/* Expanded thread */}
+              {/* Expanded chat thread */}
               {activeMsg === msg._id && (
-                <div className="border-t border-border px-6 py-5 space-y-4 bg-muted/10">
-                  {/* Original message */}
-                  <div className="flex gap-4">
-                    <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center text-sm font-bold flex-shrink-0">
-                      You
-                    </div>
-                    <div className="flex-1 bg-background border border-border rounded-xl px-4 py-3">
-                      <p className="text-xs text-muted-foreground mb-2 font-medium">Your message</p>
-                      <p className="text-sm text-foreground whitespace-pre-wrap">{msg.body}</p>
-                      <p className="text-xs text-muted-foreground mt-2">{fmt(msg.created_at)}</p>
-                    </div>
-                  </div>
-
-                  {/* Admin replies */}
-                  {msg.replies.length > 0 ? (
-                    msg.replies.map(reply => (
-                      <div key={reply._id} className="flex gap-4 justify-end">
-                        <div className="flex-1 max-w-[85%] bg-primary/10 border border-primary/20 rounded-xl px-4 py-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center">
-                              <span className="text-xs font-bold text-primary-foreground">ML</span>
-                            </div>
-                            <p className="text-xs font-semibold text-primary">MoustacheLeads Support</p>
+                <div className="border-t border-border px-4 sm:px-6 py-5 bg-muted/5">
+                  <div className="space-y-3 max-w-2xl mx-auto">
+                    {/* User's original message — skip for broadcasts */}
+                    {!msg.is_broadcast && (
+                      <div className="flex justify-end">
+                        <div className="max-w-[80%]">
+                          <p className="text-[11px] text-muted-foreground text-right mb-1">You</p>
+                          <div className="bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
+                            <p className="text-sm whitespace-pre-wrap">{msg.body}</p>
                           </div>
-                          <p className="text-sm text-foreground whitespace-pre-wrap">{reply.text}</p>
-                          <p className="text-xs text-muted-foreground mt-2">{fmt(reply.created_at)}</p>
+                          <p className="text-[10px] text-muted-foreground text-right mt-1">{fmt(msg.created_at)}</p>
                         </div>
                       </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-4 text-sm text-muted-foreground">
-                      No reply yet — we'll get back to you soon.
-                    </div>
-                  )}
+                    )}
+
+                    {/* Support replies */}
+                    {msg.replies.length > 0 ? (
+                      msg.replies.map(reply => (
+                        <div key={reply._id} className="flex justify-start">
+                          <div className="max-w-[80%]">
+                            <div className="flex items-center gap-1.5 mb-1">
+                              <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
+                                <span className="text-[9px] font-bold text-white">ML</span>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground">Support</p>
+                            </div>
+                            <div className="bg-card border border-border rounded-2xl rounded-tl-sm px-4 py-2.5">
+                              <p className="text-sm text-foreground whitespace-pre-wrap">{reply.text}</p>
+                            </div>
+                            <p className="text-[10px] text-muted-foreground mt-1">{fmt(reply.created_at)}</p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-6">
+                        <p className="text-sm text-muted-foreground">Waiting for reply...</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

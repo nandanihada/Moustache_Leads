@@ -84,6 +84,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   
   // Import progress
   const [importProgress, setImportProgress] = useState(0);
+  const [importStep, setImportStep] = useState<string>('');
   const [importSummary, setImportSummary] = useState<ImportSummary | null>(null);
   const [importErrors, setImportErrors] = useState<Array<{ offer_name: string; error: string }>>([]);
   
@@ -167,11 +168,28 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     setCurrentStep('importing');
     setImporting(true);
     setImportProgress(0);
+    setImportStep('📡 Fetching offers from network API...');
     
-    // Simulate progress (since we don't have real-time updates yet)
+    // Step-by-step progress animation
+    const steps = [
+      { pct: 15, msg: '📡 Fetching offers from network API...', delay: 600 },
+      { pct: 30, msg: '🔍 Validating offer data...', delay: 500 },
+      { pct: 45, msg: '🌐 Checking partner networks...', delay: 500 },
+      { pct: 60, msg: '🔗 Injecting tracking parameters...', delay: 500 },
+      { pct: 75, msg: '💾 Saving offers to database...', delay: 400 },
+    ];
+    
+    let stepIndex = 0;
     const progressInterval = setInterval(() => {
-      setImportProgress((prev) => Math.min(prev + 10, 90));
-    }, 500);
+      if (stepIndex < steps.length) {
+        setImportProgress(steps[stepIndex].pct);
+        setImportStep(steps[stepIndex].msg);
+        stepIndex++;
+      } else {
+        // Slowly increment after all steps
+        setImportProgress((prev) => Math.min(prev + 2, 90));
+      }
+    }, 600);
     
     try {
       // Convert delay to minutes based on selected unit
@@ -206,6 +224,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
       
       clearInterval(progressInterval);
       setImportProgress(100);
+      setImportStep('✅ Import complete!');
       
       if (response.summary) {
         setImportSummary(response.summary);
@@ -241,6 +260,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
       }
     } catch (error) {
       clearInterval(progressInterval);
+      setImportStep('');
       toast({
         title: 'Import Failed',
         description: error instanceof Error ? error.message : 'Failed to import offers',
@@ -259,6 +279,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     setPreviewOffers([]);
     setImportSummary(null);
     setImportErrors([]);
+    setImportStep('');
     onOpenChange(false);
   };
   
@@ -694,20 +715,43 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
         {/* Step 3: Importing Progress */}
         {currentStep === 'importing' && (
           <div className="space-y-4 py-8">
-            <div className="text-center">
-              <Loader2 className="h-12 w-12 animate-spin mx-auto mb-4 text-primary" />
-              <h3 className="text-lg font-semibold mb-2">Importing Offers...</h3>
-              <p className="text-sm text-muted-foreground mb-4">
-                Please wait while we import your offers
-              </p>
+            <div className="text-center mb-2">
+              <Loader2 className="h-10 w-10 animate-spin mx-auto mb-3 text-primary" />
+              <h3 className="text-lg font-semibold mb-1">Importing Offers...</h3>
             </div>
-            
-            <div className="space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Progress</span>
-                <span>{importProgress}%</span>
+
+            <div className="space-y-3 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                <span className="text-sm font-medium text-blue-800">
+                  {importStep || 'Processing...'}
+                </span>
               </div>
               <Progress value={importProgress} className="h-2" />
+              <div className="flex justify-between text-xs text-blue-600">
+                <span>Step {Math.max(1, Math.ceil(importProgress / 20))} of 5</span>
+                <span>{importProgress}%</span>
+              </div>
+              <div className="grid grid-cols-5 gap-1 mt-1">
+                {[
+                  { pct: 15, label: 'Fetch' },
+                  { pct: 30, label: 'Validate' },
+                  { pct: 45, label: 'Partners' },
+                  { pct: 60, label: 'Params' },
+                  { pct: 75, label: 'Save' },
+                ].map((s) => (
+                  <div
+                    key={s.label}
+                    className={`text-center text-xs py-1 rounded transition-all ${
+                      importProgress >= s.pct
+                        ? 'bg-blue-600 text-white font-medium'
+                        : 'bg-blue-100 text-blue-400'
+                    }`}
+                  >
+                    {s.label}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

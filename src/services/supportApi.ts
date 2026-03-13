@@ -26,6 +26,7 @@ export interface SupportMessage {
   created_at: string;
   updated_at: string;
   read_by_admin: boolean;
+  is_broadcast?: boolean;
 }
 
 export const supportApi = {
