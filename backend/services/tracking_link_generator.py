@@ -280,6 +280,10 @@ def inject_offer_url_params(offer_url: str, offer_url_params: List[Dict]) -> str
     offer_url_params is a list of dicts: [{"our_field": "user_id", "their_param": "sub1"}, ...]
     Each entry appends ?their_param={our_field} to the URL.
 
+    Skips injection when:
+    - their_param already exists in the URL
+    - the same macro value (e.g. {user_id}) is already assigned to another param
+
     Args:
         offer_url: Raw offer URL
         offer_url_params: List of param mapping dicts from the partner config
@@ -294,14 +298,30 @@ def inject_offer_url_params(offer_url: str, offer_url_params: List[Dict]) -> str
         parsed = urlparse(offer_url)
         existing_params = parse_qs(parsed.query, keep_blank_values=True)
 
+        # Build a set of macro values already present in the URL
+        # e.g. {"{user_id}", "{payout}", ...}
+        existing_values = set()
+        for v_list in existing_params.values():
+            for v in v_list:
+                stripped = v.strip()
+                if stripped:
+                    existing_values.add(stripped)
+
         new_params = {}
         for mapping in offer_url_params:
             their_param = mapping.get('their_param', '').strip()
             our_field = mapping.get('our_field', '').strip()
             if their_param and our_field:
-                # Only add if not already present in the URL
-                if their_param not in existing_params:
-                    new_params[their_param] = f'{{{our_field}}}'
+                macro_value = f'{{{our_field}}}'
+                # Skip if param name already exists in URL
+                if their_param in existing_params:
+                    continue
+                # Skip if the same macro value is already on another param
+                if macro_value in existing_values:
+                    logger.info(f"Skipping {their_param}={macro_value} — value already present in URL")
+                    continue
+                new_params[their_param] = macro_value
+                existing_values.add(macro_value)
 
         if not new_params:
             return offer_url
@@ -330,6 +350,7 @@ def inject_offer_url_params(offer_url: str, offer_url_params: List[Dict]) -> str
     except Exception as e:
         logger.error(f"Error injecting offer URL params: {str(e)}")
         return offer_url
+
 
 
 def apply_network_offer_params(offer_data: dict) -> dict:
