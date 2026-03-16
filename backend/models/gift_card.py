@@ -251,7 +251,7 @@ class GiftCard:
                     
                     # Send email
                     email_sent = send_gift_card_email(
-                        to_email=user.get('email'),
+                        recipient_email=user.get('email'),
                         user_name=user.get('name', 'User'),
                         gift_card_code=gift_card['code'],
                         gift_card_name=gift_card['name'],
