@@ -18,6 +18,7 @@ class GiftCard:
         self.collection = db_instance.get_collection('gift_cards')
         self.redemptions_collection = db_instance.get_collection('gift_card_redemptions')
         self.users_collection = db_instance.get_collection('users')
+        self.advertisers_collection = db_instance.get_collection('advertisers')
     
     def _check_db_connection(self):
         """Check if database is connected and usable"""
@@ -204,6 +205,14 @@ class GiftCard:
             # Import email service
             from services.email_service import send_gift_card_email
             
+            # Helper to find user in both collections
+            def find_user(uid):
+                uid_obj = ObjectId(uid) if isinstance(uid, str) else uid
+                user = self.users_collection.find_one({'_id': uid_obj})
+                if not user:
+                    user = self.advertisers_collection.find_one({'_id': uid_obj})
+                return user
+            
             # Determine which users to send to
             if user_ids is None:
                 # Use gift card settings
@@ -214,10 +223,12 @@ class GiftCard:
                     if excluded_users:
                         query['_id'] = {'$nin': excluded_users}
                     
-                    # Get all users (excluding excluded ones)
-                    users = list(self.users_collection.find(query, {'_id': 1, 'email': 1, 'name': 1}))
-                    user_ids = [user['_id'] for user in users]
-                    logger.info(f"📧 Sending gift card to ALL users ({len(user_ids)} users), excluding {len(excluded_users)} users")
+                    # Get all users from both collections (excluding excluded ones)
+                    publishers = list(self.users_collection.find(query, {'_id': 1, 'email': 1, 'name': 1}))
+                    advertisers = list(self.advertisers_collection.find(query, {'_id': 1, 'email': 1, 'name': 1}))
+                    all_users = publishers + advertisers
+                    user_ids = [user['_id'] for user in all_users]
+                    logger.info(f"📧 Sending gift card to ALL users ({len(user_ids)} users: {len(publishers)} publishers + {len(advertisers)} advertisers), excluding {len(excluded_users)} users")
                 else:
                     return False, "send_to_all is False but no user_ids provided"
             
@@ -226,9 +237,10 @@ class GiftCard:
             
             for user_id in user_ids:
                 try:
-                    # Get user details
-                    user = self.users_collection.find_one({'_id': ObjectId(user_id) if isinstance(user_id, str) else user_id})
+                    # Get user details from both collections
+                    user = find_user(user_id)
                     if not user:
+                        logger.warning(f"⚠️ User {user_id} not found in users or advertisers collection")
                         failed_users.append(str(user_id))
                         continue
                     

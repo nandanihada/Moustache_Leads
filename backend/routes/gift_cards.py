@@ -59,6 +59,8 @@ def create_gift_card(current_user):
             # If send_to_all is False, user_ids must be provided
             user_ids = data.get('user_ids') if not data.get('send_to_all', True) else None
             
+            logger.info(f"📧 Email sending requested. send_to_all={data.get('send_to_all')}, user_ids={user_ids}")
+            
             success, email_error = gift_card_service.send_gift_card_email(
                 gift_card['_id'],
                 user_ids  # None means use gift card settings (send_to_all)
