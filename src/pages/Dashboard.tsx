@@ -422,7 +422,9 @@ const DashboardPopupWrapper = () => {
   const [popupAmount, setPopupAmount] = useState<number>(0);
 
   useEffect(() => {
-    checkForPopups();
+    // Small delay to ensure token is available after login redirect
+    const timer = setTimeout(() => checkForPopups(), 500);
+    return () => clearTimeout(timer);
   }, []);
 
   const checkForPopups = async () => {
@@ -430,19 +432,33 @@ const DashboardPopupWrapper = () => {
       const dismissed = localStorage.getItem(POPUP_DISMISSED_KEY);
       if (dismissed) {
         const dismissedTime = parseInt(dismissed);
-        if (Date.now() - dismissedTime < POPUP_DISMISS_HOURS * 60 * 60 * 1000) return;
+        if (Date.now() - dismissedTime < POPUP_DISMISS_HOURS * 60 * 60 * 1000) {
+          console.log('🎁 Popup dismissed recently, skipping');
+          return;
+        }
       }
 
-      const token = localStorage.getItem('token');
-      if (!token) return;
+      // Try cookie first, then localStorage (same as getAuthToken)
+      const token = localStorage.getItem('token') || document.cookie.split('; ').find(c => c.startsWith('auth_token='))?.split('=')[1];
+      if (!token) {
+        console.log('🎁 No token found, skipping popup check');
+        return;
+      }
+
+      console.log('🎁 Checking for gift card popup...');
 
       // Check for available gift cards
       const gcRes = await fetch(`${API_BASE_URL}/api/publisher/gift-cards`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      console.log('🎁 Gift cards API response status:', gcRes.status);
+      
       if (gcRes.ok) {
         const gcData = await gcRes.json();
+        console.log('🎁 Gift cards data:', gcData);
         const unredeemed = (gcData.gift_cards || []).filter((gc: any) => !gc.is_redeemed && gc.status === 'active');
+        console.log('🎁 Unredeemed gift cards:', unredeemed.length);
         if (unredeemed.length > 0) {
           const firstCard = unredeemed[0];
           setPopupCode(firstCard.code || '');
@@ -451,6 +467,9 @@ const DashboardPopupWrapper = () => {
           setPopupType('gift_card');
           return;
         }
+      } else {
+        const errText = await gcRes.text();
+        console.error('🎁 Gift cards API error:', gcRes.status, errText);
       }
 
       // Check for available promo codes via notifications
@@ -461,7 +480,6 @@ const DashboardPopupWrapper = () => {
         const notifData = await notifRes.json();
         const promoNotifs = (notifData.notifications || []).filter((n: any) => n.type === 'promo_code_received');
         if (promoNotifs.length > 0) {
-          // Extract code from notification message (format: "...promo code 'CODE' is available...")
           const msg = promoNotifs[0].message || '';
           const codeMatch = msg.match(/'([^']+)'/);
           setPopupCode(codeMatch ? codeMatch[1] : '');
@@ -469,7 +487,9 @@ const DashboardPopupWrapper = () => {
           setPopupType('promo_code');
         }
       }
-    } catch { /* silent */ }
+    } catch (err) {
+      console.error('🎁 Popup check error:', err);
+    }
   };
 
   const dismissPopup = () => {

@@ -83,11 +83,14 @@ support_bp = safe_import_blueprint('routes.support_messages', 'support_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
-    """Custom JSON provider that adds 'Z' suffix to UTC datetime strings"""
+    """Custom JSON provider that handles datetime and ObjectId serialization"""
     def default(self, obj):
         if isinstance(obj, datetime):
             # Convert datetime to ISO format with 'Z' suffix for UTC
             return obj.isoformat() + 'Z'
+        from bson import ObjectId
+        if isinstance(obj, ObjectId):
+            return str(obj)
         return super().default(obj)
 
 # Define blueprints with their URL prefixes
