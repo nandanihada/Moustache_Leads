@@ -623,41 +623,53 @@ class PromoCode:
             return [], 0
     
     def update_promo_code(self, code_id, update_data, updated_by):
-        """Update a promo code (only if not used yet)"""
+        """Update a promo code"""
         if not self._check_db_connection():
             return False, "Database connection not available"
-        
+
         try:
             code_obj = self.get_promo_code_by_id(code_id)
             if not code_obj:
                 return False, "Promo code not found"
-            
-            # Can't edit if code has been used
-            if code_obj['usage_count'] > 0:
-                return False, "Cannot edit a code that has already been used"
-            
+
             # Prepare update document
             update_doc = {
                 'updated_at': datetime.utcnow(),
                 'updated_by': str(updated_by)
             }
-            
+
             # Update allowed fields
-            allowed_fields = ['name', 'description', 'status', 'max_uses', 'applicable_offers', 'applicable_categories']
+            allowed_fields = ['name', 'description', 'status', 'max_uses', 'max_uses_per_user',
+                            'bonus_type', 'bonus_amount', 'start_date', 'end_date',
+                            'applicable_offers', 'applicable_categories',
+                            'is_gift_card', 'credit_amount', 'active_hours',
+                            'auto_deactivate_on_max_uses']
             for field in allowed_fields:
                 if field in update_data:
-                    update_doc[field] = update_data[field]
-            
+                    if field in ('bonus_amount', 'credit_amount'):
+                        update_doc[field] = float(update_data[field])
+                    elif field in ('max_uses', 'max_uses_per_user'):
+                        update_doc[field] = int(update_data[field])
+                    elif field in ('start_date', 'end_date') and isinstance(update_data[field], str):
+                        update_doc[field] = datetime.fromisoformat(update_data[field].replace('Z', '+00:00')).replace(tzinfo=None)
+                    else:
+                        update_doc[field] = update_data[field]
+
+            # Code can only be changed if not yet used
+            if 'code' in update_data and code_obj.get('usage_count', 0) == 0:
+                update_doc['code'] = update_data['code'].upper().strip()
+
             result = self.collection.update_one(
                 {'_id': ObjectId(code_id)},
                 {'$set': update_doc}
             )
-            
-            return result.modified_count > 0, None
-            
+
+            return result.modified_count > 0 or True, None
+
         except Exception as e:
             logger.error(f"Error updating promo code: {str(e)}")
             return False, f"Error updating code: {str(e)}"
+
     
     def pause_promo_code(self, code_id):
         """Pause a promo code"""

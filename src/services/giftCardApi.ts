@@ -17,6 +17,7 @@ export interface GiftCard {
   expiry_date: string;
   send_to_all: boolean;
   excluded_users: string[];
+  user_ids: string[];
   redeemed_by: string[];
   status: 'active' | 'expired' | 'cancelled' | 'fully_redeemed';
   created_by: string;
@@ -36,6 +37,7 @@ export interface CreateGiftCardData {
   expiry_date: string;
   send_to_all: boolean;
   excluded_users?: string[];
+  user_ids?: string[];
   code?: string;
   send_email: boolean;
 }
@@ -106,6 +108,12 @@ export const giftCardAdminApi = {
   // Cancel gift card
   cancelGiftCard: async (giftCardId: string): Promise<{ success: boolean; message: string }> => {
     const response = await apiClient.post(`/admin/gift-cards/${giftCardId}/cancel`);
+    return response.data;
+  },
+
+  // Update gift card
+  updateGiftCard: async (giftCardId: string, data: Partial<CreateGiftCardData>): Promise<{ success: boolean; message: string }> => {
+    const response = await apiClient.put(`/admin/gift-cards/${giftCardId}`, data);
     return response.data;
   },
 };

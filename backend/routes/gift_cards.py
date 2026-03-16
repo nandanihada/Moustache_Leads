@@ -158,6 +158,39 @@ def send_gift_card_emails(current_user, gift_card_id):
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+@gift_cards_bp.route('/admin/gift-cards/<gift_card_id>', methods=['PUT'])
+@token_required_with_user
+def update_gift_card(current_user, gift_card_id):
+    """
+    Update a gift card (admin only)
+    
+    Request Body: Any of the editable fields:
+        name, description, amount, max_redemptions, image_url, expiry_date,
+        send_to_all, excluded_users, user_ids, code
+    """
+    try:
+        if current_user.get('role') != 'admin':
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+        
+        success, error = gift_card_service.update_gift_card(gift_card_id, data)
+        
+        if not success:
+            return jsonify({'success': False, 'error': error}), 400
+        
+        return jsonify({
+            'success': True,
+            'message': 'Gift card updated successfully'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error updating gift card: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @gift_cards_bp.route('/admin/gift-cards/<gift_card_id>/cancel', methods=['POST'])
 @token_required_with_user
 def cancel_gift_card(current_user, gift_card_id):

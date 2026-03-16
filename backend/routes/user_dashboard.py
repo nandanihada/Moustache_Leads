@@ -77,7 +77,29 @@ def get_dashboard_stats():
         total_revenue = revenue_result[0]['total_revenue'] if revenue_result else 0
         total_conversions = revenue_result[0]['total_conversions'] if revenue_result else 0
         
-        logger.info(f"💰 Total revenue: {total_revenue}, Conversions: {total_conversions}")
+        # Also include gift card redemptions in total revenue
+        gift_card_redemptions_col = get_collection('gift_card_redemptions')
+        gift_card_revenue = 0
+        if gift_card_redemptions_col is not None:
+            try:
+                user_obj_id_for_gc = ObjectId(user_id)
+            except:
+                user_obj_id_for_gc = None
+            
+            gc_query = {'$or': [{'user_id': user_id}]}
+            if user_obj_id_for_gc:
+                gc_query['$or'].append({'user_id': user_obj_id_for_gc})
+            
+            gc_pipeline = [
+                {'$match': gc_query},
+                {'$group': {'_id': None, 'total': {'$sum': '$amount'}}}
+            ]
+            gc_result = list(gift_card_redemptions_col.aggregate(gc_pipeline))
+            gift_card_revenue = gc_result[0]['total'] if gc_result else 0
+        
+        total_revenue = total_revenue + gift_card_revenue
+        
+        logger.info(f"💰 Total revenue: {total_revenue} (postbacks: {total_revenue - gift_card_revenue}, gift cards: {gift_card_revenue}), Conversions: {total_conversions}")
         
         # 2. Calculate Total Clicks from user's placements AND dashboard clicks
         # First get all user's placement IDs
@@ -508,6 +530,62 @@ def get_user_notifications():
                     'timestamp': promo.get('created_at'),
                     'color': 'purple'
                 })
+        
+        # 1b. GIFT CARD NOTIFICATIONS (limit 6)
+        gift_cards_col = get_collection('gift_cards')
+        gift_card_redemptions_col = get_collection('gift_card_redemptions')
+        
+        if gift_cards_col is not None:
+            # Show active gift cards available to the user
+            active_gc_query = {
+                'status': 'active',
+                'expiry_date': {'$gte': datetime.utcnow()}
+            }
+            active_gift_cards = list(gift_cards_col.find(active_gc_query).sort('created_at', -1).limit(6))
+            
+            for gc in active_gift_cards:
+                # Check if user already redeemed
+                redeemed_by = gc.get('redeemed_by', [])
+                already_redeemed = user_obj_id in redeemed_by if user_obj_id else False
+                
+                # Check if targeted to specific users
+                gc_user_ids = gc.get('user_ids', [])
+                send_to_all = gc.get('send_to_all', True)
+                
+                # If targeted to specific users, check if current user is in the list
+                if not send_to_all and gc_user_ids:
+                    user_in_list = user_id in [str(uid) for uid in gc_user_ids]
+                    if user_obj_id:
+                        user_in_list = user_in_list or user_obj_id in gc_user_ids
+                    if not user_in_list:
+                        continue
+                
+                # Check if user is excluded
+                excluded = gc.get('excluded_users', [])
+                if user_obj_id and user_obj_id in excluded:
+                    continue
+                
+                if not already_redeemed:
+                    remaining = max(0, gc.get('max_redemptions', 0) - gc.get('redemption_count', 0))
+                    notifications.append({
+                        'id': f"gc_{str(gc['_id'])}",
+                        'type': 'gift_card_available',
+                        'icon': 'gift',
+                        'title': '🎁 Gift Card Available!',
+                        'message': f"Gift card '{gc.get('name', 'Gift Card')}' worth ${gc.get('amount', 0):.2f} — Code: {gc.get('code', 'N/A')} — {remaining} spots left. Redeem now!",
+                        'timestamp': gc.get('created_at'),
+                        'color': 'purple'
+                    })
+                else:
+                    notifications.append({
+                        'id': f"gc_redeemed_{str(gc['_id'])}",
+                        'type': 'gift_card_redeemed',
+                        'icon': 'gift',
+                        'title': 'Gift Card Redeemed',
+                        'message': f"✅ You redeemed '{gc.get('name', 'Gift Card')}' worth ${gc.get('amount', 0):.2f}",
+                        'timestamp': gc.get('created_at'),
+                        'color': 'green'
+                    })
         
         # 2. OFFER ACCESS APPROVALS (limit 6)
         if offer_requests_col is not None:

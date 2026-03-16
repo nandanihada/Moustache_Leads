@@ -145,6 +145,7 @@ class GiftCard:
                 'max_redemptions': max_redemptions,  # NEW: First N users can redeem
                 'send_to_all': gift_card_data.get('send_to_all', True),  # NEW: Send to all users
                 'excluded_users': excluded_user_ids,  # NEW: Users to exclude from email
+                'user_ids': [],  # Specific user IDs if not send_to_all
                 'redeemed_by': [],  # List of user IDs who redeemed
                 'status': 'active',  # active, expired, cancelled, fully_redeemed
                 'created_by': ObjectId(created_by) if isinstance(created_by, str) else created_by,
@@ -155,11 +156,23 @@ class GiftCard:
                 'email_sent_to': []  # Track which users received email
             }
             
+            # Handle targeted user IDs
+            target_user_ids = gift_card_data.get('user_ids', [])
+            if target_user_ids and not gift_card_data.get('send_to_all', True):
+                converted_ids = []
+                for uid in target_user_ids:
+                    try:
+                        converted_ids.append(ObjectId(uid) if isinstance(uid, str) else uid)
+                    except:
+                        pass
+                gift_card_doc['user_ids'] = converted_ids
+            
             # Insert gift card
             result = self.collection.insert_one(gift_card_doc)
             gift_card_doc['_id'] = str(result.inserted_id)
             gift_card_doc['created_by'] = str(gift_card_doc['created_by'])
             gift_card_doc['excluded_users'] = [str(uid) for uid in gift_card_doc.get('excluded_users', [])]
+            gift_card_doc['user_ids'] = [str(uid) for uid in gift_card_doc.get('user_ids', [])]
             
             logger.info(f"✅ Gift card '{code}' created successfully - ${amount}, max {max_redemptions} redemptions")
             return gift_card_doc, None
@@ -409,6 +422,11 @@ class GiftCard:
                 card['created_by'] = str(card['created_by'])
                 card['is_redeemed'] = user_obj_id in card.get('redeemed_by', [])
                 card['remaining_redemptions'] = max(0, card.get('max_redemptions', 0) - card.get('redemption_count', 0))
+                # Serialize ObjectId lists to strings for JSON
+                card['redeemed_by'] = [str(uid) for uid in card.get('redeemed_by', [])]
+                card['excluded_users'] = [str(uid) for uid in card.get('excluded_users', [])]
+                card['user_ids'] = [str(uid) for uid in card.get('user_ids', [])]
+                card['email_sent_to'] = [str(uid) for uid in card.get('email_sent_to', [])]
             
             return gift_cards
             
@@ -477,6 +495,7 @@ class GiftCard:
                 card['_id'] = str(card['_id'])
                 card['created_by'] = str(card['created_by'])
                 card['excluded_users'] = [str(uid) for uid in card.get('excluded_users', [])]
+                card['user_ids'] = [str(uid) for uid in card.get('user_ids', [])]
                 card['redeemed_by'] = [str(uid) for uid in card.get('redeemed_by', [])]
                 card['email_sent_to'] = [str(uid) for uid in card.get('email_sent_to', [])]
             
@@ -485,6 +504,82 @@ class GiftCard:
         except Exception as e:
             logger.error(f"Error fetching gift cards: {str(e)}")
             return [], 0
+    
+    def update_gift_card(self, gift_card_id, update_data):
+        """
+        Update a gift card
+        
+        Args:
+            gift_card_id: Gift card ID
+            update_data: Dictionary with fields to update
+            
+        Returns:
+            Tuple (success, error_message)
+        """
+        if not self._check_db_connection():
+            return False, "Database connection not available"
+        
+        try:
+            gc = self.collection.find_one({'_id': ObjectId(gift_card_id) if isinstance(gift_card_id, str) else gift_card_id})
+            if not gc:
+                return False, "Gift card not found"
+            
+            update_doc = {'updated_at': datetime.utcnow()}
+            
+            allowed_fields = ['name', 'description', 'amount', 'max_redemptions', 'image_url', 'send_to_all', 'code']
+            for field in allowed_fields:
+                if field in update_data:
+                    if field == 'amount':
+                        update_doc[field] = float(update_data[field])
+                    elif field == 'max_redemptions':
+                        update_doc[field] = int(update_data[field])
+                    elif field == 'code':
+                        new_code = update_data[field].upper().strip()
+                        existing = self.collection.find_one({'code': new_code, '_id': {'$ne': gc['_id']}})
+                        if existing:
+                            return False, "Code already exists"
+                        update_doc[field] = new_code
+                    else:
+                        update_doc[field] = update_data[field]
+            
+            if 'expiry_date' in update_data:
+                expiry = update_data['expiry_date']
+                if isinstance(expiry, str):
+                    expiry = datetime.fromisoformat(expiry.replace('Z', '+00:00')).replace(tzinfo=None)
+                update_doc['expiry_date'] = expiry
+            
+            if 'excluded_users' in update_data:
+                excluded = []
+                for uid in update_data['excluded_users']:
+                    try:
+                        excluded.append(ObjectId(uid) if isinstance(uid, str) else uid)
+                    except:
+                        pass
+                update_doc['excluded_users'] = excluded
+            
+            if 'user_ids' in update_data:
+                user_ids = []
+                for uid in update_data['user_ids']:
+                    try:
+                        user_ids.append(ObjectId(uid) if isinstance(uid, str) else uid)
+                    except:
+                        pass
+                update_doc['user_ids'] = user_ids
+            
+            result = self.collection.update_one(
+                {'_id': gc['_id']},
+                {'$set': update_doc}
+            )
+            
+            if result.modified_count > 0:
+                logger.info(f"✅ Gift card {gift_card_id} updated")
+                return True, None
+            else:
+                return True, None  # No changes needed
+                
+        except Exception as e:
+            logger.error(f"❌ Error updating gift card: {str(e)}")
+            return False, f"Error updating gift card: {str(e)}"
     
     def cancel_gift_card(self, gift_card_id):
         """

@@ -74,6 +74,11 @@ function AdminPromoCodeManagement() {
   const [offerAnalytics, setOfferAnalytics] = useState<any>(null);
   const [userApplications, setUserApplications] = useState<any[]>([]);
   const [analyticsTab, setAnalyticsTab] = useState("overview");
+  // Edit state
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingCode, setEditingCode] = useState<PromoCode | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editFormData, setEditFormData] = useState<Partial<CreatePromoCodeForm>>({});
 
   const [formData, setFormData] = useState<CreatePromoCodeForm>({
     code: "",
@@ -315,6 +320,69 @@ function AdminPromoCodeManagement() {
     } catch (error) {
       toast.error("Error fetching users");
       console.error(error);
+    }
+  };
+
+  const openEditDialog = (code: PromoCode) => {
+    setEditingCode(code);
+    setEditFormData({
+      name: code.name,
+      description: code.description,
+      bonus_type: code.bonus_type,
+      bonus_amount: String(code.bonus_amount),
+      max_uses: String(code.max_uses),
+      max_uses_per_user: "1",
+      start_date: code.start_date ? new Date(code.start_date).toISOString().split("T")[0] : "",
+      end_date: code.end_date ? new Date(code.end_date).toISOString().split("T")[0] : "",
+      is_gift_card: code.is_gift_card || false,
+      credit_amount: code.credit_amount ? String(code.credit_amount) : "",
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleUpdatePromoCode = async () => {
+    if (!editingCode) return;
+    setEditSaving(true);
+    try {
+      const payload: any = {};
+      if (editFormData.name) payload.name = editFormData.name;
+      if (editFormData.description !== undefined) payload.description = editFormData.description;
+      if (editFormData.bonus_type) payload.bonus_type = editFormData.bonus_type;
+      if (editFormData.bonus_amount) payload.bonus_amount = parseFloat(editFormData.bonus_amount);
+      if (editFormData.max_uses) payload.max_uses = parseInt(editFormData.max_uses);
+      if (editFormData.max_uses_per_user) payload.max_uses_per_user = parseInt(editFormData.max_uses_per_user);
+      if (editFormData.start_date) payload.start_date = new Date(editFormData.start_date).toISOString();
+      if (editFormData.end_date) payload.end_date = new Date(editFormData.end_date).toISOString();
+      if (editFormData.is_gift_card !== undefined) payload.is_gift_card = editFormData.is_gift_card;
+      if (editFormData.credit_amount) payload.credit_amount = parseFloat(editFormData.credit_amount);
+
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const response = await fetch(
+        `${API_BASE_URL}/api/admin/promo-codes/${editingCode._id}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (response.ok) {
+        toast.success("Promo code updated successfully");
+        setShowEditDialog(false);
+        setEditingCode(null);
+        fetchPromoCodes();
+      } else {
+        const error = await response.json();
+        toast.error(error.error || "Failed to update promo code");
+      }
+    } catch (error) {
+      toast.error("Error updating promo code");
+      console.error(error);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -679,6 +747,14 @@ function AdminPromoCodeManagement() {
                           <Button
                             size="sm"
                             variant="outline"
+                            onClick={() => openEditDialog(code)}
+                            title="Edit"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
                             onClick={() => handleViewAnalytics(code._id)}
                             title="View Analytics"
                           >
@@ -870,6 +946,80 @@ function AdminPromoCodeManagement() {
               </TableBody>
             </Table>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Promo Code Dialog */}
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Promo Code: {editingCode?.code}</DialogTitle>
+            <DialogDescription>Update promo code settings</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Name</Label>
+                <Input value={editFormData.name || ''} onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })} />
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Input value={editFormData.description || ''} onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })} />
+              </div>
+            </div>
+
+            {!editFormData.is_gift_card && (
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Bonus Type</Label>
+                  <Select value={editFormData.bonus_type || 'percentage'} onValueChange={(value: any) => setEditFormData({ ...editFormData, bonus_type: value })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percentage">Percentage (%)</SelectItem>
+                      <SelectItem value="fixed">Fixed Amount ($)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Bonus Amount</Label>
+                  <Input type="number" value={editFormData.bonus_amount || ''} onChange={(e) => setEditFormData({ ...editFormData, bonus_amount: e.target.value })} />
+                </div>
+              </div>
+            )}
+
+            {editFormData.is_gift_card && (
+              <div>
+                <Label>Credit Amount ($)</Label>
+                <Input type="number" value={editFormData.credit_amount || ''} onChange={(e) => setEditFormData({ ...editFormData, credit_amount: e.target.value })} />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Start Date</Label>
+                <Input type="date" value={editFormData.start_date || ''} onChange={(e) => setEditFormData({ ...editFormData, start_date: e.target.value })} />
+              </div>
+              <div>
+                <Label>End Date</Label>
+                <Input type="date" value={editFormData.end_date || ''} onChange={(e) => setEditFormData({ ...editFormData, end_date: e.target.value })} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Max Uses</Label>
+                <Input type="number" value={editFormData.max_uses || ''} onChange={(e) => setEditFormData({ ...editFormData, max_uses: e.target.value })} />
+              </div>
+              <div>
+                <Label>Max Uses Per User</Label>
+                <Input type="number" value={editFormData.max_uses_per_user || ''} onChange={(e) => setEditFormData({ ...editFormData, max_uses_per_user: e.target.value })} />
+              </div>
+            </div>
+
+            <Button onClick={handleUpdatePromoCode} disabled={editSaving} className="w-full">
+              {editSaving ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div >

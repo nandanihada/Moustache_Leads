@@ -1,19 +1,79 @@
-import React, { useEffect, useState } from "react";
-import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X } from "lucide-react";
 import PlacementRequired from "@/components/PlacementRequired";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Area, AreaChart } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { dashboardApi, DashboardStats, ChartDataPoint, TopOffer } from "@/services/dashboardApi";
 import { toast } from "sonner";
+import { API_BASE_URL } from "@/services/apiConfig";
+
+const POPUP_DISMISSED_KEY = 'gift_promo_popup_dismissed';
+const POPUP_DISMISS_HOURS = 24;
+
+/* -------------------------
+   Glassmorphism Popup
+------------------------- */
+const GlassPopup = ({ type, onClose, onRedirect, code, name, amount }: { 
+  type: 'gift_card' | 'promo_code'; 
+  onClose: () => void; 
+  onRedirect: () => void;
+  code?: string;
+  name?: string;
+  amount?: number;
+}) => {
+  const isGift = type === 'gift_card';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+      <div
+        className="relative w-full max-w-md rounded-3xl border border-white/20 p-8 text-center shadow-2xl"
+        style={{
+          background: 'rgba(255, 255, 255, 0.15)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button onClick={onClose} className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors">
+          <X className="h-5 w-5" />
+        </button>
+        <div className="text-6xl mb-4">{isGift ? '🎁' : '🎉'}</div>
+        <h2 className="text-2xl font-bold text-white mb-2">
+          {isGift ? 'Hey! Grab Your Gift Card' : 'You Have a Promo Code!'}
+        </h2>
+        {name && (
+          <p className="text-white/90 font-semibold text-lg mb-1">{name}</p>
+        )}
+        {amount && isGift && (
+          <p className="text-white font-bold text-2xl mb-2">${amount.toFixed(2)}</p>
+        )}
+        {code && (
+          <div className="mx-auto mb-4 px-5 py-2.5 rounded-xl inline-block" style={{ background: 'rgba(255,255,255,0.2)', border: '1px dashed rgba(255,255,255,0.5)' }}>
+            <span className="text-white/70 text-xs uppercase tracking-wider block mb-0.5">Code</span>
+            <span className="text-white font-mono font-bold text-xl tracking-widest">{code}</span>
+          </div>
+        )}
+        <p className="text-white/80 mb-6 text-sm">
+          {isGift
+            ? 'A gift card is waiting for you. Redeem it now and add credits to your account!'
+            : 'A promo code is available for you. Apply it to boost your earnings on offers!'}
+        </p>
+        <button
+          onClick={onRedirect}
+          className="px-8 py-3 rounded-2xl font-semibold text-white transition-all duration-300 hover:scale-105"
+          style={{
+            background: isGift
+              ? 'linear-gradient(135deg, #ec4899, #8b5cf6)'
+              : 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+            boxShadow: '0 8px 32px rgba(139, 92, 246, 0.3)',
+          }}
+        >
+          {isGift ? 'Redeem Gift Card →' : 'View Promo Codes →'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 /* -------------------------
    Dashboard Component
@@ -352,13 +412,104 @@ const DashboardContent = () => {
 };
 
 /* -------------------------
+   Popup Wrapper (outside PlacementRequired)
+------------------------- */
+const DashboardPopupWrapper = () => {
+  const navigate = useNavigate();
+  const [popupType, setPopupType] = useState<'gift_card' | 'promo_code' | null>(null);
+  const [popupCode, setPopupCode] = useState<string>('');
+  const [popupName, setPopupName] = useState<string>('');
+  const [popupAmount, setPopupAmount] = useState<number>(0);
+
+  useEffect(() => {
+    checkForPopups();
+  }, []);
+
+  const checkForPopups = async () => {
+    try {
+      const dismissed = localStorage.getItem(POPUP_DISMISSED_KEY);
+      if (dismissed) {
+        const dismissedTime = parseInt(dismissed);
+        if (Date.now() - dismissedTime < POPUP_DISMISS_HOURS * 60 * 60 * 1000) return;
+      }
+
+      const token = localStorage.getItem('token');
+      if (!token) return;
+
+      // Check for available gift cards
+      const gcRes = await fetch(`${API_BASE_URL}/api/publisher/gift-cards`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (gcRes.ok) {
+        const gcData = await gcRes.json();
+        const unredeemed = (gcData.gift_cards || []).filter((gc: any) => !gc.is_redeemed && gc.status === 'active');
+        if (unredeemed.length > 0) {
+          const firstCard = unredeemed[0];
+          setPopupCode(firstCard.code || '');
+          setPopupName(firstCard.name || '');
+          setPopupAmount(firstCard.amount || 0);
+          setPopupType('gift_card');
+          return;
+        }
+      }
+
+      // Check for available promo codes via notifications
+      const notifRes = await fetch(`${API_BASE_URL}/api/dashboard/notifications`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (notifRes.ok) {
+        const notifData = await notifRes.json();
+        const promoNotifs = (notifData.notifications || []).filter((n: any) => n.type === 'promo_code_received');
+        if (promoNotifs.length > 0) {
+          // Extract code from notification message (format: "...promo code 'CODE' is available...")
+          const msg = promoNotifs[0].message || '';
+          const codeMatch = msg.match(/'([^']+)'/);
+          setPopupCode(codeMatch ? codeMatch[1] : '');
+          setPopupName(promoNotifs[0].title || '');
+          setPopupType('promo_code');
+        }
+      }
+    } catch { /* silent */ }
+  };
+
+  const dismissPopup = () => {
+    localStorage.setItem(POPUP_DISMISSED_KEY, String(Date.now()));
+    setPopupType(null);
+  };
+
+  const handlePopupRedirect = () => {
+    dismissPopup();
+    if (popupType === 'gift_card') navigate('/dashboard/gift-cards');
+    else navigate('/dashboard/promo-codes');
+  };
+
+  return (
+    <>
+      {popupType && (
+        <GlassPopup 
+          type={popupType} 
+          onClose={dismissPopup} 
+          onRedirect={handlePopupRedirect}
+          code={popupCode}
+          name={popupName}
+          amount={popupAmount}
+        />
+      )}
+    </>
+  );
+};
+
+/* -------------------------
    Main Dashboard Component
 ------------------------- */
 const Dashboard = () => {
   return (
-    <PlacementRequired>
-      <DashboardContent />
-    </PlacementRequired>
+    <>
+      <DashboardPopupWrapper />
+      <PlacementRequired>
+        <DashboardContent />
+      </PlacementRequired>
+    </>
   );
 };
 
