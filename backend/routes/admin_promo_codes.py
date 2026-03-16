@@ -8,6 +8,7 @@ from utils.auth import token_required, admin_required, subadmin_or_admin_require
 from models.promo_code import PromoCode
 from database import db_instance
 from services.email_service import get_email_service
+from bson import ObjectId
 import logging
 from datetime import datetime
 
@@ -20,7 +21,7 @@ admin_promo_codes_bp = Blueprint('admin_promo_codes', __name__)
 @token_required
 @subadmin_or_admin_required('promo-codes')
 def create_promo_code():
-    """Create a new promo code and notify all publishers"""
+    """Create a new promo code and notify targeted or all publishers"""
     try:
         current_user = request.current_user
         data = request.get_json()
@@ -36,35 +37,56 @@ def create_promo_code():
         
         logger.info(f"✅ Admin {current_user.get('username')} created promo code: {promo_code_doc['code']}")
         
-        # Send email to all publishers about new promo code
+        # Send email to publishers about new promo code
+        email_count = 0
         try:
             users_collection = db_instance.get_collection('users')
-            publishers = users_collection.find({'role': 'publisher'})
             email_service = get_email_service()
             
-            email_count = 0
-            for publisher in publishers:
-                if publisher.get('email'):
-                    try:
-                        email_service.send_new_promo_code_available(
-                            recipient_email=publisher['email'],
-                            code=promo_code_doc['code'],
-                            bonus_amount=promo_code_doc['bonus_amount'],
-                            bonus_type=promo_code_doc['bonus_type'],
-                            description=promo_code_doc.get('description', '')
-                        )
-                        email_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+            send_to_all = data.get('send_to_all', True)
+            target_user_ids = data.get('user_ids', [])
             
-            logger.info(f"📧 New promo code notification sent to {email_count} publishers")
+            if not send_to_all and target_user_ids:
+                # Send only to targeted users
+                for uid in target_user_ids:
+                    try:
+                        user = users_collection.find_one({'_id': ObjectId(uid)})
+                        if user and user.get('email'):
+                            email_service.send_new_promo_code_available(
+                                recipient_email=user['email'],
+                                code=promo_code_doc['code'],
+                                bonus_amount=promo_code_doc['bonus_amount'],
+                                bonus_type=promo_code_doc['bonus_type'],
+                                description=promo_code_doc.get('description', '')
+                            )
+                            email_count += 1
+                    except Exception as e:
+                        logger.error(f"Failed to send email to user {uid}: {str(e)}")
+            else:
+                # Send to all publishers
+                publishers = users_collection.find({'role': 'publisher'})
+                for publisher in publishers:
+                    if publisher.get('email'):
+                        try:
+                            email_service.send_new_promo_code_available(
+                                recipient_email=publisher['email'],
+                                code=promo_code_doc['code'],
+                                bonus_amount=promo_code_doc['bonus_amount'],
+                                bonus_type=promo_code_doc['bonus_type'],
+                                description=promo_code_doc.get('description', '')
+                            )
+                            email_count += 1
+                        except Exception as e:
+                            logger.error(f"Failed to send email to {publisher['email']}: {str(e)}")
+            
+            logger.info(f"📧 New promo code notification sent to {email_count} users")
         except Exception as e:
             logger.error(f"Failed to send promo code notifications: {str(e)}")
         
         return jsonify({
             'message': 'Promo code created successfully and notifications sent',
             'promo_code': promo_code_doc,
-            'emails_sent': email_count if 'email_count' in locals() else 0
+            'emails_sent': email_count
         }), 201
         
     except Exception as e:
@@ -136,6 +158,7 @@ def get_promo_codes():
         for code in codes:
             code['_id'] = str(code['_id'])
             code['created_by'] = str(code['created_by'])
+            code['user_ids'] = [str(uid) for uid in code.get('user_ids', [])]
         
         return jsonify({
             'promo_codes': codes,

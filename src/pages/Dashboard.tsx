@@ -9,6 +9,8 @@ import { API_BASE_URL } from "@/services/apiConfig";
 import { getAuthToken } from "@/utils/cookies";
 
 const POPUP_DISMISSED_KEY = 'gift_promo_popup_dismissed';
+const GC_POPUP_DISMISSED_KEY = 'gift_card_popup_dismissed';
+const PROMO_POPUP_DISMISSED_KEY = 'promo_code_popup_dismissed';
 const POPUP_DISMISS_HOURS = 24;
 
 /* -------------------------
@@ -438,17 +440,14 @@ const DashboardPopupWrapper = () => {
     return () => { cancelled = true; };
   }, []);
 
+  const isRecentlyDismissed = (key: string) => {
+    const dismissed = localStorage.getItem(key);
+    if (!dismissed) return false;
+    return Date.now() - parseInt(dismissed) < POPUP_DISMISS_HOURS * 60 * 60 * 1000;
+  };
+
   const checkForPopups = async () => {
     try {
-      const dismissed = localStorage.getItem(POPUP_DISMISSED_KEY);
-      if (dismissed) {
-        const dismissedTime = parseInt(dismissed);
-        if (Date.now() - dismissedTime < POPUP_DISMISS_HOURS * 60 * 60 * 1000) {
-          console.log('🎁 Popup dismissed recently, skipping');
-          return;
-        }
-      }
-
       // Use the proper cross-subdomain cookie reader
       const token = getAuthToken();
       if (!token) {
@@ -458,44 +457,41 @@ const DashboardPopupWrapper = () => {
 
       console.log('🎁 Checking for gift card popup...');
 
-      // Check for available gift cards
-      const gcRes = await fetch(`${API_BASE_URL}/api/publisher/gift-cards`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      console.log('🎁 Gift cards API response status:', gcRes.status);
-      
-      if (gcRes.ok) {
-        const gcData = await gcRes.json();
-        console.log('🎁 Gift cards data:', gcData);
-        const unredeemed = (gcData.gift_cards || []).filter((gc: any) => !gc.is_redeemed && gc.status === 'active');
-        console.log('🎁 Unredeemed gift cards:', unredeemed.length);
-        if (unredeemed.length > 0) {
-          const firstCard = unredeemed[0];
-          setPopupCode(firstCard.code || '');
-          setPopupName(firstCard.name || '');
-          setPopupAmount(firstCard.amount || 0);
-          setPopupType('gift_card');
-          return;
+      // Check for available gift cards (only if not dismissed)
+      if (!isRecentlyDismissed(GC_POPUP_DISMISSED_KEY)) {
+        const gcRes = await fetch(`${API_BASE_URL}/api/publisher/gift-cards`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (gcRes.ok) {
+          const gcData = await gcRes.json();
+          const unredeemed = (gcData.gift_cards || []).filter((gc: any) => !gc.is_redeemed && gc.status === 'active');
+          if (unredeemed.length > 0) {
+            const firstCard = unredeemed[0];
+            setPopupCode(firstCard.code || '');
+            setPopupName(firstCard.name || '');
+            setPopupAmount(firstCard.amount || 0);
+            setPopupType('gift_card');
+            return;
+          }
         }
-      } else {
-        const errText = await gcRes.text();
-        console.error('🎁 Gift cards API error:', gcRes.status, errText);
       }
 
-      // Check for available promo codes via notifications
-      const notifRes = await fetch(`${API_BASE_URL}/api/dashboard/notifications`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (notifRes.ok) {
-        const notifData = await notifRes.json();
-        const promoNotifs = (notifData.notifications || []).filter((n: any) => n.type === 'promo_code_received');
-        if (promoNotifs.length > 0) {
-          const msg = promoNotifs[0].message || '';
-          const codeMatch = msg.match(/'([^']+)'/);
-          setPopupCode(codeMatch ? codeMatch[1] : '');
-          setPopupName(promoNotifs[0].title || '');
-          setPopupType('promo_code');
+      // Check for available promo codes (only if not dismissed)
+      if (!isRecentlyDismissed(PROMO_POPUP_DISMISSED_KEY)) {
+        const notifRes = await fetch(`${API_BASE_URL}/api/dashboard/notifications`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (notifRes.ok) {
+          const notifData = await notifRes.json();
+          const promoNotifs = (notifData.notifications || []).filter((n: any) => n.type === 'promo_code_received');
+          if (promoNotifs.length > 0) {
+            const msg = promoNotifs[0].message || '';
+            const codeMatch = msg.match(/'([^']+)'/);
+            setPopupCode(codeMatch ? codeMatch[1] : '');
+            setPopupName(promoNotifs[0].title || '');
+            setPopupType('promo_code');
+          }
         }
       }
     } catch (err) {
@@ -504,6 +500,13 @@ const DashboardPopupWrapper = () => {
   };
 
   const dismissPopup = () => {
+    // Dismiss per-type so gift card and promo code popups are tracked independently
+    if (popupType === 'gift_card') {
+      localStorage.setItem(GC_POPUP_DISMISSED_KEY, String(Date.now()));
+    } else if (popupType === 'promo_code') {
+      localStorage.setItem(PROMO_POPUP_DISMISSED_KEY, String(Date.now()));
+    }
+    // Also set the legacy key for backward compat
     localStorage.setItem(POPUP_DISMISSED_KEY, String(Date.now()));
     setPopupType(null);
   };

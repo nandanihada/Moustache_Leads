@@ -95,9 +95,10 @@ def get_active_promo_codes():
 @publisher_promo_codes_bp.route('/api/publisher/promo-codes/available', methods=['GET'])
 @token_required
 def get_available_promo_codes():
-    """Get available promo codes for user to apply"""
+    """Get available promo codes for user to apply (respects user targeting)"""
     try:
         current_user = request.current_user
+        user_id = str(current_user['_id'])
         
         # Get pagination params
         page = request.args.get('page', 1, type=int)
@@ -107,20 +108,31 @@ def get_available_promo_codes():
         promo_code_model = PromoCode()
         codes, total = promo_code_model.get_available_codes(skip, limit)
         
+        # Filter by user targeting
+        user_obj_id = ObjectId(user_id)
+        visible_codes = []
+        for code in codes:
+            send_to_all = code.get('send_to_all', True)
+            if not send_to_all:
+                target_ids = [str(uid) for uid in code.get('user_ids', [])]
+                if user_id not in target_ids:
+                    continue
+            visible_codes.append(code)
+        
         # Get user's already applied codes
         user_codes = promo_code_model.get_user_active_codes(current_user['_id'])
         user_code_ids = [str(uc['promo_code_id']) for uc in user_codes]
         
         # Mark which codes user has already applied
-        for code in codes:
+        for code in visible_codes:
             code['already_applied'] = str(code['_id']) in user_code_ids
         
         return jsonify({
-            'promo_codes': codes,
-            'total': total,
+            'promo_codes': visible_codes,
+            'total': len(visible_codes),
             'page': page,
             'limit': limit,
-            'pages': (total + limit - 1) // limit
+            'pages': (len(visible_codes) + limit - 1) // limit if visible_codes else 0
         }), 200
         
     except Exception as e:

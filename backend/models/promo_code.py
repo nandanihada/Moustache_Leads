@@ -140,6 +140,9 @@ class PromoCode:
                 'updated_at': datetime.utcnow(),
                 'usage_count': 0,
                 'total_bonus_distributed': 0.0,
+                # User targeting
+                'send_to_all': code_data.get('send_to_all', True),
+                'user_ids': [],  # Specific user IDs if not send_to_all
                 # Time-based validity
                 'active_hours': {
                     'enabled': code_data.get('active_hours', {}).get('enabled', False),
@@ -150,6 +153,17 @@ class PromoCode:
                 # Auto-deactivation
                 'auto_deactivate_on_max_uses': code_data.get('auto_deactivate_on_max_uses', True)
             }
+            
+            # Handle targeted user IDs
+            target_user_ids = code_data.get('user_ids', [])
+            if target_user_ids and not code_data.get('send_to_all', True):
+                converted_ids = []
+                for uid in target_user_ids:
+                    try:
+                        converted_ids.append(ObjectId(uid) if isinstance(uid, str) else uid)
+                    except:
+                        pass
+                promo_code_doc['user_ids'] = converted_ids
             
             # Insert promo code
             result = self.collection.insert_one(promo_code_doc)
@@ -643,7 +657,7 @@ class PromoCode:
                             'bonus_type', 'bonus_amount', 'start_date', 'end_date',
                             'applicable_offers', 'applicable_categories',
                             'is_gift_card', 'credit_amount', 'active_hours',
-                            'auto_deactivate_on_max_uses']
+                            'auto_deactivate_on_max_uses', 'send_to_all']
             for field in allowed_fields:
                 if field in update_data:
                     if field in ('bonus_amount', 'credit_amount'):
@@ -658,6 +672,16 @@ class PromoCode:
             # Code can only be changed if not yet used
             if 'code' in update_data and code_obj.get('usage_count', 0) == 0:
                 update_doc['code'] = update_data['code'].upper().strip()
+
+            # Handle user_ids targeting
+            if 'user_ids' in update_data:
+                user_ids = []
+                for uid in update_data['user_ids']:
+                    try:
+                        user_ids.append(ObjectId(uid) if isinstance(uid, str) else uid)
+                    except:
+                        pass
+                update_doc['user_ids'] = user_ids
 
             result = self.collection.update_one(
                 {'_id': ObjectId(code_id)},

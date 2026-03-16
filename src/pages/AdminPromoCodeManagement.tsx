@@ -14,6 +14,14 @@ import { toast } from "sonner";
 import { Plus, Edit2, Pause, Play, BarChart3, Users, Trash2, Copy, CheckCircle, AlertCircle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { AdminPageGuard } from '@/components/AdminPageGuard';
+import { API_BASE_URL } from "@/services/apiConfig";
+
+interface SimpleUser {
+  _id: string;
+  username: string;
+  email: string;
+  name?: string;
+}
 
 interface PromoCode {
   _id: string;
@@ -34,6 +42,9 @@ interface PromoCode {
   // Gift card fields
   is_gift_card?: boolean;
   credit_amount?: number;
+  // User targeting
+  send_to_all?: boolean;
+  user_ids?: string[];
 }
 
 interface CreatePromoCodeForm {
@@ -79,6 +90,13 @@ function AdminPromoCodeManagement() {
   const [editingCode, setEditingCode] = useState<PromoCode | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [editFormData, setEditFormData] = useState<Partial<CreatePromoCodeForm>>({});
+  // User targeting state
+  const [allUsers, setAllUsers] = useState<SimpleUser[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [sendToAll, setSendToAll] = useState(true);
+  const [editSendToAll, setEditSendToAll] = useState(true);
 
   const [formData, setFormData] = useState<CreatePromoCodeForm>({
     code: "",
@@ -129,6 +147,58 @@ function AdminPromoCodeManagement() {
     }
   };
 
+  const fetchUsers = async () => {
+    if (allUsers.length > 0) return;
+    setUsersLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/admin/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAllUsers(data.users || []);
+      }
+    } catch { /* silent */ } finally {
+      setUsersLoading(false);
+    }
+  };
+
+  const toggleUser = (userId: string) => {
+    setSelectedUserIds(prev =>
+      prev.includes(userId) ? prev.filter(id => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const filteredUsers = allUsers.filter(u => {
+    if (!userSearch) return true;
+    const search = userSearch.toLowerCase();
+    return (u.username || '').toLowerCase().includes(search) ||
+      (u.email || '').toLowerCase().includes(search) ||
+      (u.name || '').toLowerCase().includes(search);
+  });
+
+  const UserPicker = () => (
+    <div className="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+      <Input placeholder="Search users..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="mb-2" />
+      {usersLoading ? (
+        <div className="text-center py-2 text-sm text-muted-foreground">Loading users...</div>
+      ) : filteredUsers.length === 0 ? (
+        <div className="text-center py-2 text-sm text-muted-foreground">No users found</div>
+      ) : (
+        filteredUsers.slice(0, 50).map(u => (
+          <label key={u._id} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
+            <input type="checkbox" checked={selectedUserIds.includes(u._id)} onChange={() => toggleUser(u._id)} className="rounded" />
+            <span className="font-medium">{u.username || u.name}</span>
+            <span className="text-muted-foreground text-xs">{u.email}</span>
+          </label>
+        ))
+      )}
+      {selectedUserIds.length > 0 && (
+        <div className="pt-2 border-t text-xs text-muted-foreground">{selectedUserIds.length} user(s) selected</div>
+      )}
+    </div>
+  );
+
   const handleCreatePromoCode = async () => {
     try {
       if (!formData.code || !formData.name || !formData.bonus_amount) {
@@ -146,18 +216,21 @@ function AdminPromoCodeManagement() {
         end_date: new Date(formData.end_date).toISOString(),
         max_uses: parseInt(formData.max_uses),
         max_uses_per_user: parseInt(formData.max_uses_per_user),
-        // NEW: Active hours
+        // Active hours
         active_hours: {
           enabled: formData.active_hours_enabled,
           start_time: formData.active_hours_start,
           end_time: formData.active_hours_end,
           timezone: formData.active_hours_timezone,
         },
-        // NEW: Auto-deactivation
+        // Auto-deactivation
         auto_deactivate_on_max_uses: formData.auto_deactivate_on_max_uses,
-        // NEW: Gift card fields
+        // Gift card fields
         is_gift_card: formData.is_gift_card,
         credit_amount: formData.is_gift_card ? parseFloat(formData.credit_amount) : undefined,
+        // User targeting
+        send_to_all: sendToAll,
+        user_ids: !sendToAll ? selectedUserIds : [],
       };
 
       const { API_BASE_URL } = await import('../services/apiConfig');
@@ -173,6 +246,8 @@ function AdminPromoCodeManagement() {
       if (response.ok) {
         toast.success("Promo code created successfully");
         setShowCreateDialog(false);
+        setSendToAll(true);
+        setSelectedUserIds([]);
         setFormData({
           code: "",
           name: "",
@@ -337,7 +412,10 @@ function AdminPromoCodeManagement() {
       is_gift_card: code.is_gift_card || false,
       credit_amount: code.credit_amount ? String(code.credit_amount) : "",
     });
+    setEditSendToAll(code.send_to_all !== false);
+    setSelectedUserIds(code.user_ids || []);
     setShowEditDialog(true);
+    fetchUsers();
   };
 
   const handleUpdatePromoCode = async () => {
@@ -355,6 +433,8 @@ function AdminPromoCodeManagement() {
       if (editFormData.end_date) payload.end_date = new Date(editFormData.end_date).toISOString();
       if (editFormData.is_gift_card !== undefined) payload.is_gift_card = editFormData.is_gift_card;
       if (editFormData.credit_amount) payload.credit_amount = parseFloat(editFormData.credit_amount);
+      payload.send_to_all = editSendToAll;
+      if (!editSendToAll) payload.user_ids = selectedUserIds;
 
       const { API_BASE_URL } = await import('../services/apiConfig');
       const response = await fetch(
@@ -638,7 +718,27 @@ function AdminPromoCodeManagement() {
                 )}
               </div>
 
-              {/* NEW: Auto-Deactivation Section */}
+              {/* User Targeting Section */}
+              <div className="border rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="text-base font-semibold">👥 User Targeting</Label>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {sendToAll ? 'Visible to all users — email sent to all publishers' : 'Visible to selected users only — email sent to selected users'}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!sendToAll}
+                    onCheckedChange={(checked) => {
+                      setSendToAll(!checked);
+                      if (checked) fetchUsers();
+                    }}
+                  />
+                </div>
+                {!sendToAll && <UserPicker />}
+              </div>
+
+              {/* Auto-Deactivation Section */}
               <div className="border rounded-lg p-4 space-y-2">
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -713,6 +813,7 @@ function AdminPromoCodeManagement() {
                     <TableHead>Usage</TableHead>
                     <TableHead>Distributed</TableHead>
                     <TableHead>Valid Until</TableHead>
+                    <TableHead>Target</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -741,6 +842,13 @@ function AdminPromoCodeManagement() {
                       <TableCell>${code.total_bonus_distributed.toFixed(2)}</TableCell>
                       <TableCell>
                         {new Date(code.end_date).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        {code.send_to_all !== false ? (
+                          <Badge variant="outline" className="text-xs">All Users</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">{(code.user_ids || []).length} Users</Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-2">
@@ -1014,6 +1122,25 @@ function AdminPromoCodeManagement() {
                 <Label>Max Uses Per User</Label>
                 <Input type="number" value={editFormData.max_uses_per_user || ''} onChange={(e) => setEditFormData({ ...editFormData, max_uses_per_user: e.target.value })} />
               </div>
+            </div>
+
+            <div className="border rounded-lg p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-base font-semibold">👥 User Targeting</Label>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {editSendToAll ? 'Visible to all users' : 'Visible to selected users only'}
+                  </p>
+                </div>
+                <Switch
+                  checked={!editSendToAll}
+                  onCheckedChange={(checked) => {
+                    setEditSendToAll(!checked);
+                    if (checked) fetchUsers();
+                  }}
+                />
+              </div>
+              {!editSendToAll && <UserPicker />}
             </div>
 
             <Button onClick={handleUpdatePromoCode} disabled={editSaving} className="w-full">

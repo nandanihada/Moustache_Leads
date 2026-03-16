@@ -97,6 +97,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearPlacementCache(); // Clear placement cache on logout
     localStorage.removeItem('session_id');
     localStorage.removeItem('gift_promo_popup_dismissed'); // Reset popup so it shows on next login
+    localStorage.removeItem('gift_card_popup_dismissed');
+    localStorage.removeItem('promo_code_popup_dismissed');
     // Reset support popup so it fires again on next login
     sessionStorage.removeItem('support_reply_checked');
   };

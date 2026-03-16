@@ -397,7 +397,9 @@ class GiftCard:
     
     def get_user_gift_cards(self, user_id):
         """
-        Get all active gift cards (anyone can redeem if not fully redeemed)
+        Get gift cards visible to this specific user.
+        - If send_to_all=True: visible to everyone (except excluded_users)
+        - If send_to_all=False: only visible to users in user_ids list
         
         Args:
             user_id: User ID
@@ -410,25 +412,42 @@ class GiftCard:
         
         try:
             user_obj_id = ObjectId(user_id) if isinstance(user_id, str) else user_id
+            user_id_str = str(user_id)
             
-            # Get all active gift cards (not expired, not cancelled, not fully redeemed)
+            # Get all non-expired gift cards
             gift_cards = list(self.collection.find({
-                'status': {'$in': ['active', 'fully_redeemed']},  # Show both active and fully_redeemed
-                'expiry_date': {'$gte': datetime.utcnow()}  # Not expired
+                'status': {'$in': ['active', 'fully_redeemed']},
+                'expiry_date': {'$gte': datetime.utcnow()}
             }).sort('created_at', -1))
             
+            visible_cards = []
             for card in gift_cards:
+                # Check user targeting
+                send_to_all = card.get('send_to_all', True)
+                if not send_to_all:
+                    # Targeted card — only show to users in user_ids list
+                    target_ids = card.get('user_ids', [])
+                    target_ids_str = [str(uid) for uid in target_ids]
+                    if user_id_str not in target_ids_str:
+                        continue
+                
+                # Check if user is excluded
+                excluded = card.get('excluded_users', [])
+                excluded_str = [str(uid) for uid in excluded]
+                if user_id_str in excluded_str:
+                    continue
+                
                 card['_id'] = str(card['_id'])
                 card['created_by'] = str(card['created_by'])
                 card['is_redeemed'] = user_obj_id in card.get('redeemed_by', [])
                 card['remaining_redemptions'] = max(0, card.get('max_redemptions', 0) - card.get('redemption_count', 0))
-                # Serialize ObjectId lists to strings for JSON
                 card['redeemed_by'] = [str(uid) for uid in card.get('redeemed_by', [])]
-                card['excluded_users'] = [str(uid) for uid in card.get('excluded_users', [])]
+                card['excluded_users'] = excluded_str
                 card['user_ids'] = [str(uid) for uid in card.get('user_ids', [])]
                 card['email_sent_to'] = [str(uid) for uid in card.get('email_sent_to', [])]
+                visible_cards.append(card)
             
-            return gift_cards
+            return visible_cards
             
         except Exception as e:
             logger.error(f"Error fetching user gift cards: {str(e)}")
