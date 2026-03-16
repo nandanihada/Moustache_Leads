@@ -6,6 +6,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { dashboardApi, DashboardStats, ChartDataPoint, TopOffer } from "@/services/dashboardApi";
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/services/apiConfig";
+import { getAuthToken } from "@/utils/cookies";
 
 const POPUP_DISMISSED_KEY = 'gift_promo_popup_dismissed';
 const POPUP_DISMISS_HOURS = 24;
@@ -422,9 +423,19 @@ const DashboardPopupWrapper = () => {
   const [popupAmount, setPopupAmount] = useState<number>(0);
 
   useEffect(() => {
-    // Small delay to ensure token is available after login redirect
-    const timer = setTimeout(() => checkForPopups(), 500);
-    return () => clearTimeout(timer);
+    // Retry logic: after a full-page redirect the cookie/localStorage may take a moment
+    let cancelled = false;
+    const tryCheck = async (attempt: number) => {
+      if (cancelled) return;
+      const tkn = getAuthToken();
+      if (!tkn && attempt < 3) {
+        setTimeout(() => tryCheck(attempt + 1), 800);
+        return;
+      }
+      checkForPopups();
+    };
+    setTimeout(() => tryCheck(0), 600);
+    return () => { cancelled = true; };
   }, []);
 
   const checkForPopups = async () => {
@@ -438,10 +449,10 @@ const DashboardPopupWrapper = () => {
         }
       }
 
-      // Try cookie first, then localStorage (same as getAuthToken)
-      const token = localStorage.getItem('token') || document.cookie.split('; ').find(c => c.startsWith('auth_token='))?.split('=')[1];
+      // Use the proper cross-subdomain cookie reader
+      const token = getAuthToken();
       if (!token) {
-        console.log('🎁 No token found, skipping popup check');
+        console.log('🎁 No token found after retries, skipping popup check');
         return;
       }
 
