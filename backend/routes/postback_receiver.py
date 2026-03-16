@@ -32,12 +32,13 @@ def get_collection(collection_name):
         return None
     return db_instance.get_collection(collection_name)
 
-def calculate_offer_points_with_bonus(offer_id):
+def calculate_offer_points_with_bonus(offer_id, user_id=None):
     """
-    Calculate points from offer with bonus
+    Calculate points from offer with bonus (including user-specific promo codes)
     
     Args:
         offer_id: Offer ID (e.g., "ML-00065")
+        user_id: Optional user ID to check user-specific promo codes
     
     Returns:
         dict: {
@@ -85,6 +86,7 @@ def calculate_offer_points_with_bonus(offer_id):
         has_bonus = False
         promo_code = ''
         
+        # First check offer-level promo code (legacy)
         if offer.get('promo_code_id') and offer.get('bonus_amount'):
             has_bonus = True
             bonus_type = offer.get('bonus_type', 'percentage')
@@ -97,6 +99,54 @@ def calculate_offer_points_with_bonus(offer_id):
             else:  # fixed
                 bonus_points = int(bonus_amount)
                 bonus_percentage = (bonus_amount / base_points * 100) if base_points > 0 else 0
+        
+        # Then check user-specific promo codes (from user_promo_codes collection)
+        if user_id and not has_bonus:
+            try:
+                user_promo_codes = get_collection('user_promo_codes')
+                promo_codes_collection = get_collection('promo_codes')
+                
+                if user_promo_codes is not None and promo_codes_collection is not None:
+                    user_obj_id = ObjectId(user_id) if isinstance(user_id, str) else user_id
+                    
+                    # Find active promo codes for this user
+                    active_codes = list(user_promo_codes.find({
+                        'user_id': user_obj_id,
+                        'is_active': True
+                    }))
+                    
+                    for user_code in active_codes:
+                        code_id = user_code.get('promo_code_id')
+                        if not code_id:
+                            continue
+                        
+                        code_obj = promo_codes_collection.find_one({'_id': ObjectId(code_id) if isinstance(code_id, str) else code_id})
+                        if not code_obj or code_obj.get('status') != 'active':
+                            continue
+                        
+                        # Check expiration
+                        if code_obj.get('end_date') and code_obj['end_date'] < datetime.utcnow():
+                            continue
+                        
+                        code_bonus_type = code_obj.get('bonus_type', 'percentage')
+                        code_bonus_amount = code_obj.get('bonus_amount', 0)
+                        
+                        if code_bonus_amount > 0:
+                            has_bonus = True
+                            promo_code = code_obj.get('code', '')
+                            
+                            if code_bonus_type == 'percentage':
+                                bonus_points = int(base_points * (code_bonus_amount / 100))
+                                bonus_percentage = code_bonus_amount
+                            else:  # fixed
+                                bonus_points = int(code_bonus_amount)
+                                bonus_percentage = (code_bonus_amount / base_points * 100) if base_points > 0 else 0
+                            
+                            logger.info(f"✅ User promo code bonus: {promo_code} → {bonus_points} points")
+                            break  # Use first applicable code
+                            
+            except Exception as promo_error:
+                logger.error(f"❌ Error checking user promo codes: {promo_error}")
         
         total_points = base_points + bonus_points
         
@@ -536,6 +586,20 @@ def receive_postback(unique_key):
                                                 'is_percentage': revenue_calc['is_percentage'],
                                                 'revenue_share_percent': revenue_calc['revenue_share_percent']
                                             }
+                                            
+                                            # Check user-specific promo code bonus on top of revenue share
+                                            if user_id_from_click:
+                                                try:
+                                                    user_bonus = calculate_offer_points_with_bonus(matched_offer_id, user_id_from_click)
+                                                    if user_bonus.get('has_bonus') and user_bonus.get('bonus_points', 0) > 0:
+                                                        points_calc['has_bonus'] = True
+                                                        points_calc['bonus_percentage'] = user_bonus['bonus_percentage']
+                                                        points_calc['bonus_points'] = user_bonus['bonus_points']
+                                                        points_calc['promo_code'] = user_bonus['promo_code']
+                                                        points_calc['total_points'] = final_payout + user_bonus['bonus_points']
+                                                        logger.info(f"💰 User promo bonus added: +{user_bonus['bonus_points']} points")
+                                                except Exception as bonus_err:
+                                                    logger.warning(f"⚠️ Error checking user promo bonus: {bonus_err}")
                                         elif matched_payout > 0:
                                             # Fallback to matched offer payout
                                             points_calc = {
@@ -547,9 +611,23 @@ def receive_postback(unique_key):
                                                 'total_points': matched_payout
                                             }
                                             logger.info(f"💰 Using matched offer payout: {matched_payout}")
+                                            
+                                            # Check user-specific promo code bonus
+                                            if user_id_from_click and matched_offer_id:
+                                                try:
+                                                    user_bonus = calculate_offer_points_with_bonus(matched_offer_id, user_id_from_click)
+                                                    if user_bonus.get('has_bonus') and user_bonus.get('bonus_points', 0) > 0:
+                                                        points_calc['has_bonus'] = True
+                                                        points_calc['bonus_percentage'] = user_bonus['bonus_percentage']
+                                                        points_calc['bonus_points'] = user_bonus['bonus_points']
+                                                        points_calc['promo_code'] = user_bonus['promo_code']
+                                                        points_calc['total_points'] = matched_payout + user_bonus['bonus_points']
+                                                        logger.info(f"💰 User promo bonus added: +{user_bonus['bonus_points']} points")
+                                                except Exception as bonus_err:
+                                                    logger.warning(f"⚠️ Error checking user promo bonus: {bonus_err}")
                                         else:
                                             # Fallback: try to calculate with offer_id (for backward compatibility)
-                                            points_calc = calculate_offer_points_with_bonus(offer_id)
+                                            points_calc = calculate_offer_points_with_bonus(offer_id, user_id_from_click)
                                         
                                         # Get actual username of the person who completed the offer
                                         actual_username = get_username_from_user_id(user_id_from_click) if user_id_from_click else 'Unknown'

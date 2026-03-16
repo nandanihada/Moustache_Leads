@@ -2494,3 +2494,130 @@ def get_email_activity_logs():
     except Exception as e:
         logging.error(f"Get email activity logs error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get email activity logs: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/fix-tracking-links', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def fix_network_tracking_links():
+    """
+    Inject partner offer_url_params into existing offer tracking URLs.
+    Does NOT regenerate the base URL — only appends missing partner params.
+    """
+    try:
+        from services.tracking_link_generator import (
+            normalize_network_name,
+            get_partner_by_name,
+            get_partner_by_domain,
+            inject_offer_url_params
+        )
+
+        offers_collection = db_instance.get_collection('offers')
+
+        data = request.get_json() or {}
+        requested_networks = data.get('networks', ['leadads', 'cpamerchant', 'chameleonads'])
+
+        network_variations = []
+        for n in requested_networks:
+            normalized = n.lower().strip().replace(' ', '').replace('_', '')
+            network_variations.extend([normalized, n.lower(), n])
+
+        # Pre-load partner configs by network name
+        partner_cache = {}
+        for network in requested_networks:
+            normalized = normalize_network_name(network)
+            partner = get_partner_by_name(normalized)
+            if partner:
+                partner_cache[normalized] = partner
+                logging.info(f"Loaded partner config for {normalized}: {partner.get('partner_name')}")
+
+        # Find offers from these networks
+        query = {
+            '$or': [
+                {'network': {'$regex': nv, '$options': 'i'}}
+                for nv in set(network_variations)
+            ]
+        }
+
+        offers = list(offers_collection.find(query))
+        updated = 0
+        skipped = 0
+        errors = 0
+        details = []
+
+        for offer in offers:
+            try:
+                network = offer.get('network', '')
+                normalized = normalize_network_name(network)
+                old_url = offer.get('target_url', '')
+
+                if not old_url:
+                    skipped += 1
+                    continue
+
+                # Find partner — try by network name first, then by domain
+                partner = partner_cache.get(normalized)
+                if not partner:
+                    partner = get_partner_by_domain(old_url)
+
+                if not partner:
+                    skipped += 1
+                    continue
+
+                # Get offer_url_params from partner config
+                params = partner.get('offer_url_params', [])
+                if not params:
+                    mapping = partner.get('parameter_mapping', {})
+                    if mapping:
+                        params = [
+                            {'our_field': v, 'their_param': k}
+                            for k, v in mapping.items()
+                            if k and v
+                        ]
+
+                if not params:
+                    skipped += 1
+                    continue
+
+                # Inject params into existing URL (only adds missing ones)
+                new_url = inject_offer_url_params(old_url, params)
+
+                if old_url == new_url:
+                    skipped += 1
+                    continue
+
+                result = offers_collection.update_one(
+                    {'_id': offer['_id']},
+                    {'$set': {'target_url': new_url, 'updated_at': datetime.utcnow()}}
+                )
+
+                if result.modified_count > 0:
+                    updated += 1
+                    details.append({
+                        'offer_id': offer.get('offer_id', ''),
+                        'campaign_id': offer.get('campaign_id', ''),
+                        'name': offer.get('name', '')[:50],
+                        'network': network,
+                        'old_url': old_url[:100],
+                        'new_url': new_url
+                    })
+                else:
+                    errors += 1
+
+            except Exception as e:
+                logging.error(f"Error updating offer {offer.get('_id')}: {e}")
+                errors += 1
+
+        return jsonify({
+            'success': True,
+            'message': f'Updated {updated} offers, skipped {skipped}, errors {errors}',
+            'total_found': len(offers),
+            'updated': updated,
+            'skipped': skipped,
+            'errors': errors,
+            'details': details[:50]
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Fix tracking links error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to fix tracking links: {str(e)}'}), 500
+

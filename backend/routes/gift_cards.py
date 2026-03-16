@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify
 from functools import wraps
 from models.gift_card import get_gift_card_service
 from models.user import User
-from auth import token_required_with_user
+from utils.auth import token_required_with_user
 import logging
 
 logger = logging.getLogger(__name__)

@@ -205,6 +205,16 @@ class BonusCalculationService:
                 }
             )
             
+            # Auto-credit bonus to user balance immediately
+            try:
+                credit_result = self.credit_bonus_to_user_balance(conversion_id)
+                if 'error' not in credit_result:
+                    logger.info(f"✅ Bonus ${bonus_amount} auto-credited to user {user_id} balance")
+                else:
+                    logger.warning(f"⚠️ Failed to auto-credit bonus: {credit_result.get('error')}")
+            except Exception as credit_error:
+                logger.error(f"❌ Error auto-crediting bonus: {credit_error}")
+            
             return {
                 'conversion_id': conversion_id,
                 'bonus_amount': bonus_amount,
