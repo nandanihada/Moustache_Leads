@@ -925,6 +925,20 @@ def get_all_users():
         user_model = User()
         users = user_model.get_all_users_with_status(status_filter)
         
+        # Also include advertisers so user pickers show all registered accounts
+        try:
+            advertisers_col = db_instance.get_collection('advertisers')
+            if advertisers_col is not None:
+                adv_list = list(advertisers_col.find({}, {'password': 0}).sort('created_at', -1))
+                for adv in adv_list:
+                    adv['_id'] = str(adv['_id'])
+                    adv['user_type'] = 'advertiser'
+                    if not adv.get('username'):
+                        adv['username'] = adv.get('company_name') or adv.get('email', '')
+                    users.append(adv)
+        except Exception as adv_err:
+            logging.warning(f"Could not fetch advertisers: {adv_err}")
+        
         # Get counts for each status - need to handle legacy users without account_status
         all_users = user_model.get_all_users_with_status()
         pending_count = len([u for u in all_users if u.get('account_status', 'pending_approval') == 'pending_approval'])

@@ -208,8 +208,8 @@ export default function AdminGiftCardManagement() {
         return <Badge variant={config.variant}>{config.label}</Badge>;
     };
 
-    // User picker component (reused in create & edit)
-    const UserPicker = () => (
+    // User picker JSX (inline to avoid re-mount on every render)
+    const userPickerJsx = (
         <div className="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
             <Input
                 placeholder="Search users..."
@@ -314,7 +314,7 @@ export default function AdminGiftCardManagement() {
                                     <Switch checked={!formData.send_to_all}
                                         onCheckedChange={(checked) => setFormData({ ...formData, send_to_all: !checked })} />
                                 </div>
-                                {!formData.send_to_all && <UserPicker />}
+                                {!formData.send_to_all && userPickerJsx}
                             </div>
 
                             <div className="flex items-center space-x-2">
@@ -474,7 +474,7 @@ export default function AdminGiftCardManagement() {
                                 <Switch checked={!editForm.send_to_all}
                                     onCheckedChange={(checked) => setEditForm({ ...editForm, send_to_all: !checked })} />
                             </div>
-                            {!editForm.send_to_all && <UserPicker />}
+                            {!editForm.send_to_all && userPickerJsx}
                         </div>
 
                         <Button onClick={handleUpdate} disabled={saving} className="w-full bg-gradient-to-r from-pink-500 to-purple-600">

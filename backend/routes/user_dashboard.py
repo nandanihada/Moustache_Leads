@@ -506,7 +506,7 @@ def get_user_notifications():
                     'color': 'green'
                 })
         
-        # Also check for promo codes available to all users (public codes) - only for users with approved placements
+        # Also check for promo codes available to this user (respects user targeting)
         if promo_codes_col is not None:
             public_promos = list(promo_codes_col.find({
                 'status': 'active',
@@ -514,9 +514,16 @@ def get_user_notifications():
                     {'applicable_offers': {'$size': 0}},
                     {'applicable_offers': {'$exists': False}}
                 ]
-            }).sort('created_at', -1).limit(3))  # Reduced limit to 3
+            }).sort('created_at', -1).limit(10))
             
             for promo in public_promos:
+                # Check user targeting — skip codes not meant for this user
+                send_to_all = promo.get('send_to_all', True)
+                if not send_to_all:
+                    target_ids = [str(uid) for uid in promo.get('user_ids', [])]
+                    if user_id not in target_ids:
+                        continue
+                
                 bonus_type = promo.get('bonus_type', 'percentage')
                 bonus_amount = promo.get('bonus_amount', 0)
                 bonus_text = f"+{bonus_amount}%" if bonus_type == 'percentage' else f"+${bonus_amount}"

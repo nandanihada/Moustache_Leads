@@ -177,7 +177,7 @@ function AdminPromoCodeManagement() {
       (u.name || '').toLowerCase().includes(search);
   });
 
-  const UserPicker = () => (
+  const userPickerJsx = (
     <div className="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
       <Input placeholder="Search users..." value={userSearch} onChange={(e) => setUserSearch(e.target.value)} className="mb-2" />
       {usersLoading ? (
@@ -735,7 +735,7 @@ function AdminPromoCodeManagement() {
                     }}
                   />
                 </div>
-                {!sendToAll && <UserPicker />}
+                {!sendToAll && userPickerJsx}
               </div>
 
               {/* Auto-Deactivation Section */}
@@ -1140,7 +1140,7 @@ function AdminPromoCodeManagement() {
                   }}
                 />
               </div>
-              {!editSendToAll && <UserPicker />}
+              {!editSendToAll && userPickerJsx}
             </div>
 
             <Button onClick={handleUpdatePromoCode} disabled={editSaving} className="w-full">
