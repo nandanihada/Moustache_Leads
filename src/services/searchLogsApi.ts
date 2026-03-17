@@ -55,9 +55,11 @@ export const searchLogsApi = {
     Object.entries(filters).forEach(([k, v]) => {
       if (v !== undefined && v !== '') params.append(k, String(v));
     });
-    const res = await fetch(`${API}/api/admin/search-logs?${params}`, { headers: headers() });
-    if (!res.ok) throw new Error('Failed to fetch search logs');
-    return res.json();
+    const url = `${API}/api/admin/search-logs?${params}`;
+    const res = await fetch(url, { headers: headers() });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to fetch search logs');
+    return data;
   },
 
   async sendEmail(data: {
@@ -77,20 +79,17 @@ export const searchLogsApi = {
 
   async logSearch(keyword: string, resultsCount: number) {
     try {
-      console.log('[SearchLog] Sending log:', { keyword, results_count: resultsCount, url: `${API}/api/admin/search-logs/log` });
       const res = await fetch(`${API}/api/admin/search-logs/log`, {
         method: 'POST',
         headers: headers(),
         body: JSON.stringify({ keyword, results_count: resultsCount }),
       });
-      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
         console.error('[SearchLog] Failed:', res.status, data);
-      } else {
-        console.log('[SearchLog] Success:', data);
       }
     } catch (err) {
-      console.error('[SearchLog] Network error:', err);
+      // Silently fail - search logging should never block the user
     }
   },
 };

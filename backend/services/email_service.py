@@ -178,7 +178,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{frontend_url}/offers" style="display: inline-block; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(245,158,11,0.4);">VIEW OFFER →</a>
+                                        <a href="{frontend_url}/publisher/signin" style="display: inline-block; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(245,158,11,0.4);">VIEW OFFER →</a>
                                     </td>
                                 </tr>
                             </table>
@@ -266,7 +266,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{frontend_url}/offers" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(99,102,241,0.4);">CHECK NOW →</a>
+                                        <a href="{frontend_url}/publisher/signin" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(99,102,241,0.4);">CHECK NOW →</a>
                                     </td>
                                 </tr>
                             </table>
@@ -427,7 +427,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{frontend_url}/offers" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(99,102,241,0.4);">CHECK ALL OFFERS →</a>
+                                        <a href="{frontend_url}/publisher/signin" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 15px rgba(99,102,241,0.4);">CHECK ALL OFFERS →</a>
                                     </td>
                                 </tr>
                             </table>
@@ -633,7 +633,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{frontend_url}/dashboard/offers" style="display: inline-block; background: {header_gradient}; color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">{button_text} →</a>
+                                        <a href="{frontend_url}/publisher/signin" style="display: inline-block; background: {header_gradient}; color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">{button_text} →</a>
                                     </td>
                                 </tr>
                             </table>
@@ -722,7 +722,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{frontend_url}/admin/offers" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Offer</a>
+                                        <a href="{frontend_url}/publisher/signin" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Offer</a>
                                     </td>
                                 </tr>
                             </table>
@@ -773,7 +773,7 @@ class EmailService:
                         </td></tr>
                     </table>
                     <table width="100%" style="margin: 30px 0;"><tr><td align="center">
-                        <a href="{frontend_url}/offers" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Offer</a>
+                        <a href="{frontend_url}/publisher/signin" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Offer</a>
                     </td></tr></table>
                 </td></tr>
                 <tr><td style="background-color: #f9fafb; padding: 20px 30px; border-top: 1px solid #e5e7eb; border-radius: 0 0 8px 8px; text-align: center;">
@@ -849,7 +849,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{frontend_url}/dashboard/promo-codes" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Promo Codes</a>
+                                        <a href="{frontend_url}/publisher/signin" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">View Promo Codes</a>
                                     </td>
                                 </tr>
                             </table>
@@ -931,7 +931,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{frontend_url}/dashboard/gift-cards" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase;">REDEEM NOW →</a>
+                                        <a href="{frontend_url}/publisher/signin" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase;">REDEEM NOW →</a>
                                     </td>
                                 </tr>
                             </table>

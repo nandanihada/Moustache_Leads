@@ -862,7 +862,7 @@ We've identified {'an amazing opportunity' if len(offers) == 1 else 'some amazin
 
 <!-- CTA Button -->
 <tr><td style="padding:30px 40px;text-align:center;">
-<a href="https://moustacheleads.com/offers" 
+<a href="https://moustacheleads.com/publisher/signin" 
    style="display:inline-block;background:{color};color:#ffffff;padding:16px 48px;text-decoration:none;border-radius:50px;font-weight:700;font-size:16px;box-shadow:0 4px 15px rgba(0,0,0,0.2);">
 {template['cta_text']}
 </a>

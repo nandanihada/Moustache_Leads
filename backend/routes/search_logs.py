@@ -27,7 +27,7 @@ def log_search(user_id, username, keyword, results_count, matched_offer_ids=None
         total_inventory_count = 0
         active_inventory_count = 0
 
-        if offers_col and keyword:
+        if offers_col is not None and keyword:
             search_regex = {'$regex': keyword, '$options': 'i'}
             # Total inventory (all offers matching keyword regardless of status)
             total_inventory_count = offers_col.count_documents({
@@ -98,7 +98,9 @@ def get_search_logs():
     """Get search logs with filters and pagination"""
     try:
         user = request.current_user
+        logger.info(f"GET /search-logs - user: {user.get('username')}, role: {user.get('role')}")
         if user.get('role') not in ('admin', 'subadmin'):
+            logger.warning(f"Access denied for user {user.get('username')} with role {user.get('role')}")
             return jsonify({'error': 'Admin access required'}), 403
 
         # Pagination
@@ -147,6 +149,7 @@ def get_search_logs():
                 query['searched_at'] = date_query
 
         total = collection.count_documents(query)
+        logger.info(f"Search logs query: {query}, total: {total}")
         logs = list(
             collection.find(query)
             .sort('searched_at', -1)
@@ -237,26 +240,52 @@ def send_email_to_users():
         import os
         frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
 
+        days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        current_day = days[datetime.utcnow().weekday()]
+
         html_content = f"""
 <!DOCTYPE html>
-<html><head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f4f6f9;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:20px 0;">
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;background-color:#f4f6f9;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f6f9;padding:20px 0;">
 <tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-<tr><td style="background:linear-gradient(135deg,#6366f1,#8b5cf6);padding:40px 20px;text-align:center;">
-<h1 style="margin:0;color:#fff;font-size:28px;">MustacheLeads</h1>
-</td></tr>
-<tr><td style="padding:40px 30px;">
-<div style="font-size:16px;color:#1f2937;line-height:1.8;white-space:pre-wrap;">{message}</div>
-<table width="100%" style="margin:30px 0;"><tr><td align="center">
-<a href="{frontend_url}/dashboard/offers" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;padding:14px 40px;text-decoration:none;border-radius:50px;font-weight:700;">VIEW OFFERS →</a>
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
+    <!-- Header with logo -->
+    <tr>
+        <td style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);padding:40px 20px;text-align:center;">
+            <img src="https://moustacheleads.com/logo.png" alt="MustacheLeads" style="height:60px;margin-bottom:15px;" />
+            <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700;">MustacheLeads</h1>
+            <p style="margin:8px 0 0 0;color:#ffffff;font-size:16px;opacity:0.9;">Happy {current_day}! 👋</p>
+        </td>
+    </tr>
+    <!-- Body -->
+    <tr>
+        <td style="padding:40px 30px;">
+            <div style="font-size:16px;color:#1f2937;line-height:1.8;white-space:pre-wrap;">{message}</div>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:30px 0;">
+                <tr><td align="center">
+                    <a href="{frontend_url}/publisher/signin" style="display:inline-block;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);color:#ffffff;padding:16px 50px;text-decoration:none;border-radius:50px;font-weight:700;font-size:16px;text-transform:uppercase;letter-spacing:1px;box-shadow:0 4px 15px rgba(99,102,241,0.4);">VIEW OFFERS →</a>
+                </td></tr>
+            </table>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:30px;padding-top:25px;border-top:2px solid #e5e7eb;">
+                <tr><td align="center">
+                    <p style="margin:0 0 8px 0;color:#6b7280;font-size:15px;">Thanks for being part of the team!</p>
+                    <p style="margin:0;color:#111827;font-size:17px;font-weight:600;">Keep pushing! 🚀</p>
+                </td></tr>
+            </table>
+        </td>
+    </tr>
+    <!-- Footer -->
+    <tr>
+        <td style="background-color:#1f2937;padding:30px;text-align:center;">
+            <p style="margin:0 0 15px 0;color:#ffffff;font-size:20px;font-weight:700;">MustacheLeads</p>
+            <p style="margin:0 0 20px 0;color:#9ca3af;font-size:13px;line-height:1.6;">This email was sent to you because you are a registered publisher.</p>
+            <p style="margin:20px 0 0 0;color:#6b7280;font-size:12px;">© {datetime.utcnow().year} MustacheLeads. All rights reserved.</p>
+        </td>
+    </tr>
+</table>
 </td></tr></table>
-</td></tr>
-<tr><td style="background:#1f2937;padding:25px;text-align:center;">
-<p style="margin:0;color:#9ca3af;font-size:12px;">© {datetime.utcnow().year} MustacheLeads. All rights reserved.</p>
-</td></tr>
-</table></td></tr></table>
 </body></html>"""
 
         # Send in batches via BCC
@@ -284,6 +313,29 @@ def send_email_to_users():
             except Exception as e:
                 failed += len(batch)
                 logger.error(f"Email batch error: {e}")
+
+        # Log email activity
+        if sent > 0:
+            try:
+                email_logs_col = db_instance.get_collection('email_activity_logs')
+                if email_logs_col is not None:
+                    email_logs_col.insert_one({
+                        'action': 'sent',
+                        'source': 'search_logs',
+                        'offer_ids': [],
+                        'offer_names': [subject],
+                        'offer_count': 0,
+                        'recipient_type': 'all_users' if send_to_all else 'specific_users',
+                        'recipient_count': sent,
+                        'batch_count': (len(recipients) + 49) // 50,
+                        'offers_per_email': 0,
+                        'scheduled_time': None,
+                        'admin_id': str(user.get('_id', '')),
+                        'admin_username': user.get('username', 'admin'),
+                        'created_at': datetime.utcnow()
+                    })
+            except Exception as log_err:
+                logger.error(f"Email activity log insert failed: {log_err}")
 
         return jsonify({
             'success': True,

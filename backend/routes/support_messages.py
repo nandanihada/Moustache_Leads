@@ -51,7 +51,7 @@ def _send_support_notification_email(to_email: str, username: str, is_admin_repl
 <h2 style="margin:0 0 16px;color:#111;">Hello {username},</h2>
 <p style="font-size:15px;color:#333;line-height:1.6;">Our team has replied to your support request.</p>
 <p style="font-size:15px;color:#333;line-height:1.6;">Login to your dashboard to view the reply.</p>
-<a href="{frontend_url}/dashboard/support" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Reply</a>
+<a href="{frontend_url}/publisher/signin" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Reply</a>
 </div>
 </body></html>"""
             else:

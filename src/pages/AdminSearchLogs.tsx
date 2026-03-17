@@ -16,7 +16,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import {
   RefreshCw, Search, Mail, Send, ChevronLeft, ChevronRight,
-  AlertTriangle, CheckCircle, XCircle, Package, Filter,
+  AlertTriangle, CheckCircle, XCircle, Package, Filter, ChevronDown, ChevronUp, BarChart3,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { searchLogsApi, type SearchLog, type SearchLogsFilters } from '@/services/searchLogsApi';
@@ -37,6 +37,7 @@ const AdminSearchLogsContent: React.FC = () => {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
   // Selection & Email
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -171,24 +172,41 @@ const AdminSearchLogsContent: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Searches</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold">{stats.total_searches}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">No Results</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-red-500">{stats.no_result_count}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Not in Inventory</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-orange-500">{stats.not_in_inventory}</div></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">In Inventory (Not Active)</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-yellow-500">{stats.in_inventory_not_active}</div></CardContent>
-        </Card>
+      {/* Stats Cards (collapsible) */}
+      <div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full flex items-center justify-between"
+          onClick={() => setShowStats(!showStats)}
+        >
+          <span className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Stats Overview
+            <Badge variant="secondary" className="ml-1">{stats.total_searches} searches</Badge>
+          </span>
+          {showStats ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </Button>
+        {showStats && (
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-3">
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Total Searches</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold">{stats.total_searches}</div></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">No Results</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold text-red-500">{stats.no_result_count}</div></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">Not in Inventory</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold text-orange-500">{stats.not_in_inventory}</div></CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">In Inventory (Not Active)</CardTitle></CardHeader>
+              <CardContent><div className="text-2xl font-bold text-yellow-500">{stats.in_inventory_not_active}</div></CardContent>
+            </Card>
+          </div>
+        )}
       </div>
 
       {/* Filters */}

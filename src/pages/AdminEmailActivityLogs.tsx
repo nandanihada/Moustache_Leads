@@ -71,6 +71,7 @@ const AdminEmailActivityLogs: React.FC = () => {
       case 'single_offer': return <Badge variant="outline" className="text-green-600 border-green-600">Single Offer</Badge>;
       case 'support_reply': return <Badge variant="outline" className="text-orange-600 border-orange-600">Support Reply</Badge>;
       case 'support_broadcast': return <Badge variant="outline" className="text-pink-600 border-pink-600">Support Broadcast</Badge>;
+      case 'search_logs': return <Badge variant="outline" className="text-indigo-600 border-indigo-600">Search Logs</Badge>;
       default: return <Badge variant="outline">{source}</Badge>;
     }
   };
@@ -111,6 +112,7 @@ const AdminEmailActivityLogs: React.FC = () => {
             <SelectItem value="api_import">API Import</SelectItem>
             <SelectItem value="support_reply">Support Reply</SelectItem>
             <SelectItem value="support_broadcast">Support Broadcast</SelectItem>
+            <SelectItem value="search_logs">Search Logs</SelectItem>
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground">{total} log(s)</span>
