@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Search, Loader2, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Filter, Send, Sparkles, ExternalLink, LayoutGrid, List } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { publisherOfferApi, type PublisherOffer } from "@/services/publisherOfferApi";
 import { useToast } from "@/hooks/use-toast";
+import { searchLogsApi } from "@/services/searchLogsApi";
 import OfferDetailsModalNew from "@/components/OfferDetailsModalNew";
 import { API_BASE_URL } from "@/services/apiConfig";
 import { useAuth } from "@/contexts/AuthContext";
@@ -163,6 +164,13 @@ const PublisherOffersContent = () => {
     else if (sortBy === "name") list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
   }, [offers, myOffers, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
+
+  // Log search to backend when user presses Enter or clicks search
+  const logCurrentSearch = useCallback(() => {
+    if (searchTerm.trim().length >= 2) {
+      searchLogsApi.logSearch(searchTerm.trim(), filteredOffers.length);
+    }
+  }, [searchTerm, filteredOffers.length]);
 
   // Paginated
   const paginatedOffers = useMemo(() => {
@@ -337,14 +345,27 @@ const PublisherOffersContent = () => {
           </Select>
 
           {/* Search */}
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-purple-400" />
-            <Input
-              placeholder="Search offers..."
-              value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
-              className="pl-8 h-9 text-sm border-purple-200 focus-visible:ring-purple-400"
-            />
+          <div className="relative flex-1 min-w-[180px] max-w-xs flex gap-1">
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-purple-400" />
+              <Input
+                placeholder="Search offers..."
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') logCurrentSearch(); }}
+                onBlur={() => logCurrentSearch()}
+                className="pl-8 h-9 text-sm border-purple-200 focus-visible:ring-purple-400"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 w-9 p-0 border-purple-200 text-purple-600 hover:bg-purple-50"
+              onClick={logCurrentSearch}
+              title="Search"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
           </div>
 
           {/* Filter toggle */}

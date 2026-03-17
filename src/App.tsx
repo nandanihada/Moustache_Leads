@@ -54,6 +54,7 @@ import AdminEmailActivityLogs from "./pages/AdminEmailActivityLogs";
 import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
 import AdminPlacementProofs from "./pages/AdminPlacementProofs";
 import AdminSupportInbox from "./pages/AdminSupportInbox";
+import AdminSearchLogs from "./pages/AdminSearchLogs";
 import SupportPage from "./pages/SupportPage";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
 import AdvertiserCampaigns from "./pages/AdvertiserCampaigns";
@@ -167,6 +168,7 @@ const App = () => (
                 <Route path="advertisers" element={<AdminAdvertiserManagement />} />
                 <Route path="placement-proofs" element={<AdminPlacementProofs />} />
                 <Route path="support-inbox" element={<AdminSupportInbox />} />
+                <Route path="search-logs" element={<AdminSearchLogs />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { getAuthToken, getAuthUser, setAuthToken, setAuthUser, clearAuth } from '../utils/cookies';
 import { clearPlacementCache } from '../hooks/usePlacementApproval';
+import { upsertSession, clearAllSessions } from '../components/AccountSwitcher';
 
 interface User {
   id: string;
@@ -66,6 +67,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Store in both cookies (for cross-subdomain) and localStorage (for backward compatibility)
     setAuthToken(newToken);
     setAuthUser(newUser);
+    // Save to multi-account sessions
+    upsertSession(newToken, {
+      id: newUser.id,
+      username: newUser.username,
+      email: newUser.email,
+      role: newUser.role,
+      user_type: newUser.user_type,
+      account_status: newUser.account_status,
+    });
     // Mark that this is a fresh login so the support popup fires
     sessionStorage.setItem('just_logged_in', '1');
     sessionStorage.removeItem(`support_popup_shown_${newUser.id}`);
@@ -95,6 +105,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setUser(null);
     clearAuth();
     clearPlacementCache(); // Clear placement cache on logout
+    clearAllSessions(); // Clear all multi-account sessions
     localStorage.removeItem('session_id');
     localStorage.removeItem('gift_promo_popup_dismissed'); // Reset popup so it shows on next login
     localStorage.removeItem('gift_card_popup_dismissed');

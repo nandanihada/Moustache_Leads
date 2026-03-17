@@ -79,6 +79,7 @@ admin_overview_bp = safe_import_blueprint('routes.admin_overview', 'admin_overvi
 offer_insights_bp = safe_import_blueprint('routes.offer_insights_email', 'offer_insights_bp')
 placement_proofs_bp = safe_import_blueprint('routes.placement_proofs', 'placement_proofs_bp')
 support_bp = safe_import_blueprint('routes.support_messages', 'support_bp')
+search_logs_bp = safe_import_blueprint('routes.search_logs', 'search_logs_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -149,6 +150,7 @@ blueprints = [
     (offer_insights_bp, '/api/admin'),
     (placement_proofs_bp, '/api/placement-proofs'),
     (support_bp, ''),
+    (search_logs_bp, '/api/admin'),
 ]
 
 def create_app():

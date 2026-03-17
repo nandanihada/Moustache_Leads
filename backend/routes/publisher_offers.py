@@ -10,6 +10,7 @@ from utils.auth import token_required
 from services.access_control_service import AccessControlService
 from services.offer_visibility_service import offer_visibility_service
 from utils.json_serializer import safe_json_response
+from routes.search_logs import log_search_async
 import logging
 
 publisher_offers_bp = Blueprint('publisher_offers', __name__)
@@ -81,6 +82,9 @@ def get_available_offers():
         offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort('created_at', -1))
         
         if not offers:
+            # Log search even if no results
+            if search:
+                log_search_async(str(user_id), user.get('username', ''), search, 0)
             return safe_json_response({
                 'success': True,
                 'offers': [],
@@ -274,6 +278,10 @@ def get_available_offers():
             logger.warning(f"Skipped {skipped_count} offers due to bad data")
         
         logger.info(f"Returning {len(processed_offers)} offers (total: {total})")
+        
+        # Log search query if user searched
+        if search:
+            log_search_async(str(user_id), user.get('username', ''), search, len(processed_offers))
         
         return safe_json_response({
             'success': True,

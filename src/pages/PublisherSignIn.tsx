@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import UserTypeToggle from "../components/UserTypeToggle";
@@ -16,6 +16,8 @@ export default function PublisherSignIn() {
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotSent, setForgotSent] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isAddAccount = searchParams.get('add_account') === 'true';
   const { login } = useAuth();
 
   const handleLogin = async () => {
@@ -43,21 +45,31 @@ export default function PublisherSignIn() {
           localStorage.setItem('session_id', data.session_id);
         }
 
-        alert("Login successful!");
-        
-        const isProduction = window.location.hostname.includes('moustacheleads.com');
-        
-        if (isProduction) {
-          if (data.user.role === 'admin' || data.user.role === 'subadmin') {
-            window.location.href = 'https://dashboard.moustacheleads.com/admin';
-          } else {
-            window.location.href = 'https://moustacheleads.com/dashboard';
-          }
-        } else {
+        // If adding another account, use toast and navigate without full page reload
+        if (isAddAccount) {
+          toast.success(`Signed in as ${data.user.username || data.user.email}`);
           if (data.user.role === 'admin' || data.user.role === 'subadmin') {
             navigate("/admin");
           } else {
             navigate("/dashboard");
+          }
+        } else {
+          alert("Login successful!");
+          
+          const isProduction = window.location.hostname.includes('moustacheleads.com');
+          
+          if (isProduction) {
+            if (data.user.role === 'admin' || data.user.role === 'subadmin') {
+              window.location.href = 'https://dashboard.moustacheleads.com/admin';
+            } else {
+              window.location.href = 'https://moustacheleads.com/dashboard';
+            }
+          } else {
+            if (data.user.role === 'admin' || data.user.role === 'subadmin') {
+              navigate("/admin");
+            } else {
+              navigate("/dashboard");
+            }
           }
         }
       } else {
@@ -116,6 +128,11 @@ export default function PublisherSignIn() {
       <div className="relative z-10 w-full max-w-md">
         <div className="backdrop-blur-xl bg-white/10 rounded-3xl shadow-2xl border border-white/20 p-8 md:p-12">
           <div className="text-center mb-8">
+            {isAddAccount && (
+              <div className="mb-4 px-4 py-2 bg-blue-500/20 border border-blue-400/30 rounded-xl text-blue-200 text-sm">
+                Adding another account — your current session is saved
+              </div>
+            )}
             <h2 className="text-4xl font-bold text-white mb-2">PUBLISHER</h2>
             <h1 className="text-5xl font-extrabold text-white mb-4">Sign in to account.</h1>
             <p className="text-gray-300">

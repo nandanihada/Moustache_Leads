@@ -8,6 +8,7 @@ import {
   CreditCard,
   HelpCircle
 } from "lucide-react";
+import AccountSwitcher from "@/components/AccountSwitcher";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   Sidebar,
@@ -112,6 +113,10 @@ export function AdvertiserSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-2">
+        <div className="px-2 pb-1">
+          <AccountSwitcher />
+        </div>
+
         <SidebarMenuButton
           className="text-muted-foreground hover:text-foreground cursor-pointer"
         >

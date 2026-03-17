@@ -41,6 +41,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { useState, useEffect } from "react";
 import { getApiBaseUrl } from "@/services/apiConfig";
 import { getAuthToken } from "@/utils/cookies";
+import AccountSwitcher from "@/components/AccountSwitcher";
 
 // Type definitions for menu structure
 interface SubTab {
@@ -439,6 +440,10 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-3">
+        {/* Account Switcher */}
+        <div className="px-2 pb-1 border-t pt-3">
+          <AccountSwitcher />
+        </div>
         {/* Terms & Privacy Links */}
         <div className="flex items-center justify-center gap-3 text-xs text-muted-foreground border-t pt-3">
           <a 

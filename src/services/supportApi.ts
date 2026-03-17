@@ -26,13 +26,28 @@ export interface SupportMessage {
   created_at: string;
   updated_at: string;
   read_by_admin: boolean;
+  read_by_user?: boolean;
   is_broadcast?: boolean;
 }
 
+export interface SupportCounts {
+  total: number;
+  new: number;
+  open: number;
+  replied: number;
+  closed: number;
+}
+
 export const supportApi = {
-  // Publisher
+  // ── Publisher endpoints ──
+
   checkUnreadReplies: async (): Promise<{ success: boolean; unread_count: number; preview: string | null }> => {
     const res = await fetch(`${base()}/api/support/unread-replies`, { headers: headers() });
+    return res.json();
+  },
+
+  getUnreadCount: async (): Promise<{ success: boolean; unread_count: number }> => {
+    const res = await fetch(`${base()}/api/support/unread-count`, { headers: headers() });
     return res.json();
   },
 
@@ -55,9 +70,32 @@ export const supportApi = {
     return res.json();
   },
 
-  // Admin
-  adminGetAll: async (status = 'all'): Promise<{ success: boolean; messages: SupportMessage[] }> => {
+  userReply: async (messageId: string, reply: string) => {
+    const res = await fetch(`${base()}/api/support/messages/${messageId}/reply`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ reply }),
+    });
+    return res.json();
+  },
+
+  userCloseTicket: async (messageId: string) => {
+    const res = await fetch(`${base()}/api/support/messages/${messageId}/close`, {
+      method: 'PUT',
+      headers: headers(),
+    });
+    return res.json();
+  },
+
+  // ── Admin endpoints ──
+
+  adminGetAll: async (status = 'all'): Promise<{ success: boolean; messages: SupportMessage[]; counts?: SupportCounts }> => {
     const res = await fetch(`${base()}/api/admin/support/messages?status=${status}`, { headers: headers() });
+    return res.json();
+  },
+
+  adminGetUnreadCount: async (): Promise<{ success: boolean; unread_count: number }> => {
+    const res = await fetch(`${base()}/api/admin/support/unread-count`, { headers: headers() });
     return res.json();
   },
 
@@ -72,6 +110,14 @@ export const supportApi = {
 
   adminMarkRead: async (messageId: string) => {
     const res = await fetch(`${base()}/api/admin/support/messages/${messageId}/read`, {
+      method: 'PUT',
+      headers: headers(),
+    });
+    return res.json();
+  },
+
+  adminCloseTicket: async (messageId: string) => {
+    const res = await fetch(`${base()}/api/admin/support/messages/${messageId}/close`, {
       method: 'PUT',
       headers: headers(),
     });

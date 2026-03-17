@@ -20,7 +20,8 @@ import {
   ChevronDown,
   Building2,
   Sparkles,
-  Mail
+  Mail,
+  Search
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -41,6 +42,7 @@ import { useEffect, useState } from "react";
 import subadminService from "@/services/subadminService";
 import { getApiBaseUrl } from "@/services/apiConfig";
 import { getAuthToken } from "@/utils/cookies";
+import AccountSwitcher from "@/components/AccountSwitcher";
 
 // Hierarchical admin menu structure
 const adminMenuStructure = [
@@ -83,6 +85,7 @@ const adminMenuStructure = [
     subtabs: [
       { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
       { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick, tab: "click-tracking" },
+      { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },
     ]
   },
   {
@@ -342,6 +345,9 @@ export function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 space-y-2">
+        <div className="px-2 pb-2">
+          <AccountSwitcher />
+        </div>
         <SidebarMenuButton
           onClick={handleBackToDashboard}
           className="text-muted-foreground hover:text-foreground cursor-pointer"
