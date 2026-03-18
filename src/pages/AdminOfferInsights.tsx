@@ -398,7 +398,7 @@ const AdminOfferInsights = () => {
         offersToSend,
         Array.from(selectedPartners),
         customMessage,
-        scheduleEnabled ? `${scheduleDate}T${scheduleTime}` : undefined
+        scheduleEnabled ? new Date(`${scheduleDate}T${scheduleTime}`).toISOString() : undefined
       );
       
       if (scheduleEnabled) {

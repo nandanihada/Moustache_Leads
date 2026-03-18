@@ -71,11 +71,18 @@ def log_search(user_id, username, keyword, results_count, matched_offer_ids=None
             'inventory_status': inventory_status,
             'total_inventory_count': total_inventory_count,
             'active_inventory_count': active_inventory_count,
+            'picked_offer': None,         # offer name picked after search
+            'picked_offer_id': None,      # offer id picked after search
+            'clicked_preview': False,     # clicked preview landing page
+            'clicked_request': False,     # clicked request access
+            'clicked_tracking': False,    # clicked/copied tracking link
             'searched_at': datetime.utcnow()
         }
-        collection.insert_one(doc)
+        result = collection.insert_one(doc)
+        return str(result.inserted_id) if result else None
     except Exception as e:
         logger.error(f"Failed to log search: {e}")
+        return None
 
 
 def log_search_async(user_id, username, keyword, results_count, matched_offer_ids=None):
@@ -202,6 +209,7 @@ def send_email_to_users():
         subject = data.get('subject', '')
         message = data.get('message', '')
         send_to_all = data.get('send_to_all', False)
+        custom_emails = data.get('custom_emails', [])
 
         if not subject or not message:
             return jsonify({'error': 'Subject and message are required'}), 400
@@ -210,25 +218,33 @@ def send_email_to_users():
         if users_col is None:
             return jsonify({'error': 'Database connection failed'}), 500
 
-        # Get recipient emails
+        # Get recipient emails from selected users
+        recipients = []
         if send_to_all:
-            # Get all unique user_ids from search logs
             search_logs_col = db_instance.get_collection('search_logs')
             unique_user_ids = search_logs_col.distinct('user_id')
             query = {'$or': [
                 {'_id': {'$in': [ObjectId(uid) for uid in unique_user_ids if ObjectId.is_valid(uid)]}},
                 {'username': {'$in': unique_user_ids}}
             ]}
-        else:
-            if not user_ids:
-                return jsonify({'error': 'No users selected'}), 400
+            users = list(users_col.find(query, {'email': 1, 'username': 1}))
+            recipients = [u['email'] for u in users if u.get('email')]
+        elif user_ids:
             query = {'$or': [
                 {'_id': {'$in': [ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)]}},
                 {'username': {'$in': user_ids}}
             ]}
+            users = list(users_col.find(query, {'email': 1, 'username': 1}))
+            recipients = [u['email'] for u in users if u.get('email')]
 
-        users = list(users_col.find(query, {'email': 1, 'username': 1}))
-        recipients = [u['email'] for u in users if u.get('email')]
+        # Merge custom emails (deduplicated)
+        if custom_emails:
+            import re
+            email_regex = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+            for email in custom_emails:
+                email = email.strip().lower()
+                if email_regex.match(email) and email not in recipients:
+                    recipients.append(email)
 
         if not recipients:
             return jsonify({'error': 'No valid email addresses found'}), 400
@@ -363,14 +379,86 @@ def log_search_from_frontend():
         if not keyword:
             return jsonify({'error': 'Keyword is required'}), 400
 
-        log_search_async(
+        # Log synchronously so we can return the ID
+        log_id = log_search(
             str(user.get('_id', '')),
             user.get('username', ''),
             keyword,
             results_count
         )
 
-        return jsonify({'success': True}), 200
+        return jsonify({'success': True, 'search_log_id': log_id}), 200
     except Exception as e:
         logger.error(f"Error logging search from frontend: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@search_logs_bp.route('/search-logs/track-action', methods=['POST'])
+@token_required
+def track_search_action():
+    """Track a post-search action (offer picked, preview clicked, request, tracking link).
+    Updates the most recent search log for this user, or a specific log by ID.
+    """
+    try:
+        user = request.current_user
+        data = request.get_json()
+        action = data.get('action', '')  # 'picked_offer', 'clicked_preview', 'clicked_request', 'clicked_tracking'
+        search_log_id = data.get('search_log_id')  # optional: specific log to update
+        offer_name = data.get('offer_name', '')
+        offer_id = data.get('offer_id', '')
+
+        if not action:
+            return jsonify({'error': 'Action is required'}), 400
+
+        collection = db_instance.get_collection('search_logs')
+        if collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        user_id = str(user.get('_id', ''))
+
+        # Find the target search log
+        if search_log_id and ObjectId.is_valid(search_log_id):
+            query = {'_id': ObjectId(search_log_id)}
+        else:
+            # Find the most recent search log for this user (within last 10 minutes)
+            ten_min_ago = datetime.utcnow() - timedelta(minutes=10)
+            query = {
+                'user_id': user_id,
+                'searched_at': {'$gte': ten_min_ago}
+            }
+
+        # Build update based on action
+        update = {}
+        if action == 'picked_offer':
+            update = {
+                '$set': {
+                    'picked_offer': offer_name or None,
+                    'picked_offer_id': offer_id or None
+                }
+            }
+        elif action == 'clicked_preview':
+            update = {'$set': {'clicked_preview': True}}
+        elif action == 'clicked_request':
+            update = {'$set': {'clicked_request': True}}
+        elif action == 'clicked_tracking':
+            update = {'$set': {'clicked_tracking': True}}
+        else:
+            return jsonify({'error': f'Unknown action: {action}'}), 400
+
+        # Update the most recent matching log
+        if search_log_id and ObjectId.is_valid(search_log_id):
+            result = collection.update_one(query, update)
+        else:
+            # Find most recent and update it
+            log = collection.find_one(query, sort=[('searched_at', -1)])
+            if log:
+                result = collection.update_one({'_id': log['_id']}, update)
+            else:
+                # No recent search log found — silently succeed
+                return jsonify({'success': True, 'updated': False}), 200
+
+        return jsonify({'success': True, 'updated': result.modified_count > 0 if result else False}), 200
+
+    except Exception as e:
+        logger.error(f"Error tracking search action: {e}")
         return jsonify({'error': str(e)}), 500

@@ -11,12 +11,14 @@ import { Offer } from '@/services/adminOfferApi';
 import { PublisherOffer, markOfferClicked } from '@/services/publisherOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { userReportsApi } from '@/services/userReportsApi';
+import { searchLogsApi } from '@/services/searchLogsApi';
 
 interface OfferDetailsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   offer: Offer | PublisherOffer | null;
   onAccessGranted?: () => void;
+  searchLogId?: string | null;
 }
 
 const getFlag = (code: string) =>
@@ -55,7 +57,7 @@ const getCurrencySymbol = (currency?: string) =>
   CURRENCY_SYMBOLS[(currency || 'USD').toUpperCase()] ?? '$';
 
 const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
-  open, onOpenChange, offer, onAccessGranted: _onAccessGranted,
+  open, onOpenChange, offer, onAccessGranted: _onAccessGranted, searchLogId,
 }) => {
   const { toast } = useToast();
   const [trackingLink, setTrackingLink] = useState('');
@@ -289,14 +291,14 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                   {trackingLink || 'Generating...'}
                 </div>
                 <Button
-                  onClick={() => { copy(trackingLink, 'Tracking Link'); markOfferClicked(offer.offer_id); }}
+                  onClick={() => { copy(trackingLink, 'Tracking Link'); markOfferClicked(offer.offer_id); searchLogsApi.trackSearchAction('clicked_tracking', searchLogId); }}
                   size="sm"
                   className="bg-violet-600 hover:bg-violet-700 text-white border-0 px-4 flex-shrink-0"
                 >
                   <Copy className="h-4 w-4 mr-1" /> Copy
                 </Button>
                 <Button
-                  onClick={() => { if (trackingLink) { window.open(trackingLink, '_blank'); markOfferClicked(offer.offer_id); } }}
+                  onClick={() => { if (trackingLink) { window.open(trackingLink, '_blank'); markOfferClicked(offer.offer_id); searchLogsApi.trackSearchAction('clicked_tracking', searchLogId); } }}
                   size="sm"
                   disabled={!trackingLink}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white border-0 px-4 flex-shrink-0"
@@ -545,7 +547,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
             return (
               <div className="flex justify-center">
                 <Button
-                  onClick={() => window.open(previewUrl, '_blank')}
+                  onClick={() => { window.open(previewUrl, '_blank'); searchLogsApi.trackSearchAction('clicked_preview', searchLogId); }}
                   size="sm"
                   className="bg-emerald-600 hover:bg-emerald-700 text-white border-0 gap-1.5"
                 >

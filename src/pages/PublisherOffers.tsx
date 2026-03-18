@@ -168,13 +168,15 @@ const PublisherOffersContent = () => {
   // Auto-log search to backend 2s after user stops typing (fires automatically, no button needed)
   const searchLogTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoggedSearch = useRef<string>('');
+  const lastSearchLogId = useRef<string | null>(null);
   useEffect(() => {
     if (searchLogTimer.current) clearTimeout(searchLogTimer.current);
     const term = searchTerm.trim();
     if (term.length >= 2 && term !== lastLoggedSearch.current) {
-      searchLogTimer.current = setTimeout(() => {
+      searchLogTimer.current = setTimeout(async () => {
         lastLoggedSearch.current = term;
-        searchLogsApi.logSearch(term, filteredOffers.length);
+        const logId = await searchLogsApi.logSearch(term, filteredOffers.length);
+        lastSearchLogId.current = logId;
       }, 2000);
     }
     return () => { if (searchLogTimer.current) clearTimeout(searchLogTimer.current); };
@@ -211,6 +213,8 @@ const PublisherOffersContent = () => {
     setDetailsModalOpen(true);
     // Log the offer view
     publisherOfferApi.logOfferView(offer.offer_id, offer.name, 'publisher_offers', offer.network || '');
+    // Track picked offer in search logs
+    searchLogsApi.trackSearchAction('picked_offer', lastSearchLogId.current, offer.name, offer.offer_id);
   };
 
   // Click Apply → open apply popup (NOT direct link)
@@ -227,12 +231,16 @@ const PublisherOffersContent = () => {
       setApplyPopupOpen(false);
       setProofOffer({ offer_id: applyOffer.offer_id, name: applyOffer.name });
       setProofPopupOpen(true);
+      // Track clicked_request in search logs
+      searchLogsApi.trackSearchAction('clicked_request', lastSearchLogId.current);
       return;
     }
     // Send request without proof
     setApplyLoading(true);
     try {
       console.log('🔍 Requesting access for offer:', applyOffer.offer_id);
+      // Track clicked_request in search logs
+      searchLogsApi.trackSearchAction('clicked_request', lastSearchLogId.current);
       const result = await publisherOfferApi.requestOfferAccess(applyOffer.offer_id, "");
       console.log('🔍 Access request result:', JSON.stringify(result));
       const wasInstant = result.status === 'approved';
@@ -746,6 +754,7 @@ const PublisherOffersContent = () => {
           onOpenChange={setDetailsModalOpen}
           offer={selectedOffer}
           onAccessGranted={handleAccessGranted}
+          searchLogId={lastSearchLogId.current}
         />
 
         {/* APPLY POPUP */}

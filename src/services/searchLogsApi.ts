@@ -18,6 +18,11 @@ export interface SearchLog {
   inventory_status: 'available' | 'in_inventory_not_active' | 'not_in_inventory';
   total_inventory_count: number;
   active_inventory_count: number;
+  picked_offer: string | null;
+  picked_offer_id: string | null;
+  clicked_preview: boolean;
+  clicked_request: boolean;
+  clicked_tracking: boolean;
   searched_at: string;
 }
 
@@ -67,6 +72,7 @@ export const searchLogsApi = {
     subject: string;
     message: string;
     send_to_all?: boolean;
+    custom_emails?: string[];
   }) {
     const res = await fetch(`${API}/api/admin/search-logs/send-email`, {
       method: 'POST',
@@ -77,7 +83,7 @@ export const searchLogsApi = {
     return res.json();
   },
 
-  async logSearch(keyword: string, resultsCount: number) {
+  async logSearch(keyword: string, resultsCount: number): Promise<string | null> {
     try {
       const res = await fetch(`${API}/api/admin/search-logs/log`, {
         method: 'POST',
@@ -87,9 +93,30 @@ export const searchLogsApi = {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         console.error('[SearchLog] Failed:', res.status, data);
+        return null;
       }
+      const data = await res.json();
+      return data.search_log_id || null;
     } catch (err) {
       // Silently fail - search logging should never block the user
+      return null;
+    }
+  },
+
+  async trackSearchAction(action: string, searchLogId?: string | null, offerName?: string, offerId?: string) {
+    try {
+      await fetch(`${API}/api/admin/search-logs/track-action`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify({
+          action,
+          search_log_id: searchLogId || undefined,
+          offer_name: offerName || undefined,
+          offer_id: offerId || undefined,
+        }),
+      });
+    } catch {
+      // Silently fail
     }
   },
 };

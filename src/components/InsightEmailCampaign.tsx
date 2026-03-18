@@ -1,11 +1,12 @@
 /**
  * InsightEmailCampaign — Reusable email campaign component for Offer Insights cards.
- * Features: custom subject, content, template preview, batch config, scheduling,
- * partner selection with search, and all activity logged to Email Activity tab.
- * 
- * Import this into any insight card to add email functionality.
+ * Features: custom subject, content, batch splitting by count, batch interval,
+ * scheduling, partner selection with search, and all activity logged to Email Activity tab.
+ *
+ * Batch logic: Admin selects N logs, chooses number of batches → logs are split evenly.
+ * Each batch becomes one email. Batches are sent with a configurable interval between them.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,19 +31,19 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Mail, Send, Eye, Users, Search, RefreshCw, Clock, Settings2, Paperclip
+  Mail, Send, Eye, Users, Search, RefreshCw, Clock, Settings2, Layers, Timer
 } from 'lucide-react';
 import { offerInsightsApi, Partner } from '@/services/offerInsightsApi';
 
 interface InsightEmailCampaignProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  sourceCard: string; // e.g. 'offer_view_logs', 'highest_clicks', etc.
+  sourceCard: string;
   offerIds?: string[];
   offerNames?: string[];
   defaultSubject?: string;
   defaultContent?: string;
-  onSent?: () => void; // callback after successful send
+  onSent?: () => void;
 }
 
 const InsightEmailCampaign = ({
@@ -60,7 +61,10 @@ const InsightEmailCampaign = ({
   // Email fields
   const [subject, setSubject] = useState(defaultSubject);
   const [content, setContent] = useState(defaultContent);
-  const [batchSize, setBatchSize] = useState(50);
+
+  // Batch config
+  const [numBatches, setNumBatches] = useState(1);
+  const [batchInterval, setBatchInterval] = useState(2); // minutes between batches
 
   // Schedule
   const [scheduleEnabled, setScheduleEnabled] = useState(false);
@@ -83,11 +87,29 @@ const InsightEmailCampaign = ({
   // Sending
   const [sending, setSending] = useState(false);
 
+  // Calculate batch info
+  const totalOffers = offerNames.length;
+  const effectiveBatches = Math.min(numBatches, Math.max(totalOffers, 1));
+  const offersPerBatch = totalOffers > 0 ? Math.ceil(totalOffers / effectiveBatches) : 0;
+
+  // Preview batch (first batch)
+  const previewBatchOffers = useMemo(() => {
+    if (totalOffers === 0) return [];
+    return offerNames.slice(0, offersPerBatch);
+  }, [offerNames, offersPerBatch, totalOffers]);
+
+  const previewBatchIds = useMemo(() => {
+    if (offerIds.length === 0) return [];
+    return offerIds.slice(0, offersPerBatch);
+  }, [offerIds, offersPerBatch]);
+
   // Reset fields when modal opens
   useEffect(() => {
     if (open) {
       setSubject(defaultSubject);
       setContent(defaultContent);
+      setNumBatches(1);
+      setBatchInterval(2);
       setScheduleEnabled(false);
       setScheduleDate('');
       setScheduleTime('');
@@ -171,15 +193,16 @@ const InsightEmailCampaign = ({
         content,
         partner_ids: Array.from(selectedPartners),
         custom_emails: getCustomEmailList(),
-        batch_size: batchSize,
-        scheduled_at: scheduleEnabled ? `${scheduleDate}T${scheduleTime}` : undefined,
+        num_batches: effectiveBatches,
+        batch_interval_minutes: batchInterval,
+        scheduled_at: scheduleEnabled ? new Date(`${scheduleDate}T${scheduleTime}`).toISOString() : undefined,
         source_card: sourceCard,
         offer_ids: offerIds,
         offer_names: offerNames,
       });
 
       if (res.scheduled) {
-        toast({ title: 'Scheduled', description: `Campaign scheduled for ${new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString()}` });
+        toast({ title: 'Scheduled', description: `${effectiveBatches} batch(es) scheduled starting ${new Date(`${scheduleDate}T${scheduleTime}`).toLocaleString()}, ${batchInterval} min interval` });
       } else {
         toast({ title: 'Sent', description: `${res.sent_count} sent, ${res.failed_count} failed across ${res.batch_count} batch(es)` });
       }
@@ -214,6 +237,7 @@ const InsightEmailCampaign = ({
                 value={subject}
                 onChange={(e) => setSubject(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">This subject will be used for all batches</p>
             </div>
 
             {/* Content */}
@@ -228,20 +252,41 @@ const InsightEmailCampaign = ({
             </div>
 
             {/* Batch & Schedule Row */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Batch Size */}
+            <div className="grid grid-cols-3 gap-4">
+              {/* Number of Batches */}
               <div className="space-y-2 p-3 border rounded-lg bg-muted/30">
                 <Label className="flex items-center gap-2">
-                  <Settings2 className="h-4 w-4" /> Batch Size
+                  <Layers className="h-4 w-4" /> Batches
                 </Label>
                 <Input
                   type="number"
                   min={1}
-                  max={200}
-                  value={batchSize}
-                  onChange={(e) => setBatchSize(Number(e.target.value) || 50)}
+                  max={Math.max(totalOffers, 1)}
+                  value={numBatches}
+                  onChange={(e) => setNumBatches(Math.max(1, Number(e.target.value) || 1))}
                 />
-                <p className="text-xs text-muted-foreground">Recipients per batch (max 200)</p>
+                {totalOffers > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {effectiveBatches} batch(es) × {offersPerBatch} offer(s) each
+                  </p>
+                )}
+              </div>
+
+              {/* Batch Interval */}
+              <div className="space-y-2 p-3 border rounded-lg bg-muted/30">
+                <Label className="flex items-center gap-2">
+                  <Timer className="h-4 w-4" /> Interval (min)
+                </Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={batchInterval}
+                  onChange={(e) => setBatchInterval(Math.max(1, Number(e.target.value) || 2))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Minutes between each batch
+                </p>
               </div>
 
               {/* Schedule */}
@@ -267,6 +312,25 @@ const InsightEmailCampaign = ({
                 )}
               </div>
             </div>
+
+            {/* Batch Preview Info */}
+            {totalOffers > 1 && effectiveBatches > 1 && (
+              <div className="p-3 border rounded-lg bg-blue-50 dark:bg-blue-950/30 text-sm space-y-1">
+                <p className="font-medium text-blue-700 dark:text-blue-300 flex items-center gap-2">
+                  <Layers className="h-4 w-4" /> Batch Preview
+                </p>
+                <p className="text-blue-600 dark:text-blue-400">
+                  {totalOffers} offers will be split into {effectiveBatches} batches ({offersPerBatch} offers per email).
+                  {scheduleEnabled
+                    ? ` First batch at scheduled time, then every ${batchInterval} min.`
+                    : ` Sent with ${batchInterval} min interval between batches.`
+                  }
+                </p>
+                <p className="text-blue-500 dark:text-blue-500 text-xs">
+                  Preview shows Batch 1: {previewBatchOffers.join(', ')}
+                </p>
+              </div>
+            )}
 
             {/* Custom Emails */}
             <div className="space-y-2">
@@ -376,8 +440,11 @@ const InsightEmailCampaign = ({
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh]">
           <DialogHeader>
-            <DialogTitle>Email Preview</DialogTitle>
-            <DialogDescription>This is how the email will look to recipients</DialogDescription>
+            <DialogTitle>Email Preview {effectiveBatches > 1 ? '(Batch 1)' : ''}</DialogTitle>
+            <DialogDescription>
+              This is how the email will look to recipients
+              {effectiveBatches > 1 && ` — showing first batch (${offersPerBatch} offers). All ${effectiveBatches} batches use the same subject.`}
+            </DialogDescription>
           </DialogHeader>
           <div className="border rounded-lg overflow-hidden bg-gray-100 p-4">
             <div className="bg-white rounded shadow-lg" dangerouslySetInnerHTML={{ __html: previewHtml }} />

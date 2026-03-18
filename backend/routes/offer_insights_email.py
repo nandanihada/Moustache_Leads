@@ -557,6 +557,10 @@ def send_insight_email():
         if scheduled_at:
             try:
                 scheduled_datetime = datetime.fromisoformat(scheduled_at.replace('Z', '+00:00'))
+                # Strip timezone info to store as naive UTC (consistent with utcnow comparisons)
+                if scheduled_datetime.tzinfo is not None:
+                    from datetime import timezone
+                    scheduled_datetime = scheduled_datetime.astimezone(timezone.utc).replace(tzinfo=None)
                 if scheduled_datetime <= datetime.utcnow():
                     return jsonify({'error': 'Scheduled time must be in the future'}), 400
                 
@@ -733,6 +737,10 @@ def resume_scheduled_email(email_id):
             
         try:
             scheduled_datetime = datetime.fromisoformat(new_scheduled_at.replace('Z', '+00:00'))
+            # Strip timezone info to store as naive UTC
+            if scheduled_datetime.tzinfo is not None:
+                from datetime import timezone
+                scheduled_datetime = scheduled_datetime.astimezone(timezone.utc).replace(tzinfo=None)
             if scheduled_datetime <= datetime.utcnow():
                 return jsonify({'error': 'Scheduled time must be in the future'}), 400
         except ValueError as e:
@@ -1067,19 +1075,29 @@ def get_offer_view_logs():
 @token_required
 @admin_required
 def send_custom_email_campaign():
-    """Send a fully custom email campaign with custom subject, content, batches, scheduling.
-    Logs all activity to email_activity_logs collection for the Email Activity tab.
+    """Send a fully custom email campaign with offer batching and intervals.
+    
+    Batch logic: offers are split into N batches. Each batch becomes one email
+    containing a subset of offers. Batches are sent with a configurable interval.
+    For scheduled sends, each batch gets its own scheduled_at time staggered by the interval.
+    For immediate sends, batches are sent with time.sleep between them.
+    
+    All recipients receive ALL batches (each batch = different set of offers).
     """
     try:
+        import re
+        import time as time_module
+        
         data = request.get_json()
         
         subject = data.get('subject', '').strip()
         content = data.get('content', '').strip()
         partner_ids = data.get('partner_ids', [])
-        custom_emails = data.get('custom_emails', [])  # Direct email addresses (not tied to any user)
-        batch_size = int(data.get('batch_size', 50))
-        scheduled_at = data.get('scheduled_at')  # ISO datetime string
-        source_card = data.get('source_card', 'offer_view_logs')  # Which insight card triggered this
+        custom_emails = data.get('custom_emails', [])
+        num_batches = int(data.get('num_batches', 1))
+        batch_interval_minutes = int(data.get('batch_interval_minutes', 2))
+        scheduled_at = data.get('scheduled_at')
+        source_card = data.get('source_card', 'offer_view_logs')
         offer_ids = data.get('offer_ids', [])
         offer_names = data.get('offer_names', [])
         
@@ -1095,35 +1113,83 @@ def send_custom_email_campaign():
         admin_username = admin_user.get('username', 'admin')
         admin_id = str(admin_user.get('_id', ''))
         
-        # Calculate batches
         total_recipients = len(partner_ids) + len(custom_emails)
-        num_batches = (total_recipients + batch_size - 1) // batch_size
         
-        # If scheduled, save and return
+        # Split offers into batches
+        num_batches = max(1, min(num_batches, max(len(offer_names), 1)))
+        batch_interval_minutes = max(1, min(batch_interval_minutes, 60))
+        
+        offer_batches = []
+        if len(offer_names) > 0:
+            per_batch = max(1, len(offer_names) // num_batches)
+            remainder = len(offer_names) % num_batches
+            idx = 0
+            for i in range(num_batches):
+                size = per_batch + (1 if i < remainder else 0)
+                batch_offer_names = offer_names[idx:idx + size]
+                batch_offer_ids = offer_ids[idx:idx + size] if idx + size <= len(offer_ids) else offer_ids[idx:]
+                offer_batches.append({
+                    'offer_names': batch_offer_names,
+                    'offer_ids': batch_offer_ids,
+                    'batch_number': i + 1
+                })
+                idx += size
+        else:
+            # No offers — single batch with empty offers
+            offer_batches = [{'offer_names': [], 'offer_ids': [], 'batch_number': 1}]
+            num_batches = 1
+        
+        # Build content for each batch (replace offer list in content)
+        def build_batch_content(base_content, batch_offer_names):
+            """If content has a numbered offer list, replace it with this batch's offers."""
+            if not batch_offer_names:
+                return base_content
+            # Build the offer list portion
+            offer_list = '\n'.join([f"{i+1}. {name}" for i, name in enumerate(batch_offer_names)])
+            # Try to replace existing numbered list in content
+            # Pattern: lines starting with "1. " through "N. "
+            import re as re_mod
+            numbered_pattern = re_mod.compile(r'(\d+\.\s+.+\n?)+')
+            if numbered_pattern.search(base_content):
+                return numbered_pattern.sub(offer_list + '\n', base_content, count=1)
+            return base_content
+        
+        # If scheduled, create separate scheduled records for each batch
         if scheduled_at:
             try:
                 scheduled_datetime = datetime.fromisoformat(scheduled_at.replace('Z', '+00:00'))
+                if scheduled_datetime.tzinfo is not None:
+                    from datetime import timezone
+                    scheduled_datetime = scheduled_datetime.astimezone(timezone.utc).replace(tzinfo=None)
                 if scheduled_datetime <= datetime.utcnow():
                     return jsonify({'error': 'Scheduled time must be in the future'}), 400
             except ValueError as e:
                 return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
             
-            scheduled_record = {
-                'type': 'custom_campaign',
-                'subject': subject,
-                'content': content,
-                'partner_ids': partner_ids,
-                'custom_emails': custom_emails,
-                'batch_size': batch_size,
-                'scheduled_at': scheduled_datetime,
-                'source_card': source_card,
-                'offer_ids': offer_ids,
-                'offer_names': offer_names,
-                'status': 'scheduled',
-                'created_by': admin_username,
-                'created_at': datetime.utcnow()
-            }
-            result = insight_email_logs_col.insert_one(scheduled_record)
+            batch_ids = []
+            for i, batch in enumerate(offer_batches):
+                batch_time = scheduled_datetime + timedelta(minutes=i * batch_interval_minutes)
+                batch_content = build_batch_content(content, batch.get('offer_names', []))
+                
+                scheduled_record = {
+                    'type': 'custom_campaign',
+                    'subject': subject,
+                    'content': batch_content,
+                    'partner_ids': partner_ids,
+                    'custom_emails': custom_emails,
+                    'scheduled_at': batch_time,
+                    'source_card': source_card,
+                    'offer_ids': batch.get('offer_ids', []),
+                    'offer_names': batch.get('offer_names', []),
+                    'batch_number': batch.get('batch_number', i + 1),
+                    'total_batches': len(offer_batches),
+                    'batch_interval_minutes': batch_interval_minutes,
+                    'status': 'scheduled',
+                    'created_by': admin_username,
+                    'created_at': datetime.utcnow()
+                }
+                result = insight_email_logs_col.insert_one(scheduled_record)
+                batch_ids.append(str(result.inserted_id))
             
             # Log to email_activity_logs
             if email_activity_col is not None:
@@ -1135,8 +1201,8 @@ def send_custom_email_campaign():
                     'offer_count': len(offer_ids),
                     'recipient_type': 'specific_users',
                     'recipient_count': total_recipients,
-                    'batch_count': num_batches,
-                    'offers_per_email': len(offer_ids),
+                    'batch_count': len(offer_batches),
+                    'batch_interval_minutes': batch_interval_minutes,
                     'scheduled_time': scheduled_datetime.isoformat(),
                     'admin_id': admin_id,
                     'admin_username': admin_username,
@@ -1147,71 +1213,86 @@ def send_custom_email_campaign():
             return jsonify({
                 'success': True,
                 'scheduled': True,
-                'email_id': str(result.inserted_id),
+                'batch_ids': batch_ids,
                 'scheduled_at': scheduled_at,
                 'partner_count': total_recipients,
-                'batch_count': num_batches
+                'batch_count': len(offer_batches),
+                'batch_interval_minutes': batch_interval_minutes
             })
         
-        # Send immediately
+        # Send immediately with intervals between batches
         users_collection = db_instance.get_collection('users')
         email_service = get_email_service()
         
-        sent_count = 0
-        failed_count = 0
-        
-        # Send to registered partners
-        for partner_id in partner_ids:
-            try:
-                partner = users_collection.find_one({'_id': ObjectId(partner_id)})
-                if not partner:
-                    failed_count += 1
-                    continue
-                
-                partner_email = partner.get('email')
-                partner_name = partner.get('username', 'Partner')
-                
-                email_html = generate_custom_campaign_html(
-                    subject=subject,
-                    content=content,
-                    partner_name=partner_name
-                )
-                
-                success = email_service._send_email(partner_email, subject, email_html)
-                if success:
-                    sent_count += 1
-                else:
-                    failed_count += 1
-                    
-            except Exception as e:
-                logger.error(f"Error sending to partner {partner_id}: {e}")
-                failed_count += 1
-        
-        # Send to custom email addresses (not tied to any user account)
-        import re
+        total_sent = 0
+        total_failed = 0
         email_regex = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
-        for raw_email in custom_emails:
-            try:
-                email_addr = raw_email.strip().lower()
-                if not email_addr or not email_regex.match(email_addr):
-                    failed_count += 1
-                    continue
-                
-                email_html = generate_custom_campaign_html(
-                    subject=subject,
-                    content=content,
-                    partner_name=email_addr.split('@')[0]
-                )
-                
-                success = email_service._send_email(email_addr, subject, email_html)
-                if success:
-                    sent_count += 1
-                else:
-                    failed_count += 1
+        
+        for batch_idx, batch in enumerate(offer_batches):
+            # Wait for interval between batches (not before first batch)
+            if batch_idx > 0:
+                wait_seconds = batch_interval_minutes * 60
+                logger.info(f"📧 Waiting {batch_interval_minutes} min before batch {batch_idx + 1}/{len(offer_batches)}")
+                time_module.sleep(wait_seconds)
+            
+            batch_content = build_batch_content(content, batch.get('offer_names', []))
+            batch_sent = 0
+            batch_failed = 0
+            
+            logger.info(f"📧 Sending batch {batch_idx + 1}/{len(offer_batches)} with {len(batch.get('offer_names', []))} offers to {total_recipients} recipients")
+            
+            # Send to registered partners
+            for partner_id in partner_ids:
+                try:
+                    partner = users_collection.find_one({'_id': ObjectId(partner_id)})
+                    if not partner:
+                        batch_failed += 1
+                        continue
                     
-            except Exception as e:
-                logger.error(f"Error sending to custom email {raw_email}: {e}")
-                failed_count += 1
+                    partner_email = partner.get('email')
+                    partner_name = partner.get('username', 'Partner')
+                    
+                    email_html = generate_custom_campaign_html(
+                        subject=subject,
+                        content=batch_content,
+                        partner_name=partner_name
+                    )
+                    
+                    success = email_service._send_email(partner_email, subject, email_html)
+                    if success:
+                        batch_sent += 1
+                    else:
+                        batch_failed += 1
+                except Exception as e:
+                    logger.error(f"Error sending to partner {partner_id}: {e}")
+                    batch_failed += 1
+            
+            # Send to custom email addresses
+            for raw_email in custom_emails:
+                try:
+                    email_addr = raw_email.strip().lower()
+                    if not email_addr or not email_regex.match(email_addr):
+                        batch_failed += 1
+                        continue
+                    
+                    email_html = generate_custom_campaign_html(
+                        subject=subject,
+                        content=batch_content,
+                        partner_name=email_addr.split('@')[0]
+                    )
+                    
+                    success = email_service._send_email(email_addr, subject, email_html)
+                    if success:
+                        batch_sent += 1
+                    else:
+                        batch_failed += 1
+                except Exception as e:
+                    logger.error(f"Error sending to custom email {raw_email}: {e}")
+                    batch_failed += 1
+            
+            total_sent += batch_sent
+            total_failed += batch_failed
+            logger.info(f"📧 Batch {batch_idx + 1} done: {batch_sent} sent, {batch_failed} failed")
         
         # Log to insight_email_logs
         insight_email_logs_col.insert_one({
@@ -1221,15 +1302,16 @@ def send_custom_email_campaign():
             'offer_ids': offer_ids,
             'offer_names': offer_names,
             'partner_count': total_recipients,
-            'sent_count': sent_count,
-            'failed_count': failed_count,
-            'batch_count': num_batches,
+            'sent_count': total_sent,
+            'failed_count': total_failed,
+            'batch_count': len(offer_batches),
+            'batch_interval_minutes': batch_interval_minutes,
             'sent_by': admin_username,
             'status': 'sent',
             'created_at': datetime.utcnow()
         })
         
-        # Log to email_activity_logs (for Email Activity tab)
+        # Log to email_activity_logs
         if email_activity_col is not None:
             email_activity_col.insert_one({
                 'action': 'sent',
@@ -1239,22 +1321,21 @@ def send_custom_email_campaign():
                 'offer_count': len(offer_ids),
                 'recipient_type': 'specific_users',
                 'recipient_count': total_recipients,
-                'batch_count': num_batches,
-                'offers_per_email': len(offer_ids),
-                'scheduled_time': None,
+                'batch_count': len(offer_batches),
+                'batch_interval_minutes': batch_interval_minutes,
                 'admin_id': admin_id,
                 'admin_username': admin_username,
                 'subject': subject,
-                'sent_count': sent_count,
-                'failed_count': failed_count,
+                'sent_count': total_sent,
+                'failed_count': total_failed,
                 'created_at': datetime.utcnow()
             })
         
         return jsonify({
             'success': True,
-            'sent_count': sent_count,
-            'failed_count': failed_count,
-            'batch_count': num_batches,
+            'sent_count': total_sent,
+            'failed_count': total_failed,
+            'batch_count': len(offer_batches),
             'total_recipients': total_recipients
         })
         

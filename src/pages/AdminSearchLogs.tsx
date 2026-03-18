@@ -17,6 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   RefreshCw, Search, Mail, Send, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, XCircle, Package, Filter, ChevronDown, ChevronUp, BarChart3,
+  Eye, MousePointer, Link, FileText,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { searchLogsApi, type SearchLog, type SearchLogsFilters } from '@/services/searchLogsApi';
@@ -44,6 +45,7 @@ const AdminSearchLogsContent: React.FC = () => {
   const [emailOpen, setEmailOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState('');
   const [emailMessage, setEmailMessage] = useState('');
+  const [customEmails, setCustomEmails] = useState('');
   const [sendToAll, setSendToAll] = useState(false);
   const [sending, setSending] = useState(false);
 
@@ -94,16 +96,30 @@ const AdminSearchLogsContent: React.FC = () => {
       toast({ title: 'Error', description: 'Subject and message are required', variant: 'destructive' });
       return;
     }
+
+    // Parse custom emails
+    const parsedCustom = customEmails
+      .split(/[,;\n]+/)
+      .map(e => e.trim().toLowerCase())
+      .filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+
+    if (!sendToAll && selectedIds.size === 0 && parsedCustom.length === 0) {
+      toast({ title: 'Error', description: 'Select users or add custom emails', variant: 'destructive' });
+      return;
+    }
+
     setSending(true);
     try {
-      const data = sendToAll
+      const data: any = sendToAll
         ? { subject: emailSubject, message: emailMessage, send_to_all: true }
         : { user_ids: Array.from(selectedIds), subject: emailSubject, message: emailMessage };
+      if (parsedCustom.length > 0) data.custom_emails = parsedCustom;
       const res = await searchLogsApi.sendEmail(data);
       toast({ title: 'Emails Sent', description: `${res.sent} sent, ${res.failed} failed` });
       setEmailOpen(false);
       setEmailSubject('');
       setEmailMessage('');
+      setCustomEmails('');
       setSendToAll(false);
     } catch (err: any) {
       toast({ title: 'Error', description: err.message, variant: 'destructive' });
@@ -274,19 +290,23 @@ const AdminSearchLogsContent: React.FC = () => {
                   <TableHead className="text-center">Results Count</TableHead>
                   <TableHead className="text-center">No Result</TableHead>
                   <TableHead>Inventory Flag</TableHead>
+                  <TableHead>Picked Offer</TableHead>
+                  <TableHead className="text-center">Preview</TableHead>
+                  <TableHead className="text-center">Requested</TableHead>
+                  <TableHead className="text-center">Tracking</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-10">
+                    <TableCell colSpan={11} className="text-center py-10">
                       <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                       Loading...
                     </TableCell>
                   </TableRow>
                 ) : logs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={11} className="text-center py-10 text-muted-foreground">
                       <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
                       No search logs found
                     </TableCell>
@@ -324,6 +344,43 @@ const AdminSearchLogsContent: React.FC = () => {
                           <Package className="h-3 w-3 inline mr-1" />
                           Total: {log.total_inventory_count} | Active: {log.active_inventory_count}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        {log.picked_offer ? (
+                          <div>
+                            <div className="text-sm font-medium text-blue-700 dark:text-blue-300">
+                              {log.picked_offer}
+                            </div>
+                            {log.picked_offer_id && (
+                              <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded mt-0.5 inline-block">
+                                ID: {log.picked_offer_id}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">Not Picked</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {log.clicked_preview ? (
+                          <Badge className="bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200"><Eye className="h-3 w-3 mr-1" />Yes</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground">No</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {log.clicked_request ? (
+                          <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200"><FileText className="h-3 w-3 mr-1" />Yes</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground">No</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {log.clicked_tracking ? (
+                          <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200"><Link className="h-3 w-3 mr-1" />Yes</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-muted-foreground">No</Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -373,9 +430,24 @@ const AdminSearchLogsContent: React.FC = () => {
                 rows={6}
               />
             </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Custom Emails (optional)</label>
+              <Textarea
+                value={customEmails}
+                onChange={e => setCustomEmails(e.target.value)}
+                placeholder="Add extra emails separated by comma, semicolon, or new line..."
+                rows={3}
+                className="font-mono text-xs"
+              />
+              {customEmails.trim() && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {customEmails.split(/[,;\n]+/).map(e => e.trim().toLowerCase()).filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)).length} valid email(s) detected
+                </p>
+              )}
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setEmailOpen(false); setSendToAll(false); }}>Cancel</Button>
+            <Button variant="outline" onClick={() => { setEmailOpen(false); setSendToAll(false); setCustomEmails(''); }}>Cancel</Button>
             <Button onClick={handleSendEmail} disabled={sending}>
               {sending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               {sending ? 'Sending...' : 'Send Email'}

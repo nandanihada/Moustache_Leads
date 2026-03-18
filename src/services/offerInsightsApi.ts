@@ -204,7 +204,8 @@ export const offerInsightsApi = {
     content: string;
     partner_ids: string[];
     custom_emails?: string[];
-    batch_size?: number;
+    num_batches?: number;
+    batch_interval_minutes?: number;
     scheduled_at?: string;
     source_card?: string;
     offer_ids?: string[];
