@@ -936,3 +936,454 @@ def preview_email():
     except Exception as e:
         logger.error(f"Error previewing email: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# OFFER VIEW LOGS - Track who viewed/opened offer details
+# ============================================================================
+
+@offer_insights_bp.route('/insights/offer-view-logs', methods=['GET'])
+@token_required
+@admin_required
+def get_offer_view_logs():
+    """Get offer view logs with filters and pagination.
+    Only reads from offer_views collection (publisher offer detail views).
+    """
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+        
+        # Filters
+        ip_filter = request.args.get('ip', '').strip()
+        email_filter = request.args.get('email', '').strip()
+        offer_id_filter = request.args.get('offer_id', '').strip()
+        username_filter = request.args.get('username', '').strip()
+        
+        # Date range
+        date_from = request.args.get('date_from', '')
+        date_to = request.args.get('date_to', '')
+        range_preset = request.args.get('range', '')  # today, 7d, 30d, custom
+        
+        # Build date filter
+        date_query = {}
+        now = datetime.utcnow()
+        if range_preset == 'today':
+            date_query = {'$gte': datetime(now.year, now.month, now.day)}
+        elif range_preset == '7d':
+            date_query = {'$gte': now - timedelta(days=7)}
+        elif range_preset == '30d':
+            date_query = {'$gte': now - timedelta(days=30)}
+        elif date_from or date_to:
+            if date_from:
+                try:
+                    date_query['$gte'] = datetime.fromisoformat(date_from.replace('Z', '+00:00').replace('+00:00', ''))
+                except:
+                    date_query['$gte'] = datetime.strptime(date_from[:10], '%Y-%m-%d')
+            if date_to:
+                try:
+                    dt_to = datetime.fromisoformat(date_to.replace('Z', '+00:00').replace('+00:00', ''))
+                except:
+                    dt_to = datetime.strptime(date_to[:10], '%Y-%m-%d')
+                date_query['$lte'] = dt_to + timedelta(days=1)
+        
+        # Only read from offer_views collection (publisher offer detail views)
+        offer_views_col = db_instance.get_collection('offer_views')
+        if offer_views_col is None:
+            return jsonify({'success': True, 'logs': [], 'total': 0, 'page': 1, 'per_page': per_page, 'pages': 1})
+        
+        dq = {}
+        if date_query:
+            dq['timestamp'] = date_query
+        if ip_filter:
+            dq['ip_address'] = {'$regex': ip_filter, '$options': 'i'}
+        if email_filter:
+            dq['user_email'] = {'$regex': email_filter, '$options': 'i'}
+        if offer_id_filter:
+            dq['offer_id'] = offer_id_filter
+        if username_filter:
+            dq['username'] = {'$regex': username_filter, '$options': 'i'}
+        
+        total = offer_views_col.count_documents(dq)
+        skip = (page - 1) * per_page
+        
+        cursor = offer_views_col.find(dq).sort('timestamp', -1).skip(skip).limit(per_page)
+        
+        # Collect offer_ids to batch-lookup network for older logs missing it
+        raw_docs = list(cursor)
+        offer_ids_to_lookup = set()
+        for doc in raw_docs:
+            if not doc.get('network'):
+                offer_ids_to_lookup.add(doc.get('offer_id', ''))
+        
+        # Batch lookup networks from offers collection
+        network_map = {}
+        if offer_ids_to_lookup:
+            offers_col = db_instance.get_collection('offers')
+            if offers_col is not None:
+                for o in offers_col.find({'offer_id': {'$in': list(offer_ids_to_lookup)}}, {'offer_id': 1, 'network': 1}):
+                    network_map[o.get('offer_id', '')] = o.get('network', '')
+        
+        logs = []
+        for doc in raw_docs:
+            ts = doc.get('timestamp', '')
+            if isinstance(ts, datetime):
+                ts = ts.isoformat() + 'Z'
+            
+            network = doc.get('network', '') or network_map.get(doc.get('offer_id', ''), '')
+            
+            logs.append({
+                '_id': str(doc.get('_id', '')),
+                'ip': doc.get('ip_address', ''),
+                'email': doc.get('user_email', ''),
+                'username': doc.get('username', ''),
+                'timestamp': ts,
+                'offer_id': doc.get('offer_id', ''),
+                'offer_name': doc.get('offer_name', ''),
+                'network': network,
+                'clicked': doc.get('clicked', False),
+                'source': doc.get('source', 'publisher_offers'),
+                'user_agent': doc.get('user_agent', ''),
+            })
+        
+        return jsonify({
+            'success': True,
+            'logs': logs,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'pages': (total + per_page - 1) // per_page if total > 0 else 1
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting offer view logs: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# CUSTOM EMAIL CAMPAIGN - Reusable email system for Offer Insights
+# ============================================================================
+
+@offer_insights_bp.route('/insights/send-custom-email', methods=['POST'])
+@token_required
+@admin_required
+def send_custom_email_campaign():
+    """Send a fully custom email campaign with custom subject, content, batches, scheduling.
+    Logs all activity to email_activity_logs collection for the Email Activity tab.
+    """
+    try:
+        data = request.get_json()
+        
+        subject = data.get('subject', '').strip()
+        content = data.get('content', '').strip()
+        partner_ids = data.get('partner_ids', [])
+        custom_emails = data.get('custom_emails', [])  # Direct email addresses (not tied to any user)
+        batch_size = int(data.get('batch_size', 50))
+        scheduled_at = data.get('scheduled_at')  # ISO datetime string
+        source_card = data.get('source_card', 'offer_view_logs')  # Which insight card triggered this
+        offer_ids = data.get('offer_ids', [])
+        offer_names = data.get('offer_names', [])
+        
+        if not subject or not content:
+            return jsonify({'error': 'Subject and content are required'}), 400
+        if not partner_ids and not custom_emails:
+            return jsonify({'error': 'At least one recipient is required'}), 400
+        
+        email_activity_col = db_instance.get_collection('email_activity_logs')
+        insight_email_logs_col = db_instance.get_collection('insight_email_logs')
+        
+        admin_user = request.current_user
+        admin_username = admin_user.get('username', 'admin')
+        admin_id = str(admin_user.get('_id', ''))
+        
+        # Calculate batches
+        total_recipients = len(partner_ids) + len(custom_emails)
+        num_batches = (total_recipients + batch_size - 1) // batch_size
+        
+        # If scheduled, save and return
+        if scheduled_at:
+            try:
+                scheduled_datetime = datetime.fromisoformat(scheduled_at.replace('Z', '+00:00'))
+                if scheduled_datetime <= datetime.utcnow():
+                    return jsonify({'error': 'Scheduled time must be in the future'}), 400
+            except ValueError as e:
+                return jsonify({'error': f'Invalid date format: {str(e)}'}), 400
+            
+            scheduled_record = {
+                'type': 'custom_campaign',
+                'subject': subject,
+                'content': content,
+                'partner_ids': partner_ids,
+                'custom_emails': custom_emails,
+                'batch_size': batch_size,
+                'scheduled_at': scheduled_datetime,
+                'source_card': source_card,
+                'offer_ids': offer_ids,
+                'offer_names': offer_names,
+                'status': 'scheduled',
+                'created_by': admin_username,
+                'created_at': datetime.utcnow()
+            }
+            result = insight_email_logs_col.insert_one(scheduled_record)
+            
+            # Log to email_activity_logs
+            if email_activity_col is not None:
+                email_activity_col.insert_one({
+                    'action': 'scheduled',
+                    'source': source_card,
+                    'offer_ids': offer_ids,
+                    'offer_names': offer_names,
+                    'offer_count': len(offer_ids),
+                    'recipient_type': 'specific_users',
+                    'recipient_count': total_recipients,
+                    'batch_count': num_batches,
+                    'offers_per_email': len(offer_ids),
+                    'scheduled_time': scheduled_datetime.isoformat(),
+                    'admin_id': admin_id,
+                    'admin_username': admin_username,
+                    'subject': subject,
+                    'created_at': datetime.utcnow()
+                })
+            
+            return jsonify({
+                'success': True,
+                'scheduled': True,
+                'email_id': str(result.inserted_id),
+                'scheduled_at': scheduled_at,
+                'partner_count': total_recipients,
+                'batch_count': num_batches
+            })
+        
+        # Send immediately
+        users_collection = db_instance.get_collection('users')
+        email_service = get_email_service()
+        
+        sent_count = 0
+        failed_count = 0
+        
+        # Send to registered partners
+        for partner_id in partner_ids:
+            try:
+                partner = users_collection.find_one({'_id': ObjectId(partner_id)})
+                if not partner:
+                    failed_count += 1
+                    continue
+                
+                partner_email = partner.get('email')
+                partner_name = partner.get('username', 'Partner')
+                
+                email_html = generate_custom_campaign_html(
+                    subject=subject,
+                    content=content,
+                    partner_name=partner_name
+                )
+                
+                success = email_service._send_email(partner_email, subject, email_html)
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Error sending to partner {partner_id}: {e}")
+                failed_count += 1
+        
+        # Send to custom email addresses (not tied to any user account)
+        import re
+        email_regex = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+        for raw_email in custom_emails:
+            try:
+                email_addr = raw_email.strip().lower()
+                if not email_addr or not email_regex.match(email_addr):
+                    failed_count += 1
+                    continue
+                
+                email_html = generate_custom_campaign_html(
+                    subject=subject,
+                    content=content,
+                    partner_name=email_addr.split('@')[0]
+                )
+                
+                success = email_service._send_email(email_addr, subject, email_html)
+                if success:
+                    sent_count += 1
+                else:
+                    failed_count += 1
+                    
+            except Exception as e:
+                logger.error(f"Error sending to custom email {raw_email}: {e}")
+                failed_count += 1
+        
+        # Log to insight_email_logs
+        insight_email_logs_col.insert_one({
+            'type': 'custom_campaign',
+            'subject': subject,
+            'source_card': source_card,
+            'offer_ids': offer_ids,
+            'offer_names': offer_names,
+            'partner_count': total_recipients,
+            'sent_count': sent_count,
+            'failed_count': failed_count,
+            'batch_count': num_batches,
+            'sent_by': admin_username,
+            'status': 'sent',
+            'created_at': datetime.utcnow()
+        })
+        
+        # Log to email_activity_logs (for Email Activity tab)
+        if email_activity_col is not None:
+            email_activity_col.insert_one({
+                'action': 'sent',
+                'source': source_card,
+                'offer_ids': offer_ids,
+                'offer_names': offer_names,
+                'offer_count': len(offer_ids),
+                'recipient_type': 'specific_users',
+                'recipient_count': total_recipients,
+                'batch_count': num_batches,
+                'offers_per_email': len(offer_ids),
+                'scheduled_time': None,
+                'admin_id': admin_id,
+                'admin_username': admin_username,
+                'subject': subject,
+                'sent_count': sent_count,
+                'failed_count': failed_count,
+                'created_at': datetime.utcnow()
+            })
+        
+        return jsonify({
+            'success': True,
+            'sent_count': sent_count,
+            'failed_count': failed_count,
+            'batch_count': num_batches,
+            'total_recipients': total_recipients
+        })
+        
+    except Exception as e:
+        logger.error(f"Error sending custom email campaign: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+def generate_custom_campaign_html(subject, content, partner_name):
+    """Generate HTML email for custom campaigns with professional template"""
+    LOGO_URL = "https://moustacheleads.com/logo.png"
+    year = datetime.now().year
+    
+    # Convert newlines in content to <br> tags
+    formatted_content = content.replace('\n', '<br>')
+    
+    html = f'''<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;padding:30px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+
+<!-- Header -->
+<tr><td style="background:linear-gradient(135deg, #6366f1 0%, #1a1a1a 100%);padding:40px;text-align:center;">
+<img src="{LOGO_URL}" alt="MoustacheLeads" style="max-width:180px;margin-bottom:20px;" border="0" />
+<h1 style="color:#ffffff;font-size:24px;margin:0;font-weight:800;">{subject}</h1>
+</td></tr>
+
+<!-- Greeting -->
+<tr><td style="padding:30px 40px 10px;">
+<p style="color:#333;font-size:16px;margin:0;">Hey <strong>{partner_name}</strong>,</p>
+</td></tr>
+
+<!-- Content -->
+<tr><td style="padding:10px 40px 30px;">
+<div style="color:#444;font-size:14px;line-height:1.7;">
+{formatted_content}
+</div>
+</td></tr>
+
+<!-- CTA -->
+<tr><td style="padding:0 40px 30px;text-align:center;">
+<a href="https://moustacheleads.com/publisher/signin" 
+   style="display:inline-block;background:#6366f1;color:#ffffff;padding:14px 40px;text-decoration:none;border-radius:50px;font-weight:700;font-size:15px;box-shadow:0 4px 15px rgba(0,0,0,0.2);">
+Visit Dashboard
+</a>
+</td></tr>
+
+<!-- Footer -->
+<tr><td style="background-color:#1a1a1a;padding:30px 40px;text-align:center;">
+<p style="color:#ffffff;font-size:18px;font-weight:800;margin:0;">MoustacheLeads</p>
+<p style="color:#888;font-size:12px;margin:10px 0 0 0;">Your Partner in Affiliate Success</p>
+<p style="color:#666;font-size:11px;margin:15px 0 0 0;">&copy; {year} MoustacheLeads. All rights reserved.</p>
+</td></tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>'''
+    
+    return html
+
+
+@offer_insights_bp.route('/insights/preview-custom-email', methods=['POST'])
+@token_required
+@admin_required
+def preview_custom_email():
+    """Preview a custom email campaign template"""
+    try:
+        data = request.get_json()
+        subject = data.get('subject', 'Email Preview')
+        content = data.get('content', '')
+        
+        html = generate_custom_campaign_html(
+            subject=subject,
+            content=content,
+            partner_name='[Partner Name]'
+        )
+        
+        return jsonify({
+            'success': True,
+            'html': html,
+            'subject': subject
+        })
+        
+    except Exception as e:
+        logger.error(f"Error previewing custom email: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@offer_insights_bp.route('/insights/offer-view-logs', methods=['DELETE'])
+@token_required
+@admin_required
+def delete_offer_view_logs():
+    """Delete selected offer view logs by IDs."""
+    try:
+        data = request.get_json()
+        log_ids = data.get('ids', [])
+        
+        if not log_ids:
+            return jsonify({'error': 'No log IDs provided'}), 400
+        
+        offer_views_col = db_instance.get_collection('offer_views')
+        if offer_views_col is None:
+            return jsonify({'error': 'Collection not found'}), 404
+        
+        object_ids = []
+        for lid in log_ids:
+            try:
+                object_ids.append(ObjectId(lid))
+            except Exception:
+                continue
+        
+        if not object_ids:
+            return jsonify({'error': 'No valid IDs provided'}), 400
+        
+        result = offer_views_col.delete_many({'_id': {'$in': object_ids}})
+        
+        return jsonify({
+            'success': True,
+            'deleted_count': result.deleted_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting offer view logs: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

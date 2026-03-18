@@ -42,15 +42,20 @@ import {
   Sparkles,
   Calendar,
   Clock,
-  DollarSign
+  DollarSign,
+  Filter,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import {
   offerInsightsApi,
   InsightType,
   InsightOffer,
+  OfferViewLog,
   Partner,
   EmailHistoryItem
 } from '@/services/offerInsightsApi';
+import InsightEmailCampaign from '@/components/InsightEmailCampaign';
 
 // Default placeholder image as data URI to avoid external image loading issues
 const PLACEHOLDER_IMAGE = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIGZpbGw9IiNFNUU3RUIiLz48cGF0aCBkPSJNMjUgMjVIMzVWMzVIMjVWMjVaIiBmaWxsPSIjOUI5QkEzIi8+PHBhdGggZD0iTTIwIDQwTDI3LjUgMzJMMzIuNSAzN0wzNy41IDMwTDQ1IDQwSDIwWiIgZmlsbD0iIzlCOUJBMyIvPjwvc3ZnPg==';
@@ -108,6 +113,17 @@ const INSIGHT_CATEGORIES = [
   }
 ];
 
+const VIEW_LOGS_CARD = {
+  id: 'offer_view_logs' as const,
+  title: 'Offer View Logs',
+  description: 'Track who viewed which offers',
+  icon: Eye,
+  color: 'bg-blue-500',
+  bgColor: 'bg-blue-50',
+  borderColor: 'border-blue-200',
+  textColor: 'text-blue-600'
+};
+
 const AdminOfferInsights = () => {
   const { toast } = useToast();
   
@@ -140,6 +156,29 @@ const AdminOfferInsights = () => {
   const [previewHtml, setPreviewHtml] = useState('');
   const [sending, setSending] = useState(false);
 
+  // Offer View Logs state
+  const [viewLogs, setViewLogs] = useState<OfferViewLog[]>([]);
+  const [viewLogsLoading, setViewLogsLoading] = useState(false);
+  const [viewLogsPage, setViewLogsPage] = useState(1);
+  const [viewLogsTotalPages, setViewLogsTotalPages] = useState(1);
+  const [viewLogsTotal, setViewLogsTotal] = useState(0);
+  const [viewLogsFilters, setViewLogsFilters] = useState({
+    ip: '', email: '', username: '', clicked: '', opened: '', offer_id: '',
+    date_from: '', date_to: '', range: '30d'
+  });
+  const [showViewLogsFilters, setShowViewLogsFilters] = useState(false);
+
+  // View logs selection state
+  const [selectedViewLogs, setSelectedViewLogs] = useState<Set<string>>(new Set());
+  const [selectedLogOfferNames, setSelectedLogOfferNames] = useState<string[]>([]);
+  const [selectedLogOfferIds, setSelectedLogOfferIds] = useState<string[]>([]);
+
+  // Custom email campaign modal (reusable)
+  const [customEmailOpen, setCustomEmailOpen] = useState(false);
+
+  // Active tab state
+  const [activeTab, setActiveTab] = useState('offers');
+
   // Fetch offers when category or time period changes
   useEffect(() => {
     fetchOffers();
@@ -149,7 +188,6 @@ const AdminOfferInsights = () => {
   useEffect(() => {
     const loadInitialData = async () => {
       setInitialLoading(true);
-      // Load these in parallel but don't cause re-renders
       await Promise.all([
         fetchPartners(),
         fetchEmailHistory()
@@ -159,6 +197,61 @@ const AdminOfferInsights = () => {
     loadInitialData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fetch view logs when page or filters change
+  const fetchViewLogs = async (pageNum?: number) => {
+    setViewLogsLoading(true);
+    try {
+      const res = await offerInsightsApi.getOfferViewLogs({
+        page: pageNum || viewLogsPage,
+        per_page: 20,
+        ...viewLogsFilters,
+      });
+      setViewLogs(res.logs || []);
+      setViewLogsTotal(res.total || 0);
+      setViewLogsTotalPages(res.pages || 1);
+      setSelectedViewLogs(new Set()); // Clear selection on new data
+    } catch {
+      toast({ title: 'Error', description: 'Failed to fetch view logs', variant: 'destructive' });
+    } finally {
+      setViewLogsLoading(false);
+    }
+  };
+
+  const handleDeleteSelectedLogs = async () => {
+    if (selectedViewLogs.size === 0) return;
+    try {
+      const res = await offerInsightsApi.deleteOfferViewLogs(Array.from(selectedViewLogs));
+      toast({ title: 'Deleted', description: `${res.deleted_count} log(s) deleted` });
+      setSelectedViewLogs(new Set());
+      fetchViewLogs(viewLogsPage);
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete logs', variant: 'destructive' });
+    }
+  };
+
+  const handleEmailFromSelectedLogs = () => {
+    const selected = viewLogs.filter(l => selectedViewLogs.has(l._id));
+    const uniqueNames = [...new Set(selected.map(l => l.offer_name).filter(Boolean))];
+    const uniqueIds = [...new Set(selected.map(l => l.offer_id).filter(Boolean))];
+    setSelectedLogOfferNames(uniqueNames);
+    setSelectedLogOfferIds(uniqueIds);
+    setCustomEmailOpen(true);
+  };
+
+  const toggleViewLogSelection = (id: string) => {
+    const s = new Set(selectedViewLogs);
+    if (s.has(id)) s.delete(id); else s.add(id);
+    setSelectedViewLogs(s);
+  };
+
+  const toggleAllViewLogs = () => {
+    if (selectedViewLogs.size === viewLogs.length) {
+      setSelectedViewLogs(new Set());
+    } else {
+      setSelectedViewLogs(new Set(viewLogs.map(l => l._id)));
+    }
+  };
 
   const fetchOffers = async () => {
     setLoading(true);
@@ -407,10 +500,10 @@ const AdminOfferInsights = () => {
       </div>
 
       {/* Category Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {INSIGHT_CATEGORIES.map((category) => {
           const Icon = category.icon;
-          const isSelected = selectedCategory === category.id;
+          const isSelected = selectedCategory === category.id && activeTab === 'offers';
           
           return (
             <Card
@@ -420,7 +513,7 @@ const AdminOfferInsights = () => {
                   ? `ring-2 ring-offset-2 ${category.borderColor} ${category.bgColor}` 
                   : 'hover:border-gray-300'
               }`}
-              onClick={() => setSelectedCategory(category.id)}
+              onClick={() => { setSelectedCategory(category.id); setActiveTab('offers'); }}
             >
               <CardContent className="pt-6">
                 <div className="flex items-start gap-4">
@@ -436,9 +529,30 @@ const AdminOfferInsights = () => {
             </Card>
           );
         })}
+        {/* 6th Card: Offer View Logs */}
+        <Card
+          className={`cursor-pointer transition-all hover:shadow-lg ${
+            activeTab === 'view-logs'
+              ? `ring-2 ring-offset-2 ${VIEW_LOGS_CARD.borderColor} ${VIEW_LOGS_CARD.bgColor}`
+              : 'hover:border-gray-300'
+          }`}
+          onClick={() => { setActiveTab('view-logs'); if (viewLogs.length === 0) fetchViewLogs(1); }}
+        >
+          <CardContent className="pt-6">
+            <div className="flex items-start gap-4">
+              <div className={`p-3 rounded-xl ${VIEW_LOGS_CARD.color}`}>
+                <VIEW_LOGS_CARD.icon className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h3 className="font-semibold">{VIEW_LOGS_CARD.title}</h3>
+                <p className="text-sm text-muted-foreground">{VIEW_LOGS_CARD.description}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      <Tabs defaultValue="offers" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
           <TabsTrigger value="offers" className="flex items-center gap-2">
             <TrendingUp className="h-4 w-4" />
@@ -634,6 +748,261 @@ const AdminOfferInsights = () => {
                     );
                   })}
                 </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* View Logs Tab */}
+        <TabsContent value="view-logs">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Eye className="h-5 w-5 text-blue-500" />
+                    Offer View Logs
+                    <Badge variant="outline" className="ml-2">{viewLogsTotal} total</Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Track who viewed, clicked, and interacted with offers
+                  </CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedViewLogs.size > 0 && (
+                    <>
+                      <Badge variant="secondary" className="text-sm">
+                        {selectedViewLogs.size} selected
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={handleDeleteSelectedLogs}
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Delete ({selectedViewLogs.size})
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleEmailFromSelectedLogs}
+                      >
+                        <Mail className="h-4 w-4 mr-2" />
+                        Email ({selectedViewLogs.size})
+                      </Button>
+                    </>
+                  )}
+                  {selectedViewLogs.size === 0 && (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setSelectedLogOfferNames([]);
+                        setSelectedLogOfferIds([]);
+                        setCustomEmailOpen(true);
+                      }}
+                    >
+                      <Mail className="h-4 w-4 mr-2" />
+                      Send Email
+                    </Button>
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowViewLogsFilters(!showViewLogsFilters)}
+                  >
+                    <Filter className="h-4 w-4 mr-2" />
+                    {showViewLogsFilters ? 'Hide Filters' : 'Filters'}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fetchViewLogs(1)}
+                    disabled={viewLogsLoading}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${viewLogsLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
+              </div>
+
+              {/* Filters Panel */}
+              {showViewLogsFilters && (
+                <div className="mt-4 p-4 border rounded-lg bg-muted/30 grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">IP Address</Label>
+                    <Input
+                      placeholder="Filter by IP..."
+                      value={viewLogsFilters.ip}
+                      onChange={(e) => setViewLogsFilters(f => ({ ...f, ip: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Email</Label>
+                    <Input
+                      placeholder="Filter by email..."
+                      value={viewLogsFilters.email}
+                      onChange={(e) => setViewLogsFilters(f => ({ ...f, email: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Username</Label>
+                    <Input
+                      placeholder="Filter by username..."
+                      value={viewLogsFilters.username}
+                      onChange={(e) => setViewLogsFilters(f => ({ ...f, username: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Offer ID</Label>
+                    <Input
+                      placeholder="Filter by offer ID..."
+                      value={viewLogsFilters.offer_id}
+                      onChange={(e) => setViewLogsFilters(f => ({ ...f, offer_id: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Date Range</Label>
+                    <select
+                      className="w-full h-8 text-sm border rounded-md px-2 bg-background"
+                      value={viewLogsFilters.range}
+                      onChange={(e) => setViewLogsFilters(f => ({ ...f, range: e.target.value }))}
+                    >
+                      <option value="today">Today</option>
+                      <option value="7d">Last 7 Days</option>
+                      <option value="30d">Last 30 Days</option>
+                      <option value="">All Time</option>
+                    </select>
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Button
+                      size="sm"
+                      className="h-8"
+                      onClick={() => { setViewLogsPage(1); fetchViewLogs(1); }}
+                    >
+                      <Search className="h-3 w-3 mr-1" />
+                      Apply
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8"
+                      onClick={() => {
+                        setViewLogsFilters({ ip: '', email: '', username: '', clicked: '', opened: '', offer_id: '', date_from: '', date_to: '', range: '30d' });
+                        setViewLogsPage(1);
+                        fetchViewLogs(1);
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardHeader>
+            <CardContent>
+              {viewLogsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : viewLogs.length === 0 ? (
+                <div className="text-center py-12">
+                  <Eye className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p className="text-muted-foreground">No view logs found</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Offer view logs will appear here as users interact with offers
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-10">
+                            <Checkbox
+                              checked={viewLogs.length > 0 && selectedViewLogs.size === viewLogs.length}
+                              onCheckedChange={toggleAllViewLogs}
+                            />
+                          </TableHead>
+                          <TableHead>Timestamp</TableHead>
+                          <TableHead>Username</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>IP Address</TableHead>
+                          <TableHead>Offer</TableHead>
+                          <TableHead>Network</TableHead>
+                          <TableHead>Clicked</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {viewLogs.map((log) => (
+                          <TableRow
+                            key={log._id}
+                            className={`cursor-pointer ${selectedViewLogs.has(log._id) ? 'bg-primary/5' : ''}`}
+                            onClick={() => toggleViewLogSelection(log._id)}
+                          >
+                            <TableCell>
+                              <Checkbox
+                                checked={selectedViewLogs.has(log._id)}
+                                onCheckedChange={() => toggleViewLogSelection(log._id)}
+                              />
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap">
+                              {log.timestamp ? new Date(log.timestamp).toLocaleString() : 'N/A'}
+                            </TableCell>
+                            <TableCell className="text-sm font-medium">{log.username || '—'}</TableCell>
+                            <TableCell className="text-sm">{log.email || '—'}</TableCell>
+                            <TableCell className="text-xs font-mono">{log.ip || '—'}</TableCell>
+                            <TableCell>
+                              <div className="text-sm font-medium max-w-[200px] truncate" title={log.offer_name}>
+                                {log.offer_name || '—'}
+                              </div>
+                              <div className="text-xs text-muted-foreground">{log.offer_id}</div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">{log.network || '—'}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              {log.clicked ? (
+                                <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Yes</Badge>
+                              ) : (
+                                <Badge variant="secondary" className="text-muted-foreground">No</Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Pagination */}
+                  <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                    <p className="text-sm text-muted-foreground">
+                      Page {viewLogsPage} of {viewLogsTotalPages} ({viewLogsTotal} total logs)
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={viewLogsPage <= 1}
+                        onClick={() => { const p = viewLogsPage - 1; setViewLogsPage(p); fetchViewLogs(p); }}
+                      >
+                        <ChevronLeft className="h-4 w-4 mr-1" />
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={viewLogsPage >= viewLogsTotalPages}
+                        onClick={() => { const p = viewLogsPage + 1; setViewLogsPage(p); fetchViewLogs(p); }}
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4 ml-1" />
+                      </Button>
+                    </div>
+                  </div>
                 </>
               )}
             </CardContent>
@@ -959,6 +1328,25 @@ const AdminOfferInsights = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Custom Email Campaign Modal for View Logs */}
+      <InsightEmailCampaign
+        open={customEmailOpen}
+        onOpenChange={setCustomEmailOpen}
+        sourceCard="offer_view_logs"
+        offerIds={selectedLogOfferIds}
+        offerNames={selectedLogOfferNames}
+        defaultSubject={selectedLogOfferNames.length > 0
+          ? `Check out ${selectedLogOfferNames.length === 1 ? selectedLogOfferNames[0] : `these ${selectedLogOfferNames.length} offers`} on Moustache Leads`
+          : 'Check out these offers on Moustache Leads'}
+        defaultContent={selectedLogOfferNames.length > 0
+          ? `We noticed interest in the following offer${selectedLogOfferNames.length > 1 ? 's' : ''}:\n\n${selectedLogOfferNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}\n\nTake a look and start promoting today!`
+          : 'We noticed some great offers that might interest your audience. Take a look and start promoting today!'}
+        onSent={() => {
+          fetchEmailHistory();
+          toast({ title: 'Email Sent', description: 'Campaign sent successfully from Offer View Logs' });
+        }}
+      />
     </div>
   );
 };

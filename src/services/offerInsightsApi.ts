@@ -62,6 +62,20 @@ export interface EmailHistoryItem {
   offers?: InsightOffer[];
 }
 
+export interface OfferViewLog {
+  _id: string;
+  ip: string;
+  email: string;
+  username: string;
+  timestamp: string;
+  offer_id: string;
+  offer_name: string;
+  network: string;
+  clicked: boolean;
+  source: string;
+  user_agent: string;
+}
+
 export const offerInsightsApi = {
   // Get offers by insight type
   async getOfferInsights(type: InsightType, limit: number = 10, days: number = 30) {
@@ -154,6 +168,76 @@ export const offerInsightsApi = {
       body: JSON.stringify({ scheduled_at: newScheduledAt })
     });
     if (!response.ok) throw new Error('Failed to resume scheduled email');
+    return response.json();
+  },
+
+  // Get offer view logs with filters and pagination
+  async getOfferViewLogs(params: {
+    page?: number;
+    per_page?: number;
+    ip?: string;
+    email?: string;
+    name?: string;
+    network?: string;
+    clicked?: string;
+    opened?: string;
+    offer_id?: string;
+    date_from?: string;
+    date_to?: string;
+    range?: string;
+  } = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') searchParams.append(key, String(value));
+    });
+    const response = await fetch(
+      `${API_BASE_URL}/api/admin/insights/offer-view-logs?${searchParams.toString()}`,
+      { headers: getAuthHeaders() }
+    );
+    if (!response.ok) throw new Error('Failed to fetch offer view logs');
+    return response.json();
+  },
+
+  // Send custom email campaign (reusable across insight cards)
+  async sendCustomEmailCampaign(data: {
+    subject: string;
+    content: string;
+    partner_ids: string[];
+    custom_emails?: string[];
+    batch_size?: number;
+    scheduled_at?: string;
+    source_card?: string;
+    offer_ids?: string[];
+    offer_names?: string[];
+  }) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/insights/send-custom-email`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error('Failed to send custom email campaign');
+    return response.json();
+  },
+
+  // Delete offer view logs by IDs
+  async deleteOfferViewLogs(ids: string[]) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/insights/offer-view-logs`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ ids })
+    });
+    if (!response.ok) throw new Error('Failed to delete offer view logs');
+    return response.json();
+  },
+
+  // Preview custom email
+  async previewCustomEmail(subject: string, content: string) {
+    const response = await fetch(`${API_BASE_URL}/api/admin/insights/preview-custom-email`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ subject, content })
+    });
+    if (!response.ok) throw new Error('Failed to preview custom email');
     return response.json();
   }
 };

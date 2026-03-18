@@ -174,6 +174,35 @@ export const getMyAccessRequests = async (params: { status?: string; page?: numb
 };
 
 /**
+ * Log an offer view (when publisher opens offer details)
+ */
+export const logOfferView = async (offerId: string, offerName: string, source: string = 'publisher_offers', network: string = '') => {
+  try {
+    await api.post('/api/publisher/offers/log-view', {
+      offer_id: offerId,
+      offer_name: offerName,
+      source,
+      network,
+    });
+  } catch {
+    // Silent fail — don't break the user experience
+  }
+};
+
+/**
+ * Mark an offer view as clicked (when publisher clicks the offer link)
+ */
+export const markOfferClicked = async (offerId: string) => {
+  try {
+    await api.post('/api/publisher/offers/mark-clicked', {
+      offer_id: offerId,
+    });
+  } catch {
+    // Silent fail
+  }
+};
+
+/**
  * Export all functions
  */
 export const publisherOfferApi = {
@@ -182,6 +211,8 @@ export const publisherOfferApi = {
   requestOfferAccess,
   getOfferAccessStatus,
   getMyAccessRequests,
+  logOfferView,
+  markOfferClicked,
 };
 
 export default publisherOfferApi;

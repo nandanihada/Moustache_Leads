@@ -544,6 +544,88 @@ def get_my_access_requests():
         logger.error(f"❌ Error getting user requests: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get requests: {str(e)}'}), 500
 
+@publisher_offers_bp.route('/offers/log-view', methods=['POST'])
+@token_required
+def log_offer_view():
+    """Log when a publisher views an offer's details"""
+    try:
+        user = request.current_user
+        data = request.get_json() or {}
+        
+        offer_id = data.get('offer_id', '')
+        offer_name = data.get('offer_name', '')
+        
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+        
+        # Get IP
+        ip_address = (
+            request.environ.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
+            or request.environ.get('HTTP_X_REAL_IP', '')
+            or request.environ.get('HTTP_CF_CONNECTING_IP', '')
+            or request.remote_addr
+            or '0.0.0.0'
+        )
+        
+        user_agent = request.headers.get('User-Agent', '')
+        
+        view_record = {
+            'offer_id': offer_id,
+            'offer_name': offer_name,
+            'network': data.get('network', ''),
+            'user_id': str(user.get('_id', user.get('id', ''))),
+            'username': user.get('username', ''),
+            'user_email': user.get('email', ''),
+            'user_role': user.get('role', 'publisher'),
+            'ip_address': ip_address,
+            'user_agent': user_agent,
+            'source': data.get('source', 'publisher_offers'),
+            'clicked': False,
+            'timestamp': datetime.utcnow(),
+        }
+        
+        offer_views_col = db_instance.get_collection('offer_views')
+        if offer_views_col is not None:
+            offer_views_col.insert_one(view_record)
+            logger.info(f"👁️ Offer view logged: {user.get('username')} viewed {offer_name} ({offer_id})")
+        
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.error(f"❌ Error logging offer view: {e}", exc_info=True)
+        return jsonify({'success': True}), 200  # Don't fail the user experience
+
+
+@publisher_offers_bp.route('/offers/mark-clicked', methods=['POST'])
+@token_required
+def mark_offer_clicked():
+    """Mark the most recent offer view as clicked when publisher clicks the offer link."""
+    try:
+        user = request.current_user
+        data = request.get_json() or {}
+        offer_id = data.get('offer_id', '')
+        
+        if not offer_id:
+            return jsonify({'success': True}), 200
+        
+        offer_views_col = db_instance.get_collection('offer_views')
+        if offer_views_col is not None:
+            # Update the most recent view for this user + offer
+            offer_views_col.update_one(
+                {
+                    'offer_id': offer_id,
+                    'user_id': str(user.get('_id', user.get('id', ''))),
+                    'clicked': False
+                },
+                {'$set': {'clicked': True}},
+                # Sort by timestamp desc to get the most recent one
+            )
+        
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logger.error(f"❌ Error marking offer clicked: {e}", exc_info=True)
+        return jsonify({'success': True}), 200
+
+
 @publisher_offers_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""

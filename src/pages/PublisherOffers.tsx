@@ -209,6 +209,8 @@ const PublisherOffersContent = () => {
   const handleViewDetails = (offer: PublisherOffer) => {
     setSelectedOffer(offer);
     setDetailsModalOpen(true);
+    // Log the offer view
+    publisherOfferApi.logOfferView(offer.offer_id, offer.name, 'publisher_offers', offer.network || '');
   };
 
   // Click Apply → open apply popup (NOT direct link)

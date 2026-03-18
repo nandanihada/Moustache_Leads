@@ -210,12 +210,6 @@ export default function GiftCardRedemption() {
                       {copiedCode === card.code ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                     </button>
                   </div>
-                  <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
-                    <span>{card.remaining_redemptions} of {card.max_redemptions} spots left</span>
-                    {card.expiry_date && (
-                      <span>Expires {new Date(card.expiry_date).toLocaleDateString()}</span>
-                    )}
-                  </div>
                   <Button
                     onClick={() => handleRedeem(card.code)}
                     disabled={loading}

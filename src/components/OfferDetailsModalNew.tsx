@@ -8,7 +8,7 @@ import {
   MousePointer, CheckCircle, Monitor, Smartphone, Lock, Clock, X,
 } from 'lucide-react';
 import { Offer } from '@/services/adminOfferApi';
-import { PublisherOffer } from '@/services/publisherOfferApi';
+import { PublisherOffer, markOfferClicked } from '@/services/publisherOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { userReportsApi } from '@/services/userReportsApi';
 
@@ -289,14 +289,14 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                   {trackingLink || 'Generating...'}
                 </div>
                 <Button
-                  onClick={() => copy(trackingLink, 'Tracking Link')}
+                  onClick={() => { copy(trackingLink, 'Tracking Link'); markOfferClicked(offer.offer_id); }}
                   size="sm"
                   className="bg-violet-600 hover:bg-violet-700 text-white border-0 px-4 flex-shrink-0"
                 >
                   <Copy className="h-4 w-4 mr-1" /> Copy
                 </Button>
                 <Button
-                  onClick={() => trackingLink && window.open(trackingLink, '_blank')}
+                  onClick={() => { if (trackingLink) { window.open(trackingLink, '_blank'); markOfferClicked(offer.offer_id); } }}
                   size="sm"
                   disabled={!trackingLink}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white border-0 px-4 flex-shrink-0"
