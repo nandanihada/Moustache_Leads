@@ -111,6 +111,12 @@ class UserReports:
             if filters.get('country'):
                 match_query['country'] = {'$in': filters['country'] if isinstance(filters['country'], list) else [filters['country']]}
             
+            if filters.get('device_type'):
+                match_query['device_type'] = filters['device_type']
+            
+            if filters.get('publisher_id'):
+                match_query['user_id'] = filters['publisher_id']
+            
             # Sub ID filters
             for i in range(1, 6):
                 sub_key = f'sub_id{i}'
@@ -143,6 +149,19 @@ class UserReports:
                 elif field.startswith('sub_id'):
                     group_id[field] = f'${field}'
             
+            # Build extra $first accumulators for fields not in group_by
+            # so country/browser/device/ip/geo/network show up even when grouping by date+offer
+            extra_accumulators = {}
+            first_fields = [
+                'country', 'country_code', 'city', 'region',
+                'browser', 'device_type', 'os',
+                'ip_address', 'referer', 'user_id',
+                'click_id', 'offer_name',
+            ]
+            for ff in first_fields:
+                if ff not in group_id:
+                    extra_accumulators[f'_first_{ff}'] = {'$first': f'${ff}'}
+
             # Aggregation pipeline
             pipeline = [
                 {'$match': match_query},
@@ -150,7 +169,7 @@ class UserReports:
                     '$group': {
                         '_id': group_id,
                         'clicks': {'$sum': 1},
-                        'gross_clicks': {'$sum': 1},  # All clicks including rejected
+                        'gross_clicks': {'$sum': 1},
                         'unique_clicks': {
                             '$sum': {'$cond': [{'$eq': ['$is_unique', True]}, 1, 0]}
                         },
@@ -159,7 +178,8 @@ class UserReports:
                         },
                         'rejected_clicks': {
                             '$sum': {'$cond': [{'$eq': ['$is_rejected', True]}, 1, 0]}
-                        }
+                        },
+                        **extra_accumulators
                     }
                 }
             ]
@@ -186,8 +206,14 @@ class UserReports:
                 }
                 if not is_admin:
                     simple_match_query['user_id'] = user_id
+                elif filters.get('publisher_id'):
+                    simple_match_query['user_id'] = filters['publisher_id']
                 if filters.get('offer_id'):
                     simple_match_query['offer_id'] = match_query.get('offer_id')
+                if filters.get('country'):
+                    simple_match_query['country'] = match_query.get('country')
+                if filters.get('device_type'):
+                    simple_match_query['device_type'] = filters['device_type']
                 
                 simple_pipeline = [
                     {'$match': simple_match_query},
@@ -198,7 +224,8 @@ class UserReports:
                             'gross_clicks': {'$sum': 1},
                             'unique_clicks': {'$sum': 0},
                             'suspicious_clicks': {'$sum': 0},
-                            'rejected_clicks': {'$sum': 0}
+                            'rejected_clicks': {'$sum': 0},
+                            **extra_accumulators
                         }
                     }
                 ]
@@ -218,20 +245,65 @@ class UserReports:
                 # Filter by user_id for dashboard clicks
                 if not is_admin:
                     dashboard_match_query['user_id'] = user_id
+                elif filters.get('publisher_id'):
+                    dashboard_match_query['user_id'] = filters['publisher_id']
                 
                 if filters.get('offer_id'):
                     dashboard_match_query['offer_id'] = match_query.get('offer_id')
+                if filters.get('country'):
+                    dashboard_match_query['geo.country'] = match_query.get('country')
+                if filters.get('device_type'):
+                    dashboard_match_query['device.type'] = filters['device_type']
+                
+                # Dashboard clicks use nested fields: geo.country, device.type, device.browser
+                dash_group_id = {}
+                for field in group_by:
+                    if field == 'date':
+                        dash_group_id['date'] = {'$dateToString': {'format': '%Y-%m-%d', 'date': '$timestamp'}}
+                    elif field == 'offer_id':
+                        dash_group_id['offer_id'] = '$offer_id'
+                    elif field == 'country':
+                        dash_group_id['country'] = '$geo.country'
+                    elif field == 'browser':
+                        dash_group_id['browser'] = '$device.browser'
+                    elif field == 'device_type':
+                        dash_group_id['device_type'] = '$device.type'
+                    elif field == 'source':
+                        dash_group_id['source'] = '$referrer'
+                    elif field.startswith('sub_id'):
+                        dash_group_id[field] = f'${field}'
+                
+                # Dashboard $first accumulators use nested paths
+                dash_extra = {}
+                dash_field_map = {
+                    'country': '$geo.country',
+                    'country_code': '$geo.country_code',
+                    'city': '$geo.city',
+                    'region': '$geo.region',
+                    'browser': '$device.browser',
+                    'device_type': '$device.type',
+                    'os': '$device.os',
+                    'ip_address': '$network.ip_address',
+                    'referer': '$referrer',
+                    'user_id': '$user_id',
+                    'click_id': '$click_id',
+                    'offer_name': '$offer_name',
+                }
+                for ff in first_fields:
+                    if ff not in dash_group_id:
+                        dash_extra[f'_first_{ff}'] = {'$first': dash_field_map.get(ff, f'${ff}')}
                 
                 dashboard_pipeline = [
                     {'$match': dashboard_match_query},
                     {
                         '$group': {
-                            '_id': group_id,
+                            '_id': dash_group_id,
                             'clicks': {'$sum': 1},
                             'gross_clicks': {'$sum': 1},
                             'unique_clicks': {'$sum': 0},
                             'suspicious_clicks': {'$sum': 0},
-                            'rejected_clicks': {'$sum': 0}
+                            'rejected_clicks': {'$sum': 0},
+                            **dash_extra
                         }
                     }
                 ]
@@ -263,32 +335,21 @@ class UserReports:
             
             if filters.get('offer_id'):
                 conversion_match['offer_id'] = match_query.get('offer_id')
-            if filters.get('country'):
-                conversion_match['country'] = match_query.get('country')
+            # Note: country/device_type filters are NOT applied to forwarded_postbacks
+            # because those fields don't exist in this collection.
+            # Conversions are matched to clicks by date+offer_id grouping key.
             
             # Conversion aggregation
+            # Only group by fields that actually exist in forwarded_postbacks
+            # (date, offer_id, publisher_id). Country/browser/device don't exist here.
             conv_group_id = {}
             for field in group_by:
                 if field == 'date':
                     conv_group_id['date'] = {
-                        '$dateToString': {'format': '%Y-%m-%d', 'date': '$timestamp'}  # Use timestamp
+                        '$dateToString': {'format': '%Y-%m-%d', 'date': '$timestamp'}
                     }
                 elif field == 'offer_id':
                     conv_group_id['offer_id'] = '$offer_id'
-                elif field == 'country':
-                    conv_group_id['country'] = '$country'
-                elif field == 'browser':
-                    conv_group_id['browser'] = '$browser'
-                elif field == 'device_type':
-                    conv_group_id['device_type'] = '$device_type'
-                elif field == 'source':
-                    conv_group_id['source'] = '$source'
-                elif field == 'creative':
-                    conv_group_id['creative'] = '$creative'
-                elif field == 'app_version':
-                    conv_group_id['app_version'] = '$app_version'
-                elif field.startswith('advertiser_sub_id'):
-                    conv_group_id[field] = f'${field}'
                 elif field.startswith('sub_id'):
                     conv_group_id[field] = f'${field}'
             
@@ -309,6 +370,15 @@ class UserReports:
             
             conversion_results = list(self.conversions_collection.aggregate(conv_pipeline))
             
+            # Helper: extract $first fields from aggregation result
+            def extract_first_fields(row):
+                extras = {}
+                for ff in first_fields:
+                    val = row.get(f'_first_{ff}')
+                    if val and val != 'Unknown' and val != 'unknown':
+                        extras[ff] = val
+                return extras
+
             # Merge click and conversion data
             merged_data = {}
             
@@ -317,6 +387,7 @@ class UserReports:
                 key = str(click_row['_id'])
                 merged_data[key] = {
                     **click_row['_id'],
+                    **extract_first_fields(click_row),
                     'clicks': click_row['clicks'],
                     'gross_clicks': click_row.get('gross_clicks', click_row['clicks']),
                     'unique_clicks': click_row.get('unique_clicks', 0),
@@ -336,9 +407,16 @@ class UserReports:
                 if key in merged_data:
                     merged_data[key]['clicks'] += click_row['clicks']
                     merged_data[key]['gross_clicks'] += click_row.get('gross_clicks', click_row['clicks'])
+                    # Fill in missing first-fields from this collection if not already set
+                    for ff in first_fields:
+                        if not merged_data[key].get(ff) or merged_data[key].get(ff) in ('Unknown', 'unknown', '-', ''):
+                            val = click_row.get(f'_first_{ff}')
+                            if val and val not in ('Unknown', 'unknown', '', None):
+                                merged_data[key][ff] = val
                 else:
                     merged_data[key] = {
                         **click_row['_id'],
+                        **extract_first_fields(click_row),
                         'clicks': click_row['clicks'],
                         'gross_clicks': click_row.get('gross_clicks', click_row['clicks']),
                         'unique_clicks': 0,
@@ -365,34 +443,55 @@ class UserReports:
                 merge_clicks(click_row, merged_data)
             
             for conv_row in conversion_results:
-                key = str(conv_row['_id'])
-                if key in merged_data:
-                    merged_data[key].update({
-                        'conversions': conv_row['conversions'],
-                        'approved_conversions': conv_row['approved_conversions'],
-                        'pending_conversions': conv_row['pending_conversions'],
-                        'rejected_conversions': conv_row['rejected_conversions'],
-                        'total_payout': conv_row['total_payout'],
-                        'total_revenue': conv_row['total_payout'],  # Use payout as revenue
-                        'avg_time_spent_seconds': conv_row.get('avg_time_spent_seconds', 0)
-                    })
+                conv_key = str(conv_row['_id'])
+                conv_id_dict = conv_row['_id']
+                
+                # Try exact key match first (works when group_by only has date/offer_id)
+                if conv_key in merged_data:
+                    merged_data[conv_key]['conversions'] += conv_row['conversions']
+                    merged_data[conv_key]['approved_conversions'] += conv_row['approved_conversions']
+                    merged_data[conv_key]['pending_conversions'] += conv_row['pending_conversions']
+                    merged_data[conv_key]['rejected_conversions'] += conv_row['rejected_conversions']
+                    merged_data[conv_key]['total_payout'] += conv_row['total_payout']
+                    merged_data[conv_key]['total_revenue'] += conv_row['total_payout']
                 else:
-                    # Conversion without click (shouldn't happen, but handle it)
-                    merged_data[key] = {
-                        **conv_row['_id'],
-                        'clicks': 0,
-                        'gross_clicks': 0,
-                        'unique_clicks': 0,
-                        'suspicious_clicks': 0,
-                        'rejected_clicks': 0,
-                        'conversions': conv_row['conversions'],
-                        'approved_conversions': conv_row['approved_conversions'],
-                        'pending_conversions': conv_row['pending_conversions'],
-                        'rejected_conversions': conv_row['rejected_conversions'],
-                        'total_payout': conv_row['total_payout'],
-                        'total_revenue': conv_row['total_payout'],  # Use payout as revenue
-                        'avg_time_spent_seconds': conv_row.get('avg_time_spent_seconds', 0)
-                    }
+                    # Conversion _id may have fewer fields than click _id
+                    # (e.g., conv has {date, offer_id} but click has {date, offer_id, country})
+                    # Find all click rows whose _id is a superset of the conversion _id
+                    matched = False
+                    for existing_key, existing_row in merged_data.items():
+                        is_match = True
+                        for k, v in conv_id_dict.items():
+                            if existing_row.get(k) != v:
+                                is_match = False
+                                break
+                        if is_match:
+                            existing_row['conversions'] += conv_row['conversions']
+                            existing_row['approved_conversions'] += conv_row['approved_conversions']
+                            existing_row['pending_conversions'] += conv_row['pending_conversions']
+                            existing_row['rejected_conversions'] += conv_row['rejected_conversions']
+                            existing_row['total_payout'] += conv_row['total_payout']
+                            existing_row['total_revenue'] += conv_row['total_payout']
+                            matched = True
+                            break  # Assign to first matching row to avoid double-counting
+                    
+                    if not matched:
+                        # Conversion without click
+                        merged_data[conv_key] = {
+                            **conv_row['_id'],
+                            'clicks': 0,
+                            'gross_clicks': 0,
+                            'unique_clicks': 0,
+                            'suspicious_clicks': 0,
+                            'rejected_clicks': 0,
+                            'conversions': conv_row['conversions'],
+                            'approved_conversions': conv_row['approved_conversions'],
+                            'pending_conversions': conv_row['pending_conversions'],
+                            'rejected_conversions': conv_row['rejected_conversions'],
+                            'total_payout': conv_row['total_payout'],
+                            'total_revenue': conv_row['total_payout'],
+                            'avg_time_spent_seconds': conv_row.get('avg_time_spent_seconds', 0)
+                        }
             
             # Convert to list and enrich with metrics
             report_data = []
@@ -434,6 +533,26 @@ class UserReports:
                     row['promo_code'] = ''
                 
                 # Calculate metrics
+                # Look up publisher name from user_id
+                pub_user_id = row.get('user_id', '')
+                if pub_user_id:
+                    try:
+                        pub_user = self.users_collection.find_one(
+                            {'_id': ObjectId(pub_user_id)} if ObjectId.is_valid(pub_user_id) else {'username': pub_user_id},
+                            {'username': 1, 'name': 1, 'email': 1, 'role': 1}
+                        )
+                        if pub_user:
+                            row['publisher_name'] = pub_user.get('name', pub_user.get('username', 'Unknown'))
+                            row['publisher_id'] = str(pub_user.get('_id', ''))
+                            row['publisher_email'] = pub_user.get('email', '')
+                            row['publisher_role'] = pub_user.get('role', '')
+                    except Exception:
+                        pass
+                if not row.get('publisher_name'):
+                    row['publisher_name'] = ''
+                    row['publisher_email'] = ''
+                    row['publisher_role'] = ''
+
                 enriched_row = MetricsCalculator.enrich_with_metrics(row)
                 report_data.append(enriched_row)
             
@@ -517,13 +636,19 @@ class UserReports:
             
             logger.info(f"📊 Conversion Report Query: {query}")
             
-            # Apply filters
+            # Apply filters (only fields that exist in forwarded_postbacks)
+            # Note: country, device_type, browser are NOT stored in forwarded_postbacks
+            # They are enriched from click records post-query in admin_reports.py
             if filters.get('offer_id'):
                 query['offer_id'] = filters['offer_id']
-            if filters.get('country'):
-                query['country'] = filters['country']
             if filters.get('transaction_id'):
-                query['username'] = filters['transaction_id']  # forwarded_postbacks uses 'username' field
+                query['username'] = filters['transaction_id']
+            if filters.get('publisher_id'):
+                query['publisher_id'] = filters['publisher_id']
+            if filters.get('publisher_name'):
+                query['publisher_name'] = filters['publisher_name']
+            if filters.get('click_id'):
+                query['click_id'] = filters['click_id']
             
             # Count total
             total = self.conversions_collection.count_documents(query) if self.conversions_collection is not None else 0

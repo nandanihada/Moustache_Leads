@@ -83,6 +83,7 @@ const adminMenuStructure = [
     icon: TrendingUp,
     type: "group" as const,
     subtabs: [
+      { title: "Reports", url: "/admin/tracking-reports", icon: BarChart3, tab: "tracking" },
       { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
       { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick, tab: "click-tracking" },
       { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },
