@@ -270,6 +270,39 @@ def create_app():
                 'error': str(e)
             }), 500
     
+    # Debug endpoint - no auth, shows DB status and deploy version
+    @app.route('/api/debug/status', methods=['GET'])
+    def debug_status():
+        """No-auth debug endpoint to check DB connection and deploy version"""
+        from config import Config
+        db_connected = db_instance.is_connected()
+        db_ping = False
+        db_error = None
+        user_count = None
+        
+        if db_connected:
+            try:
+                db_instance.get_db().command('ping')
+                db_ping = True
+                # Try to count users
+                users_col = db_instance.get_collection('users')
+                if users_col is not None:
+                    user_count = users_col.count_documents({})
+            except Exception as e:
+                db_error = str(e)
+        
+        return jsonify({
+            'deploy_version': 'debug-v2-20260320',
+            'db_connected': db_connected,
+            'db_ping': db_ping,
+            'db_error': db_error,
+            'user_count': user_count,
+            'mongodb_uri_set': bool(Config.MONGODB_URI),
+            'mongodb_uri_prefix': Config.MONGODB_URI[:30] + '...' if Config.MONGODB_URI else None,
+            'jwt_secret_set': bool(Config.JWT_SECRET_KEY),
+            'flask_env': Config.FLASK_ENV,
+        }), 200
+    
     # Test CORS endpoint - no auth required
     @app.route('/api/test-cors', methods=['GET', 'OPTIONS'])
     def test_cors():
