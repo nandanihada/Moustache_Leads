@@ -74,6 +74,30 @@ def create_indexes():
     safe_create('clicks', [('affiliate_id', ASCENDING), ('created_at', DESCENDING)])
     safe_create('clicks', [('status', ASCENDING)])
     safe_create('clicks', [('ip_address', ASCENDING), ('offer_id', ASCENDING)])
+    # Performance report indexes
+    safe_create('clicks', [('timestamp', DESCENDING)])
+    safe_create('clicks', [('user_id', ASCENDING), ('timestamp', DESCENDING)])
+    safe_create('clicks', [('timestamp', DESCENDING), ('offer_id', ASCENDING)])
+
+    # ===== OFFERWALL CLICKS DETAILED =====
+    log("Creating offerwall_clicks_detailed indexes...")
+    safe_create('offerwall_clicks_detailed', [('timestamp', DESCENDING)])
+    safe_create('offerwall_clicks_detailed', [('placement_id', ASCENDING), ('timestamp', DESCENDING)])
+    safe_create('offerwall_clicks_detailed', [('click_id', ASCENDING)])
+
+    # ===== DASHBOARD CLICKS =====
+    log("Creating dashboard_clicks indexes...")
+    safe_create('dashboard_clicks', [('timestamp', DESCENDING)])
+    safe_create('dashboard_clicks', [('user_id', ASCENDING), ('timestamp', DESCENDING)])
+    safe_create('dashboard_clicks', [('click_id', ASCENDING)])
+    safe_create('dashboard_clicks', [('offer_id', ASCENDING), ('timestamp', DESCENDING)])
+
+    # ===== FORWARDED POSTBACKS =====
+    log("Creating forwarded_postbacks indexes...")
+    safe_create('forwarded_postbacks', [('timestamp', DESCENDING)])
+    safe_create('forwarded_postbacks', [('publisher_id', ASCENDING), ('timestamp', DESCENDING)])
+    safe_create('forwarded_postbacks', [('click_id', ASCENDING)])
+    safe_create('forwarded_postbacks', [('offer_id', ASCENDING), ('timestamp', DESCENDING)])
     
     # ===== CONVERSIONS COLLECTION =====
     log("Creating conversions indexes...")

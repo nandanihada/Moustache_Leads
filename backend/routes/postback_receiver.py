@@ -305,6 +305,49 @@ def receive_postback(unique_key):
             partner_id = partner.get('partner_id', 'unknown')
             partner_name = partner.get('partner_name', 'Unknown')
         
+        # 🌍 GEO ENRICHMENT: Try to get country from postback params first, fallback to ipinfo
+        geo_country = ''
+        geo_country_code = ''
+        geo_city = ''
+        geo_region = ''
+        
+        # Check if country is provided in query params or POST data
+        def _get_param(key):
+            """Helper to get param from POST body first, then query params"""
+            if post_data and key in post_data:
+                val = post_data.get(key, '')
+                if val and val != f'{{{key}}}':
+                    return str(val)
+            val = params.get(key, '')
+            if isinstance(val, list):
+                val = val[0] if val else ''
+            return str(val) if val and val != f'{{{key}}}' else ''
+        
+        geo_country = _get_param('country') or _get_param('country_code')
+        geo_city = _get_param('city')
+        geo_region = _get_param('region') or _get_param('state')
+        
+        # If no country from params, do ipinfo lookup on the request IP
+        if not geo_country or geo_country.lower() in ('unknown', '', 'xx'):
+            # Only attempt lookup if IP looks valid (not empty/malformed)
+            ip_to_lookup = ip_address.split(',')[0].strip() if ip_address else ''
+            if ip_to_lookup and '.' in ip_to_lookup:
+                try:
+                    from services.ipinfo_service import get_ipinfo_service
+                    ipinfo_svc = get_ipinfo_service()
+                    ip_data = ipinfo_svc.lookup_ip(ip_to_lookup)
+                    if ip_data:
+                        geo_country = ip_data.get('country', '') or geo_country
+                        geo_country_code = ip_data.get('country_code', '') or geo_country_code
+                        geo_city = ip_data.get('city', '') or geo_city
+                        geo_region = ip_data.get('region', '') or geo_region
+                        logger.info(f"🌍 Geo enriched from ipinfo: country={geo_country}, city={geo_city}, region={geo_region}")
+                except Exception as geo_err:
+                    logger.warning(f"⚠️ Postback geo lookup failed for {ip_address}: {geo_err}")
+        
+        if not geo_country_code and geo_country:
+            geo_country_code = geo_country  # Often the same 2-letter code from ipinfo
+
         # Create received postback log
         received_log = {
             'unique_key': unique_key,
@@ -315,6 +358,10 @@ def receive_postback(unique_key):
             'post_data': post_data,
             'ip_address': ip_address,
             'user_agent': user_agent,
+            'country': geo_country,
+            'country_code': geo_country_code,
+            'city': geo_city,
+            'region': geo_region,
             'timestamp': datetime.utcnow(),
             'status': 'received'
         }
@@ -785,7 +832,10 @@ def receive_postback(unique_key):
             'sub_id4': get_param_value('sub_id4'),
             'sub_id5': get_param_value('sub_id5'),
             'ip': ip_address,
-            'country': get_param_value('country'),
+            'country': geo_country or get_param_value('country'),
+            'city': geo_city,
+            'region': geo_region,
+            'country_code': geo_country_code,
             'device_id': get_param_value('device_id'),
             'timestamp': str(int(datetime.utcnow().timestamp())),
         }

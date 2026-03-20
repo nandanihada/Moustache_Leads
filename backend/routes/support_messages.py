@@ -1,13 +1,21 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 from datetime import datetime
 from bson import ObjectId
 import os
+import uuid
 import threading
+from werkzeug.utils import secure_filename
 from database import db_instance
 from utils.auth import token_required, admin_required
 from services.email_service import get_email_service
 
 support_bp = Blueprint('support', __name__)
+
+# Upload config
+SUPPORT_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'uploads', 'support')
+os.makedirs(SUPPORT_UPLOAD_DIR, exist_ok=True)
+ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 
 
 def _log_email_activity(source: str, recipient_count: int, admin_user: dict = None, note: str = '') -> None:
@@ -83,6 +91,42 @@ def _serialize(doc):
     return doc
 
 
+# ── Image upload endpoint ──────────────────────────────────────────────────────
+@support_bp.route('/api/support/upload-image', methods=['POST'])
+@token_required
+def upload_support_image():
+    """Upload an image for use in support messages (user or admin)."""
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image file provided'}), 400
+
+    file = request.files['image']
+    if not file or file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+    if ext not in ALLOWED_IMAGE_EXT:
+        return jsonify({'error': f'File type not allowed. Allowed: {", ".join(ALLOWED_IMAGE_EXT)}'}), 400
+
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > MAX_IMAGE_SIZE:
+        return jsonify({'error': 'Image too large. Max 5MB'}), 400
+
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    file.save(os.path.join(SUPPORT_UPLOAD_DIR, filename))
+
+    image_url = f"/api/support/images/{filename}"
+    return jsonify({'success': True, 'image_url': image_url}), 201
+
+
+@support_bp.route('/api/support/images/<filename>', methods=['GET'])
+def serve_support_image(filename):
+    """Serve uploaded support images."""
+    safe = secure_filename(filename)
+    return send_from_directory(SUPPORT_UPLOAD_DIR, safe)
+
+
 # ── Publisher: send a new message ──────────────────────────────────────────────
 @support_bp.route('/api/support/messages', methods=['POST'])
 @token_required
@@ -91,9 +135,10 @@ def send_message():
     data = request.get_json() or {}
     subject = (data.get('subject') or '').strip()
     body = (data.get('body') or '').strip()
+    image_url = (data.get('image_url') or '').strip()
 
-    if not body:
-        return jsonify({'error': 'Message body is required'}), 400
+    if not body and not image_url:
+        return jsonify({'error': 'Message body or image is required'}), 400
 
     doc = {
         'user_id': ObjectId(str(user['_id'])),
@@ -101,6 +146,7 @@ def send_message():
         'email': user.get('email', ''),
         'subject': subject or 'General Query',
         'body': body,
+        'image_url': image_url or None,
         'status': 'open',
         'replies': [],
         'created_at': datetime.utcnow(),
@@ -121,8 +167,9 @@ def user_reply(message_id):
     user = request.current_user
     data = request.get_json() or {}
     reply_text = (data.get('reply') or '').strip()
-    if not reply_text:
-        return jsonify({'error': 'Reply text is required'}), 400
+    image_url = (data.get('image_url') or '').strip()
+    if not reply_text and not image_url:
+        return jsonify({'error': 'Reply text or image is required'}), 400
 
     # Verify ownership
     doc = _col().find_one({'_id': ObjectId(message_id), 'user_id': ObjectId(str(user['_id']))})
@@ -136,6 +183,7 @@ def user_reply(message_id):
         '_id': ObjectId(),
         'text': reply_text,
         'from': 'user',
+        'image_url': image_url or None,
         'created_at': datetime.utcnow(),
     }
 
@@ -148,6 +196,7 @@ def user_reply(message_id):
                 'updated_at': datetime.utcnow(),
                 'read_by_admin': False,
                 'read_by_user': True,
+                'last_read_by_user_at': datetime.utcnow(),
             }
         }
     )
@@ -222,9 +271,10 @@ def check_unread_replies():
 @token_required
 def mark_replies_read():
     user = request.current_user
+    now = datetime.utcnow()
     _col().update_many(
         {'user_id': ObjectId(str(user['_id'])), 'status': 'replied'},
-        {'$set': {'read_by_user': True}}
+        {'$set': {'read_by_user': True, 'last_read_by_user_at': now}}
     )
     return jsonify({'success': True})
 
@@ -278,13 +328,15 @@ def admin_unread_count():
 def admin_reply(message_id):
     data = request.get_json() or {}
     reply_text = (data.get('reply') or '').strip()
-    if not reply_text:
-        return jsonify({'error': 'Reply text is required'}), 400
+    image_url = (data.get('image_url') or '').strip()
+    if not reply_text and not image_url:
+        return jsonify({'error': 'Reply text or image is required'}), 400
 
     reply = {
         '_id': ObjectId(),
         'text': reply_text,
         'from': 'admin',
+        'image_url': image_url or None,
         'created_at': datetime.utcnow(),
     }
 
@@ -297,6 +349,7 @@ def admin_reply(message_id):
                 'updated_at': datetime.utcnow(),
                 'read_by_admin': True,
                 'read_by_user': False,   # user hasn't seen this reply yet
+                'last_read_by_admin_at': datetime.utcnow(),
             }
         }
     )
@@ -320,9 +373,10 @@ def admin_reply(message_id):
 @token_required
 @admin_required
 def admin_mark_read(message_id):
+    now = datetime.utcnow()
     _col().update_one(
         {'_id': ObjectId(message_id)},
-        {'$set': {'read_by_admin': True}}
+        {'$set': {'read_by_admin': True, 'last_read_by_admin_at': now}}
     )
     return jsonify({'success': True})
 

@@ -4,7 +4,7 @@ services:
     env: python
     region: oregon
     buildCommand: cd backend && find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true && find . -type f -name "*.pyc" -delete 2>/dev/null || true && pip install -r requirements.txt
-    startCommand: cd backend && gunicorn app:app
+    startCommand: cd backend && gunicorn -c gunicorn.conf.py app:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0

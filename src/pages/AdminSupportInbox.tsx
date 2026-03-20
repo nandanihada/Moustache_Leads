@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { MessageCircle, Send, RefreshCw, Mail, MailOpen, Clock, CheckCircle, PenSquare, X, Users, User, Search, XCircle, ArrowLeft } from 'lucide-react';
+import { MessageCircle, Send, RefreshCw, Mail, MailOpen, Clock, CheckCircle, PenSquare, X, Users, User, Search, XCircle, ArrowLeft, Image, Eye } from 'lucide-react';
 import { supportApi, SupportMessage, SupportCounts } from '@/services/supportApi';
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { getAuthToken } from '@/utils/cookies';
@@ -41,6 +41,23 @@ const AdminSupportInbox: React.FC = () => {
   const [broadcastBody, setBroadcastBody] = useState('');
   const [broadcasting, setBroadcasting] = useState(false);
   const [usersLoading, setUsersLoading] = useState(false);
+  const [replyImageUrl, setReplyImageUrl] = useState('');
+  const [replyUploading, setReplyUploading] = useState(false);
+  const replyFileRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = async (file: File) => {
+    setReplyUploading(true);
+    try {
+      const res = await supportApi.uploadImage(file);
+      if (res.success && res.image_url) {
+        setReplyImageUrl(res.image_url);
+        toast.success('Image uploaded');
+      } else {
+        toast.error(res.error || 'Upload failed');
+      }
+    } catch { toast.error('Upload failed'); }
+    finally { setReplyUploading(false); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -83,13 +100,14 @@ const AdminSupportInbox: React.FC = () => {
   };
 
   const handleReply = async () => {
-    if (!selected || !replyText.trim()) return;
+    if (!selected || (!replyText.trim() && !replyImageUrl)) return;
     setReplying(true);
     try {
-      const res = await supportApi.adminReply(selected._id, replyText);
+      const res = await supportApi.adminReply(selected._id, replyText, replyImageUrl || undefined);
       if (res.success) {
         toast.success('Reply sent');
         setReplyText('');
+        setReplyImageUrl('');
         setSelected(res.message);
         setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
       } else {
@@ -272,6 +290,14 @@ const AdminSupportInbox: React.FC = () => {
                       {!msg.read_by_admin && (
                         <p className="text-xs text-red-600 font-semibold mt-0.5">🔴 Unread</p>
                       )}
+                      {msg.status === 'replied' && msg.read_by_user && (
+                        <p className="text-xs text-green-600 mt-0.5 flex items-center gap-1">
+                          <Eye className="w-3 h-3" /> Seen by user
+                        </p>
+                      )}
+                      {msg.status === 'replied' && !msg.read_by_user && (
+                        <p className="text-xs text-orange-500 mt-0.5">⏳ Not seen by user</p>
+                      )}
                       <div className="flex items-center gap-2 mt-0.5">
                         <p className="text-xs text-muted-foreground">{fmt(msg.updated_at || msg.created_at)}</p>
                         {replyCount > 0 && (
@@ -347,6 +373,11 @@ const AdminSupportInbox: React.FC = () => {
                     </div>
                     <div className="bg-muted/40 rounded-xl rounded-tl-none px-4 py-3">
                       <p className="text-sm text-foreground whitespace-pre-wrap">{selected.body}</p>
+                      {selected.image_url && (
+                        <a href={`${getApiBaseUrl()}${selected.image_url}`} target="_blank" rel="noopener noreferrer">
+                          <img src={`${getApiBaseUrl()}${selected.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-border" />
+                        </a>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -355,6 +386,7 @@ const AdminSupportInbox: React.FC = () => {
                 {/* Replies */}
                 {selected.replies.map(reply => {
                   const isAdmin = reply.from === 'admin';
+                  const userSeenThis = isAdmin && selected.last_read_by_user_at && new Date(reply.created_at) <= new Date(selected.last_read_by_user_at);
                   return isAdmin ? (
                     <div key={reply._id} className="flex gap-3 justify-end">
                       <div className="flex-1 max-w-[85%]">
@@ -364,7 +396,22 @@ const AdminSupportInbox: React.FC = () => {
                         </div>
                         <div className="bg-primary/10 border border-primary/20 rounded-xl rounded-tr-none px-4 py-3">
                           <p className="text-sm text-foreground whitespace-pre-wrap">{reply.text}</p>
+                          {reply.image_url && (
+                            <a href={`${getApiBaseUrl()}${reply.image_url}`} target="_blank" rel="noopener noreferrer">
+                              <img src={`${getApiBaseUrl()}${reply.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-primary/20" />
+                            </a>
+                          )}
                         </div>
+                        {userSeenThis ? (
+                          <div className="flex items-center gap-1 justify-end mt-0.5">
+                            <Eye className="w-3 h-3 text-green-500" />
+                            <span className="text-[10px] text-green-500">Seen by user</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 justify-end mt-0.5">
+                            <span className="text-[10px] text-muted-foreground">Not seen yet</span>
+                          </div>
+                        )}
                       </div>
                       <img
                         src="/logo.png"
@@ -388,6 +435,11 @@ const AdminSupportInbox: React.FC = () => {
                         </div>
                         <div className="bg-muted/40 rounded-xl rounded-tl-none px-4 py-3">
                           <p className="text-sm text-foreground whitespace-pre-wrap">{reply.text}</p>
+                          {reply.image_url && (
+                            <a href={`${getApiBaseUrl()}${reply.image_url}`} target="_blank" rel="noopener noreferrer">
+                              <img src={`${getApiBaseUrl()}${reply.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-border" />
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -399,7 +451,24 @@ const AdminSupportInbox: React.FC = () => {
               {/* Reply input */}
               {selected.status !== 'closed' && (
                 <div className="px-4 sm:px-6 py-4 border-t border-border bg-muted/20">
+                  {replyImageUrl && (
+                    <div className="mb-2 relative inline-block">
+                      <img src={`${getApiBaseUrl()}${replyImageUrl}`} alt="Preview" className="h-16 rounded-lg border border-border" />
+                      <button onClick={() => setReplyImageUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                   <div className="flex gap-3">
+                    <input ref={replyFileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = ''; }} />
+                    <button
+                      onClick={() => replyFileRef.current?.click()}
+                      disabled={replyUploading}
+                      className="self-end flex items-center justify-center w-10 h-10 rounded-xl border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                      title="Attach image"
+                    >
+                      {replyUploading ? <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <Image className="w-4 h-4 text-muted-foreground" />}
+                    </button>
                     <textarea
                       value={replyText}
                       onChange={e => setReplyText(e.target.value)}
@@ -410,7 +479,7 @@ const AdminSupportInbox: React.FC = () => {
                     />
                     <button
                       onClick={handleReply}
-                      disabled={replying || !replyText.trim()}
+                      disabled={replying || (!replyText.trim() && !replyImageUrl)}
                       className="self-end flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-xl text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
                     >
                       <Send className="w-4 h-4" />

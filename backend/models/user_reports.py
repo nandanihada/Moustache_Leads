@@ -310,15 +310,7 @@ class UserReports:
                 
                 dashboard_click_results = list(self.dashboard_clicks_collection.aggregate(dashboard_pipeline))
             
-            logger.info(f"🔍 Performance Report Debug:")
-            logger.info(f"   User ID: {user_id}")
-            logger.info(f"   Match Query: {match_query}")
-            logger.info(f"   Offerwall Click Results: {len(click_results)} groups")
-            logger.info(f"   Dashboard Click Results: {len(dashboard_click_results)} groups")
-            if click_results:
-                logger.info(f"   First offerwall result: {click_results[0]}")
-            if dashboard_click_results:
-                logger.info(f"   First dashboard result: {dashboard_click_results[0]}")
+            logger.info(f"📊 Performance: offerwall={len(click_results)}, offerwall_reg={len(offerwall_click_results)}, simple={len(simple_click_results)}, dashboard={len(dashboard_click_results)} groups")
             
             # Now get conversion data from forwarded_postbacks for the same groups
             conversion_match = {
@@ -493,27 +485,66 @@ class UserReports:
                             'avg_time_spent_seconds': conv_row.get('avg_time_spent_seconds', 0)
                         }
             
+            # ===== BATCH ENRICHMENT (avoid N+1 queries) =====
+            # Collect unique offer_ids and user_ids from all merged rows
+            all_offer_ids = set()
+            all_user_ids = set()
+            for row in merged_data.values():
+                if row.get('offer_id'):
+                    all_offer_ids.add(row['offer_id'])
+                if row.get('user_id'):
+                    all_user_ids.add(row['user_id'])
+
+            # Batch-load offers
+            offers_cache = {}
+            if all_offer_ids:
+                offer_cursor = self.offers_collection.find(
+                    {'offer_id': {'$in': list(all_offer_ids)}},
+                    {'offer_id': 1, 'name': 1, 'network': 1, 'url': 1, 'target_url': 1,
+                     'category': 1, 'currency': 1, 'ad_group': 1, 'goal': 1,
+                     'promo_code': 1, 'postback_url': 1}
+                )
+                for o in offer_cursor:
+                    offers_cache[o['offer_id']] = o
+
+            # Batch-load users (try ObjectId first, then username)
+            users_cache = {}
+            if all_user_ids:
+                valid_oids = [ObjectId(uid) for uid in all_user_ids if ObjectId.is_valid(uid)]
+                non_oid_ids = [uid for uid in all_user_ids if not ObjectId.is_valid(uid)]
+                user_query = []
+                if valid_oids:
+                    user_query.append({'_id': {'$in': valid_oids}})
+                if non_oid_ids:
+                    user_query.append({'username': {'$in': non_oid_ids}})
+                if user_query:
+                    user_cursor = self.users_collection.find(
+                        {'$or': user_query} if len(user_query) > 1 else user_query[0],
+                        {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}
+                    )
+                    for u in user_cursor:
+                        users_cache[str(u['_id'])] = u
+                        if u.get('username'):
+                            users_cache[u['username']] = u
+
             # Convert to list and enrich with metrics
             report_data = []
-            logger.info(f"DEBUG: Processing {len(merged_data)} merged rows")
-            for i, row in enumerate(merged_data.values()):
-                logger.info(f"DEBUG: Row {i}: clicks={row.get('clicks', 0)}, conversions={row.get('conversions', 0)}, payout={row.get('total_payout', 0)}")
-                # ALWAYS enrich with offer name - even if not grouped by offer
-                # Phase 2: Add offer URL, category, currency from offers collection
-                # Phase 3: Add ad_group, goal, promo_code from offers collection
+
+            for row in merged_data.values():
+                # Enrich with offer data from cache
                 if 'offer_id' in row:
-                    offer = self.offers_collection.find_one({'offer_id': row['offer_id']})
+                    offer = offers_cache.get(row['offer_id'])
                     if offer:
-                        # Clean offer name to remove country codes
                         raw_name = offer.get('name', 'Unknown')
                         row['offer_name'] = self._clean_offer_name(raw_name)
                         row['network'] = offer.get('network', 'Unknown')
-                        row['offer_url'] = offer.get('url', '')
+                        row['offer_url'] = offer.get('url', offer.get('target_url', ''))
                         row['category'] = offer.get('category', 'Uncategorized')
                         row['currency'] = offer.get('currency', 'USD')
                         row['ad_group'] = offer.get('ad_group', '')
                         row['goal'] = offer.get('goal', '')
                         row['promo_code'] = offer.get('promo_code', '')
+                        row['postback_url'] = offer.get('postback_url', '')
                     else:
                         row['offer_name'] = 'Unknown Offer'
                         row['offer_url'] = ''
@@ -522,8 +553,8 @@ class UserReports:
                         row['ad_group'] = ''
                         row['goal'] = ''
                         row['promo_code'] = ''
+                        row['postback_url'] = ''
                 else:
-                    # If no offer_id, set placeholder
                     row['offer_name'] = 'All Offers'
                     row['offer_url'] = ''
                     row['category'] = 'All'
@@ -531,23 +562,18 @@ class UserReports:
                     row['ad_group'] = ''
                     row['goal'] = ''
                     row['promo_code'] = ''
-                
-                # Calculate metrics
-                # Look up publisher name from user_id
+                    row['postback_url'] = ''
+
+                # Enrich with publisher data from cache
                 pub_user_id = row.get('user_id', '')
                 if pub_user_id:
-                    try:
-                        pub_user = self.users_collection.find_one(
-                            {'_id': ObjectId(pub_user_id)} if ObjectId.is_valid(pub_user_id) else {'username': pub_user_id},
-                            {'username': 1, 'name': 1, 'email': 1, 'role': 1}
-                        )
-                        if pub_user:
-                            row['publisher_name'] = pub_user.get('name', pub_user.get('username', 'Unknown'))
-                            row['publisher_id'] = str(pub_user.get('_id', ''))
-                            row['publisher_email'] = pub_user.get('email', '')
-                            row['publisher_role'] = pub_user.get('role', '')
-                    except Exception:
-                        pass
+                    pub_user = users_cache.get(pub_user_id)
+                    if pub_user:
+                        row['publisher_name'] = pub_user.get('name', pub_user.get('username', 'Unknown'))
+                        row['publisher_id'] = str(pub_user.get('_id', ''))
+                        row['publisher_email'] = pub_user.get('email', '')
+                        row['publisher_role'] = pub_user.get('role', '')
+                        row['postback_url'] = pub_user.get('postback_url', '') or 'Not Configured'
                 if not row.get('publisher_name'):
                     row['publisher_name'] = ''
                     row['publisher_email'] = ''

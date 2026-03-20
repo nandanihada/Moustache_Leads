@@ -11,6 +11,7 @@ export interface SupportReply {
   _id: string;
   text: string;
   from: 'admin' | 'user';
+  image_url?: string | null;
   created_at: string;
 }
 
@@ -27,6 +28,9 @@ export interface SupportMessage {
   updated_at: string;
   read_by_admin: boolean;
   read_by_user?: boolean;
+  last_read_by_user_at?: string | null;
+  last_read_by_admin_at?: string | null;
+  image_url?: string | null;
   is_broadcast?: boolean;
 }
 
@@ -56,11 +60,11 @@ export const supportApi = {
     return res.json();
   },
 
-  sendMessage: async (subject: string, body: string) => {
+  sendMessage: async (subject: string, body: string, imageUrl?: string) => {
     const res = await fetch(`${base()}/api/support/messages`, {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({ subject, body }),
+      body: JSON.stringify({ subject, body, image_url: imageUrl }),
     });
     return res.json();
   },
@@ -70,11 +74,11 @@ export const supportApi = {
     return res.json();
   },
 
-  userReply: async (messageId: string, reply: string) => {
+  userReply: async (messageId: string, reply: string, imageUrl?: string) => {
     const res = await fetch(`${base()}/api/support/messages/${messageId}/reply`, {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({ reply }),
+      body: JSON.stringify({ reply, image_url: imageUrl }),
     });
     return res.json();
   },
@@ -99,11 +103,11 @@ export const supportApi = {
     return res.json();
   },
 
-  adminReply: async (messageId: string, reply: string) => {
+  adminReply: async (messageId: string, reply: string, imageUrl?: string) => {
     const res = await fetch(`${base()}/api/admin/support/messages/${messageId}/reply`, {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({ reply }),
+      body: JSON.stringify({ reply, image_url: imageUrl }),
     });
     return res.json();
   },
@@ -134,6 +138,17 @@ export const supportApi = {
       method: 'POST',
       headers: headers(),
       body: JSON.stringify({ subject, body, recipient_ids: recipientIds }),
+    });
+    return res.json();
+  },
+
+  uploadImage: async (file: File): Promise<{ success: boolean; image_url?: string; error?: string }> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch(`${base()}/api/support/upload-image`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${getAuthToken()}` },
+      body: formData,
     });
     return res.json();
   },

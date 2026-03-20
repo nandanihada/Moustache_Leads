@@ -38,6 +38,14 @@ class IPinfoService:
             logger.debug("IPinfo disabled, returning default data")
             return self._get_default_data(ip_address)
         
+        # Validate IP format before making any API call
+        if not self._is_valid_ip(ip_address):
+            logger.debug(f"Invalid IP format, skipping lookup: {ip_address}")
+            return self._get_default_data(ip_address or 'invalid')
+        
+        # Normalize: take first IP from X-Forwarded-For chain
+        ip_address = ip_address.split(',')[0].strip()
+        
         # Handle localhost and private IPs
         if self._is_private_ip(ip_address):
             logger.debug(f"Private/localhost IP detected: {ip_address}")
@@ -262,6 +270,21 @@ class IPinfoService:
             'abuse': {}
         }
     
+    def _is_valid_ip(self, ip_address):
+        """Check if the string is a valid IP address (IPv4 or IPv6)"""
+        import ipaddress as _ipaddress
+        if not ip_address or not isinstance(ip_address, str):
+            return False
+        # Handle X-Forwarded-For with multiple IPs — take the first one
+        ip_address = ip_address.split(',')[0].strip()
+        if not ip_address:
+            return False
+        try:
+            _ipaddress.ip_address(ip_address)
+            return True
+        except ValueError:
+            return False
+
     def _is_private_ip(self, ip_address):
         """Check if IP is private/localhost"""
         private_ranges = [

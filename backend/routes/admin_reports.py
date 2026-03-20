@@ -88,6 +88,12 @@ def admin_performance_report():
         sort_order = request.args.get('sort_order', 'desc')
         sort = {'field': sort_field, 'order': sort_order}
 
+        # Additional filters: region, city, category, network
+        region_filter = request.args.get('region')
+        city_filter = request.args.get('city')
+        category_filter = request.args.get('category')
+        network_filter = request.args.get('network')
+
         date_range = {'start': start_date, 'end': end_date}
         report = user_reports_model.get_performance_report(
             user_id=user_id,
@@ -100,6 +106,23 @@ def admin_performance_report():
 
         if 'error' in report:
             return jsonify({'error': report['error']}), 500
+
+        # Post-enrichment filtering for fields that come from click/offer enrichment
+        if region_filter or city_filter or category_filter or network_filter:
+            filtered = []
+            for row in report.get('data', []):
+                if region_filter and (row.get('region') or '').lower() != region_filter.lower():
+                    continue
+                if city_filter and (row.get('city') or '').lower() != city_filter.lower():
+                    continue
+                if category_filter and (row.get('category') or '').lower() != category_filter.lower():
+                    continue
+                if network_filter and (row.get('network') or '').lower() != network_filter.lower():
+                    continue
+                filtered.append(row)
+            report['data'] = filtered
+            report['pagination']['total'] = len(filtered)
+            report['pagination']['pages'] = (len(filtered) + per_page - 1) // per_page if filtered else 0
 
         return jsonify({'success': True, 'report': report}), 200
 
@@ -155,6 +178,12 @@ def admin_conversion_report():
         if request.args.get('click_id'):
             filters['click_id'] = request.args.get('click_id')
 
+        # Additional post-enrichment filter params
+        region_filter = request.args.get('region')
+        city_filter = request.args.get('city')
+        category_filter = request.args.get('category')
+        network_filter = request.args.get('network')
+
         page = int(request.args.get('page', 1))
         per_page = min(int(request.args.get('per_page', 20)), 100)
         pagination = {'page': page, 'per_page': per_page}
@@ -181,6 +210,17 @@ def admin_conversion_report():
         dashboard_clicks = db_instance.get_collection('dashboard_clicks')
 
         conversions = report.get('conversions', [])
+
+        # Batch-load offers for postback_url enrichment
+        conv_offer_ids = set(c.get('offer_id', '') for c in conversions if c.get('offer_id'))
+        offers_cache = {}
+        if conv_offer_ids:
+            offers_col = db_instance.get_collection('offers')
+            if offers_col:
+                for o in offers_col.find({'offer_id': {'$in': list(conv_offer_ids)}},
+                                         {'offer_id': 1, 'postback_url': 1, 'network': 1, 'category': 1}):
+                    offers_cache[o['offer_id']] = o
+
         for conv in conversions:
             conv['publisher_name'] = conv.get('publisher_name', 'Unknown')
             conv['click_id'] = conv.get('click_id', '')
@@ -192,6 +232,13 @@ def admin_conversion_report():
             conv['currency'] = conv.get('currency', 'USD')
             conv['conversion_type'] = conv.get('conversion_type', 'conversion')
             conv['postback_received_time'] = conv.get('postback_received_time', conv.get('time', ''))
+
+            # Enrich with offer-level data (postback_url, network, category)
+            offer_data = offers_cache.get(conv.get('offer_id', ''))
+            if offer_data:
+                conv['postback_url'] = offer_data.get('postback_url', '')
+                conv['network'] = conv.get('network') or offer_data.get('network', '')
+                conv['category'] = conv.get('category') or offer_data.get('category', '')
 
             # Enrich from click record if click_id exists — search all click collections
             click_id = conv.get('click_id', '')
@@ -297,16 +344,23 @@ def admin_conversion_report():
                 except Exception as e:
                     logger.warning(f"Could not enrich conversion with click data: {e}")
 
-        # Post-enrichment filtering for fields that come from click records
-        # (country, device_type, browser are NOT in forwarded_postbacks)
+        # Post-enrichment filtering for fields that come from click records or offer data
         filter_country = request.args.get('country')
         filter_device = request.args.get('device_type')
-        if filter_country or filter_device:
+        if filter_country or filter_device or region_filter or city_filter or category_filter or network_filter:
             filtered = []
             for conv in conversions:
                 if filter_country and conv.get('country', '').lower() != filter_country.lower():
                     continue
                 if filter_device and conv.get('device_type', '').lower() != filter_device.lower():
+                    continue
+                if region_filter and (conv.get('region') or '').lower() != region_filter.lower():
+                    continue
+                if city_filter and (conv.get('city') or '').lower() != city_filter.lower():
+                    continue
+                if category_filter and (conv.get('category') or '').lower() != category_filter.lower():
+                    continue
+                if network_filter and (conv.get('network') or '').lower() != network_filter.lower():
                     continue
                 filtered.append(conv)
             report['conversions'] = filtered
@@ -444,14 +498,22 @@ def admin_report_filters():
         offers_collection = db_instance.get_collection('offers')
         clicks_collection = db_instance.get_collection('clicks')
 
-        # Get publishers
+        # Get publishers (all registered users)
         publishers = []
         if users_collection is not None:
+            pub_query = {}
+            search = request.args.get('search', '').strip()
+            if search:
+                pub_query['$or'] = [
+                    {'username': {'$regex': search, '$options': 'i'}},
+                    {'name': {'$regex': search, '$options': 'i'}},
+                    {'email': {'$regex': search, '$options': 'i'}}
+                ]
             pub_cursor = users_collection.find(
-                {'role': {'$in': ['user', 'publisher']}},
-                {'_id': 1, 'username': 1, 'name': 1}
-            ).limit(500)
-            publishers = [{'id': str(p['_id']), 'name': p.get('name', p.get('username', 'Unknown')), 'username': p.get('username', '')} for p in pub_cursor]
+                pub_query,
+                {'_id': 1, 'username': 1, 'name': 1, 'email': 1, 'role': 1}
+            ).sort('name', 1).limit(1000)
+            publishers = [{'id': str(p['_id']), 'name': p.get('name', p.get('username', 'Unknown')), 'username': p.get('username', ''), 'email': p.get('email', ''), 'role': p.get('role', '')} for p in pub_cursor]
 
         # Get offers
         offers = []
@@ -464,11 +526,65 @@ def admin_report_filters():
 
         # Get distinct countries from clicks
         countries = []
+        regions = []
+        cities = []
         if clicks_collection is not None:
             try:
                 countries = clicks_collection.distinct('country')
-                countries = [c for c in countries if c and c != 'Unknown']
+                countries = sorted([c for c in countries if c and c != 'Unknown'])
+            except Exception:
+                pass
+            try:
+                regions = clicks_collection.distinct('region')
+                regions = sorted([r for r in regions if r and r != 'Unknown' and r != ''])
+            except Exception:
+                pass
+            try:
+                cities = clicks_collection.distinct('city')
+                cities = sorted([c for c in cities if c and c != 'Unknown' and c != ''])
+            except Exception:
+                pass
+
+        # Also pull from dashboard_clicks for richer geo data
+        dashboard_clicks_col = db_instance.get_collection('dashboard_clicks')
+        if dashboard_clicks_col is not None:
+            try:
+                dc_countries = dashboard_clicks_col.distinct('geo.country')
+                for c in dc_countries:
+                    if c and c != 'Unknown' and c not in countries:
+                        countries.append(c)
                 countries.sort()
+            except Exception:
+                pass
+            try:
+                dc_regions = dashboard_clicks_col.distinct('geo.region')
+                for r in dc_regions:
+                    if r and r != 'Unknown' and r != '' and r not in regions:
+                        regions.append(r)
+                regions.sort()
+            except Exception:
+                pass
+            try:
+                dc_cities = dashboard_clicks_col.distinct('geo.city')
+                for c in dc_cities:
+                    if c and c != 'Unknown' and c != '' and c not in cities:
+                        cities.append(c)
+                cities.sort()
+            except Exception:
+                pass
+
+        # Get distinct categories and networks from offers
+        categories = []
+        networks = []
+        if offers_collection is not None:
+            try:
+                categories = offers_collection.distinct('category')
+                categories = sorted([c for c in categories if c and c != 'Unknown' and c != 'Uncategorized'])
+            except Exception:
+                pass
+            try:
+                networks = offers_collection.distinct('network')
+                networks = sorted([n for n in networks if n and n != 'Unknown'])
             except Exception:
                 pass
 
@@ -477,6 +593,10 @@ def admin_report_filters():
             'publishers': publishers,
             'offers': offers,
             'countries': countries,
+            'regions': regions,
+            'cities': cities,
+            'categories': categories,
+            'networks': networks,
             'device_types': ['desktop', 'mobile', 'tablet'],
             'statuses': ['approved', 'pending', 'rejected']
         }), 200

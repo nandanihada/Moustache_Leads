@@ -31,6 +31,7 @@ user-agents==2.2.0
 
 # WSGI Server for Production
 gunicorn==21.2.0
+gevent==24.2.1
 
 # Utilities
 urllib3==2.1.0

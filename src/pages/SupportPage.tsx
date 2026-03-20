@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { MessageCircle, Send, Plus, RefreshCw, Clock, CheckCircle2, ArrowLeft } from 'lucide-react';
+import { MessageCircle, Send, Plus, RefreshCw, Clock, CheckCircle2, ArrowLeft, Image, X } from 'lucide-react';
 import { supportApi, SupportMessage } from '@/services/supportApi';
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { getAuthToken } from '@/utils/cookies';
@@ -21,6 +21,28 @@ const SupportPage: React.FC = () => {
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [replyImageUrl, setReplyImageUrl] = useState('');
+  const [replyUploading, setReplyUploading] = useState(false);
+  const [composeImageUrl, setComposeImageUrl] = useState('');
+  const [composeUploading, setComposeUploading] = useState(false);
+  const replyFileRef = useRef<HTMLInputElement>(null);
+  const composeFileRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = async (file: File, target: 'reply' | 'compose') => {
+    const setUploading = target === 'reply' ? setReplyUploading : setComposeUploading;
+    const setUrl = target === 'reply' ? setReplyImageUrl : setComposeImageUrl;
+    setUploading(true);
+    try {
+      const res = await supportApi.uploadImage(file);
+      if (res.success && res.image_url) {
+        setUrl(res.image_url);
+        toast.success('Image uploaded');
+      } else {
+        toast.error(res.error || 'Upload failed');
+      }
+    } catch { toast.error('Upload failed'); }
+    finally { setUploading(false); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -55,13 +77,13 @@ const SupportPage: React.FC = () => {
   };
 
   const handleSend = async () => {
-    if (!body.trim()) return toast.error('Please enter a message');
+    if (!body.trim() && !composeImageUrl) return toast.error('Please enter a message or attach an image');
     setSending(true);
     try {
-      const res = await supportApi.sendMessage(subject, body);
+      const res = await supportApi.sendMessage(subject, body, composeImageUrl || undefined);
       if (res.success) {
         toast.success('Message sent to support');
-        setSubject(''); setBody(''); setShowCompose(false);
+        setSubject(''); setBody(''); setComposeImageUrl(''); setShowCompose(false);
         await load();
         if (res.message) setSelected(res.message);
       } else { toast.error(res.error || 'Failed to send'); }
@@ -69,18 +91,19 @@ const SupportPage: React.FC = () => {
   };
 
   const handleReply = async () => {
-    if (!selected || !replyText.trim()) return;
+    if (!selected || (!replyText.trim() && !replyImageUrl)) return;
     setReplying(true);
     try {
       const token = getAuthToken();
       const res = await fetch(`${getApiBaseUrl()}/api/support/messages/${selected._id}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reply: replyText }),
+        body: JSON.stringify({ reply: replyText, image_url: replyImageUrl || undefined }),
       }).then(r => r.json());
       if (res.success) {
         toast.success('Reply sent');
         setReplyText('');
+        setReplyImageUrl('');
         setSelected(res.message);
         setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
       } else { toast.error(res.error || 'Failed to send'); }
@@ -281,6 +304,11 @@ const SupportPage: React.FC = () => {
                         </div>
                         <div className="bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
                           <p className="text-sm whitespace-pre-wrap">{selected.body}</p>
+                          {selected.image_url && (
+                            <a href={`${getApiBaseUrl()}${selected.image_url}`} target="_blank" rel="noopener noreferrer">
+                              <img src={`${getApiBaseUrl()}${selected.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-white/20" />
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -325,6 +353,11 @@ const SupportPage: React.FC = () => {
                               : 'bg-blue-600 text-white rounded-tr-sm'
                           }`}>
                             <p className={`text-sm whitespace-pre-wrap ${isAdmin ? 'text-foreground' : ''}`}>{reply.text}</p>
+                            {reply.image_url && (
+                              <a href={`${getApiBaseUrl()}${reply.image_url}`} target="_blank" rel="noopener noreferrer">
+                                <img src={`${getApiBaseUrl()}${reply.image_url}`} alt="Attachment" className={`mt-2 max-w-[240px] rounded-lg border ${isAdmin ? 'border-border' : 'border-white/20'}`} />
+                              </a>
+                            )}
                           </div>
                         </div>
                         {!isAdmin && (
@@ -351,7 +384,24 @@ const SupportPage: React.FC = () => {
               {/* Reply input */}
               {selected.status !== 'closed' && (
                 <div className="px-4 sm:px-6 py-4 border-t border-border bg-muted/20">
+                  {replyImageUrl && (
+                    <div className="mb-2 relative inline-block">
+                      <img src={`${getApiBaseUrl()}${replyImageUrl}`} alt="Preview" className="h-16 rounded-lg border border-border" />
+                      <button onClick={() => setReplyImageUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center">
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
                   <div className="flex gap-3">
+                    <input ref={replyFileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f, 'reply'); e.target.value = ''; }} />
+                    <button
+                      onClick={() => replyFileRef.current?.click()}
+                      disabled={replyUploading}
+                      className="self-end flex items-center justify-center w-10 h-10 rounded-xl border border-border hover:bg-muted transition-colors disabled:opacity-50"
+                      title="Attach image"
+                    >
+                      {replyUploading ? <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <Image className="w-4 h-4 text-muted-foreground" />}
+                    </button>
                     <textarea
                       value={replyText}
                       onChange={e => setReplyText(e.target.value)}
@@ -362,7 +412,7 @@ const SupportPage: React.FC = () => {
                     />
                     <button
                       onClick={handleReply}
-                      disabled={replying || !replyText.trim()}
+                      disabled={replying || (!replyText.trim() && !replyImageUrl)}
                       className="self-end flex items-center gap-2 bg-primary text-primary-foreground px-4 py-3 rounded-xl text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
                     >
                       <Send className="w-4 h-4" />
@@ -396,8 +446,28 @@ const SupportPage: React.FC = () => {
               rows={5}
               className="w-full text-sm border border-border rounded-xl px-4 py-3 bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-none"
             />
+            <div>
+              <input ref={composeFileRef} type="file" accept="image/*" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f, 'compose'); e.target.value = ''; }} />
+              {composeImageUrl ? (
+                <div className="relative inline-block">
+                  <img src={`${getApiBaseUrl()}${composeImageUrl}`} alt="Preview" className="h-20 rounded-lg border border-border" />
+                  <button onClick={() => setComposeImageUrl('')} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => composeFileRef.current?.click()}
+                  disabled={composeUploading}
+                  className="flex items-center gap-2 text-sm text-muted-foreground border border-dashed border-border rounded-xl px-4 py-2 hover:bg-muted transition-colors disabled:opacity-50"
+                >
+                  {composeUploading ? <span className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <Image className="w-4 h-4" />}
+                  {composeUploading ? 'Uploading...' : 'Attach Image'}
+                </button>
+              )}
+            </div>
             <div className="flex gap-3 justify-end">
-              <button onClick={() => setShowCompose(false)} className="px-4 py-2 text-sm border border-border rounded-xl hover:bg-muted transition-colors">
+              <button onClick={() => { setShowCompose(false); setComposeImageUrl(''); }} className="px-4 py-2 text-sm border border-border rounded-xl hover:bg-muted transition-colors">
                 Cancel
               </button>
               <button

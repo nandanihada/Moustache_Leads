@@ -12,6 +12,10 @@ export interface AdminPerformanceFilters {
   end_date: string;
   offer_id?: string;
   country?: string;
+  region?: string;
+  city?: string;
+  category?: string;
+  network?: string;
   status?: string;
   publisher_id?: string;
   device_type?: string;
@@ -25,6 +29,28 @@ export interface AdminPerformanceFilters {
   per_page?: number;
   sort_field?: string;
   sort_order?: 'asc' | 'desc';
+}
+
+export interface AdminClick {
+  _id: string;
+  click_id: string;
+  offer_id: string;
+  offer_name?: string;
+  user_id?: string;
+  publisher_name?: string;
+  timestamp?: string;
+  time?: string;
+  country?: string;
+  city?: string;
+  region?: string;
+  device_type?: string;
+  browser?: string;
+  os?: string;
+  ip_address?: string;
+  referer?: string;
+  sub_id1?: string;
+  sub_id2?: string;
+  sub_id3?: string;
 }
 
 export interface AdminPerformanceRow {
@@ -54,6 +80,7 @@ export interface AdminPerformanceRow {
   ad_group?: string;
   goal?: string;
   referer?: string;
+  postback_url?: string;
   clicks: number;
   gross_clicks: number;
   unique_clicks: number;
@@ -107,6 +134,7 @@ export interface AdminConversion {
   tor_detected?: boolean;
   fraud_status?: string;
   fraud_score?: number;
+  postback_url?: string;
   referer?: string;
   click_time?: string;
   postback_received_time?: string;
@@ -114,6 +142,8 @@ export interface AdminConversion {
   click_source?: string;
   user_email?: string;
   user_role?: string;
+  network?: string;
+  category?: string;
   sub_id1?: string;
   sub_id2?: string;
   sub_id3?: string;
@@ -127,9 +157,13 @@ export interface ChartDataPoint {
 }
 
 export interface FilterOptions {
-  publishers: { id: string; name: string; username: string }[];
+  publishers: { id: string; name: string; username: string; email?: string; role?: string }[];
   offers: { id: string; name: string }[];
   countries: string[];
+  regions: string[];
+  cities: string[];
+  categories: string[];
+  networks: string[];
   device_types: string[];
   statuses: string[];
 }
@@ -182,6 +216,18 @@ export const adminReportsApi = {
   async getFilterOptions(): Promise<{ success: boolean } & FilterOptions> {
     const response = await fetch(`${API_BASE_URL}/filters`, { headers: authHeaders() });
     if (!response.ok) throw new Error('Failed to fetch filter options');
+    return response.json();
+  },
+
+  async getClicksReport(filters: AdminPerformanceFilters) {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, String(value));
+      }
+    });
+    const response = await fetch(`${API_BASE_URL}/clicks?${params}`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to fetch clicks report');
     return response.json();
   },
 

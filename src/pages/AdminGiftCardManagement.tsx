@@ -208,21 +208,47 @@ export default function AdminGiftCardManagement() {
         return <Badge variant={config.variant}>{config.label}</Badge>;
     };
 
+    const selectAllUsers = () => {
+        const allIds = filteredUsers.map(u => u._id);
+        setSelectedUserIds(prev => {
+            const existing = new Set(prev);
+            allIds.forEach(id => existing.add(id));
+            return Array.from(existing);
+        });
+    };
+
+    const deselectAllUsers = () => {
+        const filteredIds = new Set(filteredUsers.map(u => u._id));
+        setSelectedUserIds(prev => prev.filter(id => !filteredIds.has(id)));
+    };
+
+    const allFilteredSelected = filteredUsers.length > 0 && filteredUsers.every(u => selectedUserIds.includes(u._id));
+
     // User picker JSX (inline to avoid re-mount on every render)
     const userPickerJsx = (
-        <div className="border rounded-lg p-3 space-y-2 max-h-48 overflow-y-auto">
+        <div className="border rounded-lg p-3 space-y-2 max-h-64 overflow-y-auto">
             <Input
                 placeholder="Search users..."
                 value={userSearch}
                 onChange={(e) => setUserSearch(e.target.value)}
                 className="mb-2"
             />
+            <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-muted-foreground">{filteredUsers.length} users</span>
+                <button
+                    type="button"
+                    onClick={allFilteredSelected ? deselectAllUsers : selectAllUsers}
+                    className="text-xs font-medium text-primary hover:underline"
+                >
+                    {allFilteredSelected ? 'Deselect All' : 'Select All'}
+                </button>
+            </div>
             {usersLoading ? (
                 <div className="text-center py-2 text-sm text-muted-foreground">Loading users...</div>
             ) : filteredUsers.length === 0 ? (
                 <div className="text-center py-2 text-sm text-muted-foreground">No users found</div>
             ) : (
-                filteredUsers.slice(0, 50).map(u => (
+                filteredUsers.map(u => (
                     <label key={u._id} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-50 cursor-pointer text-sm">
                         <input
                             type="checkbox"
@@ -312,7 +338,12 @@ export default function AdminGiftCardManagement() {
                                         </p>
                                     </div>
                                     <Switch checked={!formData.send_to_all}
-                                        onCheckedChange={(checked) => setFormData({ ...formData, send_to_all: !checked })} />
+                                        onCheckedChange={(checked) => {
+                                            setFormData({ ...formData, send_to_all: !checked });
+                                            if (checked && allUsers.length > 0) {
+                                                setSelectedUserIds(allUsers.map(u => u._id));
+                                            }
+                                        }} />
                                 </div>
                                 {!formData.send_to_all && userPickerJsx}
                             </div>
@@ -472,7 +503,12 @@ export default function AdminGiftCardManagement() {
                                     </p>
                                 </div>
                                 <Switch checked={!editForm.send_to_all}
-                                    onCheckedChange={(checked) => setEditForm({ ...editForm, send_to_all: !checked })} />
+                                    onCheckedChange={(checked) => {
+                                        setEditForm({ ...editForm, send_to_all: !checked });
+                                        if (checked && selectedUserIds.length === 0 && allUsers.length > 0) {
+                                            setSelectedUserIds(allUsers.map(u => u._id));
+                                        }
+                                    }} />
                             </div>
                             {!editForm.send_to_all && userPickerJsx}
                         </div>
