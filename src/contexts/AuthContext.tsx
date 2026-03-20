@@ -55,10 +55,34 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const storedUser = getAuthUser();
 
     if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(storedUser);
+      // Verify token is still valid with the backend
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      fetch(`${API_URL}/api/auth/verify-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${storedToken}`
+        }
+      })
+        .then(res => {
+          if (res.ok) {
+            setToken(storedToken);
+            setUser(storedUser);
+          } else {
+            // Token is invalid/expired — clear everything
+            console.warn('Stored token is invalid, clearing auth');
+            clearAuth();
+          }
+        })
+        .catch(() => {
+          // Network error — still use stored token (offline-friendly)
+          setToken(storedToken);
+          setUser(storedUser);
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   const login = (newToken: string, newUser: User) => {
