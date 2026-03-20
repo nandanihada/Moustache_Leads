@@ -4,10 +4,8 @@ import os
 # Bind to the port Render provides
 bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 
-# Workers — 4 async workers with gevent for concurrent I/O
-workers = 4
-worker_class = "gevent"
-worker_connections = 100  # Each worker handles up to 100 concurrent connections
+# Workers — 2 sync workers (gevent removed to fix Render crash)
+workers = 2
 timeout = 180  # 3 minutes for bulk import operations
 
 # Prevent memory leaks — restart workers after N requests
