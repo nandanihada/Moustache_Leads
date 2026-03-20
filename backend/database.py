@@ -20,6 +20,12 @@ class Database:
     
     def connect(self):
         try:
+            if not Config.MONGODB_URI:
+                logging.warning("MONGODB_URI not set — skipping database connection")
+                self._client = None
+                self._db = None
+                return
+            
             # Try multiple connection approaches
             connection_attempts = [
                 # Attempt 1: Atlas connection with connection pooling + SSL bypass
@@ -45,8 +51,11 @@ class Database:
                     retryWrites=True,
                     retryReads=True
                 ),
-                # Attempt 3: Local fallback
-                lambda: MongoClient("mongodb://localhost:27017/ascend_db", serverSelectionTimeoutMS=2000)
+                # Attempt 3: Minimal connection (no pooling tweaks)
+                lambda: MongoClient(
+                    Config.MONGODB_URI,
+                    serverSelectionTimeoutMS=10000
+                ),
             ]
             
             for i, attempt in enumerate(connection_attempts, 1):

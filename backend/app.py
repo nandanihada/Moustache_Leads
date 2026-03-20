@@ -380,13 +380,27 @@ def create_app():
 # Create app instance for Gunicorn
 app = create_app()
 
-# Initialize background services (for both Gunicorn and direct run)
-if db_instance.is_connected():
-    logging.info("Database connection established successfully")
+# Track whether background services have been started (to avoid duplicates)
+_background_services_started = False
+
+def start_background_services():
+    """Start background services — called once per process.
     
-    # Start background services (with graceful failure handling)
+    Under Gunicorn with preload_app=False, each worker calls this independently.
+    We use a module-level flag to ensure services start only once per worker process.
+    """
+    global _background_services_started
+    if _background_services_started:
+        return
+    _background_services_started = True
+    
+    if not db_instance.is_connected():
+        logging.warning("Database connection failed - skipping background services")
+        return
+    
+    logging.info("Database connection established — starting background services")
+    
     try:
-        # Try to import and start cap monitoring service
         try:
             from services.cap_monitoring_service import CapMonitoringService
             cap_service = CapMonitoringService()
@@ -395,7 +409,6 @@ if db_instance.is_connected():
         except Exception as e:
             logging.warning(f"⚠️ Cap monitoring service failed to start: {str(e)}")
         
-        # Try to import and start tracking service (IMPORTANT for postbacks!)
         try:
             from services.tracking_service import TrackingService
             tracking_service = TrackingService()
@@ -404,7 +417,6 @@ if db_instance.is_connected():
         except Exception as e:
             logging.warning(f"⚠️ Tracking service failed to start: {str(e)}")
         
-        # Try to import and start schedule activation service
         try:
             from services.schedule_activation_service import setup_activation_scheduler
             setup_activation_scheduler()
@@ -412,7 +424,6 @@ if db_instance.is_connected():
         except Exception as e:
             logging.warning(f"⚠️ Schedule activation service failed to start: {str(e)}")
         
-        # Try to import and start placement auto-approval service
         try:
             from services.placement_auto_approval_service import get_placement_auto_approval_service
             auto_approval_service = get_placement_auto_approval_service()
@@ -421,7 +432,6 @@ if db_instance.is_connected():
         except Exception as e:
             logging.warning(f"⚠️ Placement auto-approval service failed to start: {str(e)}")
         
-        # Try to import and start scheduled email service
         try:
             from services.scheduled_email_service import get_scheduled_email_service
             email_service = get_scheduled_email_service()
@@ -433,11 +443,17 @@ if db_instance.is_connected():
         logging.info("Background services initialization completed")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")
-else:
-    logging.warning("Database connection failed - app will run without database")
+
+# Start background services on first request (lazy init, safe for Gunicorn workers)
+@app.before_request
+def _ensure_background_services():
+    """Lazily start background services on the first request this worker handles."""
+    if not _background_services_started:
+        start_background_services()
 
 if __name__ == '__main__':
-    # Run the application directly (not via Gunicorn)
+    # Running directly (not via Gunicorn) — start services immediately
+    start_background_services()
     logging.info(f"Starting Ascend Backend API on port {Config.PORT}")
     app.run(
         host='0.0.0.0',

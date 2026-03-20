@@ -12,8 +12,10 @@ timeout = 180  # 3 minutes for bulk import operations
 max_requests = 1000
 max_requests_jitter = 50
 
-# Preload app so workers share memory (saves ~30-50MB per worker)
-preload_app = True
+# IMPORTANT: preload_app = False to avoid fork-unsafe MongoDB connections
+# PyMongo connections established before fork() are NOT safe in child workers.
+# Each worker will create its own app + DB connection on startup.
+preload_app = False
 
 # Logging
 accesslog = "-"
