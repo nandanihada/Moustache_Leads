@@ -147,8 +147,19 @@ def login_publisher():
             return jsonify({'error': 'Password is required'}), 400
         
         # Verify credentials
+        from database import db_instance
+        logging.info(f"🔍 Publisher login attempt for: {username}")
+        logging.info(f"🔍 DB connected: {db_instance.is_connected()}")
+        
         user_model = User()
+        db_ok = user_model._check_db_connection()
+        logging.info(f"🔍 User model DB check: {db_ok}")
+        
+        if not db_ok:
+            logging.error(f"❌ Database connection failed during login for: {username}")
+        
         user_data = user_model.verify_password(username, password)
+        logging.info(f"🔍 verify_password result: {'found user' if user_data else 'None (no match)'}")
         
         if not user_data:
             return jsonify({'error': 'Invalid username or password'}), 401
