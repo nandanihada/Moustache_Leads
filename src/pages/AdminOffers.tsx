@@ -57,7 +57,7 @@ import { AdvancedSettingsModal } from '@/components/AdvancedSettingsModal';
 import { OfferDetailsModal } from '@/components/OfferDetailsModal';
 import { BulkOfferUpload } from '@/components/BulkOfferUpload';
 import { ApiImportModal } from '@/components/ApiImportModal';
-import { adminOfferApi, Offer } from '@/services/adminOfferApi';
+import { adminOfferApi, Offer, RunningOffer } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -125,14 +125,28 @@ const AdminOffers = () => {
   const [rawOffers, setRawOffers] = useState<Offer[]>([]);
 
   // Running offers state
-  const [runningOffers, setRunningOffers] = useState<(Offer & { recent_clicks?: number })[]>([]);
+  const [runningOffers, setRunningOffers] = useState<RunningOffer[]>([]);
   const [runningLoading, setRunningLoading] = useState(false);
   const [runningSearchTerm, setRunningSearchTerm] = useState('');
   const [runningPagination, setRunningPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
   const [runningWarningOpen, setRunningWarningOpen] = useState(false);
+  const [simpleDeleteConfirmOpen, setSimpleDeleteConfirmOpen] = useState(false);
+  const [simpleBulkDeleteConfirmOpen, setSimpleBulkDeleteConfirmOpen] = useState(false);
+  const [deleteCheckFailed, setDeleteCheckFailed] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [pendingDeleteName, setPendingDeleteName] = useState('');
-
+  const [pendingDeleteRunningDetail, setPendingDeleteRunningDetail] = useState<{ offer_id: string; name: string; total_clicks: number; days_remaining: number; sub_statuses: string[] } | null>(null);
+  const [runningSubcategory, setRunningSubcategory] = useState<string>('all');
+  const [runningStatusFilter, setRunningStatusFilter] = useState<string>('all');
+  const [runningCategoryFilter, setRunningCategoryFilter] = useState<string>('all');
+  const [runningCountryFilter, setRunningCountryFilter] = useState<string>('all');
+  const [runningNetworkFilter, setRunningNetworkFilter] = useState<string>('all');
+  const [runningSortBy, setRunningSortBy] = useState<string>('newest');
+  const [subcategoryCounts, setSubcategoryCounts] = useState<Record<string, number>>({});
+  const [selectedRunningOffers, setSelectedRunningOffers] = useState<Set<string>>(new Set());
+  const [bulkDeleteWarningOpen, setBulkDeleteWarningOpen] = useState(false);
+  const [bulkDeleteRunningDetails, setBulkDeleteRunningDetails] = useState<Array<{ offer_id: string; name: string; total_clicks: number; days_remaining: number; sub_statuses: string[] }>>([]);
+  const [bulkDeleteNonRunningIds, setBulkDeleteNonRunningIds] = useState<string[]>([]);
   // Category definitions for multi-select filter
   const CATEGORIES = [
     { id: 'all', name: 'All', icon: '🎯' },
@@ -282,15 +296,31 @@ const AdminOffers = () => {
   const handleDeleteOffer = async (offerId: string, offerName?: string) => {
     // Check if this offer is running before deleting
     try {
-      const { running_ids } = await adminOfferApi.checkRunningOffers([offerId]);
+      const { running_ids, running_details } = await adminOfferApi.checkRunningOffers([offerId]);
       if (running_ids.includes(offerId)) {
         setPendingDeleteId(offerId);
         setPendingDeleteName(offerName || offerId);
+        const detail = (running_details || []).find(d => d.offer_id === offerId);
+        setPendingDeleteRunningDetail(detail || null);
         setRunningWarningOpen(true);
         return;
       }
-    } catch { /* proceed with delete if check fails */ }
-    await executeDelete(offerId);
+    } catch (err) {
+      // API check failed — show a simple confirmation dialog with amber warning
+      console.warn('Running offer check failed:', err);
+      setPendingDeleteId(offerId);
+      setPendingDeleteName(offerName || offerId);
+      setPendingDeleteRunningDetail(null);
+      setDeleteCheckFailed(true);
+      setSimpleDeleteConfirmOpen(true);
+      return;
+    }
+    // Not running — show a clean confirmation (no amber warning)
+    setPendingDeleteId(offerId);
+    setPendingDeleteName(offerName || offerId);
+    setPendingDeleteRunningDetail(null);
+    setDeleteCheckFailed(false);
+    setSimpleDeleteConfirmOpen(true);
   };
 
   const executeDelete = async (offerId: string) => {
@@ -319,6 +349,37 @@ const AdminOffers = () => {
     setRunningWarningOpen(false);
     setPendingDeleteId(null);
     setPendingDeleteName('');
+    setPendingDeleteRunningDetail(null);
+  };
+
+  const confirmSimpleDelete = async () => {
+    if (pendingDeleteId) await executeDelete(pendingDeleteId);
+    setSimpleDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
+    setPendingDeleteName('');
+  };
+
+  const confirmSimpleBulkDelete = async () => {
+    setSimpleBulkDeleteConfirmOpen(false);
+    setBulkDeleting(true);
+    try {
+      const result = await adminOfferApi.bulkDeleteOffers(Array.from(selectedOffers));
+      toast({
+        title: "Bulk Delete Complete",
+        description: `Moved ${result.deleted} offer(s) to recycle bin. ${result.failed > 0 ? `Failed: ${result.failed}` : ''}`,
+      });
+      setSelectedOffers(new Set());
+      setPagination(prev => ({ ...prev, page: 1 }));
+      fetchOffers(1);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to bulk delete offers",
+        variant: "destructive",
+      });
+    } finally {
+      setBulkDeleting(false);
+    }
   };
 
   const fetchRunningOffers = async (pageOverride?: number) => {
@@ -328,13 +389,118 @@ const AdminOffers = () => {
         page: pageOverride || runningPagination.page,
         per_page: runningPagination.per_page,
         search: runningSearchTerm,
+        subcategory: runningSubcategory,
+        status: runningStatusFilter,
+        category: runningCategoryFilter,
+        country: runningCountryFilter,
+        network: runningNetworkFilter,
+        sort: runningSortBy,
       });
       setRunningOffers(res.offers);
+      setSubcategoryCounts(res.subcategory_counts || {});
       setRunningPagination(prev => ({ ...prev, ...res.pagination }));
     } catch {
       toast({ title: "Error", description: "Failed to load running offers", variant: "destructive" });
     } finally {
       setRunningLoading(false);
+    }
+  };
+
+  const handleRunningBulkDelete = async () => {
+    if (selectedRunningOffers.size === 0) {
+      toast({ title: "No Selection", description: "Please select offers to delete", variant: "destructive" });
+      return;
+    }
+    // Check which selected offers are running
+    try {
+      setBulkDeleting(true);
+      const ids = Array.from(selectedRunningOffers);
+      const { running_ids, running_details } = await adminOfferApi.checkRunningOffers(ids);
+      const nonRunning = ids.filter(id => !running_ids.includes(id));
+      if (running_ids.length > 0) {
+        setBulkDeleteRunningDetails(running_details || []);
+        setBulkDeleteNonRunningIds(nonRunning);
+        setBulkDeleteWarningOpen(true);
+        setBulkDeleting(false);
+        return;
+      }
+      // No running offers, proceed with delete
+      const result = await adminOfferApi.bulkDeleteOffers(ids);
+      toast({ title: "Bulk Delete Complete", description: `Moved ${result.deleted} offer(s) to recycle bin` });
+      setSelectedRunningOffers(new Set());
+      fetchRunningOffers(1);
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to bulk delete", variant: "destructive" });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const executeBulkDeleteSkipRunning = async () => {
+    // Delete only non-running offers
+    setBulkDeleteWarningOpen(false);
+    if (bulkDeleteNonRunningIds.length === 0) {
+      toast({ title: "Skipped", description: "All selected offers are running. Nothing deleted." });
+      return;
+    }
+    setBulkDeleting(true);
+    try {
+      const result = await adminOfferApi.bulkDeleteOffers(bulkDeleteNonRunningIds);
+      toast({ title: "Bulk Delete Complete", description: `Moved ${result.deleted} non-running offer(s) to recycle bin. Skipped ${bulkDeleteRunningDetails.length} running offer(s).` });
+      setSelectedRunningOffers(new Set());
+      setSelectedOffers(new Set());
+      if (offersSubView === 'running') fetchRunningOffers(1);
+      else { setPagination(prev => ({ ...prev, page: 1 })); fetchOffers(1); }
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to delete", variant: "destructive" });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const executeBulkDeleteAll = async () => {
+    // Delete all including running
+    setBulkDeleteWarningOpen(false);
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedRunningOffers.size > 0 ? selectedRunningOffers : selectedOffers);
+      const result = await adminOfferApi.bulkDeleteOffers(ids);
+      toast({ title: "Bulk Delete Complete", description: `Moved ${result.deleted} offer(s) to recycle bin (including running offers)` });
+      setSelectedRunningOffers(new Set());
+      setSelectedOffers(new Set());
+      if (offersSubView === 'running') fetchRunningOffers(1);
+      else { setPagination(prev => ({ ...prev, page: 1 })); fetchOffers(1); }
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to delete", variant: "destructive" });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleRunningOfferSelection = (offerId: string) => {
+    const newSet = new Set(selectedRunningOffers);
+    if (newSet.has(offerId)) newSet.delete(offerId);
+    else newSet.add(offerId);
+    setSelectedRunningOffers(newSet);
+  };
+
+  const toggleSelectAllRunning = () => {
+    if (selectedRunningOffers.size === runningOffers.length) {
+      setSelectedRunningOffers(new Set());
+    } else {
+      setSelectedRunningOffers(new Set(runningOffers.map(o => o.offer_id)));
+    }
+  };
+
+  const getSubStatusBadge = (status: string) => {
+    switch (status) {
+      case 'searched': return 'bg-blue-100 text-blue-800';
+      case 'picked': return 'bg-purple-100 text-purple-800';
+      case 'requested': return 'bg-yellow-100 text-yellow-800';
+      case 'approved': return 'bg-green-100 text-green-800';
+      case 'rejected': return 'bg-red-100 text-red-800';
+      case 'has_clicks': return 'bg-emerald-100 text-emerald-800';
+      default: return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -348,30 +514,34 @@ const AdminOffers = () => {
       return;
     }
 
-    if (!confirm(`Are you sure you want to move ${selectedOffers.size} offer(s) to recycle bin?`)) {
+    // Check for running offers before deleting
+    try {
+      setBulkDeleting(true);
+      const ids = Array.from(selectedOffers);
+      const { running_ids, running_details } = await adminOfferApi.checkRunningOffers(ids);
+      if (running_ids.length > 0) {
+        const nonRunning = ids.filter(id => !running_ids.includes(id));
+        setBulkDeleteRunningDetails(running_details || []);
+        setBulkDeleteNonRunningIds(nonRunning);
+        // Temporarily store selected offers in running set for the dialog actions
+        setSelectedRunningOffers(selectedOffers);
+        setBulkDeleteWarningOpen(true);
+        setBulkDeleting(false);
+        return;
+      }
+    } catch (err) {
+      // If check fails, show a simple confirmation with amber warning
+      console.warn('Running offer check failed:', err);
+      setBulkDeleting(false);
+      setDeleteCheckFailed(true);
+      setSimpleBulkDeleteConfirmOpen(true);
       return;
     }
 
-    setBulkDeleting(true);
-    try {
-      const result = await adminOfferApi.bulkDeleteOffers(Array.from(selectedOffers));
-      toast({
-        title: "Bulk Delete Complete",
-        description: `Moved ${result.deleted} offer(s) to recycle bin. ${result.failed > 0 ? `Failed: ${result.failed}` : ''}`,
-      });
-      setSelectedOffers(new Set());
-      // Reset to page 1 and fetch with override to ensure correct pagination
-      setPagination(prev => ({ ...prev, page: 1 }));
-      fetchOffers(1);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to bulk delete offers",
-        variant: "destructive",
-      });
-    } finally {
-      setBulkDeleting(false);
-    }
+    // No running offers found — show clean confirmation
+    setBulkDeleting(false);
+    setDeleteCheckFailed(false);
+    setSimpleBulkDeleteConfirmOpen(true);
   };
 
   // Get tracking base URL - uses offers subdomain in production
@@ -1103,7 +1273,7 @@ const AdminOffers = () => {
     if (offersSubView === 'running') {
       fetchRunningOffers();
     }
-  }, [offersSubView, runningPagination.page, runningPagination.per_page]);
+  }, [offersSubView, runningPagination.page, runningPagination.per_page, runningSubcategory, runningStatusFilter, runningCategoryFilter, runningCountryFilter, runningNetworkFilter, runningSortBy]);
 
   // Debounced search for running offers
   useEffect(() => {
@@ -1118,6 +1288,18 @@ const AdminOffers = () => {
       return () => clearTimeout(delayedSearch);
     }
   }, [runningSearchTerm]);
+
+  // Pre-fetch running offers count for the dropdown
+  useEffect(() => {
+    const fetchRunningCount = async () => {
+      try {
+        const res = await adminOfferApi.getRunningOffers({ page: 1, per_page: 1, subcategory: 'all' });
+        setRunningPagination(prev => ({ ...prev, total: res.pagination.total }));
+        setSubcategoryCounts(res.subcategory_counts || {});
+      } catch { /* silent */ }
+    };
+    if (offersSubView !== 'running') fetchRunningCount();
+  }, []);
 
   // Fetch networks on mount
   useEffect(() => {
@@ -1259,7 +1441,8 @@ const AdminOffers = () => {
         </div>
       </TooltipProvider>
 
-      {/* Collapsible Filter Panel */}
+      {/* Collapsible Filter Panel - only show for main offers view, not running offers */}
+      {offersSubView !== 'running' && (
       <FilterPanel
         statusFilter={statusFilter}
         onStatusChange={setStatusFilter}
@@ -1276,6 +1459,7 @@ const AdminOffers = () => {
         networks={networks}
         open={filterPanelOpen}
       />
+      )}
 
       {/* Tabs for Offers and Recycle Bin */}
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'offers') setOffersSubView('all'); }} className="space-y-4">
@@ -1317,106 +1501,243 @@ const AdminOffers = () => {
         <TabsContent value="offers" className="space-y-4">
           {offersSubView === 'running' ? (
           /* Running Offers Sub-View */
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Activity className="h-5 w-5 text-green-500" />
-                    Running Offers ({runningPagination.total})
-                  </CardTitle>
-                  <CardDescription>Offers with user clicks in the last 24 hours — deleting these will show a warning</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                    <Input placeholder="Search running offers..." value={runningSearchTerm} onChange={e => setRunningSearchTerm(e.target.value)} className="w-56 pl-9" />
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => fetchRunningOffers()}><RefreshCw className="h-4 w-4" /></Button>
-                </div>
+          <div className="space-y-4">
+            {/* Search + Subcategory Dropdown + Filter + Bulk Actions Bar */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Subcategory Dropdown */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="flex items-center gap-1.5 h-9 shrink-0">
+                    <Activity className="h-4 w-4 text-green-500" />
+                    {runningSubcategory === 'all' ? 'All' : runningSubcategory === 'has_clicks' ? 'Has Clicks' : runningSubcategory.charAt(0).toUpperCase() + runningSubcategory.slice(1)} ({subcategoryCounts[runningSubcategory] || 0})
+                    <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-52">
+                  {[
+                    { key: 'all', label: 'All', icon: '📊' },
+                    { key: 'searched', label: 'Searched', icon: '🔍' },
+                    { key: 'picked', label: 'Picked', icon: '👆' },
+                    { key: 'requested', label: 'Requested', icon: '📩' },
+                    { key: 'approved', label: 'Approved', icon: '✅' },
+                    { key: 'rejected', label: 'Rejected', icon: '❌' },
+                    { key: 'has_clicks', label: 'Has Clicks', icon: '🖱️' },
+                  ].map(sub => (
+                    <DropdownMenuItem
+                      key={sub.key}
+                      onClick={() => { setRunningSubcategory(sub.key); setRunningPagination(p => ({ ...p, page: 1 })); setSelectedRunningOffers(new Set()); }}
+                      className={runningSubcategory === sub.key ? 'bg-accent' : ''}
+                    >
+                      <span className="mr-2">{sub.icon}</span>
+                      {sub.label}
+                      <span className="ml-auto text-xs text-muted-foreground">{subcategoryCounts[sub.key] || 0}</span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                <Input placeholder="Search running offers..." value={runningSearchTerm} onChange={e => setRunningSearchTerm(e.target.value)} className="pl-10" />
               </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {runningLoading ? (
-                <div className="flex items-center justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin mr-2" /> Loading...</div>
-              ) : runningOffers.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Activity className="h-10 w-10 mx-auto mb-2 opacity-30" />
-                  <p>No offers with recent clicks</p>
-                </div>
-              ) : (
+
+              {selectedRunningOffers.size > 0 && (
                 <>
-                  <div className="overflow-x-auto w-full">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-16">Image</TableHead>
-                        <TableHead>Offer</TableHead>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Network</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Countries</TableHead>
-                        <TableHead>Payout</TableHead>
-                        <TableHead className="text-center">Clicks (24h)</TableHead>
-                        <TableHead className="text-right">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {runningOffers.map(offer => (
-                        <TableRow key={offer.offer_id}>
-                          <TableCell>
-                            <img src={getOfferImage(offer as any)} alt="" className="w-10 h-10 rounded-lg object-cover bg-muted" onError={e => { (e.target as HTMLImageElement).src = getOfferImage({ category: offer.category }); }} />
-                          </TableCell>
-                          <TableCell>
-                            <span className="font-medium text-sm truncate max-w-[200px] block">{offer.name}</span>
-                          </TableCell>
-                          <TableCell className="text-xs text-muted-foreground font-mono">{offer.offer_id}</TableCell>
-                          <TableCell className="text-sm">{offer.network || '—'}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={offer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>{offer.status}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1 flex-wrap">
-                              {(offer.countries || []).slice(0, 2).map(c => (
-                                <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
-                              ))}
-                              {(offer.countries || []).length > 2 && <Badge variant="outline" className="text-xs">+{offer.countries.length - 2}</Badge>}
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-medium text-green-600">${offer.payout?.toFixed(2) || '0.00'}</TableCell>
-                          <TableCell className="text-center">
-                            <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-600">
-                              <Activity className="h-3.5 w-3.5" />{offer.recent_clicks?.toLocaleString() || 0}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
-                              <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setOfferDetailsModalOpen(true); }}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setEditOfferModalOpen(true); }}><Edit className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
-                                <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}><Trash2 className="h-4 w-4 mr-2" />Delete</DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                  </div>
-                  {runningPagination.pages > 1 && (
-                    <div className="flex items-center justify-between px-4 py-3 border-t">
-                      <p className="text-sm text-muted-foreground">Page {runningPagination.page} of {runningPagination.pages} ({runningPagination.total} offers)</p>
-                      <div className="flex gap-2">
-                        <Button variant="outline" size="sm" disabled={runningPagination.page <= 1} onClick={() => setRunningPagination(p => ({ ...p, page: p.page - 1 }))}><ChevronLeft className="h-4 w-4" /></Button>
-                        <Button variant="outline" size="sm" disabled={runningPagination.page >= runningPagination.pages} onClick={() => setRunningPagination(p => ({ ...p, page: p.page + 1 }))}><ChevronRight className="h-4 w-4" /></Button>
-                      </div>
-                    </div>
-                  )}
+                  <Button variant="destructive" size="sm" onClick={handleRunningBulkDelete} disabled={bulkDeleting} className="shrink-0">
+                    {bulkDeleting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                    {bulkDeleting ? 'Deleting...' : `Delete (${selectedRunningOffers.size})`}
+                  </Button>
                 </>
               )}
-            </CardContent>
-          </Card>
+              <Button variant="outline" size="sm" onClick={() => fetchRunningOffers()} className="shrink-0"><RefreshCw className="h-4 w-4" /></Button>
+            </div>
+
+            {/* Running Offers Filter Panel - always visible */}
+            <FilterPanel
+              statusFilter={runningStatusFilter}
+              onStatusChange={(v) => { setRunningStatusFilter(v); setRunningPagination(p => ({ ...p, page: 1 })); }}
+              categoryFilter={runningCategoryFilter}
+              onCategoryChange={(v) => { setRunningCategoryFilter(v); setRunningPagination(p => ({ ...p, page: 1 })); }}
+              sortBy={runningSortBy}
+              onSortChange={(v) => { setRunningSortBy(v); setRunningPagination(p => ({ ...p, page: 1 })); }}
+              countryFilter={runningCountryFilter}
+              onCountryChange={(v) => { setRunningCountryFilter(v); setRunningPagination(p => ({ ...p, page: 1 })); }}
+              networkFilter={runningNetworkFilter}
+              onNetworkChange={(v) => { setRunningNetworkFilter(v); setRunningPagination(p => ({ ...p, page: 1 })); }}
+              healthFilter="all"
+              onHealthChange={() => {}}
+              networks={networks}
+              open={true}
+            />
+
+            {/* Running Offers Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-green-500" />
+                  Running Offers ({runningPagination.total})
+                </CardTitle>
+                <CardDescription>Offers actively interacted with in the last 30 days. Subcategory: {runningSubcategory === 'all' ? 'All' : runningSubcategory}</CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                {runningLoading ? (
+                  <div className="flex items-center justify-center py-8"><RefreshCw className="h-6 w-6 animate-spin mr-2" /> Loading...</div>
+                ) : runningOffers.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Activity className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                    <p>No running offers found for this filter</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto w-full">
+                    <Table className="min-w-[1400px]">
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-10">
+                            <input type="checkbox" checked={selectedRunningOffers.size === runningOffers.length && runningOffers.length > 0} onChange={toggleSelectAllRunning} className="rounded border-gray-300" />
+                          </TableHead>
+                          <TableHead className="w-16">Image</TableHead>
+                          <TableHead className="w-24">Offer ID</TableHead>
+                          <TableHead className="min-w-[150px]">Name</TableHead>
+                          <TableHead className="w-24">Category</TableHead>
+                          <TableHead className="w-20">Status</TableHead>
+                          <TableHead className="w-24">Countries</TableHead>
+                          <TableHead className="w-24">Payout</TableHead>
+                          <TableHead className="w-20">Network</TableHead>
+                          <TableHead className="w-28">When Active</TableHead>
+                          <TableHead className="w-28">When Expired</TableHead>
+                          <TableHead className="w-20 text-center">Total Clicks</TableHead>
+                          <TableHead className="w-28">Sub-Status</TableHead>
+                          <TableHead className="w-20">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {runningOffers.map(offer => (
+                          <TableRow key={offer.offer_id}>
+                            <TableCell>
+                              <input type="checkbox" checked={selectedRunningOffers.has(offer.offer_id)} onChange={() => toggleRunningOfferSelection(offer.offer_id)} className="rounded border-gray-300" />
+                            </TableCell>
+                            <TableCell>
+                              <img src={getOfferImage(offer as any)} alt="" className="w-10 h-10 rounded-lg object-cover bg-muted" onError={e => { (e.target as HTMLImageElement).src = getOfferImage({ category: offer.category }); }} />
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-muted-foreground">{offer.offer_id}</TableCell>
+                            <TableCell>
+                              <span className="font-medium text-sm truncate max-w-[200px] block">{offer.name}</span>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className="text-xs">
+                                {(offer.vertical || offer.category || 'OTHER').toUpperCase()}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge className={getStatusColor(offer.status)}>{offer.status}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-1 flex-wrap">
+                                {(offer.countries || []).slice(0, 2).map(c => (
+                                  <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
+                                ))}
+                                {(offer.countries || []).length > 2 && <Badge variant="outline" className="text-xs">+{offer.countries.length - 2}</Badge>}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-medium text-green-600">${offer.payout?.toFixed(2) || '0.00'}</TableCell>
+                            <TableCell className="text-sm">{offer.network || '—'}</TableCell>
+                            <TableCell className="text-sm">
+                              {offer.when_active ? (
+                                <div>
+                                  <div className="font-medium">{new Date(offer.when_active).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                                  <div className="text-xs text-muted-foreground">{new Date(offer.when_active).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
+                                </div>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </TableCell>
+                            <TableCell className="text-sm">
+                              {offer.when_expired ? (
+                                <div>
+                                  <div className={`font-medium ${(offer.days_remaining || 0) <= 5 ? 'text-red-600' : ''}`}>
+                                    {new Date(offer.when_expired).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                  </div>
+                                  <div className="text-xs text-muted-foreground">
+                                    {(offer.days_remaining || 0) > 0 ? `${offer.days_remaining}d left` : 'Expired'}
+                                  </div>
+                                </div>
+                              ) : <span className="text-muted-foreground">—</span>}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <span className="inline-flex items-center gap-1 text-sm font-semibold text-green-600">
+                                <Activity className="h-3.5 w-3.5" />{(offer.total_clicks || 0).toLocaleString()}
+                              </span>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex gap-1 flex-wrap">
+                                {(offer.sub_statuses || []).slice(0, 2).map(s => (
+                                  <Badge key={s} variant="outline" className={`text-[10px] ${getSubStatusBadge(s)}`}>{s}</Badge>
+                                ))}
+                                {(offer.sub_statuses || []).length > 2 && <Badge variant="outline" className="text-[10px]">+{offer.sub_statuses.length - 2}</Badge>}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setOfferDetailsModalOpen(true); }}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setEditOfferModalOpen(true); }}><Edit className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
+                                  <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}><Trash2 className="h-4 w-4 mr-2" />Delete</DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Running Offers Pagination */}
+            {runningPagination.total > 0 && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                      <div className="text-sm text-muted-foreground">
+                        Page {runningPagination.page} of {runningPagination.pages} ({runningPagination.total} offers)
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Show:</span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="outline" size="sm">{runningPagination.per_page} per page</Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent>
+                            {[20, 50, 100, 200].map(n => (
+                              <DropdownMenuItem key={n} onClick={() => setRunningPagination(p => ({ ...p, per_page: n, page: 1 }))}>{n} per page</DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setRunningPagination(p => ({ ...p, page: Math.max(1, p.page - 1) }))} disabled={runningPagination.page === 1 || runningLoading}>Previous</Button>
+                      <div className="hidden sm:flex items-center gap-1">
+                        {Array.from({ length: Math.min(5, runningPagination.pages) }, (_, i) => {
+                          let pageNum;
+                          if (runningPagination.pages <= 5) pageNum = i + 1;
+                          else if (runningPagination.page <= 3) pageNum = i + 1;
+                          else if (runningPagination.page >= runningPagination.pages - 2) pageNum = runningPagination.pages - 4 + i;
+                          else pageNum = runningPagination.page - 2 + i;
+                          return (
+                            <Button key={pageNum} variant={runningPagination.page === pageNum ? 'default' : 'outline'} size="sm" onClick={() => setRunningPagination(p => ({ ...p, page: pageNum }))} disabled={runningLoading} className="w-10">{pageNum}</Button>
+                          );
+                        })}
+                      </div>
+                      <span className="sm:hidden text-sm text-muted-foreground">{runningPagination.page} / {runningPagination.pages}</span>
+                      <Button variant="outline" size="sm" onClick={() => setRunningPagination(p => ({ ...p, page: Math.min(p.pages, p.page + 1) }))} disabled={runningPagination.page === runningPagination.pages || runningLoading}>Next</Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
           ) : (
           <>
           {/* Offers Table */}
@@ -1789,7 +2110,7 @@ const AdminOffers = () => {
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-red-600"
-                            onClick={() => handleDeleteOffer(offer.offer_id)}
+                            onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Delete
@@ -2119,19 +2440,176 @@ const AdminOffers = () => {
 
       {/* Running Offer Delete Warning Dialog */}
       <Dialog open={runningWarningOpen} onOpenChange={setRunningWarningOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-600">
-              <AlertTriangle className="h-5 w-5" /> Running Offer Warning
+              <AlertTriangle className="h-5 w-5" /> This is a Running Offer
             </DialogTitle>
             <DialogDescription>
-              <span className="font-semibold text-foreground">{pendingDeleteName}</span> has received clicks in the last 24 hours and is actively being used by users. Are you sure you want to delete it?
+              You are about to delete an offer that is currently active. This offer has had real user interactions in the last 30 days. Deleting it may affect ongoing traffic and tracking.
             </DialogDescription>
           </DialogHeader>
+          <div className="p-3 border rounded-lg bg-amber-50/50 space-y-3">
+            <div>
+              <div className="font-medium text-sm">{pendingDeleteName}</div>
+              <div className="text-xs text-muted-foreground font-mono">{pendingDeleteId}</div>
+            </div>
+            {pendingDeleteRunningDetail && (
+              <>
+                <div className="pt-2 border-t">
+                  <div className="text-xs font-medium text-amber-700 mb-1.5">Why is this a running offer?</div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    {pendingDeleteRunningDetail.sub_statuses.map(s => (
+                      <Badge key={s} variant="outline" className={`text-[10px] px-2 py-0.5 ${getSubStatusBadge(s)}`}>
+                        {s === 'searched' && '🔍 '}
+                        {s === 'picked' && '⭐ '}
+                        {s === 'requested' && '📩 '}
+                        {s === 'approved' && '✅ '}
+                        {s === 'rejected' && '❌ '}
+                        {s === 'has_clicks' && '🖱️ '}
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 pt-2 border-t">
+                  <div className="text-center">
+                    <div className="text-sm font-semibold text-green-600">{pendingDeleteRunningDetail.total_clicks.toLocaleString()}</div>
+                    <div className="text-[10px] text-muted-foreground">total clicks</div>
+                  </div>
+                  <div className="text-center">
+                    <div className={`text-sm font-semibold ${pendingDeleteRunningDetail.days_remaining <= 5 ? 'text-red-600' : 'text-blue-600'}`}>{pendingDeleteRunningDetail.days_remaining} days</div>
+                    <div className="text-[10px] text-muted-foreground">remaining active</div>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground">Do you want to delete this offer or skip it?</div>
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" onClick={() => setRunningWarningOpen(false)}>Cancel</Button>
-            <Button variant="outline" className="border-amber-500 text-amber-600 hover:bg-amber-50" onClick={() => { setRunningWarningOpen(false); setPendingDeleteId(null); }}>Skip Warning</Button>
+            <Button variant="outline" onClick={() => { setRunningWarningOpen(false); setPendingDeleteId(null); setPendingDeleteRunningDetail(null); }}>Cancel</Button>
+            <Button variant="outline" className="border-amber-500 text-amber-600 hover:bg-amber-50" onClick={() => { setRunningWarningOpen(false); setPendingDeleteId(null); setPendingDeleteRunningDetail(null); }}>Skip</Button>
             <Button variant="destructive" onClick={confirmRunningDelete}>Delete Anyway</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Running Offers Warning Dialog */}
+      <Dialog open={bulkDeleteWarningOpen} onOpenChange={setBulkDeleteWarningOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="h-5 w-5" /> Running Offers Detected
+            </DialogTitle>
+            <DialogDescription>
+              {bulkDeleteRunningDetails.length} of your selected offers are currently running with active user interactions in the last 30 days. Deleting them may affect ongoing traffic and tracking. Review the details below.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-[40vh] overflow-y-auto">
+            {bulkDeleteRunningDetails.map(detail => (
+              <div key={detail.offer_id} className="p-3 border rounded-lg bg-amber-50/50 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">{detail.name}</div>
+                    <div className="text-xs text-muted-foreground font-mono">{detail.offer_id}</div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-center">
+                      <div className="text-sm font-semibold text-green-600">{detail.total_clicks.toLocaleString()}</div>
+                      <div className="text-[10px] text-muted-foreground">clicks</div>
+                    </div>
+                    <div className="text-center">
+                      <div className={`text-sm font-semibold ${detail.days_remaining <= 5 ? 'text-red-600' : 'text-blue-600'}`}>{detail.days_remaining}d</div>
+                      <div className="text-[10px] text-muted-foreground">remaining</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="pt-1.5 border-t">
+                  <div className="text-[10px] text-amber-700 font-medium mb-1">Running because:</div>
+                  <div className="flex gap-1 flex-wrap">
+                    {detail.sub_statuses.map(s => (
+                      <Badge key={s} variant="outline" className={`text-[9px] px-1.5 py-0 ${getSubStatusBadge(s)}`}>
+                        {s === 'searched' && '🔍 '}
+                        {s === 'picked' && '⭐ '}
+                        {s === 'requested' && '📩 '}
+                        {s === 'approved' && '✅ '}
+                        {s === 'rejected' && '❌ '}
+                        {s === 'has_clicks' && '🖱️ '}
+                        {s}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          {bulkDeleteNonRunningIds.length > 0 && (
+            <div className="p-3 bg-blue-50 rounded-lg text-sm">
+              <span className="font-medium text-blue-800">{bulkDeleteNonRunningIds.length}</span> non-running offer(s) can be safely deleted.
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0 flex-wrap">
+            <Button variant="outline" onClick={() => setBulkDeleteWarningOpen(false)}>Cancel</Button>
+            {bulkDeleteNonRunningIds.length > 0 && (
+              <Button variant="outline" className="border-blue-500 text-blue-600 hover:bg-blue-50" onClick={executeBulkDeleteSkipRunning}>
+                Skip Running, Delete {bulkDeleteNonRunningIds.length} Others
+              </Button>
+            )}
+            <Button variant="destructive" onClick={executeBulkDeleteAll}>
+              Delete All {selectedRunningOffers.size > 0 ? selectedRunningOffers.size : selectedOffers.size} (Including Running)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Simple Single Delete Confirmation Dialog */}
+      <Dialog open={simpleDeleteConfirmOpen} onOpenChange={setSimpleDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" /> Delete Offer
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to move this offer to the recycle bin? This action can be undone from the Recycle Bin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-3 border rounded-lg bg-muted/50 space-y-1">
+            <div className="font-medium text-sm">{pendingDeleteName}</div>
+            <div className="text-xs text-muted-foreground font-mono">{pendingDeleteId}</div>
+          </div>
+          {deleteCheckFailed && (
+            <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Could not verify if this offer is currently running. Please restart the backend server if this persists.
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => { setSimpleDeleteConfirmOpen(false); setPendingDeleteId(null); setPendingDeleteName(''); }}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmSimpleDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Simple Bulk Delete Confirmation Dialog */}
+      <Dialog open={simpleBulkDeleteConfirmOpen} onOpenChange={setSimpleBulkDeleteConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-red-500" /> Delete {selectedOffers.size} Offer(s)
+            </DialogTitle>
+            <DialogDescription>
+              Are you sure you want to move {selectedOffers.size} selected offer(s) to the recycle bin? This action can be undone from the Recycle Bin.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteCheckFailed && (
+            <div className="p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-700 flex items-center gap-1.5">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+              Could not verify if any selected offers are currently running. Please restart the backend server if this persists.
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setSimpleBulkDeleteConfirmOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmSimpleBulkDelete}>Delete {selectedOffers.size} Offer(s)</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2515,7 +2993,7 @@ const AdminOffers = () => {
                   variant="outline" 
                   className="text-red-600 hover:text-red-700"
                   onClick={() => {
-                    handleDeleteOffer(offers[carouselIndex].offer_id);
+                    handleDeleteOffer(offers[carouselIndex].offer_id, offers[carouselIndex].name);
                     setCarouselViewOpen(false);
                   }}
                 >

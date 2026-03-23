@@ -333,83 +333,321 @@ def export_offers():
         return jsonify({'error': f'Failed to export offers: {str(e)}'}), 500
 
 
+
 @admin_offers_bp.route('/offers/running', methods=['GET'])
 @token_required
 @subadmin_or_admin_required('offers')
 def get_running_offers():
-    """Get offers that have received clicks in the last 24 hours (actively used by users)."""
+    """Get running offers with subcategory filters: searched, picked, requested, approved, rejected, has_clicks.
+    Running offers are those that have been interacted with in the last 30 days.
+    """
     try:
         from datetime import timedelta
+        import re as re_mod
+
         page = int(request.args.get('page', 1))
-        per_page = min(int(request.args.get('per_page', 20)), 100)
+        per_page = min(int(request.args.get('per_page', 20)), 200)
         search = request.args.get('search', '').strip()
-        hours = int(request.args.get('hours', 24))
+        subcategory = request.args.get('subcategory', 'all')  # all, searched, picked, requested, approved, rejected, has_clicks
+        status_filter = request.args.get('status', '')
+        category_filter = request.args.get('category', '')
+        country_filter = request.args.get('country', '')
+        network_filter = request.args.get('network', '')
+        sort_by = request.args.get('sort', 'newest')
+        days = int(request.args.get('days', 30))
 
-        cutoff = datetime.utcnow() - timedelta(hours=hours)
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
 
-        # Gather distinct offer_ids with recent clicks from all click collections
-        running_ids = set()
-        click_counts = {}
+        from utils.json_serializer import serialize_for_json
 
-        for col_name in ('clicks', 'offerwall_clicks', 'offerwall_clicks_detailed'):
+        # ---- Gather offer IDs per subcategory ----
+        subcategory_ids = {}  # subcategory -> set of offer_ids
+        click_counts = {}     # offer_id -> total clicks
+        last_clicked = {}     # offer_id -> last click timestamp
+        first_active = {}     # offer_id -> when first became active (earliest interaction)
+
+        # 1. Has Clicks - offers with clicks in the window
+        # Note: 'clicks' collection has both 'offer_id' (simple_tracking) and 'offerId' (old Tracking model)
+        for col_name in ('clicks', 'offerwall_clicks', 'offerwall_clicks_detailed', 'dashboard_clicks'):
             col = db_instance.get_collection(col_name)
             if col is None:
                 continue
             try:
-                pipeline = [
-                    {'$match': {'timestamp': {'$gte': cutoff}}},
-                    {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
-                ]
-                for doc in col.aggregate(pipeline):
-                    oid = doc['_id']
-                    if oid:
-                        running_ids.add(str(oid))
-                        click_counts[str(oid)] = click_counts.get(str(oid), 0) + doc['count']
+                # For 'clicks' collection, query both field names
+                offer_id_fields = ['offer_id']
+                if col_name == 'clicks':
+                    offer_id_fields.append('offerId')
+
+                for oid_field in offer_id_fields:
+                    pipeline = [
+                        {'$match': {'timestamp': {'$gte': cutoff}, oid_field: {'$exists': True, '$ne': None}}},
+                        {'$group': {
+                            '_id': f'${oid_field}',
+                            'count': {'$sum': 1},
+                            'last_click': {'$max': '$timestamp'},
+                            'first_click': {'$min': '$timestamp'},
+                        }},
+                    ]
+                    for doc in col.aggregate(pipeline):
+                        oid = str(doc['_id']) if doc['_id'] else None
+                        if not oid:
+                            continue
+                        click_counts[oid] = click_counts.get(oid, 0) + doc['count']
+                        existing_last = last_clicked.get(oid)
+                        if not existing_last or doc['last_click'] > existing_last:
+                            last_clicked[oid] = doc['last_click']
+                        existing_first = first_active.get(oid)
+                        if not existing_first or doc['first_click'] < existing_first:
+                            first_active[oid] = doc['first_click']
             except Exception as e:
                 logging.warning(f"Running offers - failed to query {col_name}: {e}")
 
-        if not running_ids:
+        subcategory_ids['has_clicks'] = set(click_counts.keys())
+
+        # 2. Searched - offers that appeared in search results
+        search_logs_col = db_instance.get_collection('search_logs')
+        searched_ids = set()
+        earliest_search_time = {}  # keyword -> earliest searched_at
+        if search_logs_col is not None:
+            try:
+                logs = search_logs_col.find(
+                    {'searched_at': {'$gte': cutoff}},
+                    {'keyword': 1, 'searched_at': 1}
+                )
+                keywords = set()
+                for log in logs:
+                    kw = (log.get('keyword') or '').strip()
+                    if kw:
+                        keywords.add(kw)
+                        ts = log.get('searched_at')
+                        if ts and (kw not in earliest_search_time or ts < earliest_search_time[kw]):
+                            earliest_search_time[kw] = ts
+                # Find offers matching any searched keyword and track first_active
+                if keywords:
+                    keyword_conditions = []
+                    for kw in list(keywords)[:200]:
+                        escaped = re_mod.escape(kw)
+                        keyword_conditions.append({'name': {'$regex': escaped, '$options': 'i'}})
+                        keyword_conditions.append({'offer_id': {'$regex': escaped, '$options': 'i'}})
+                    if keyword_conditions:
+                        matched = offers_col.find(
+                            {'$or': keyword_conditions, '$and': [{'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}]},
+                            {'offer_id': 1, 'name': 1}
+                        )
+                        for m in matched:
+                            oid = m.get('offer_id')
+                            if oid:
+                                searched_ids.add(oid)
+                                # Find earliest search time that matched this offer
+                                offer_name = (m.get('name') or '').lower()
+                                for kw, ts in earliest_search_time.items():
+                                    if kw.lower() in offer_name or kw.lower() in (oid or '').lower():
+                                        existing = first_active.get(oid)
+                                        if not existing or ts < existing:
+                                            first_active[oid] = ts
+            except Exception as e:
+                logging.warning(f"Running offers - searched query failed: {e}")
+        subcategory_ids['searched'] = searched_ids
+
+        # 3. Picked - offers that were picked/selected after a search
+        picked_ids = set()
+        if search_logs_col is not None:
+            try:
+                picked_logs = search_logs_col.find(
+                    {'searched_at': {'$gte': cutoff}, 'picked_offer_id': {'$ne': None, '$exists': True}},
+                    {'picked_offer_id': 1, 'searched_at': 1}
+                )
+                for log in picked_logs:
+                    pid = log.get('picked_offer_id')
+                    if pid:
+                        pid = str(pid)
+                        picked_ids.add(pid)
+                        ts = log.get('searched_at')
+                        if ts:
+                            existing = first_active.get(pid)
+                            if not existing or ts < existing:
+                                first_active[pid] = ts
+            except Exception as e:
+                logging.warning(f"Running offers - picked query failed: {e}")
+        subcategory_ids['picked'] = picked_ids
+
+        # 4. Requested - offers with access requests (also tracks approved/rejected)
+        requests_col = db_instance.get_collection('affiliate_requests')
+        requested_ids = set()
+        approved_ids = set()
+        rejected_ids = set()
+        if requests_col is not None:
+            try:
+                req_docs = requests_col.find(
+                    {'requested_at': {'$gte': cutoff}},
+                    {'offer_id': 1, 'requested_at': 1, 'status': 1}
+                )
+                for rd in req_docs:
+                    oid = rd.get('offer_id')
+                    if not oid:
+                        continue
+                    oid = str(oid)
+                    requested_ids.add(oid)
+                    ts = rd.get('requested_at')
+                    if ts:
+                        existing = first_active.get(oid)
+                        if not existing or ts < existing:
+                            first_active[oid] = ts
+                    status = rd.get('status', 'pending')
+                    if status == 'approved':
+                        approved_ids.add(oid)
+                    elif status == 'rejected':
+                        rejected_ids.add(oid)
+            except Exception as e:
+                logging.warning(f"Running offers - requested query failed: {e}")
+        subcategory_ids['requested'] = requested_ids
+
+        # 5. Approved
+        subcategory_ids['approved'] = approved_ids
+
+        # 6. Rejected
+        subcategory_ids['rejected'] = rejected_ids
+
+        # Compute "all" as union of all subcategories
+        all_running = set()
+        for ids in subcategory_ids.values():
+            all_running.update(ids)
+        subcategory_ids['all'] = all_running
+
+        # Compute counts per subcategory for the tabs
+        subcategory_counts = {k: len(v) for k, v in subcategory_ids.items()}
+
+        # Determine which offer IDs to query based on selected subcategory
+        target_ids = subcategory_ids.get(subcategory, all_running)
+        if not target_ids:
             return jsonify({
                 'offers': [],
+                'subcategory_counts': subcategory_counts,
                 'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}
             })
 
-        # Build query for matching offers
-        offers_col = db_instance.get_collection('offers')
+        # Build query
         query = {
-            'offer_id': {'$in': list(running_ids)},
-            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+            'offer_id': {'$in': list(target_ids)},
         }
+        # Exclude deleted
+        query['$or'] = [{'deleted': {'$exists': False}}, {'deleted': False}]
+
+        # Apply filters
+        and_conditions = []
         if search:
-            import re
-            query['$and'] = [{'$or': [
-                {'name': {'$regex': re.escape(search), '$options': 'i'}},
-                {'offer_id': {'$regex': re.escape(search), '$options': 'i'}},
-                {'network': {'$regex': re.escape(search), '$options': 'i'}},
-            ]}]
+            escaped_search = re_mod.escape(search)
+            and_conditions.append({'$or': [
+                {'name': {'$regex': escaped_search, '$options': 'i'}},
+                {'offer_id': {'$regex': escaped_search, '$options': 'i'}},
+                {'network': {'$regex': escaped_search, '$options': 'i'}},
+            ]})
+        if status_filter and status_filter != 'all':
+            and_conditions.append({'status': status_filter})
+        if category_filter and category_filter != 'all':
+            and_conditions.append({'$or': [
+                {'category': {'$regex': f'^{re_mod.escape(category_filter)}$', '$options': 'i'}},
+                {'vertical': {'$regex': f'^{re_mod.escape(category_filter)}$', '$options': 'i'}},
+            ]})
+        if country_filter and country_filter != 'all':
+            and_conditions.append({'countries': country_filter})
+        if network_filter and network_filter != 'all':
+            and_conditions.append({'network': {'$regex': f'^{re_mod.escape(network_filter)}$', '$options': 'i'}})
+
+        if and_conditions:
+            query['$and'] = and_conditions
+
+        # Sorting
+        sort_field = 'created_at'
+        sort_dir = -1
+        if sort_by == 'oldest':
+            sort_dir = 1
+        elif sort_by == 'payout_high':
+            sort_field = 'payout'
+            sort_dir = -1
+        elif sort_by == 'payout_low':
+            sort_field = 'payout'
+            sort_dir = 1
+        elif sort_by == 'title_az':
+            sort_field = 'name'
+            sort_dir = 1
+        elif sort_by == 'title_za':
+            sort_field = 'name'
+            sort_dir = -1
+        elif sort_by == 'clicks':
+            sort_field = None  # will sort in Python
 
         total = offers_col.count_documents(query)
         skip = (page - 1) * per_page
-        docs = list(offers_col.find(query).sort('created_at', -1).skip(skip).limit(per_page))
 
-        from utils.json_serializer import serialize_for_json
+        if sort_field:
+            docs = list(offers_col.find(query).sort(sort_field, sort_dir).skip(skip).limit(per_page))
+        else:
+            docs = list(offers_col.find(query).skip(0).limit(total or 1000))
+
+        # Track which offers have DIRECT interactions (not just keyword matches)
+        directly_interacted = set()
+        directly_interacted.update(click_counts.keys())  # has clicks
+        directly_interacted.update(picked_ids)            # was picked
+        directly_interacted.update(requested_ids)         # was requested
+
         offers = []
         for doc in docs:
             doc['_id'] = str(doc['_id'])
-            doc['recent_clicks'] = click_counts.get(doc.get('offer_id', ''), 0)
+            oid = doc.get('offer_id', '')
+            doc['total_clicks'] = click_counts.get(oid, 0)
+            doc['last_clicked'] = last_clicked.get(oid)
+
+            # Only show when_active/when_expired for offers with direct interactions
+            # Searched-only offers (keyword match) don't get dates since the interaction
+            # was with the search, not the offer itself
+            offer_status = (doc.get('status') or '').lower()
+            fa = first_active.get(oid) if oid in directly_interacted else None
+            doc['when_active'] = fa
+
+            # Calculate days remaining in 30-day window
+            if fa:
+                elapsed = (datetime.utcnow() - fa).days
+                doc['days_remaining'] = max(0, days - elapsed)
+                doc['when_expired'] = fa + timedelta(days=days)
+            else:
+                doc['days_remaining'] = None
+                doc['when_expired'] = None
+
+            # Determine sub-status
+            sub_statuses = []
+            if oid in subcategory_ids.get('searched', set()):
+                sub_statuses.append('searched')
+            if oid in subcategory_ids.get('picked', set()):
+                sub_statuses.append('picked')
+            if oid in subcategory_ids.get('requested', set()):
+                sub_statuses.append('requested')
+            if oid in subcategory_ids.get('approved', set()):
+                sub_statuses.append('approved')
+            if oid in subcategory_ids.get('rejected', set()):
+                sub_statuses.append('rejected')
+            if oid in subcategory_ids.get('has_clicks', set()):
+                sub_statuses.append('has_clicks')
+            doc['sub_statuses'] = sub_statuses
+
             offers.append(serialize_for_json(doc))
 
-        # Sort by recent clicks descending
-        offers.sort(key=lambda o: o.get('recent_clicks', 0), reverse=True)
+        # Sort by clicks if requested
+        if sort_by == 'clicks':
+            offers.sort(key=lambda o: o.get('total_clicks', 0), reverse=True)
+            offers = offers[skip:skip + per_page]
 
         return jsonify({
             'offers': offers,
-            'running_count': len(running_ids),
+            'subcategory_counts': subcategory_counts,
             'pagination': {
                 'page': page,
                 'per_page': per_page,
                 'total': total,
-                'pages': (total + per_page - 1) // per_page
+                'pages': max(1, (total + per_page - 1) // per_page)
             }
         })
 
@@ -418,38 +656,160 @@ def get_running_offers():
         return jsonify({'error': f'Failed to get running offers: {str(e)}'}), 500
 
 
+
+
 @admin_offers_bp.route('/offers/check-running', methods=['POST'])
 @token_required
 @subadmin_or_admin_required('offers')
 def check_offers_running():
-    """Check if specific offer_ids have recent clicks (used before delete to warn admin)."""
+    """Check if specific offer_ids are running (appear in any running subcategory) and return detailed info."""
     try:
         from datetime import timedelta
         data = request.get_json() or {}
         offer_ids = data.get('offer_ids', [])
         if not offer_ids:
-            return jsonify({'running_ids': []})
+            return jsonify({'running_ids': [], 'running_details': []})
 
-        cutoff = datetime.utcnow() - timedelta(hours=24)
-        running_ids = set()
+        cutoff_30d = datetime.utcnow() - timedelta(days=30)
+        click_counts = {}
+        first_active = {}
+        all_running = set()
+        sub_status_map = {oid: [] for oid in offer_ids}
 
-        for col_name in ('clicks', 'offerwall_clicks', 'offerwall_clicks_detailed'):
+        # 1. Check clicks across all click collections
+        for col_name in ('clicks', 'offerwall_clicks', 'offerwall_clicks_detailed', 'dashboard_clicks'):
             col = db_instance.get_collection(col_name)
             if col is None:
                 continue
             try:
-                found = col.distinct('offer_id', {
-                    'offer_id': {'$in': offer_ids},
-                    'timestamp': {'$gte': cutoff}
-                })
-                running_ids.update(str(x) for x in found if x)
+                offer_id_fields = ['offer_id']
+                if col_name == 'clicks':
+                    offer_id_fields.append('offerId')
+                for oid_field in offer_id_fields:
+                    pipeline = [
+                        {'$match': {oid_field: {'$in': offer_ids}, 'timestamp': {'$gte': cutoff_30d}}},
+                        {'$group': {'_id': f'${oid_field}', 'count': {'$sum': 1}, 'first_click': {'$min': '$timestamp'}}},
+                    ]
+                    for doc in col.aggregate(pipeline):
+                        oid = str(doc['_id']) if doc['_id'] else None
+                        if not oid:
+                            continue
+                        click_counts[oid] = click_counts.get(oid, 0) + doc['count']
+                        existing = first_active.get(oid)
+                        if not existing or doc['first_click'] < existing:
+                            first_active[oid] = doc['first_click']
+                        all_running.add(oid)
+                        if 'has_clicks' not in sub_status_map.get(oid, []):
+                            sub_status_map.setdefault(oid, []).append('has_clicks')
             except Exception:
                 pass
 
-        return jsonify({'running_ids': list(running_ids)})
+        # 2. Check searched - keyword match against offer names (same logic as get_running_offers)
+        search_logs_col = db_instance.get_collection('search_logs')
+        offers_col = db_instance.get_collection('offers')
+        if search_logs_col is not None and offers_col is not None:
+            try:
+                import re as re_mod
+                logs = search_logs_col.find({'searched_at': {'$gte': cutoff_30d}}, {'keyword': 1, 'searched_at': 1})
+                keywords = set()
+                earliest_search = {}
+                for log in logs:
+                    kw = (log.get('keyword') or '').strip()
+                    if kw:
+                        keywords.add(kw)
+                        ts = log.get('searched_at')
+                        if ts and (kw not in earliest_search or ts < earliest_search[kw]):
+                            earliest_search[kw] = ts
+
+                if keywords:
+                    # Get names of the offers we're checking
+                    offer_docs = {d['offer_id']: d.get('name', '') for d in offers_col.find({'offer_id': {'$in': offer_ids}}, {'offer_id': 1, 'name': 1})}
+                    for oid in offer_ids:
+                        offer_name = (offer_docs.get(oid) or '').lower()
+                        oid_lower = (oid or '').lower()
+                        for kw in keywords:
+                            kw_lower = kw.lower()
+                            if kw_lower in offer_name or kw_lower in oid_lower:
+                                all_running.add(oid)
+                                if 'searched' not in sub_status_map.get(oid, []):
+                                    sub_status_map.setdefault(oid, []).append('searched')
+                                ts = earliest_search.get(kw)
+                                if ts:
+                                    existing = first_active.get(oid)
+                                    if not existing or ts < existing:
+                                        first_active[oid] = ts
+                                break
+            except Exception:
+                pass
+
+        # 3. Check picked
+        if search_logs_col is not None:
+            try:
+                for log in search_logs_col.find({'searched_at': {'$gte': cutoff_30d}, 'picked_offer_id': {'$in': offer_ids}}):
+                    pid = log.get('picked_offer_id')
+                    if pid:
+                        pid = str(pid)
+                        all_running.add(pid)
+                        if 'picked' not in sub_status_map.get(pid, []):
+                            sub_status_map.setdefault(pid, []).append('picked')
+                        ts = log.get('searched_at')
+                        if ts:
+                            existing = first_active.get(pid)
+                            if not existing or ts < existing:
+                                first_active[pid] = ts
+            except Exception:
+                pass
+
+        # 4. Check affiliate requests (requested/approved/rejected)
+        requests_col = db_instance.get_collection('affiliate_requests')
+        if requests_col is not None:
+            try:
+                for req in requests_col.find({'requested_at': {'$gte': cutoff_30d}, 'offer_id': {'$in': offer_ids}}):
+                    oid = req.get('offer_id')
+                    if not oid:
+                        continue
+                    oid = str(oid)
+                    all_running.add(oid)
+                    if 'requested' not in sub_status_map.get(oid, []):
+                        sub_status_map.setdefault(oid, []).append('requested')
+                    status = req.get('status', 'pending')
+                    if status == 'approved' and 'approved' not in sub_status_map.get(oid, []):
+                        sub_status_map.setdefault(oid, []).append('approved')
+                    elif status == 'rejected' and 'rejected' not in sub_status_map.get(oid, []):
+                        sub_status_map.setdefault(oid, []).append('rejected')
+                    ts = req.get('requested_at')
+                    if ts:
+                        existing = first_active.get(oid)
+                        if not existing or ts < existing:
+                            first_active[oid] = ts
+            except Exception:
+                pass
+
+        running_ids = list(all_running)
+
+        # Build detailed info
+        running_details = []
+        if running_ids and offers_col is not None:
+            for doc in offers_col.find({'offer_id': {'$in': running_ids}}, {'offer_id': 1, 'name': 1}):
+                oid = doc.get('offer_id', '')
+                fa = first_active.get(oid)
+                days_remaining = 30
+                if fa:
+                    elapsed = (datetime.utcnow() - fa).days
+                    days_remaining = max(0, 30 - elapsed)
+                running_details.append({
+                    'offer_id': oid,
+                    'name': doc.get('name', ''),
+                    'total_clicks': click_counts.get(oid, 0),
+                    'days_remaining': days_remaining,
+                    'sub_statuses': sub_status_map.get(oid, []),
+                })
+
+        return jsonify({'running_ids': running_ids, 'running_details': running_details})
     except Exception as e:
         logging.error(f"Check running error: {e}")
-        return jsonify({'running_ids': []})
+        return jsonify({'running_ids': [], 'running_details': []})
+
 
 
 @admin_offers_bp.route('/offers', methods=['GET'])

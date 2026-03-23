@@ -296,6 +296,15 @@ export interface OffersResponse {
   };
 }
 
+export interface RunningOffer extends Offer {
+  total_clicks: number;
+  last_clicked?: string;
+  when_active?: string;
+  when_expired?: string;
+  days_remaining?: number;
+  sub_statuses: string[];
+}
+
 export interface OfferStats {
   total_offers: number;
   active_offers: number;
@@ -341,6 +350,9 @@ class AdminOfferApi {
     status?: string;
     network?: string;
     search?: string;
+    sort?: string;
+    country?: string;
+    categories?: string;
   }): Promise<OffersResponse> {
     const searchParams = new URLSearchParams();
     
@@ -349,6 +361,9 @@ class AdminOfferApi {
     if (params?.status) searchParams.append('status', params.status);
     if (params?.network) searchParams.append('network', params.network);
     if (params?.search) searchParams.append('search', params.search);
+    if (params?.sort) searchParams.append('sort', params.sort);
+    if (params?.country) searchParams.append('country', params.country);
+    if (params?.categories) searchParams.append('categories', params.categories);
 
     const response = await fetch(`${API_BASE_URL}/offers?${searchParams}`, {
       method: 'GET',
@@ -625,17 +640,29 @@ class AdminOfferApi {
     page?: number;
     per_page?: number;
     search?: string;
-    hours?: number;
+    subcategory?: string;
+    status?: string;
+    category?: string;
+    country?: string;
+    network?: string;
+    sort?: string;
+    days?: number;
   }): Promise<{
-    offers: (Offer & { recent_clicks?: number })[];
-    running_count: number;
+    offers: RunningOffer[];
+    subcategory_counts: Record<string, number>;
     pagination: { page: number; per_page: number; total: number; pages: number };
   }> {
     const qp = new URLSearchParams();
     if (params?.page) qp.append('page', params.page.toString());
     if (params?.per_page) qp.append('per_page', params.per_page.toString());
     if (params?.search) qp.append('search', params.search);
-    if (params?.hours) qp.append('hours', params.hours.toString());
+    if (params?.subcategory) qp.append('subcategory', params.subcategory);
+    if (params?.status && params.status !== 'all') qp.append('status', params.status);
+    if (params?.category && params.category !== 'all') qp.append('category', params.category);
+    if (params?.country && params.country !== 'all') qp.append('country', params.country);
+    if (params?.network && params.network !== 'all') qp.append('network', params.network);
+    if (params?.sort) qp.append('sort', params.sort);
+    if (params?.days) qp.append('days', params.days.toString());
 
     const response = await fetch(`${API_BASE_URL}/offers/running?${qp}`, {
       method: 'GET',
@@ -644,7 +671,10 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
-  async checkRunningOffers(offerIds: string[]): Promise<{ running_ids: string[] }> {
+  async checkRunningOffers(offerIds: string[]): Promise<{
+    running_ids: string[];
+    running_details?: Array<{ offer_id: string; name: string; total_clicks: number; days_remaining: number; sub_statuses: string[] }>;
+  }> {
     const response = await fetch(`${API_BASE_URL}/offers/check-running`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
