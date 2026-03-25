@@ -191,6 +191,18 @@ class OfferwallTracking:
             }
             
             self.clicks_col.insert_one(click_doc)
+            
+            # Update last_click_date on the offer (rolling 30-day inactivity window)
+            try:
+                offers_col = self.db.get_collection('offers')
+                if offers_col:
+                    offers_col.update_one(
+                        {'offer_id': offer_id},
+                        {'$set': {'last_click_date': datetime.datetime.utcnow()}}
+                    )
+            except Exception as lcd_err:
+                logger.warning(f"⚠️ Failed to update last_click_date for {offer_id}: {lcd_err}")
+            
             return click_id, None
             
         except Exception as e:

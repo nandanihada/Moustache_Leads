@@ -317,6 +317,23 @@ export interface OfferStats {
   }>;
 }
 
+export interface RotationStatus {
+  enabled: boolean;
+  batch_size: number;
+  window_minutes: number;
+  current_batch_count: number;
+  current_batch_ids: string[];
+  running_count: number;
+  running_offer_ids: string[];
+  batch_index: number;
+  batch_activated_at: string | null;
+  total_rotations: number;
+  last_rotation_at: string | null;
+  time_remaining_seconds: number | null;
+  next_rotation_at: string | null;
+  inactive_pool_count: number;
+}
+
 class AdminOfferApi {
   private getAuthHeaders(): HeadersInit {
     const token = localStorage.getItem('token');
@@ -679,6 +696,57 @@ class AdminOfferApi {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ offer_ids: offerIds }),
+    });
+    return this.handleResponse(response);
+  }
+
+  // ---- Offer Rotation API ----
+
+  async getRotationStatus(): Promise<RotationStatus> {
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/status`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async enableRotation(): Promise<RotationStatus & { message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/enable`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async disableRotation(): Promise<RotationStatus & { message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/disable`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async updateRotationConfig(config: { batch_size?: number; window_minutes?: number }): Promise<RotationStatus & { message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/config`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(config),
+    });
+    return this.handleResponse(response);
+  }
+
+  async forceRotation(): Promise<RotationStatus & { message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/force`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async resetRotation(): Promise<RotationStatus & { message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/reset`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
     });
     return this.handleResponse(response);
   }

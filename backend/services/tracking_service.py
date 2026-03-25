@@ -197,10 +197,13 @@ class TrackingService:
                 referer=request_info.get('referer')
             )
             
-            # Increment offer hits
+            # Increment offer hits and update last_click_date (rolling 30-day inactivity window)
             self.offers_collection.update_one(
                 {'offer_id': offer_id},
-                {'$inc': {'hits': 1}}
+                {
+                    '$inc': {'hits': 1},
+                    '$set': {'last_click_date': datetime.utcnow()}
+                }
             )
             
             return {
@@ -673,6 +676,15 @@ class TrackingService:
                 result = self.clicks_collection.insert_one(click_doc)
                 click_id = click_doc['click_id']
                 self.logger.info(f"Created synthetic click for direct completion: {click_id}")
+                
+                # Update last_click_date on the offer (rolling 30-day inactivity window)
+                try:
+                    self.offers_collection.update_one(
+                        {'offer_id': offer_id},
+                        {'$set': {'last_click_date': datetime.utcnow()}}
+                    )
+                except Exception:
+                    pass
             else:
                 click_id = recent_click['click_id']
             

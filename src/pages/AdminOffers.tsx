@@ -33,6 +33,11 @@ import {
   Loader2,
   SlidersHorizontal,
   Activity,
+  Play,
+  Pause,
+  SkipForward,
+  Timer,
+  Zap,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -57,7 +62,7 @@ import { AdvancedSettingsModal } from '@/components/AdvancedSettingsModal';
 import { OfferDetailsModal } from '@/components/OfferDetailsModal';
 import { BulkOfferUpload } from '@/components/BulkOfferUpload';
 import { ApiImportModal } from '@/components/ApiImportModal';
-import { adminOfferApi, Offer, RunningOffer } from '@/services/adminOfferApi';
+import { adminOfferApi, Offer, RunningOffer, RotationStatus } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -123,6 +128,14 @@ const AdminOffers = () => {
   const [healthFilter, setHealthFilter] = useState<string>('all');
   const [healthPopupOffer, setHealthPopupOffer] = useState<Offer | null>(null);
   const [rawOffers, setRawOffers] = useState<Offer[]>([]);
+
+  // Rotation state
+  const [rotationStatus, setRotationStatus] = useState<RotationStatus | null>(null);
+  const [rotationLoading, setRotationLoading] = useState(false);
+  const [rotationActionLoading, setRotationActionLoading] = useState(false);
+  const [editBatchSize, setEditBatchSize] = useState<string>('1000');
+  const [editWindowMinutes, setEditWindowMinutes] = useState<string>('420');
+  const [rotationCountdown, setRotationCountdown] = useState<string>('');
 
   // Running offers state
   const [runningOffers, setRunningOffers] = useState<RunningOffer[]>([]);
@@ -1315,6 +1328,113 @@ const AdminOffers = () => {
     fetchNetworks();
   }, []);
 
+  // ---- Rotation helpers ----
+  const fetchRotationStatus = async () => {
+    setRotationLoading(true);
+    try {
+      const status = await adminOfferApi.getRotationStatus();
+      setRotationStatus(status);
+      setEditBatchSize(String(status.batch_size));
+      setEditWindowMinutes(String(status.window_minutes));
+    } catch {
+      toast({ title: 'Error', description: 'Failed to load rotation status', variant: 'destructive' });
+    } finally {
+      setRotationLoading(false);
+    }
+  };
+
+  const handleRotationToggle = async () => {
+    setRotationActionLoading(true);
+    try {
+      const result = rotationStatus?.enabled
+        ? await adminOfferApi.disableRotation()
+        : await adminOfferApi.enableRotation();
+      setRotationStatus(result);
+      toast({ title: 'Success', description: result.message });
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+    } finally {
+      setRotationActionLoading(false);
+    }
+  };
+
+  const handleRotationConfigSave = async () => {
+    setRotationActionLoading(true);
+    try {
+      const result = await adminOfferApi.updateRotationConfig({
+        batch_size: parseInt(editBatchSize) || 1000,
+        window_minutes: parseInt(editWindowMinutes) || 420,
+      });
+      setRotationStatus(result);
+      toast({ title: 'Success', description: 'Rotation config updated' });
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+    } finally {
+      setRotationActionLoading(false);
+    }
+  };
+
+  const handleForceRotation = async () => {
+    setRotationActionLoading(true);
+    try {
+      const result = await adminOfferApi.forceRotation();
+      if ('error' in result) {
+        toast({ title: 'Error', description: (result as any).error, variant: 'destructive' });
+      } else {
+        setRotationStatus(result);
+        toast({ title: 'Success', description: 'Rotation forced — new batch activated' });
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+    } finally {
+      setRotationActionLoading(false);
+    }
+  };
+
+  const handleResetRotation = async () => {
+    setRotationActionLoading(true);
+    try {
+      const result = await adminOfferApi.resetRotation();
+      setRotationStatus(result);
+      toast({ title: 'Success', description: 'Rotation reset' });
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+    } finally {
+      setRotationActionLoading(false);
+    }
+  };
+
+  // Fetch rotation status when tab switches to rotation
+  useEffect(() => {
+    if (activeTab === 'rotation') {
+      fetchRotationStatus();
+    }
+  }, [activeTab]);
+
+  // Countdown timer for rotation
+  useEffect(() => {
+    if (activeTab !== 'rotation' || !rotationStatus?.enabled || !rotationStatus?.time_remaining_seconds) {
+      setRotationCountdown('');
+      return;
+    }
+    let remaining = rotationStatus.time_remaining_seconds;
+    const tick = () => {
+      if (remaining <= 0) {
+        setRotationCountdown('Rotating...');
+        fetchRotationStatus();
+        return;
+      }
+      const h = Math.floor(remaining / 3600);
+      const m = Math.floor((remaining % 3600) / 60);
+      const s = Math.floor(remaining % 60);
+      setRotationCountdown(`${h}h ${m}m ${s}s`);
+      remaining -= 1;
+    };
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [activeTab, rotationStatus?.enabled, rotationStatus?.time_remaining_seconds]);
+
   return (
     <div className="space-y-4 min-w-0">
       {/* Header */}
@@ -1472,6 +1592,10 @@ const AdminOffers = () => {
             <TabsTrigger value="recycle-bin" className="flex items-center gap-2">
               <Trash2 className="h-4 w-4" />
               Recycle Bin ({recycleBinPagination.total})
+            </TabsTrigger>
+            <TabsTrigger value="rotation" className="flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Rotation {rotationStatus?.enabled ? '🟢' : '⚪'}
             </TabsTrigger>
           </TabsList>
           {activeTab === 'offers' && (
@@ -2433,6 +2557,224 @@ const AdminOffers = () => {
                 </div>
               </CardContent>
             </Card>
+          )}
+        </TabsContent>
+
+        {/* Rotation Tab */}
+        <TabsContent value="rotation" className="space-y-4">
+          {rotationLoading ? (
+            <Card><CardContent className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin mr-2" /> Loading rotation status...</CardContent></Card>
+          ) : rotationStatus ? (
+            <div className="space-y-4">
+              {/* Status Overview */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <RefreshCw className="h-5 w-5" />
+                        Active Offer Rotation Loop
+                      </CardTitle>
+                      <CardDescription>
+                        Automatically rotates inactive offers in batches. Clicked offers get promoted to "running" and stay live permanently.
+                      </CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={rotationStatus.enabled ? 'default' : 'secondary'} className={rotationStatus.enabled ? 'bg-green-600' : ''}>
+                        {rotationStatus.enabled ? '🟢 Active' : '⚪ Disabled'}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant={rotationStatus.enabled ? 'destructive' : 'default'}
+                        onClick={handleRotationToggle}
+                        disabled={rotationActionLoading}
+                      >
+                        {rotationActionLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : rotationStatus.enabled ? <><Pause className="h-4 w-4 mr-1" /> Disable</> : <><Play className="h-4 w-4 mr-1" /> Enable</>}
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+              </Card>
+
+              {/* Stats Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card>
+                  <CardContent className="pt-4 pb-3 px-4">
+                    <div className="text-xs text-muted-foreground">Current Batch</div>
+                    <div className="text-2xl font-bold">{rotationStatus.current_batch_count}</div>
+                    <div className="text-xs text-muted-foreground">of {rotationStatus.batch_size} max</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3 px-4">
+                    <div className="text-xs text-muted-foreground">Running (Clicked)</div>
+                    <div className="text-2xl font-bold text-green-600">{rotationStatus.running_count}</div>
+                    <div className="text-xs text-muted-foreground">permanently active</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3 px-4">
+                    <div className="text-xs text-muted-foreground">Inactive Pool</div>
+                    <div className="text-2xl font-bold">{rotationStatus.inactive_pool_count.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground">waiting to rotate</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-4 pb-3 px-4">
+                    <div className="text-xs text-muted-foreground">Total Rotations</div>
+                    <div className="text-2xl font-bold">{rotationStatus.total_rotations}</div>
+                    <div className="text-xs text-muted-foreground">batch #{rotationStatus.batch_index}</div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Timer + Actions */}
+              {rotationStatus.enabled && (
+                <Card>
+                  <CardContent className="pt-4 pb-4 px-4">
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <Timer className="h-5 w-5 text-blue-500" />
+                          <div>
+                            <div className="text-sm font-medium">Next Rotation In</div>
+                            <div className="text-xl font-mono font-bold text-blue-600">{rotationCountdown || 'Waiting...'}</div>
+                          </div>
+                        </div>
+                        {rotationStatus.batch_activated_at && (
+                          <div className="text-xs text-muted-foreground">
+                            Batch activated: {new Date(rotationStatus.batch_activated_at).toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="outline" onClick={handleForceRotation} disabled={rotationActionLoading}>
+                          <SkipForward className="h-4 w-4 mr-1" /> Force Rotate Now
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={fetchRotationStatus} disabled={rotationLoading}>
+                          <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Configuration */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Settings className="h-4 w-4" /> Configuration
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="batch-size">Batch Size (offers per rotation)</Label>
+                      <Input
+                        id="batch-size"
+                        type="number"
+                        value={editBatchSize}
+                        onChange={(e) => setEditBatchSize(e.target.value)}
+                        min={1}
+                        max={10000}
+                      />
+                      <p className="text-xs text-muted-foreground">How many inactive offers to activate each cycle</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="window-minutes">Window Duration (minutes)</Label>
+                      <Input
+                        id="window-minutes"
+                        type="number"
+                        value={editWindowMinutes}
+                        onChange={(e) => setEditWindowMinutes(e.target.value)}
+                        min={1}
+                        max={10080}
+                      />
+                      <p className="text-xs text-muted-foreground">How long each batch stays active before rotating (e.g. 420 = 7 hours, 2 = 2 min for testing)</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" onClick={handleRotationConfigSave} disabled={rotationActionLoading}>
+                      {rotationActionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Zap className="h-4 w-4 mr-1" />}
+                      Save Config
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={handleResetRotation} disabled={rotationActionLoading}>
+                      <RotateCcw className="h-4 w-4 mr-1" /> Reset All
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Current Batch Offer IDs */}
+              {rotationStatus.current_batch_ids.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Activity className="h-4 w-4 text-blue-500" /> Current Batch Offers ({rotationStatus.current_batch_ids.length})
+                    </CardTitle>
+                    <CardDescription>These offers are currently active in the rotation window. Click a tracking link to promote one to "running".</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {rotationStatus.current_batch_ids.map((id) => (
+                        <Badge
+                          key={id}
+                          variant={rotationStatus.running_offer_ids.includes(id) ? 'default' : 'outline'}
+                          className={`text-xs cursor-pointer ${rotationStatus.running_offer_ids.includes(id) ? 'bg-green-600 hover:bg-green-700' : 'hover:bg-accent'}`}
+                          onClick={() => {
+                            navigator.clipboard.writeText(id);
+                            toast({ title: 'Copied', description: `Offer ID "${id}" copied to clipboard` });
+                          }}
+                        >
+                          {id} {rotationStatus.running_offer_ids.includes(id) && '🏃'}
+                        </Badge>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">Click an ID to copy it. 🏃 = promoted to running (clicked). Test with: <code className="bg-muted px-1 py-0.5 rounded text-xs">http://localhost:5000/track/OFFER_ID?user_id=test</code></p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Running Offers (Permanently Active) */}
+              {rotationStatus.running_offer_ids.length > 0 && (
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-green-500" /> Running Offers ({rotationStatus.running_offer_ids.length})
+                    </CardTitle>
+                    <CardDescription>These offers received clicks and will stay active permanently — they are never deactivated by rotation.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {rotationStatus.running_offer_ids.map((id) => (
+                        <Badge key={id} className="bg-green-600 text-xs">
+                          {id} 🏃
+                        </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* How It Works */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">How It Works</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-sm text-muted-foreground space-y-1.5">
+                    <p>1. The system picks <span className="font-medium text-foreground">{rotationStatus.batch_size}</span> inactive offers and activates them for <span className="font-medium text-foreground">{rotationStatus.window_minutes} minutes</span>.</p>
+                    <p>2. Before activating, it deduplicates: if multiple offers share the same name + country, only the highest-payout one is included.</p>
+                    <p>3. If an offer gets clicked during its window, it's promoted to <span className="font-medium text-green-600">"running"</span> and stays active permanently.</p>
+                    <p>4. When the window expires, the previous batch is deactivated — except running offers, which are skipped.</p>
+                    <p>5. The next batch of {rotationStatus.batch_size} rotates in, and the cycle continues through the entire inactive pool.</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <Card><CardContent className="py-8 text-center text-muted-foreground">Failed to load rotation status. <Button variant="link" onClick={fetchRotationStatus}>Retry</Button></CardContent></Card>
           )}
         </TabsContent>
 

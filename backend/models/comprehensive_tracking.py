@@ -290,6 +290,18 @@ class ComprehensiveOfferwallTracker:
             
             self.clicks_col.insert_one(click_doc)
             
+            # Update last_click_date on the offer (rolling 30-day inactivity window)
+            try:
+                offers_col = self.db.get_collection('offers') if hasattr(self, 'db') else None
+                offer_id = click_data.get('offer_id')
+                if offers_col and offer_id:
+                    offers_col.update_one(
+                        {'offer_id': offer_id},
+                        {'$set': {'last_click_date': datetime.datetime.utcnow()}}
+                    )
+            except Exception:
+                pass
+            
             # Update session metrics
             self.sessions_col.update_one(
                 {'session_id': click_data.get('session_id')},

@@ -8,6 +8,7 @@ from utils.auth import token_required, admin_required, subadmin_or_admin_require
 from models.promo_code import PromoCode
 from database import db_instance
 from services.email_service import get_email_service
+from services.admin_activity_log_service import log_admin_activity
 from bson import ObjectId
 import logging
 from datetime import datetime
@@ -83,6 +84,20 @@ def create_promo_code():
         except Exception as e:
             logger.error(f"Failed to send promo code notifications: {str(e)}")
         
+        # Log activity
+        log_admin_activity(
+            action='promo_code_created',
+            category='promo_code',
+            admin_user=current_user,
+            details={
+                'code': promo_code_doc.get('code', ''),
+                'bonus_type': promo_code_doc.get('bonus_type', ''),
+                'bonus_amount': promo_code_doc.get('bonus_amount', 0),
+                'emails_sent': email_count,
+            },
+            request_obj=request
+        )
+
         return jsonify({
             'message': 'Promo code created successfully and notifications sent',
             'promo_code': promo_code_doc,

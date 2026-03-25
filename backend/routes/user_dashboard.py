@@ -731,6 +731,23 @@ def get_user_notifications():
         
         # Also check offerwall_conversions for reversals
         if conversions_col is not None:
+
+            # 6. CUSTOM NOTIFICATIONS (from admin send-offers, etc.)
+            custom_notif_col = get_collection('notifications')
+            if custom_notif_col is not None:
+                custom_query = {'user_id': user_id, 'read': False}
+                custom_notifs = list(custom_notif_col.find(custom_query).sort('created_at', -1).limit(6))
+                for cn in custom_notifs:
+                    notifications.append({
+                        'id': str(cn['_id']),
+                        'type': cn.get('type', 'notification'),
+                        'icon': 'bell',
+                        'title': cn.get('title', 'Notification'),
+                        'message': cn.get('message', ''),
+                        'timestamp': cn.get('created_at'),
+                        'color': 'blue'
+                    })
+
             offerwall_reversal_query = {
                 '$or': [
                     {'user_id': user_id}

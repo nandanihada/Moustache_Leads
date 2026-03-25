@@ -7,6 +7,7 @@ from utils.json_serializer import safe_json_response, serialize_for_json
 from utils.frontend_mapping import FrontendDatabaseMapper
 from services.email_service import get_email_service
 from services.health_check_service import HealthCheckService
+from services.admin_activity_log_service import log_admin_activity
 from database import db_instance
 import logging
 from datetime import datetime
@@ -274,6 +275,22 @@ def create_offer():
                 # Don't fail offer creation if email fails
                 logging.error(f"❌ Email notification error (non-critical): {str(email_error)}", exc_info=True)
         
+        # Log activity
+        log_admin_activity(
+            action='offer_created',
+            category='offer',
+            admin_user=user,
+            details={
+                'offer_id': offer_data.get('offer_id', ''),
+                'offer_name': offer_data.get('name', ''),
+                'network': offer_data.get('network', ''),
+                'status': offer_data.get('status', ''),
+                'category': offer_data.get('category', ''),
+                'payout': offer_data.get('payout', ''),
+            },
+            request_obj=request
+        )
+
         return safe_json_response({
             'message': 'Offer created successfully',
             'offer': offer_data
@@ -608,11 +625,20 @@ def get_running_offers():
             fa = first_active.get(oid) if oid in directly_interacted else None
             doc['when_active'] = fa
 
-            # Calculate days remaining in 30-day window
-            if fa:
-                elapsed = (datetime.utcnow() - fa).days
+            # Calculate expiry based on LAST CLICK date (rolling 30-day window)
+            # If offer has clicks, expiry = last_click + 30 days
+            # If no clicks but has other interactions, expiry = first_active + 30 days
+            lc = last_clicked.get(oid)
+            # Also check last_click_date field on the offer document itself
+            offer_lcd = doc.get('last_click_date')
+            if offer_lcd and (not lc or offer_lcd > lc):
+                lc = offer_lcd
+
+            expiry_anchor = lc or fa  # Prefer last click, fall back to first interaction
+            if expiry_anchor:
+                elapsed = (datetime.utcnow() - expiry_anchor).days
                 doc['days_remaining'] = max(0, days - elapsed)
-                doc['when_expired'] = fa + timedelta(days=days)
+                doc['when_expired'] = expiry_anchor + timedelta(days=days)
             else:
                 doc['days_remaining'] = None
                 doc['when_expired'] = None
@@ -1063,6 +1089,20 @@ def update_offer(offer_id):
             except Exception as e:
                 logging.error(f"Failed to send promo code assignment emails: {str(e)}")
         
+        # Log activity
+        log_admin_activity(
+            action='offer_updated',
+            category='offer',
+            admin_user=request.current_user,
+            details={
+                'offer_id': offer_id,
+                'offer_name': updated_offer.get('name', ''),
+                'network': updated_offer.get('network', ''),
+                'fields_updated': list(data.keys()),
+            },
+            request_obj=request
+        )
+
         return safe_json_response({
             'message': 'Offer updated successfully',
             'offer': updated_offer
@@ -1153,10 +1193,28 @@ def reject_access_request():
 def delete_offer(offer_id):
     """Delete an offer (Admin only)"""
     try:
+        # Fetch offer details before deleting for logging
+        offers_col = db_instance.get_collection('offers')
+        offer_doc = offers_col.find_one({'offer_id': offer_id}) if offers_col else None
+
         success = offer_model.delete_offer(offer_id)
         
         if not success:
             return jsonify({'error': 'Offer not found or already deleted'}), 404
+
+        # Log activity
+        log_admin_activity(
+            action='offer_deleted',
+            category='offer',
+            admin_user=request.current_user,
+            details={
+                'offer_id': offer_id,
+                'offer_name': offer_doc.get('name', 'Unknown') if offer_doc else 'Unknown',
+                'network': offer_doc.get('network', '') if offer_doc else '',
+            },
+            affected_items=[{'offer_id': offer_id, 'name': offer_doc.get('name', '') if offer_doc else ''}],
+            request_obj=request
+        )
         
         return jsonify({'message': 'Offer deleted successfully'}), 200
         
@@ -1183,6 +1241,12 @@ def bulk_delete_offers():
         offers_collection = db_instance.get_collection('offers')
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
+
+        # Fetch offer details before deleting for logging
+        offer_docs = list(offers_collection.find(
+            {'offer_id': {'$in': offer_ids}},
+            {'offer_id': 1, 'name': 1, 'network': 1, 'status': 1, 'category': 1}
+        ))
         
         # Single bulk update instead of per-offer loop
         from datetime import datetime
@@ -1200,6 +1264,21 @@ def bulk_delete_offers():
         
         deleted_count = result.modified_count
         failed_count = len(offer_ids) - deleted_count
+
+        # Log activity
+        log_admin_activity(
+            action='bulk_delete',
+            category='offer',
+            admin_user=request.current_user,
+            details={
+                'total_requested': len(offer_ids),
+                'deleted_count': deleted_count,
+                'failed_count': failed_count,
+            },
+            affected_items=[{'offer_id': d.get('offer_id', ''), 'name': d.get('name', ''), 'network': d.get('network', '')} for d in offer_docs],
+            affected_count=deleted_count,
+            request_obj=request
+        )
         
         return jsonify({
             'message': f'Bulk delete completed',
@@ -1248,6 +1327,20 @@ def bulk_update_status():
         result = offers_collection.update_many(
             query,
             {'$set': {'status': new_status, 'updated_at': datetime.utcnow()}}
+        )
+
+        # Log activity
+        log_admin_activity(
+            action='bulk_status_update',
+            category='offer',
+            admin_user=request.current_user,
+            details={
+                'new_status': new_status,
+                'updated_count': result.modified_count,
+                'scope': 'selected' if (offer_ids and len(offer_ids) > 0) else 'all',
+            },
+            affected_count=result.modified_count,
+            request_obj=request
         )
 
         return jsonify({
@@ -1335,6 +1428,16 @@ def empty_recycle_bin():
     """Permanently delete all offers in recycle bin"""
     try:
         deleted_count = offer_model.empty_recycle_bin()
+
+        # Log activity
+        log_admin_activity(
+            action='recycle_bin_emptied',
+            category='recycle_bin',
+            admin_user=request.current_user,
+            details={'deleted_count': deleted_count},
+            affected_count=deleted_count,
+            request_obj=request
+        )
         
         return jsonify({
             'message': f'Recycle bin emptied successfully',
@@ -1369,6 +1472,16 @@ def clear_all_offers():
                     'updated_at': datetime.utcnow()
                 }
             }
+        )
+
+        # Log activity
+        log_admin_activity(
+            action='clear_all_offers',
+            category='recycle_bin',
+            admin_user=request.current_user,
+            details={'moved_count': result.modified_count},
+            affected_count=result.modified_count,
+            request_obj=request
         )
 
         return jsonify({
@@ -2981,3 +3094,216 @@ def fix_network_tracking_links():
         logging.error(f"Fix tracking links error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to fix tracking links: {str(e)}'}), 500
 
+
+# ============================================================
+# OFFER ROTATION ENDPOINTS
+# ============================================================
+
+@admin_offers_bp.route('/offers/rotation/status', methods=['GET'])
+@token_required
+@admin_required
+def get_rotation_status():
+    """Get current rotation status and config."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        status = service.get_status()
+        from utils.json_serializer import serialize_for_json
+        return jsonify(serialize_for_json(status)), 200
+    except Exception as e:
+        logging.error(f"Rotation status error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/current-batch-details', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_rotation_batch_details():
+    """Get full offer details for the current rotation batch."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        status = service.get_status()
+
+        batch_ids = status.get('current_batch_ids', [])
+        running_ids = set(status.get('running_offer_ids', []))
+
+        if not batch_ids:
+            return jsonify({
+                'offers': [],
+                'total': 0,
+                'rotation_info': {
+                    'enabled': status.get('enabled', False),
+                    'batch_index': status.get('batch_index', 0),
+                    'batch_activated_at': status.get('batch_activated_at'),
+                    'window_minutes': status.get('window_minutes', 0),
+                    'time_remaining_seconds': status.get('time_remaining_seconds'),
+                    'next_rotation_at': status.get('next_rotation_at'),
+                    'inactive_pool_count': status.get('inactive_pool_count', 0),
+                }
+            }), 200
+
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Fetch full offer details
+        offer_docs = list(offers_col.find(
+            {'offer_id': {'$in': batch_ids}},
+            {
+                'offer_id': 1, 'name': 1, 'network': 1, 'payout': 1, 'status': 1,
+                'category': 1, 'countries': 1, 'allowed_countries': 1,
+                'clicks': 1, 'conversions': 1, 'image_url': 1, 'thumbnail_url': 1,
+                'rotation_activated_at': 1, 'rotation_running': 1,
+                'rotation_batch_index': 1, 'created_at': 1, 'updated_at': 1,
+                'payout_type': 1, 'target_url': 1,
+            }
+        ))
+
+        # Also get click counts from clicks collection for these offers
+        clicks_col = db_instance.get_collection('clicks')
+        click_counts = {}
+        if clicks_col is not None:
+            try:
+                pipeline = [
+                    {'$match': {'offer_id': {'$in': batch_ids}}},
+                    {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}, 'last_click': {'$max': '$timestamp'}}},
+                ]
+                for doc in clicks_col.aggregate(pipeline):
+                    click_counts[doc['_id']] = {'clicks': doc['count'], 'last_click': doc.get('last_click')}
+            except Exception:
+                pass
+
+        offers = []
+        for doc in offer_docs:
+            oid = doc.get('offer_id', '')
+            click_data = click_counts.get(oid, {})
+            countries = doc.get('allowed_countries') or doc.get('countries') or []
+            offers.append({
+                'offer_id': oid,
+                'name': doc.get('name', ''),
+                'network': doc.get('network', ''),
+                'payout': doc.get('payout', 0),
+                'payout_type': doc.get('payout_type', ''),
+                'status': doc.get('status', ''),
+                'category': doc.get('category', ''),
+                'countries': countries[:5] if isinstance(countries, list) else [],
+                'clicks': click_data.get('clicks', doc.get('clicks', 0)),
+                'conversions': doc.get('conversions', 0),
+                'last_click': click_data.get('last_click'),
+                'is_running': oid in running_ids,
+                'rotation_activated_at': doc.get('rotation_activated_at'),
+                'rotation_batch_index': doc.get('rotation_batch_index'),
+                'created_at': doc.get('created_at'),
+                'updated_at': doc.get('updated_at'),
+                'image_url': doc.get('image_url') or doc.get('thumbnail_url', ''),
+            })
+
+        # Sort: running offers first, then by clicks desc
+        offers.sort(key=lambda o: (not o['is_running'], -(o.get('clicks') or 0)))
+
+        from utils.json_serializer import serialize_for_json
+        return jsonify(serialize_for_json({
+            'offers': offers,
+            'total': len(offers),
+            'rotation_info': {
+                'enabled': status.get('enabled', False),
+                'batch_index': status.get('batch_index', 0),
+                'batch_activated_at': status.get('batch_activated_at'),
+                'window_minutes': status.get('window_minutes', 0),
+                'time_remaining_seconds': status.get('time_remaining_seconds'),
+                'next_rotation_at': status.get('next_rotation_at'),
+                'inactive_pool_count': status.get('inactive_pool_count', 0),
+                'running_count': len(running_ids),
+            }
+        })), 200
+
+    except Exception as e:
+        logging.error(f"Rotation batch details error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/enable', methods=['POST'])
+@token_required
+@admin_required
+def enable_rotation():
+    """Enable the rotation loop."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        status = service.enable()
+        from utils.json_serializer import serialize_for_json
+        return jsonify({'message': 'Rotation enabled', **serialize_for_json(status)}), 200
+    except Exception as e:
+        logging.error(f"Enable rotation error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/disable', methods=['POST'])
+@token_required
+@admin_required
+def disable_rotation():
+    """Disable the rotation loop (current batch stays active until window ends)."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        status = service.disable()
+        from utils.json_serializer import serialize_for_json
+        return jsonify({'message': 'Rotation disabled', **serialize_for_json(status)}), 200
+    except Exception as e:
+        logging.error(f"Disable rotation error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/config', methods=['PUT'])
+@token_required
+@admin_required
+def update_rotation_config():
+    """Update rotation batch_size and/or window_hours."""
+    try:
+        data = request.get_json() or {}
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        status = service.update_config(
+            batch_size=data.get('batch_size'),
+            window_minutes=data.get('window_minutes'),
+        )
+        from utils.json_serializer import serialize_for_json
+        return jsonify({'message': 'Config updated', **serialize_for_json(status)}), 200
+    except Exception as e:
+        logging.error(f"Update rotation config error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/force', methods=['POST'])
+@token_required
+@admin_required
+def force_rotation():
+    """Force an immediate rotation."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        result = service.force_rotate()
+        from utils.json_serializer import serialize_for_json
+        if 'error' in result:
+            return jsonify(result), 400
+        return jsonify({'message': 'Rotation forced', **serialize_for_json(result)}), 200
+    except Exception as e:
+        logging.error(f"Force rotation error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/reset', methods=['POST'])
+@token_required
+@admin_required
+def reset_rotation():
+    """Reset all rotation state."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        status = service.reset()
+        from utils.json_serializer import serialize_for_json
+        return jsonify({'message': 'Rotation reset', **serialize_for_json(status)}), 200
+    except Exception as e:
+        logging.error(f"Reset rotation error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

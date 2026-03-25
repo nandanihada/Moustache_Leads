@@ -81,6 +81,7 @@ placement_proofs_bp = safe_import_blueprint('routes.placement_proofs', 'placemen
 support_bp = safe_import_blueprint('routes.support_messages', 'support_bp')
 search_logs_bp = safe_import_blueprint('routes.search_logs', 'search_logs_bp')
 admin_reports_bp = safe_import_blueprint('routes.admin_reports', 'admin_reports_bp')
+admin_activity_logs_bp = safe_import_blueprint('routes.admin_activity_logs', 'admin_activity_logs_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -153,6 +154,7 @@ blueprints = [
     (support_bp, ''),
     (search_logs_bp, '/api/admin'),
     (admin_reports_bp, ''),
+    (admin_activity_logs_bp, '/api/admin'),
 ]
 
 def create_app():
@@ -439,6 +441,26 @@ def start_background_services():
             logging.info("✅ Scheduled email service started")
         except Exception as e:
             logging.warning(f"⚠️ Scheduled email service failed to start: {str(e)}")
+        
+        try:
+            from services.offer_inactivity_service import get_offer_inactivity_service
+            inactivity_service = get_offer_inactivity_service()
+            inactivity_service.start_service()
+            logging.info("✅ Offer inactivity service started (30-day no-click auto-deactivation)")
+        except Exception as e:
+            logging.warning(f"⚠️ Offer inactivity service failed to start: {str(e)}")
+        
+        try:
+            from services.offer_rotation_service import get_rotation_service
+            rotation_service = get_rotation_service()
+            rot_state = rotation_service._get_state()
+            if rot_state.get('enabled'):
+                rotation_service.start()
+                logging.info("✅ Offer rotation service started (was enabled)")
+            else:
+                logging.info("ℹ️ Offer rotation service loaded (currently disabled)")
+        except Exception as e:
+            logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:

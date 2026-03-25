@@ -8,6 +8,7 @@ from functools import wraps
 from models.gift_card import get_gift_card_service
 from models.user import User
 from utils.auth import token_required_with_user
+from services.admin_activity_log_service import log_admin_activity
 import logging
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,20 @@ def create_gift_card(current_user):
             else:
                 gift_card['email_status'] = 'sent'
         
+        # Log activity
+        log_admin_activity(
+            action='gift_card_created',
+            category='gift_card',
+            admin_user=current_user,
+            details={
+                'name': gift_card.get('name', ''),
+                'code': gift_card.get('code', ''),
+                'amount': gift_card.get('amount', 0),
+                'max_redemptions': gift_card.get('max_redemptions', 0),
+            },
+            request_obj=request
+        )
+
         return jsonify({
             'success': True,
             'message': f'Gift card created successfully! First {gift_card.get("max_redemptions", 0)} users can redeem.',

@@ -184,6 +184,26 @@ def track_offer_click(offer_id):
             try:
                 clicks_collection.insert_one(click_data)
                 logger.info(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
+                
+                # Update last_click_date on the offer (rolling 30-day inactivity window)
+                try:
+                    offers_collection.update_one(
+                        {'offer_id': offer_id},
+                        {'$set': {'last_click_date': datetime.utcnow()}}
+                    )
+                except Exception as lcd_err:
+                    logger.warning(f"⚠️ Failed to update last_click_date for {offer_id}: {lcd_err}")
+                
+                # Promote offer to "running" in rotation if it's in the active batch
+                try:
+                    from services.offer_rotation_service import get_rotation_service
+                    rotation_svc = get_rotation_service()
+                    rot_state = rotation_svc._get_state()
+                    if rot_state.get('enabled') and offer_id in rot_state.get('current_batch_ids', []):
+                        rotation_svc.promote_to_running(offer_id)
+                except Exception as rot_err:
+                    logger.warning(f"⚠️ Rotation promotion check failed: {rot_err}")
+                    
             except Exception as db_error:
                 logger.error(f"❌ Failed to save click to database: {db_error}")
         else:

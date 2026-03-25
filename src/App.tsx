@@ -55,6 +55,7 @@ import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
 import AdminPlacementProofs from "./pages/AdminPlacementProofs";
 import AdminSupportInbox from "./pages/AdminSupportInbox";
 import AdminSearchLogs from "./pages/AdminSearchLogs";
+import AdminActivityLogs from "./pages/AdminActivityLogs";
 import AdminReportsTracking from "./pages/AdminReportsTracking";
 import SupportPage from "./pages/SupportPage";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
@@ -160,6 +161,7 @@ const App = () => (
                 <Route path="login-logs" element={<AdminLoginLogs />} />
                 <Route path="active-users" element={<AdminActiveUsers />} />
                 <Route path="fraud-management" element={<AdminFraudManagement />} />
+                <Route path="activity-logs" element={<AdminActivityLogs />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="partners" element={<Partners />} />
                 <Route path="postback" element={<PostbackReceiver />} />

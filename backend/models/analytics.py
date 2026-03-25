@@ -64,6 +64,17 @@ class Analytics:
             result = self.clicks_collection.insert_one(click_record)
             click_record['_id'] = result.inserted_id
             
+            # Update last_click_date on the offer (rolling 30-day inactivity window)
+            try:
+                offers_col = db_instance.get_collection('offers')
+                if offers_col and offer_id:
+                    offers_col.update_one(
+                        {'offer_id': offer_id},
+                        {'$set': {'last_click_date': datetime.utcnow()}}
+                    )
+            except Exception:
+                pass
+            
             # Log fraud if detected
             if click_record['is_fraud']:
                 self._log_fraud_attempt(click_record)

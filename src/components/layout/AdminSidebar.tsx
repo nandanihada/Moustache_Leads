@@ -21,7 +21,8 @@ import {
   Building2,
   Sparkles,
   Mail,
-  Search
+  Search,
+  ClipboardList
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -95,6 +96,7 @@ const adminMenuStructure = [
     type: "group" as const,
     subtabs: [
       { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle, tab: "fraud-management" },
+      { title: "Activity Logs", url: "/admin/activity-logs", icon: ClipboardList, tab: "activity-logs" },
       { title: "Login Logs", url: "/admin/login-logs", icon: LogIn, tab: "login-logs" },
       { title: "Active Users", url: "/admin/active-users", icon: UserCog, tab: "active-users" },
     ]
