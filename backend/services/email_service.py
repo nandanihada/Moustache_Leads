@@ -523,7 +523,7 @@ class EmailService:
         logger.info(f"📧 Batch email started in background for {len(offers_list)} offers to {len(recipients)} recipients")
 
     def send_offer_update_notification(self, offer_data: Dict, recipients: List[str], update_type: str = 'promo_code') -> Dict:
-        """Send offer update notification to multiple recipients"""
+        """Send offer update notification to multiple recipients via BCC"""
         if not self.is_configured:
             return {'total': len(recipients), 'sent': 0, 'failed': len(recipients), 'error': 'Email service not configured'}
         
@@ -541,14 +541,34 @@ class EmailService:
         
         html_content = self._create_offer_update_email_html(offer_data, update_type)
         
+        # Use BCC batches instead of individual emails
+        batch_size = 50
         sent_count = 0
         failed_count = 0
         
-        for recipient in recipients:
-            if self._send_email(recipient, subject, html_content):
-                sent_count += 1
-            else:
-                failed_count += 1
+        for i in range(0, len(recipients), batch_size):
+            batch = recipients[i:i + batch_size]
+            try:
+                msg = MIMEMultipart('alternative')
+                msg['Subject'] = subject
+                msg['From'] = self.from_email
+                msg['To'] = self.from_email
+                msg['Bcc'] = ', '.join(batch)
+                msg.attach(MIMEText(html_content, 'html'))
+                
+                if self.email_debug:
+                    logger.info(f"📧 [DEBUG] Would BCC offer update to {len(batch)} recipients")
+                    sent_count += len(batch)
+                    continue
+                
+                if self._send_email_smtp(msg):
+                    sent_count += len(batch)
+                    logger.info(f"✅ Offer update BCC sent to {len(batch)} recipients")
+                else:
+                    failed_count += len(batch)
+            except Exception as e:
+                failed_count += len(batch)
+                logger.error(f"❌ Offer update BCC error: {str(e)}")
         
         return {'total': len(recipients), 'sent': sent_count, 'failed': failed_count, 'offer_name': offer_name, 'update_type': update_type}
     

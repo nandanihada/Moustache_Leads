@@ -630,11 +630,14 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
-  async bulkUpdateStatus(status: string, offerIds?: string[]): Promise<{ message: string; updated_count: number }> {
+  async bulkUpdateStatus(status: string, offerIds: string[]): Promise<{ message: string; updated_count: number }> {
+    if (!offerIds || offerIds.length === 0) {
+      throw new Error('No offers selected. Please select specific offers to update.');
+    }
     const response = await fetch(`${API_BASE_URL}/offers/bulk-status`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
-      body: JSON.stringify({ status, ...(offerIds && offerIds.length > 0 ? { offer_ids: offerIds } : {}) }),
+      body: JSON.stringify({ status, offer_ids: offerIds }),
     });
 
     return this.handleResponse(response);

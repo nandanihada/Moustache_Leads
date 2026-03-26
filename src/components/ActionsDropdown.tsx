@@ -21,7 +21,6 @@ import {
   Image,
   LayoutGrid,
   Globe,
-  Settings,
 } from 'lucide-react';
 
 interface ActionsDropdownProps {
@@ -37,7 +36,6 @@ interface ActionsDropdownProps {
   onAssignImages: () => void;
   onCarouselView: () => void;
   onManageDomains: () => void;
-  onBulkStatusChange?: (status: string) => void;
 }
 
 const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
@@ -53,7 +51,6 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
   onAssignImages,
   onCarouselView,
   onManageDomains,
-  onBulkStatusChange,
 }) => {
   return (
     <DropdownMenu>
@@ -115,27 +112,6 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
           <Globe className="mr-2 h-4 w-4" />
           Manage Domains
         </DropdownMenuItem>
-        {onBulkStatusChange && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled className="text-xs text-muted-foreground font-semibold">
-              <Settings className="mr-2 h-4 w-4" />
-              Set All Offers Status
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onBulkStatusChange('active')}>
-              <span className="mr-2 ml-6">🟢</span> Active
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onBulkStatusChange('inactive')}>
-              <span className="mr-2 ml-6">⚫</span> Inactive
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onBulkStatusChange('paused')}>
-              <span className="mr-2 ml-6">⏸️</span> Paused
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onBulkStatusChange('hidden')}>
-              <span className="mr-2 ml-6">👁️</span> Hidden
-            </DropdownMenuItem>
-          </>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

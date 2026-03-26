@@ -30,7 +30,7 @@ import {
     Loader2
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { bulkOfferApi } from '@/services/bulkOfferApi';
+import { bulkOfferApi, BulkUploadJobStatus } from '@/services/bulkOfferApi';
 import { API_BASE_URL } from '@/services/apiConfig';
 
 interface BulkOfferUploadProps {
@@ -146,6 +146,11 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
     const [publishersList, setPublishersList] = useState<Array<{_id: string; username: string; email: string}>>([]);
     const [publisherSearch, setPublisherSearch] = useState('');
     const [loadingPublishers, setLoadingPublishers] = useState(false);
+    
+    // Async job tracking state
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
+    const [jobStatus, setJobStatus] = useState<BulkUploadJobStatus | null>(null);
+    const pollingRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchPublishers = async () => {
         if (publishersList.length > 0) return;
@@ -231,6 +236,92 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
         }
     };
 
+    const stopPolling = () => {
+        if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+        }
+    };
+
+    const startPolling = (jobId: string) => {
+        stopPolling();
+        pollingRef.current = setInterval(async () => {
+            try {
+                const status = await bulkOfferApi.getJobStatus(jobId);
+                setJobStatus(status);
+
+                const pct = status.total > 0 ? Math.round((status.processed / status.total) * 100) : 0;
+                setUploadProgress(pct);
+                setImportStep(
+                    status.current_offer
+                        ? `⚙️ Processing: ${status.processed} / ${status.total} — ${status.current_offer}`
+                        : `⚙️ Processing: ${status.processed} / ${status.total}`
+                );
+
+                if (status.status === 'completed' || status.status === 'failed') {
+                    stopPolling();
+                    setIsUploading(false);
+                    setActiveJobId(null);
+
+                    if (status.status === 'completed') {
+                        setUploadProgress(100);
+                        setImportStep('✅ Import complete!');
+                        setUploadResult({
+                            success: status.succeeded > 0,
+                            created_count: status.succeeded,
+                            error_count: status.failed,
+                            duplicate_count: status.skipped_duplicates.length,
+                            created_offer_ids: status.created_ids,
+                            skipped_duplicates: status.skipped_duplicates.map(d => ({
+                                row: d.row,
+                                reason: d.reason,
+                                existing_offer_id: d.existing_offer_id || '',
+                                match_type: d.reason,
+                            })),
+                            creation_errors: status.errors.map(e => ({
+                                row: e.row || 0,
+                                error: e.error,
+                            })),
+                            message: `Created ${status.succeeded} offers${status.failed > 0 ? `, ${status.failed} failed` : ''}${status.skipped_duplicates.length > 0 ? `, ${status.skipped_duplicates.length} skipped` : ''} in ${status.elapsed_seconds}s`,
+                        });
+
+                        toast({
+                            title: 'Upload Successful',
+                            description: `Created ${status.succeeded} offers in ${status.elapsed_seconds}s`,
+                        });
+
+                        if (onUploadComplete) {
+                            setTimeout(() => onUploadComplete(), 1500);
+                        }
+                    } else {
+                        setImportStep('');
+                        setUploadProgress(0);
+                        const errMsg = status.errors.length > 0 ? status.errors[0].error : 'Background job failed';
+                        setUploadResult({
+                            success: false,
+                            created_count: status.succeeded,
+                            error_count: status.failed,
+                            created_offer_ids: status.created_ids,
+                            message: `Job failed: ${errMsg}`,
+                        });
+                        toast({
+                            title: 'Upload Failed',
+                            description: errMsg,
+                            variant: 'destructive',
+                        });
+                    }
+                }
+            } catch (err) {
+                console.error('Polling error:', err);
+            }
+        }, 2000);
+    };
+
+    // Cleanup polling on unmount
+    React.useEffect(() => {
+        return () => stopPolling();
+    }, []);
+
     const handleUpload = async (skipInvalidRows: boolean = false) => {
         if (uploadMode === 'file' && !selectedFile) {
             toast({
@@ -260,8 +351,6 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
         }
 
         try {
-            let result: UploadResult;
-
             // Build options object with approval settings
             const uploadOptions = {
                 approval_type: approvalType,
@@ -281,61 +370,23 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 selected_user_ids: emailRecipients === 'specific_users' ? selectedUserIds : [],
             };
 
+            let asyncResponse;
+
             if (uploadMode === 'file' && selectedFile) {
-                // Simulate progress
-                setUploadProgress(20);
-                setImportStep('📂 Reading file...');
-                await new Promise(r => setTimeout(r, 400));
-                setUploadProgress(40);
-                setImportStep('🔍 Validating rows...');
-                await new Promise(r => setTimeout(r, 300));
-                setUploadProgress(55);
-                setImportStep('🌐 Checking partner networks...');
-                await new Promise(r => setTimeout(r, 300));
-                setUploadProgress(70);
-                setImportStep('🔗 Injecting tracking parameters...');
-                result = await bulkOfferApi.uploadFile(selectedFile, uploadOptions);
+                setUploadProgress(10);
+                setImportStep('📂 Uploading file & validating...');
+                asyncResponse = await bulkOfferApi.uploadFileAsync(selectedFile, uploadOptions);
             } else {
-                setUploadProgress(20);
-                setImportStep('🌐 Fetching Google Sheet...');
-                await new Promise(r => setTimeout(r, 500));
-                setUploadProgress(40);
-                setImportStep('🔍 Validating rows...');
-                await new Promise(r => setTimeout(r, 300));
-                setUploadProgress(55);
-                setImportStep('🌐 Checking partner networks...');
-                await new Promise(r => setTimeout(r, 300));
-                setUploadProgress(70);
-                setImportStep('🔗 Injecting tracking parameters...');
-                result = await bulkOfferApi.uploadFromGoogleSheets(googleSheetUrl, uploadOptions);
+                setUploadProgress(10);
+                setImportStep('🌐 Fetching Google Sheet & validating...');
+                asyncResponse = await bulkOfferApi.uploadFromGoogleSheetsAsync(googleSheetUrl, uploadOptions);
             }
 
-            setUploadProgress(90);
-            setImportStep('💾 Saving offers to database...');
-            await new Promise(r => setTimeout(r, 300));
-            setUploadProgress(100);
-            setImportStep('✅ Import complete!');
-            setUploadResult(result);
-
-            if (result.success && result.created_count > 0) {
-                toast({
-                    title: 'Upload Successful',
-                    description: `Successfully created ${result.created_count} offers`,
-                });
-
-                // Call completion callback
-                if (onUploadComplete) {
-                    setTimeout(() => {
-                        onUploadComplete();
-                    }, 1500);
-                }
-            } else {
-                toast({
-                    title: 'Upload Completed with Errors',
-                    description: result.message,
-                    variant: 'destructive',
-                });
-            }
+            // Got job_id — start polling
+            setActiveJobId(asyncResponse.job_id);
+            setUploadProgress(15);
+            setImportStep(`⚙️ Processing: 0 / ${asyncResponse.total}`);
+            startPolling(asyncResponse.job_id);
         } catch (error: any) {
             console.error('Upload error:', error);
             console.log('Error object:', {
@@ -371,16 +422,22 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 });
             }
         } finally {
-            setIsUploading(false);
+            // Only reset isUploading if no active polling (errors are handled here, success is handled by polling)
+            if (!activeJobId && !pollingRef.current) {
+                setIsUploading(false);
+            }
         }
     };
 
     const handleClose = () => {
+        stopPolling();
         setSelectedFile(null);
         setGoogleSheetUrl('');
         setUploadResult(null);
         setUploadProgress(0);
         setImportStep('');
+        setActiveJobId(null);
+        setJobStatus(null);
         onOpenChange(false);
     };
 
@@ -799,29 +856,30 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                             </div>
                             <Progress value={uploadProgress} className="h-2" />
                             <div className="flex justify-between text-xs text-blue-600">
-                                <span>Step {Math.ceil(uploadProgress / 20)} of 5</span>
-                                <span>{uploadProgress}%</span>
+                                {jobStatus ? (
+                                    <>
+                                        <span>{jobStatus.processed} / {jobStatus.total} offers processed</span>
+                                        <span>{uploadProgress}%</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <span>Uploading & validating...</span>
+                                        <span>{uploadProgress}%</span>
+                                    </>
+                                )}
                             </div>
-                            <div className="grid grid-cols-5 gap-1 mt-1">
-                                {[
-                                    { pct: 20, label: 'Read' },
-                                    { pct: 40, label: 'Validate' },
-                                    { pct: 55, label: 'Partners' },
-                                    { pct: 70, label: 'Params' },
-                                    { pct: 100, label: 'Save' },
-                                ].map((s) => (
-                                    <div
-                                        key={s.label}
-                                        className={`text-center text-xs py-1 rounded transition-all ${
-                                            uploadProgress >= s.pct
-                                                ? 'bg-blue-600 text-white font-medium'
-                                                : 'bg-blue-100 text-blue-400'
-                                        }`}
-                                    >
-                                        {s.label}
-                                    </div>
-                                ))}
-                            </div>
+                            {jobStatus && (
+                                <div className="flex gap-3 text-xs mt-1">
+                                    <span className="text-green-600">✅ {jobStatus.succeeded} succeeded</span>
+                                    {jobStatus.failed > 0 && (
+                                        <span className="text-red-600">❌ {jobStatus.failed} failed</span>
+                                    )}
+                                    {jobStatus.skipped_duplicates.length > 0 && (
+                                        <span className="text-amber-600">⏭️ {jobStatus.skipped_duplicates.length} skipped</span>
+                                    )}
+                                    <span className="text-gray-500 ml-auto">{jobStatus.elapsed_seconds}s elapsed</span>
+                                </div>
+                            )}
                         </div>
                     )}
 

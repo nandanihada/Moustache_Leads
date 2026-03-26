@@ -378,16 +378,20 @@ Best regards,
 Publisher Support Team
 Moustache Leads"""
 
-        # Send to each user
-        for user in users:
-            username = user.get('username', 'Publisher')
-            body = build_body(username)
-
-            if send_via == 'email':
+        # Send to users via BCC (single email) or support/notification per user
+        if send_via == 'email':
+            # Collect all email addresses and send ONE BCC email
+            all_emails = [u.get('email') for u in users if u.get('email')]
+            all_emails.extend([e.strip() for e in custom_emails if e.strip()])
+            
+            if all_emails:
                 try:
                     import threading
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    
                     email_service = get_email_service()
-                    body = build_body(username)
+                    body = build_body('Publisher')
                     html_body = body.replace('\n', '<br>')
                     html_content = f"""<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
                     <div style="max-width:600px;margin:0 auto;padding:20px;">
@@ -395,29 +399,40 @@ Moustache Leads"""
                     <div>{html_body}</div>
                     </div></body></html>"""
                     
-                    recipient = user.get('email')
-                    logging.info(f"📧 Sending offer recommendation email to {recipient}")
+                    logging.info(f"📧 Sending BCC email to {len(all_emails)} recipients")
                     
-                    def send_bg():
+                    def send_bcc():
                         try:
-                            ok = email_service._send_email(recipient, email_subject, html_content)
-                            logging.info(f"📧 Email send result for {recipient}: {ok}")
+                            batch_size = 50
+                            for i in range(0, len(all_emails), batch_size):
+                                batch = all_emails[i:i + batch_size]
+                                msg = MIMEMultipart('alternative')
+                                msg['Subject'] = email_subject
+                                msg['From'] = email_service.from_email
+                                msg['To'] = email_service.from_email
+                                msg['Bcc'] = ', '.join(batch)
+                                msg.attach(MIMEText(html_content, 'html'))
+                                
+                                ok = email_service._send_email_smtp(msg)
+                                logging.info(f"📧 BCC batch ({len(batch)} recipients): {'OK' if ok else 'FAILED'}")
                         except Exception as ex:
-                            logging.error(f"❌ Background email error for {recipient}: {ex}")
+                            logging.error(f"❌ BCC email error: {ex}")
                     
-                    thread = threading.Thread(target=send_bg, daemon=False)
+                    thread = threading.Thread(target=send_bcc, daemon=False)
                     thread.start()
-                    results['sent'] += 1
+                    results['sent'] = len(all_emails)
                 except Exception as e:
-                    logging.error(f"❌ Email setup error for {username}: {str(e)}")
-                    results['failed'] += 1
-                    results['errors'].append(f"{username}: {str(e)}")
-
-            elif send_via == 'support':
+                    logging.error(f"❌ Email setup error: {str(e)}")
+                    results['failed'] = len(all_emails)
+                    results['errors'].append(str(e))
+        
+        elif send_via == 'support':
+            for user in users:
+                username = user.get('username', 'Publisher')
+                body = build_body(username)
                 try:
                     from bson import ObjectId as ObjId
                     support_collection = db_instance.get_collection('support_messages')
-                    # Match the existing support message schema
                     support_collection.insert_one({
                         'user_id': ObjId(str(user['_id'])),
                         'username': user.get('username', ''),
@@ -426,13 +441,7 @@ Moustache Leads"""
                         'body': 'You have new offer recommendations from the admin team.',
                         'image_url': None,
                         'status': 'replied',
-                        'replies': [{
-                            'reply': body,
-                            'replied_by': 'admin',
-                            'admin_id': str(request.current_user['_id']),
-                            'admin_username': request.current_user.get('username', 'Admin'),
-                            'created_at': datetime.utcnow(),
-                        }],
+                        'replies': [{'reply': body, 'replied_by': 'admin', 'admin_id': str(request.current_user['_id']), 'admin_username': request.current_user.get('username', 'Admin'), 'created_at': datetime.utcnow()}],
                         'created_at': datetime.utcnow(),
                         'updated_at': datetime.utcnow(),
                         'read_by_admin': True,
@@ -442,8 +451,9 @@ Moustache Leads"""
                 except Exception as e:
                     results['failed'] += 1
                     results['errors'].append(f"{username}: {str(e)}")
-
-            elif send_via == 'notification':
+        
+        elif send_via == 'notification':
+            for user in users:
                 try:
                     from bson import ObjectId as ObjId
                     notifications_collection = db_instance.get_collection('notifications')
@@ -461,35 +471,7 @@ Moustache Leads"""
                     results['sent'] += 1
                 except Exception as e:
                     results['failed'] += 1
-                    results['errors'].append(f"{username}: {str(e)}")
-
-        # Send to custom emails
-        if custom_emails and send_via == 'email':
-            import threading
-            email_service = get_email_service()
-            for email_addr in custom_emails:
-                try:
-                    body = build_body('Publisher')
-                    html_body = body.replace('\n', '<br>')
-                    html_content = f"""<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
-                    <div style="max-width:600px;margin:0 auto;padding:20px;">
-                    <h2 style="color:#10b981;">Moustache Leads</h2>
-                    <div>{html_body}</div>
-                    </div></body></html>"""
-                    addr = email_addr.strip()
-                    logging.info(f"📧 Sending offer email to custom address: {addr}")
-                    def send_bg_custom(a=addr, h=html_content):
-                        try:
-                            ok = email_service._send_email(a, email_subject, h)
-                            logging.info(f"📧 Custom email result for {a}: {ok}")
-                        except Exception as ex:
-                            logging.error(f"❌ Custom email error for {a}: {ex}")
-                    thread = threading.Thread(target=send_bg_custom, daemon=False)
-                    thread.start()
-                    results['sent'] += 1
-                except Exception as e:
-                    results['failed'] += 1
-                    results['errors'].append(f"{email_addr}: {str(e)}")
+                    results['errors'].append(f"{str(user.get('username', ''))}: {str(e)}")
 
         return jsonify({
             'success': results['sent'] > 0,

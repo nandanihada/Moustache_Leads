@@ -38,6 +38,7 @@ import {
   SkipForward,
   Timer,
   Zap,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -797,24 +798,106 @@ const AdminOffers = () => {
   };
 
   const handleBulkStatusChange = async (newStatus: string) => {
-    const ids = Array.from(selectedOffers);
-    const scope = ids.length > 0 ? `${ids.length} selected offer(s)` : 'ALL offers';
-    if (!confirm(`Change status of ${scope} to "${newStatus}"?`)) return;
+    // Use the correct selection based on which sub-view is active
+    const isRunningView = offersSubView === 'running';
+    const ids = Array.from(isRunningView ? selectedRunningOffers : selectedOffers);
+
+    if (ids.length === 0) {
+      toast({ title: "No Selection", description: "Please select offers first", variant: "destructive" });
+      return;
+    }
+
+    if (!confirm(`Change status of ${ids.length} selected offer(s) to "${newStatus}"?`)) return;
 
     try {
-      const result = await adminOfferApi.bulkUpdateStatus(newStatus, ids.length > 0 ? ids : undefined);
+      const result = await adminOfferApi.bulkUpdateStatus(newStatus, ids);
       toast({
         title: "Success",
         description: `Updated ${result.updated_count} offer(s) to ${newStatus}`,
       });
-      setSelectedOffers(new Set());
-      fetchOffers();
+      if (isRunningView) {
+        setSelectedRunningOffers(new Set());
+        fetchRunningOffers();
+      } else {
+        setSelectedOffers(new Set());
+        fetchOffers();
+      }
     } catch (error) {
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to update status",
         variant: "destructive",
       });
+    }
+  };
+
+  // Export running offers to CSV
+  const handleRunningOffersExport = async () => {
+    try {
+      setRunningLoading(true);
+      // Fetch all running offers (up to 1000) with current filters
+      const res = await adminOfferApi.getRunningOffers({
+        page: 1,
+        per_page: 1000,
+        search: runningSearchTerm || undefined,
+        subcategory: runningSubcategory,
+        status: runningStatusFilter === 'all' ? undefined : runningStatusFilter,
+        category: runningCategoryFilter === 'all' ? undefined : runningCategoryFilter,
+        country: runningCountryFilter === 'all' ? undefined : runningCountryFilter,
+        network: runningNetworkFilter === 'all' ? undefined : runningNetworkFilter,
+        sort: runningSortBy,
+      });
+
+      if (!res.offers || res.offers.length === 0) {
+        toast({ title: "No Data", description: "No running offers found to export", variant: "destructive" });
+        return;
+      }
+
+      const csvData = res.offers.map(offer => ({
+        'Offer ID': offer.offer_id,
+        'Name': offer.name,
+        'Status': offer.status,
+        'Category': offer.category || offer.vertical || '',
+        'Network': offer.network || '',
+        'Payout': `$${offer.payout?.toFixed(2) || '0.00'}`,
+        'Countries': Array.isArray(offer.countries) ? offer.countries.join(', ') : '',
+        'Total Clicks': offer.total_clicks || 0,
+        'Sub Statuses': (offer.sub_statuses || []).join(', '),
+        'When Active': offer.when_active ? new Date(offer.when_active).toLocaleDateString() : '',
+        'When Expired': offer.when_expired ? new Date(offer.when_expired).toLocaleDateString() : '',
+        'Days Remaining': offer.days_remaining ?? '',
+        'Target URL': offer.target_url || '',
+      }));
+
+      const headers = Object.keys(csvData[0]);
+      const csvContent = [
+        headers.join(','),
+        ...csvData.map(row =>
+          headers.map(header => {
+            const value = String(row[header as keyof typeof row] || '');
+            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+              return `"${value.replace(/"/g, '""')}"`;
+            }
+            return value;
+          }).join(',')
+        )
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.setAttribute('href', URL.createObjectURL(blob));
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      link.setAttribute('download', `running-offers-export-${timestamp}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast({ title: "Export Successful", description: `Exported ${csvData.length} running offers` });
+    } catch (error) {
+      toast({ title: "Export Failed", description: "Failed to export running offers", variant: "destructive" });
+    } finally {
+      setRunningLoading(false);
     }
   };
 
@@ -1556,7 +1639,6 @@ const AdminOffers = () => {
             onAssignImages={handleAssignRandomImages}
             onCarouselView={() => openCarouselView(0)}
             onManageDomains={() => setDomainManagementModalOpen(true)}
-            onBulkStatusChange={(status) => handleBulkStatusChange(status)}
           />
         </div>
       </TooltipProvider>
@@ -1667,12 +1749,37 @@ const AdminOffers = () => {
 
               {selectedRunningOffers.size > 0 && (
                 <>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="shrink-0">
+                        <Settings className="h-4 w-4 mr-2" />
+                        Status ({selectedRunningOffers.size})
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => handleBulkStatusChange('active')}>
+                        <span className="mr-2">🟢</span> Active
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleBulkStatusChange('inactive')}>
+                        <span className="mr-2">⚫</span> Inactive
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleBulkStatusChange('paused')}>
+                        <span className="mr-2">⏸️</span> Paused
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleBulkStatusChange('hidden')}>
+                        <span className="mr-2">👁️</span> Hidden
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button variant="destructive" size="sm" onClick={handleRunningBulkDelete} disabled={bulkDeleting} className="shrink-0">
                     {bulkDeleting ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
                     {bulkDeleting ? 'Deleting...' : `Delete (${selectedRunningOffers.size})`}
                   </Button>
                 </>
               )}
+              <Button variant="outline" size="sm" onClick={handleRunningOffersExport} disabled={runningLoading} className="shrink-0" title="Export running offers to CSV">
+                <FileSpreadsheet className="h-4 w-4" />
+              </Button>
               <Button variant="outline" size="sm" onClick={() => fetchRunningOffers()} className="shrink-0"><RefreshCw className="h-4 w-4" /></Button>
             </div>
 

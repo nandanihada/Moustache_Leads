@@ -10,6 +10,8 @@ from services.health_check_service import HealthCheckService
 from services.admin_activity_log_service import log_admin_activity
 from database import db_instance
 import logging
+import threading
+import uuid
 from datetime import datetime
 
 admin_offers_bp = Blueprint('admin_offers', __name__)
@@ -1295,7 +1297,7 @@ def bulk_delete_offers():
 @token_required
 @subadmin_or_admin_required('offers')
 def bulk_update_status():
-    """Update status of multiple offers at once (or all offers if no IDs provided)"""
+    """Update status of multiple offers at once — requires explicit offer IDs"""
     try:
         data = request.get_json()
         if not data or 'status' not in data:
@@ -1308,21 +1310,18 @@ def bulk_update_status():
 
         offer_ids = data.get('offer_ids', [])
 
+        # SAFETY: Always require explicit offer IDs — never update all offers
+        if not offer_ids or not isinstance(offer_ids, list) or len(offer_ids) == 0:
+            return jsonify({'error': 'offer_ids is required. You must select specific offers to update.'}), 400
+
         offers_collection = db_instance.get_collection('offers')
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
 
         from datetime import datetime
 
-        if offer_ids and isinstance(offer_ids, list) and len(offer_ids) > 0:
-            # Update specific offers
-            query = {'offer_id': {'$in': offer_ids}, '$or': [{'is_active': True}, {'is_active': {'$exists': False}}]}
-        else:
-            # Update ALL active offers
-            query = {'$and': [
-                {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
-                {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
-            ]}
+        # Update specific offers only
+        query = {'offer_id': {'$in': offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
 
         result = offers_collection.update_many(
             query,
@@ -1337,14 +1336,15 @@ def bulk_update_status():
             details={
                 'new_status': new_status,
                 'updated_count': result.modified_count,
-                'scope': 'selected' if (offer_ids and len(offer_ids) > 0) else 'all',
+                'requested_count': len(offer_ids),
+                'scope': 'selected',
             },
             affected_count=result.modified_count,
             request_obj=request
         )
 
         return jsonify({
-            'message': f'Status updated to {new_status}',
+            'message': f'Updated {result.modified_count} offer(s) to {new_status}',
             'updated_count': result.modified_count
         }), 200
 
@@ -1787,6 +1787,318 @@ def assign_promo_code_to_offer(offer_id):
     except Exception as e:
         logging.error(f"Assign promo code error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to assign promo code: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/bulk-upload-async', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_upload_offers_async():
+    """Async bulk upload offers with background processing and real-time progress tracking"""
+    import os
+    import tempfile
+    from werkzeug.utils import secure_filename
+    from utils.bulk_offer_upload import (
+        parse_excel_file,
+        parse_csv_file,
+        fetch_google_sheet,
+        validate_spreadsheet_data,
+    )
+
+    try:
+        user = request.current_user
+        options = {}
+
+        # Check if it's a Google Sheets URL or file upload
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.get_json()
+            sheet_url = data.get('url')
+            options = data.get('options', {})
+
+            if not sheet_url:
+                return jsonify({'error': 'Google Sheets URL is required'}), 400
+
+            logging.info(f"📊 [ASYNC] Fetching Google Sheet: {sheet_url}")
+            rows, error = fetch_google_sheet(sheet_url)
+
+            if error:
+                return jsonify({'error': error}), 400
+        else:
+            if 'file' not in request.files:
+                return jsonify({'error': 'No file uploaded'}), 400
+
+            file = request.files['file']
+
+            if file.filename == '':
+                return jsonify({'error': 'No file selected'}), 400
+
+            options_str = request.form.get('options', '{}')
+            try:
+                import json
+                options = json.loads(options_str)
+            except Exception:
+                options = {}
+
+            filename = secure_filename(file.filename)
+            file_ext = os.path.splitext(filename)[1].lower()
+
+            if file_ext not in ['.xlsx', '.xls', '.csv']:
+                return jsonify({'error': 'Only Excel (.xlsx, .xls) and CSV files are supported'}), 400
+
+            temp_dir = tempfile.gettempdir()
+            temp_path = os.path.join(temp_dir, filename)
+            file.save(temp_path)
+
+            try:
+                logging.info(f"📊 [ASYNC] Parsing uploaded file: {filename}")
+                if file_ext in ['.xlsx', '.xls']:
+                    rows, error = parse_excel_file(temp_path)
+                else:
+                    rows, error = parse_csv_file(temp_path)
+
+                if error:
+                    return jsonify({'error': error}), 400
+            finally:
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    pass
+
+        # Extract options (same logic as bulk_upload_offers)
+        approval_type = options.get('approval_type', 'auto_approve')
+        auto_approve_delay = options.get('auto_approve_delay', 0)
+        require_approval = options.get('require_approval', False)
+        show_in_offerwall = options.get('show_in_offerwall', True)
+        duplicate_strategy = options.get('duplicate_strategy', 'skip')
+
+        if approval_type in ['direct', 'instant', 'immediate', 'auto']:
+            approval_type = 'auto_approve'
+        elif approval_type in ['time', 'timed', 'delay', 'delayed']:
+            approval_type = 'time_based'
+        elif approval_type in ['admin', 'approval']:
+            approval_type = 'manual'
+
+        if approval_type in ['time_based', 'manual']:
+            require_approval = True
+
+        approval_settings = {
+            'type': approval_type,
+            'require_approval': require_approval,
+            'auto_approve_delay': int(auto_approve_delay) if auto_approve_delay else 0,
+            'approval_message': '',
+            'max_inactive_days': 0
+        }
+
+        logging.info(f"✅ [ASYNC] Parsed {len(rows)} rows from spreadsheet")
+        valid_rows, error_rows, missing_offers_rows = validate_spreadsheet_data(rows, store_missing=True)
+        logging.info(f"✅ [ASYNC] Validated: {len(valid_rows)} valid, {len(error_rows)} errors, {len(missing_offers_rows)} missing data")
+
+        # Apply approval settings to valid rows
+        if options.get('approval_type'):
+            for row in valid_rows:
+                row['approval_settings'] = approval_settings
+                row['approval_type'] = approval_type
+                row['auto_approve_delay'] = approval_settings['auto_approve_delay']
+                row['require_approval'] = require_approval
+                if require_approval or approval_type in ['time_based', 'manual']:
+                    row['affiliates'] = 'request'
+
+        default_status = options.get('default_status', 'active')
+        for row in valid_rows:
+            row['show_in_offerwall'] = show_in_offerwall
+            row['status'] = default_status
+
+        # Handle validation errors
+        if error_rows or missing_offers_rows or not valid_rows:
+            from utils.bulk_offer_upload import generate_validation_feedback
+            validation_feedback = generate_validation_feedback(error_rows, missing_offers_rows)
+            can_skip_invalid = len(valid_rows) > 0
+            response_data = {
+                'error': 'Validation errors found in spreadsheet',
+                'message': validation_feedback['summary'],
+                'validation_feedback': validation_feedback,
+                'validation_errors': error_rows,
+                'missing_offers': missing_offers_rows,
+                'valid_count': len(valid_rows),
+                'error_count': len(error_rows),
+                'missing_count': len(missing_offers_rows),
+                'can_skip_invalid': can_skip_invalid,
+            }
+            skip_invalid = options.get('skip_invalid_rows', False)
+            if skip_invalid and can_skip_invalid:
+                logging.info(f"⚠️ [ASYNC] Skipping {len(error_rows) + len(missing_offers_rows)} invalid rows, proceeding with {len(valid_rows)} valid rows")
+            else:
+                return jsonify(response_data), 400
+
+        # Create job document
+        job_id = str(uuid.uuid4())[:8]
+        jobs_col = db_instance.get_collection('bulk_upload_jobs')
+
+        job_doc = {
+            'job_id': job_id,
+            'status': 'processing',
+            'total': len(valid_rows),
+            'processed': 0,
+            'succeeded': 0,
+            'failed': 0,
+            'current_offer': '',
+            'errors': [],
+            'created_ids': [],
+            'skipped_duplicates': [],
+            'started_at': datetime.utcnow(),
+            'completed_at': None,
+            'created_by': str(user['_id']),
+        }
+        jobs_col.insert_one(job_doc)
+
+        # Background processing function
+        def process_in_background(rows, user_id, dup_strategy, jid, options_dict):
+            try:
+                from database import db_instance as _db
+                from utils.bulk_operations import get_bulk_offer_processor
+
+                _jobs_col = _db.get_collection('bulk_upload_jobs')
+                processor = get_bulk_offer_processor(_db)
+
+                # Bulk check duplicates upfront
+                duplicates_map = processor.bulk_check_duplicates(rows)
+
+                for i, offer_data in enumerate(rows):
+                    try:
+                        row_number = offer_data.pop('_row_number', i + 1)
+                        name = offer_data.get('name', f'Row {row_number}')
+
+                        # Update current offer being processed
+                        _jobs_col.update_one(
+                            {'job_id': jid},
+                            {'$set': {'current_offer': name}}
+                        )
+
+                        # Check duplicate
+                        is_dup, existing_id, _ = processor.is_duplicate(offer_data, duplicates_map)
+
+                        if is_dup and dup_strategy == 'skip':
+                            _jobs_col.update_one(
+                                {'job_id': jid},
+                                {
+                                    '$inc': {'processed': 1, 'failed': 1},
+                                    '$push': {'skipped_duplicates': {
+                                        'row': row_number,
+                                        'name': name,
+                                        'reason': 'duplicate',
+                                        'existing_offer_id': existing_id
+                                    }}
+                                }
+                            )
+                            continue
+
+                        # Prepare and insert offer
+                        prepared = processor._prepare_offer_for_insert(offer_data, user_id, row_number)
+                        if prepared:
+                            processor.offers_collection.insert_one(prepared)
+                            _jobs_col.update_one(
+                                {'job_id': jid},
+                                {
+                                    '$inc': {'processed': 1, 'succeeded': 1},
+                                    '$push': {'created_ids': prepared.get('offer_id')}
+                                }
+                            )
+                        else:
+                            _jobs_col.update_one(
+                                {'job_id': jid},
+                                {
+                                    '$inc': {'processed': 1, 'failed': 1},
+                                    '$push': {'errors': {
+                                        'row': row_number,
+                                        'name': name,
+                                        'error': 'Failed to prepare offer'
+                                    }}
+                                }
+                            )
+                    except Exception as e:
+                        _jobs_col.update_one(
+                            {'job_id': jid},
+                            {
+                                '$inc': {'processed': 1, 'failed': 1},
+                                '$push': {'errors': {
+                                    'row': row_number,
+                                    'name': name,
+                                    'error': str(e)
+                                }}
+                            }
+                        )
+
+                # Mark job as completed
+                _jobs_col.update_one(
+                    {'job_id': jid},
+                    {'$set': {
+                        'status': 'completed',
+                        'completed_at': datetime.utcnow(),
+                        'current_offer': ''
+                    }}
+                )
+                logging.info(f"✅ [ASYNC] Background job {jid} completed")
+
+            except Exception as e:
+                logging.error(f"❌ [ASYNC] Background job {jid} failed: {str(e)}", exc_info=True)
+                try:
+                    _jobs_col.update_one(
+                        {'job_id': jid},
+                        {'$set': {
+                            'status': 'failed',
+                            'current_offer': '',
+                        }, '$push': {
+                            'errors': {'error': str(e)}
+                        }}
+                    )
+                except Exception:
+                    pass
+
+        # Start background thread
+        thread = threading.Thread(
+            target=process_in_background,
+            args=(valid_rows, str(user['_id']), duplicate_strategy, job_id, options)
+        )
+        thread.daemon = False
+        thread.start()
+
+        logging.info(f"🚀 [ASYNC] Started background job {job_id} for {len(valid_rows)} offers")
+
+        return jsonify({
+            'job_id': job_id,
+            'total': len(valid_rows),
+            'status': 'processing'
+        }), 202
+
+    except Exception as e:
+        logging.error(f"Async bulk upload error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to process bulk upload: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/bulk-upload-status/<job_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_upload_status(job_id):
+    """Get the status of an async bulk upload job"""
+    jobs_col = db_instance.get_collection('bulk_upload_jobs')
+    job = jobs_col.find_one({'job_id': job_id})
+    if not job:
+        return jsonify({'error': 'Job not found'}), 404
+
+    elapsed = (datetime.utcnow() - job['started_at']).total_seconds()
+
+    return jsonify({
+        'job_id': job['job_id'],
+        'status': job['status'],
+        'total': job['total'],
+        'processed': job['processed'],
+        'succeeded': job['succeeded'],
+        'failed': job['failed'],
+        'current_offer': job.get('current_offer', ''),
+        'errors': job.get('errors', [])[-10:],
+        'created_ids': job.get('created_ids', []),
+        'skipped_duplicates': job.get('skipped_duplicates', []),
+        'elapsed_seconds': round(elapsed, 2),
+    })
+
 
 @admin_offers_bp.route('/offers/bulk-upload', methods=['POST'])
 @token_required

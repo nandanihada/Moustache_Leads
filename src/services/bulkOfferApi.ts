@@ -63,6 +63,26 @@ export interface BulkUploadResult {
   valid_count?: number;
 }
 
+export interface BulkUploadJobStatus {
+  job_id: string;
+  status: 'processing' | 'completed' | 'failed';
+  total: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  current_offer: string;
+  errors: Array<{ row?: number; name?: string; error: string }>;
+  created_ids: string[];
+  skipped_duplicates: Array<{ row: number; name: string; reason: string; existing_offer_id?: string }>;
+  elapsed_seconds: number;
+}
+
+export interface BulkUploadAsyncResponse {
+  job_id: string;
+  total: number;
+  status: string;
+}
+
 export interface BulkUploadOptions {
   approval_type?: string;
   auto_approve_delay?: number;
@@ -199,5 +219,104 @@ export const bulkOfferApi = {
     // Clean up
     document.body.removeChild(link);
     window.URL.revokeObjectURL(downloadUrl);
+  },
+
+  /**
+   * Upload file (Excel or CSV) for async bulk offer creation with background processing
+   */
+  uploadFileAsync: async (file: File, options?: BulkUploadOptions): Promise<BulkUploadAsyncResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (options) {
+      formData.append('options', JSON.stringify(options));
+    }
+
+    const token = localStorage.getItem('token');
+
+    const response = await fetch(`${API_BASE_URL}/api/admin/offers/bulk-upload-async`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (data.validation_errors || data.validation_feedback || data.missing_offers) {
+        const error: any = new Error(data.message || data.error || 'Validation errors found');
+        error.validation_errors = data.validation_errors;
+        error.missing_offers = data.missing_offers;
+        error.validation_feedback = data.validation_feedback;
+        error.error_count = data.error_count;
+        error.valid_count = data.valid_count;
+        error.missing_count = data.missing_count;
+        error.can_skip_invalid = data.can_skip_invalid;
+        error.message = data.message || data.error;
+        throw error;
+      }
+      throw new Error(data.error || 'Failed to upload file');
+    }
+
+    return data;
+  },
+
+  /**
+   * Upload offers from Google Sheets URL for async processing
+   */
+  uploadFromGoogleSheetsAsync: async (url: string, options?: BulkUploadOptions): Promise<BulkUploadAsyncResponse> => {
+    const token = localStorage.getItem('token');
+
+    const response = await fetch(`${API_BASE_URL}/api/admin/offers/bulk-upload-async`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ url, options }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      if (data.validation_errors || data.validation_feedback || data.missing_offers) {
+        const error: any = new Error(data.message || data.error || 'Validation errors found');
+        error.validation_errors = data.validation_errors;
+        error.missing_offers = data.missing_offers;
+        error.validation_feedback = data.validation_feedback;
+        error.error_count = data.error_count;
+        error.valid_count = data.valid_count;
+        error.missing_count = data.missing_count;
+        error.can_skip_invalid = data.can_skip_invalid;
+        error.message = data.message || data.error;
+        throw error;
+      }
+      throw new Error(data.error || 'Failed to upload from Google Sheets');
+    }
+
+    return data;
+  },
+
+  /**
+   * Poll the status of an async bulk upload job
+   */
+  getJobStatus: async (jobId: string): Promise<BulkUploadJobStatus> => {
+    const token = localStorage.getItem('token');
+
+    const response = await fetch(`${API_BASE_URL}/api/admin/offers/bulk-upload-status/${jobId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to get job status');
+    }
+
+    return response.json();
   },
 };
