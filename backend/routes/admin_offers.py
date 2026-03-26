@@ -1898,13 +1898,9 @@ def bulk_upload_offers_async():
                     }})
                     return
 
-                if (error_rows or missing_rows) and not skip_invalid:
-                    _jobs_col.update_one({'job_id': jid}, {'$set': {
-                        'status': 'failed', 'current_offer': '',
-                        'total': len(raw_rows),
-                        'errors': [{'error': f'{len(error_rows)} validation errors, {len(missing_rows)} missing data. Use skip_invalid_rows option.'}]
-                    }})
-                    return
+                # Always proceed with valid rows, skip invalid ones
+                if error_rows or missing_rows:
+                    logging.info(f"⚠️ [ASYNC-BG] Skipping {len(error_rows)} errors + {len(missing_rows)} missing, proceeding with {len(valid_rows)} valid rows")
 
                 # --- Apply options ---
                 approval_type = opts.get('approval_type', 'auto_approve')
