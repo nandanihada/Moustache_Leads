@@ -379,7 +379,7 @@ def admin_conversion_report():
 @token_required
 @subadmin_or_admin_required('tracking')
 def admin_clicks_report():
-    """Admin clicks report - raw click data with end-user info"""
+    """Admin clicks report - raw click data with enriched offer/publisher info"""
     try:
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
@@ -400,6 +400,12 @@ def admin_clicks_report():
 
         offer_id = request.args.get('offer_id')
         publisher_id = request.args.get('publisher_id')
+        country_filter = request.args.get('country')
+        city_filter = request.args.get('city')
+        region_filter = request.args.get('region')
+        device_filter = request.args.get('device_type')
+        category_filter = request.args.get('category')
+        network_filter = request.args.get('network')
 
         page = int(request.args.get('page', 1))
         per_page = min(int(request.args.get('per_page', 50)), 200)
@@ -413,15 +419,163 @@ def admin_clicks_report():
             query['offer_id'] = offer_id
         if publisher_id:
             query['user_id'] = publisher_id
+        if country_filter:
+            query['country'] = country_filter
+        if city_filter:
+            query['city'] = city_filter
+        if region_filter:
+            query['region'] = region_filter
+        if device_filter:
+            query['device_type'] = device_filter
+
+        # If category or network filter, get matching offer_ids first
+        if category_filter or network_filter:
+            offers_col = db_instance.get_collection('offers')
+            if offers_col is not None:
+                offer_query = {}
+                if category_filter:
+                    import re as re_mod
+                    offer_query['$or'] = [
+                        {'category': {'$regex': f'^{re_mod.escape(category_filter)}$', '$options': 'i'}},
+                        {'vertical': {'$regex': f'^{re_mod.escape(category_filter)}$', '$options': 'i'}},
+                    ]
+                if network_filter:
+                    import re as re_mod
+                    offer_query['network'] = {'$regex': f'^{re_mod.escape(network_filter)}$', '$options': 'i'}
+                matching_offers = [o['offer_id'] for o in offers_col.find(offer_query, {'offer_id': 1}) if o.get('offer_id')]
+                if 'offer_id' in query:
+                    # Intersect with existing offer_id filter
+                    query['offer_id'] = {'$in': [query['offer_id']] if isinstance(query['offer_id'], str) else query['offer_id']['$in']}
+                    query['offer_id']['$in'] = [oid for oid in query['offer_id']['$in'] if oid in matching_offers]
+                else:
+                    query['offer_id'] = {'$in': matching_offers}
 
         total = clicks_collection.count_documents(query)
         skip = (page - 1) * per_page
 
         clicks = list(clicks_collection.find(query).sort('timestamp', -1).skip(skip).limit(per_page))
 
+        # Batch-load offer data for enrichment
+        offer_ids_in_page = list(set(c.get('offer_id') for c in clicks if c.get('offer_id')))
+        offers_map = {}
+        if offer_ids_in_page:
+            offers_col = db_instance.get_collection('offers')
+            if offers_col is not None:
+                for o in offers_col.find({'offer_id': {'$in': offer_ids_in_page}}, {'offer_id': 1, 'name': 1, 'network': 1, 'category': 1, 'vertical': 1, 'payout': 1, 'currency': 1, 'target_url': 1, 'postback_url': 1}):
+                    offers_map[o['offer_id']] = o
+
+        # Batch-load publisher data — try username, name, and _id lookups
+        user_ids_in_page = list(set(c.get('user_id') for c in clicks if c.get('user_id')))
+        users_map = {}
+        if user_ids_in_page:
+            users_col = db_instance.get_collection('users')
+            if users_col is not None:
+                # Try matching by username first
+                for u in users_col.find({'username': {'$in': user_ids_in_page}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                    users_map[u['username']] = u
+                # For any unmatched, try by name
+                unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
+                if unmatched:
+                    for u in users_col.find({'name': {'$in': unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                        users_map[u.get('name', '')] = u
+                # For any still unmatched, try by _id (ObjectId)
+                still_unmatched = [uid for uid in user_ids_in_page if uid not in users_map]
+                if still_unmatched:
+                    from bson import ObjectId as BsonObjectId
+                    valid_oids = []
+                    for uid in still_unmatched:
+                        try:
+                            valid_oids.append(BsonObjectId(uid))
+                        except Exception:
+                            pass
+                    if valid_oids:
+                        for u in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1, 'name': 1, 'email': 1, 'role': 1, 'postback_url': 1}):
+                            users_map[str(u['_id'])] = u
+
         for click in clicks:
             click['_id'] = str(click['_id'])
-            click['time'] = click.get('timestamp', click.get('click_time', '')).strftime('%Y-%m-%d %H:%M:%S') if click.get('timestamp') or click.get('click_time') else ''
+            ts = click.get('timestamp') or click.get('click_time')
+            # Convert UTC to IST (UTC+5:30)
+            if ts:
+                ist_ts = ts + timedelta(hours=5, minutes=30)
+                click['time'] = ist_ts.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                click['time'] = ''
+
+            # Enrich with offer data
+            offer_data = offers_map.get(click.get('offer_id'), {})
+            if not click.get('offer_name'):
+                click['offer_name'] = offer_data.get('name', '')
+            click['network'] = offer_data.get('network', '')
+            click['category'] = offer_data.get('category') or offer_data.get('vertical', '')
+            click['payout'] = offer_data.get('payout', 0)
+            click['currency'] = offer_data.get('currency', 'USD')
+            click['postback_url'] = offer_data.get('postback_url', '')
+            click['target_url'] = offer_data.get('target_url', '')
+
+            # Enrich with publisher data
+            pub_data = users_map.get(click.get('user_id'), {})
+            click['publisher_name'] = pub_data.get('name') or pub_data.get('username') or click.get('user_id', '')
+            click['publisher_email'] = pub_data.get('email', '')
+            click['publisher_role'] = pub_data.get('role', '')
+            # Use publisher's postback URL if available, otherwise use offer's
+            pub_postback = pub_data.get('postback_url', '')
+            if pub_postback:
+                click['postback_url'] = pub_postback
+
+            # Ensure OS field exists
+            if not click.get('os'):
+                ua = (click.get('user_agent') or '').lower()
+                if 'windows' in ua: click['os'] = 'Windows'
+                elif 'mac' in ua: click['os'] = 'macOS'
+                elif 'linux' in ua: click['os'] = 'Linux'
+                elif 'android' in ua: click['os'] = 'Android'
+                elif 'iphone' in ua or 'ipad' in ua: click['os'] = 'iOS'
+                else: click['os'] = 'Unknown'
+
+            # Re-enrich geo data if still Unknown and IP is available
+            ip = click.get('ip_address', '')
+            if ip and click.get('country') in ('Unknown', '', None) and not ip.startswith('127.') and not ip.startswith('192.168.') and not ip.startswith('10.'):
+                try:
+                    from services.ipinfo_service import get_ipinfo_service
+                    ipinfo_svc = get_ipinfo_service()
+                    ip_data = ipinfo_svc.lookup_ip(ip)
+                    if ip_data and ip_data.get('country', 'Unknown') != 'Unknown':
+                        click['country'] = ip_data.get('country', 'Unknown')
+                        click['country_code'] = ip_data.get('country_code', '')
+                        click['city'] = ip_data.get('city', 'Unknown')
+                        click['region'] = ip_data.get('region', 'Unknown')
+                        # Also update the DB record so we don't re-lookup next time
+                        try:
+                            clicks_collection.update_one(
+                                {'_id': ObjectId(click['_id'])},
+                                {'$set': {'country': click['country'], 'country_code': click.get('country_code', ''), 'city': click['city'], 'region': click['region']}}
+                            )
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            # Timing fields
+            click['when_clicked'] = click['time']  # Same as timestamp
+            when_closed = click.get('when_closed')
+            if when_closed:
+                if hasattr(when_closed, 'strftime'):
+                    ist_closed = when_closed + timedelta(hours=5, minutes=30)
+                    click['when_closed'] = ist_closed.strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    click['when_closed'] = str(when_closed)
+            else:
+                click['when_closed'] = ''
+            time_spent_sec = click.get('time_spent_seconds')
+            if time_spent_sec is not None and time_spent_sec > 0:
+                mins = int(time_spent_sec) // 60
+                secs = int(time_spent_sec) % 60
+                click['time_spent'] = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+            elif click.get('beacon_received'):
+                click['time_spent'] = 'Opened'
+            else:
+                click['time_spent'] = ''
 
         return jsonify({
             'success': True,

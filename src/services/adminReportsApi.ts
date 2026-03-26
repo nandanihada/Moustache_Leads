@@ -38,9 +38,12 @@ export interface AdminClick {
   offer_name?: string;
   user_id?: string;
   publisher_name?: string;
+  publisher_email?: string;
+  publisher_role?: string;
   timestamp?: string;
   time?: string;
   country?: string;
+  country_code?: string;
   city?: string;
   region?: string;
   device_type?: string;
@@ -48,9 +51,23 @@ export interface AdminClick {
   os?: string;
   ip_address?: string;
   referer?: string;
+  network?: string;
+  category?: string;
+  payout?: number;
+  currency?: string;
+  postback_url?: string;
+  target_url?: string;
+  converted?: boolean;
   sub_id1?: string;
   sub_id2?: string;
   sub_id3?: string;
+  sub_id4?: string;
+  sub_id5?: string;
+  user_agent?: string;
+  when_clicked?: string;
+  time_spent?: string;
+  when_closed?: string;
+  time_spent_seconds?: number;
 }
 
 export interface AdminPerformanceRow {

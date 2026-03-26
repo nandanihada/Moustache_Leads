@@ -28,6 +28,10 @@ class MacroReplacementService:
         'device_type': 'Device type (mobile/desktop/tablet)',
         'ip_address': 'User IP address',
         'offer_id': 'Offer ID',
+        'payout': 'Offer payout amount',
+        'status': 'Offer status',
+        'currency': 'Offer currency',
+        'offer_name': 'Offer name',
     }
     
     def __init__(self):
@@ -77,6 +81,10 @@ class MacroReplacementService:
             '{device_type}': str(context.get('device_type', '')),
             '{ip_address}': str(context.get('ip_address', '')),
             '{offer_id}': str(context.get('offer_id', '')),
+            '{payout}': str(context.get('payout', '')),
+            '{status}': str(context.get('status', '')),
+            '{currency}': str(context.get('currency', '')),
+            '{offer_name}': str(context.get('offer_name', '')),
         }
         
         # Replace each macro

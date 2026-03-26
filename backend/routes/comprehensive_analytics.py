@@ -1253,7 +1253,7 @@ def track_dashboard_click():
         # Update last_click_date on the offer (rolling 30-day inactivity window)
         try:
             offers_col = db_instance.get_collection('offers')
-            if offers_col:
+            if offers_col is not None:
                 offers_col.update_one(
                     {'offer_id': offer_id},
                     {'$set': {'last_click_date': datetime.utcnow()}}

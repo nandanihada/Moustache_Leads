@@ -253,7 +253,9 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                 const pct = status.total > 0 ? Math.round((status.processed / status.total) * 100) : 0;
                 setUploadProgress(pct);
                 setImportStep(
-                    status.current_offer
+                    status.status === 'validating'
+                        ? `🔍 Validating & mapping fields...`
+                        : status.current_offer
                         ? `⚙️ Processing: ${status.processed} / ${status.total} — ${status.current_offer}`
                         : `⚙️ Processing: ${status.processed} / ${status.total}`
                 );
@@ -385,7 +387,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
             // Got job_id — start polling
             setActiveJobId(asyncResponse.job_id);
             setUploadProgress(15);
-            setImportStep(`⚙️ Processing: 0 / ${asyncResponse.total}`);
+            setImportStep(`⚙️ Validating & mapping: 0 / ${asyncResponse.total}`);
             startPolling(asyncResponse.job_id);
         } catch (error: any) {
             console.error('Upload error:', error);

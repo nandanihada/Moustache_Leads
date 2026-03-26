@@ -90,21 +90,36 @@ const CONV_COLUMNS: ColumnDefinition[] = [
 const CLICK_COLUMNS: ColumnDefinition[] = [
   { id: 'time', label: 'Time', defaultVisible: true, alwaysVisible: true },
   { id: 'click_id', label: 'Click ID', defaultVisible: true },
-  { id: 'offer_name', label: 'Offer', defaultVisible: true },
-  { id: 'offer_id', label: 'Offer ID', defaultVisible: false },
   { id: 'publisher_name', label: 'Publisher', defaultVisible: true },
+  { id: 'publisher_email', label: 'Publisher Email', defaultVisible: false },
+  { id: 'publisher_role', label: 'Role', defaultVisible: false },
   { id: 'user_id', label: 'Publisher ID', defaultVisible: false },
+  { id: 'offer_name', label: 'Offer Name', defaultVisible: true },
+  { id: 'offer_id', label: 'Offer ID', defaultVisible: false },
+  { id: 'network', label: 'Network', defaultVisible: false },
+  { id: 'category', label: 'Category', defaultVisible: false },
+  { id: 'payout', label: 'Payout', defaultVisible: true },
+  { id: 'currency', label: 'Currency', defaultVisible: false },
   { id: 'country', label: 'Country', defaultVisible: true },
   { id: 'city', label: 'City', defaultVisible: false },
   { id: 'region', label: 'Region', defaultVisible: false },
   { id: 'device_type', label: 'Device', defaultVisible: true },
-  { id: 'browser', label: 'Browser', defaultVisible: false },
+  { id: 'browser', label: 'Browser', defaultVisible: true },
   { id: 'os', label: 'OS', defaultVisible: false },
   { id: 'ip_address', label: 'IP Address', defaultVisible: false },
   { id: 'referer', label: 'Referrer', defaultVisible: false },
+  { id: 'postback_url', label: 'Postback Link', defaultVisible: false },
+  { id: 'target_url', label: 'Target URL', defaultVisible: false },
+  { id: 'converted', label: 'Converted', defaultVisible: false },
+  { id: 'user_agent', label: 'User Agent', defaultVisible: false },
   { id: 'sub_id1', label: 'Sub ID 1', defaultVisible: false },
   { id: 'sub_id2', label: 'Sub ID 2', defaultVisible: false },
   { id: 'sub_id3', label: 'Sub ID 3', defaultVisible: false },
+  { id: 'sub_id4', label: 'Sub ID 4', defaultVisible: false },
+  { id: 'sub_id5', label: 'Sub ID 5', defaultVisible: false },
+  { id: 'when_clicked', label: 'When Clicked', defaultVisible: false },
+  { id: 'time_spent', label: 'Time Spent', defaultVisible: false },
+  { id: 'when_closed', label: 'When Closed', defaultVisible: false },
 ];
 
 function SortableHeader({ label, field, sortField, sortOrder, onSort }: { label: string; field: string; sortField: string; sortOrder: 'asc' | 'desc'; onSort: (f: string) => void }) {
@@ -514,11 +529,11 @@ function ClickTrackingTab() {
   const [sortField, setSortField] = useState('time');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
-    const saved = localStorage.getItem('admin_click_cols_v1');
+    const saved = localStorage.getItem('admin_click_cols_v2');
     if (saved) try { return JSON.parse(saved); } catch { /* */ }
     return CLICK_COLUMNS.reduce((acc, col) => { acc[col.id] = col.defaultVisible; return acc; }, {} as Record<string, boolean>);
   });
-  useEffect(() => { localStorage.setItem('admin_click_cols_v1', JSON.stringify(visibleColumns)); }, [visibleColumns]);
+  useEffect(() => { localStorage.setItem('admin_click_cols_v2', JSON.stringify(visibleColumns)); }, [visibleColumns]);
   useEffect(() => { adminReportsApi.getFilterOptions().then(res => { if (res.success) setFilterOptions(res as any); }).catch(() => {}); }, []);
   const fetchData = useCallback(async (page = 1) => {
     setLoading(true);
@@ -532,7 +547,22 @@ function ClickTrackingTab() {
   }, [dateRange, filters, perPage]);
   useEffect(() => { fetchData(); }, [fetchData]);
   const handleSort = (field: string) => { if (sortField === field) setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc'); else { setSortField(field); setSortOrder('desc'); } };
-  const filteredClicks = clicks.filter(click => { if (!searchTerm) return true; const s = searchTerm.toLowerCase(); return (click.offer_name?.toLowerCase().includes(s) || click.publisher_name?.toLowerCase().includes(s) || click.click_id?.toLowerCase().includes(s) || click.ip_address?.includes(s)); });
+  const filteredClicks = useMemo(() => {
+    let result = clicks;
+    if (searchTerm) {
+      const s = searchTerm.toLowerCase();
+      result = result.filter(click => click.offer_name?.toLowerCase().includes(s) || click.publisher_name?.toLowerCase().includes(s) || click.click_id?.toLowerCase().includes(s) || click.ip_address?.includes(s) || click.offer_id?.toLowerCase().includes(s) || click.network?.toLowerCase().includes(s));
+    }
+    if (sortField) {
+      result = [...result].sort((a, b) => {
+        const aVal = (a as any)[sortField] ?? '';
+        const bVal = (b as any)[sortField] ?? '';
+        if (typeof aVal === 'number' && typeof bVal === 'number') return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+        return sortOrder === 'asc' ? String(aVal).localeCompare(String(bVal)) : String(bVal).localeCompare(String(aVal));
+      });
+    }
+    return result;
+  }, [clicks, searchTerm, sortField, sortOrder]);
   const renderCell = (col: ColumnDefinition, click: AdminClick) => {
     switch (col.id) {
       case 'time': return click.time || '-';
@@ -540,7 +570,13 @@ function ClickTrackingTab() {
       case 'offer_name': return <span className="max-w-[180px] truncate block" title={click.offer_name}>{click.offer_name || '-'}</span>;
       case 'offer_id': return click.offer_id || '-';
       case 'publisher_name': return click.publisher_name || '-';
+      case 'publisher_email': return click.publisher_email || '-';
+      case 'publisher_role': return click.publisher_role || '-';
       case 'user_id': return click.user_id || '-';
+      case 'network': return click.network || '-';
+      case 'category': return click.category || '-';
+      case 'payout': return `$${(click.payout || 0).toFixed(2)}`;
+      case 'currency': return click.currency || 'USD';
       case 'country': return click.country || '-';
       case 'city': return click.city || '-';
       case 'region': return click.region || '-';
@@ -549,9 +585,23 @@ function ClickTrackingTab() {
       case 'os': return click.os || '-';
       case 'ip_address': return click.ip_address ? <span className="font-mono text-xs">{click.ip_address}</span> : '-';
       case 'referer': return click.referer ? <span className="max-w-[150px] truncate block text-xs" title={click.referer}>{click.referer}</span> : '-';
+      case 'postback_url': return click.postback_url ? <span className="max-w-[150px] truncate block text-xs font-mono" title={click.postback_url}>{click.postback_url}</span> : <span className="text-muted-foreground italic text-xs">Not Configured</span>;
+      case 'target_url': return click.target_url ? <span className="max-w-[150px] truncate block text-xs" title={click.target_url}>{click.target_url}</span> : '-';
+      case 'converted': return click.converted ? <Badge className="bg-green-100 text-green-800 text-xs">Yes</Badge> : <Badge variant="outline" className="text-xs">No</Badge>;
+      case 'user_agent': return click.user_agent ? <span className="max-w-[150px] truncate block text-xs" title={click.user_agent}>{click.user_agent}</span> : '-';
       case 'sub_id1': return click.sub_id1 || '-';
       case 'sub_id2': return click.sub_id2 || '-';
       case 'sub_id3': return click.sub_id3 || '-';
+      case 'sub_id4': return click.sub_id4 || '-';
+      case 'sub_id5': return click.sub_id5 || '-';
+      case 'when_clicked': return click.when_clicked || click.time || '-';
+      case 'time_spent': {
+        const ts = click.time_spent;
+        if (!ts) return <span className="text-muted-foreground text-xs">—</span>;
+        if (ts === 'Opened') return <Badge className="bg-blue-100 text-blue-800 text-xs">Opened</Badge>;
+        return <span className="text-xs font-medium">{ts}</span>;
+      }
+      case 'when_closed': return click.when_closed || <span className="text-muted-foreground text-xs">—</span>;
       default: return (click as any)[col.id] ?? '-';
     }
   };
@@ -564,6 +614,12 @@ function ClickTrackingTab() {
           <DatePresets onPresetSelect={p => setDateRange({ start: p.start, end: p.end })} />
           {filterOptions && filterOptions.publishers.length > 0 && <SearchablePublisherSelect publishers={filterOptions.publishers} value={filters.publisher_id} onChange={v => setFilters(prev => ({ ...prev, publisher_id: v }))} />}
           {filterOptions && filterOptions.offers.length > 0 && (<div><label className="text-xs font-medium">Offer</label><Select value={filters.offer_id || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, offer_id: v === 'all' ? undefined : v }))}><SelectTrigger className="w-48"><SelectValue placeholder="All Offers" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Offers</SelectItem>, ...filterOptions.offers.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.countries.length > 0 && (<div><label className="text-xs font-medium">Country</label><Select value={filters.country || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, country: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Countries</SelectItem>, ...filterOptions.countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.regions && filterOptions.regions.length > 0 && (<div><label className="text-xs font-medium">Region</label><Select value={filters.region || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, region: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Regions</SelectItem>, ...filterOptions.regions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.cities && filterOptions.cities.length > 0 && (<div><label className="text-xs font-medium">City</label><Select value={filters.city || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, city: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Cities</SelectItem>, ...filterOptions.cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.categories && filterOptions.categories.length > 0 && (<div><label className="text-xs font-medium">Category</label><Select value={filters.category || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, category: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Categories</SelectItem>, ...filterOptions.categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.networks && filterOptions.networks.length > 0 && (<div><label className="text-xs font-medium">Network</label><Select value={filters.network || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, network: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Networks</SelectItem>, ...filterOptions.networks.map(n => <SelectItem key={n} value={n}>{n}</SelectItem>)]}</SelectContent></Select></div>)}
+          <div><label className="text-xs font-medium">Device</label><Select value={filters.device_type || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, device_type: v === 'all' ? undefined : v }))}><SelectTrigger className="w-32"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="desktop">Desktop</SelectItem><SelectItem value="mobile">Mobile</SelectItem><SelectItem value="tablet">Tablet</SelectItem></SelectContent></Select></div>
           <div><label className="text-xs font-medium">Per Page</label><Select value={String(perPage)} onValueChange={v => setPerPage(Number(v))}><SelectTrigger className="w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="20">20</SelectItem><SelectItem value="50">50</SelectItem><SelectItem value="100">100</SelectItem><SelectItem value="200">200</SelectItem></SelectContent></Select></div>
           <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-8 w-56" /></div>
           <ColumnSelector columns={CLICK_COLUMNS} visibleColumns={visibleColumns} onColumnChange={(id, v) => setVisibleColumns(prev => ({ ...prev, [id]: v }))} onSelectAll={() => setVisibleColumns(CLICK_COLUMNS.reduce((a, c) => ({ ...a, [c.id]: true }), {}))} onClearAll={() => setVisibleColumns(CLICK_COLUMNS.reduce((a, c) => ({ ...a, [c.id]: c.alwaysVisible || false }), {}))} />

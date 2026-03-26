@@ -55,6 +55,37 @@ FALLBACK_REDIRECT_TEMPLATE = """
 </html>
 """
 
+# Tracking redirect template — records time spent via beacon before navigating away
+# Uses a brief delay so event listeners register before navigation
+# NOTE: {% autoescape false %} is needed because target_url contains & characters
+TRACKING_REDIRECT_TEMPLATE = """{% autoescape false %}<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Redirecting...</title></head>
+<body>
+<script>
+(function(){
+  var start = Date.now();
+  var cid = "{{ click_id }}";
+  var beacon = "{{ beacon_url }}";
+  var sent = false;
+  function sendClose(){
+    if(sent) return;
+    sent = true;
+    var elapsed = Math.round((Date.now() - start) / 1000);
+    var url = beacon + "?click_id=" + encodeURIComponent(cid) + "&time_spent=" + elapsed;
+    try { navigator.sendBeacon(url); } catch(e) { new Image().src = url; }
+  }
+  document.addEventListener("visibilitychange", function(){ if(document.hidden) sendClose(); });
+  window.addEventListener("pagehide", sendClose);
+  window.addEventListener("beforeunload", sendClose);
+  // Send an initial beacon to mark the click was opened (time_spent=0)
+  try { navigator.sendBeacon(beacon + "?click_id=" + encodeURIComponent(cid) + "&time_spent=0"); } catch(e){}
+  // Small delay to ensure listeners are registered, then redirect
+  setTimeout(function(){ window.location.replace("{{ target_url }}"); }, 50);
+})();
+</script>
+<noscript><meta http-equiv="refresh" content="0;url={{ target_url }}"></noscript>
+</body></html>{% endautoescape %}"""
+
 @simple_tracking_bp.route('/track/<offer_id>', methods=['GET'])
 def track_offer_click(offer_id):
     """
@@ -115,6 +146,10 @@ def track_offer_click(offer_id):
             'device_type': 'unknown',
             'ip_address': ip_address,
             'offer_id': offer_id,
+            'payout': str(offer.get('payout', 0) or 0),
+            'status': offer.get('status', 'active'),
+            'currency': offer.get('currency', 'USD') or 'USD',
+            'offer_name': offer.get('name', ''),
         }
         
         # Replace macros in target URL
@@ -248,8 +283,15 @@ def track_offer_click(offer_id):
         
         logger.info(f"↗️  Redirecting to: {redirect_url}")
         
-        # Redirect to offer
-        return redirect(redirect_url, code=302)
+        # Use tracking wrapper page to record time spent
+        # Use request host for beacon URL so it works in both local dev and production
+        beacon_url = request.host_url.rstrip('/') + '/track/beacon'
+        return render_template_string(
+            TRACKING_REDIRECT_TEMPLATE,
+            click_id=click_id,
+            target_url=redirect_url,
+            beacon_url=beacon_url
+        )
             
     except Exception as e:
         logger.error(f"❌ Error in track_offer_click: {str(e)}", exc_info=True)
@@ -264,6 +306,58 @@ def track_offer_click(offer_id):
             pass
         
         return jsonify({'error': 'Tracking error'}), 500
+
+
+@simple_tracking_bp.route('/track/beacon', methods=['POST', 'GET'])
+def click_beacon():
+    """
+    Beacon endpoint to record when a user closes/leaves the offer page.
+    Called via navigator.sendBeacon() or img pixel from the redirect page.
+    Records when_closed and time_spent on the click record.
+    """
+    try:
+        click_id = request.args.get('click_id') or (request.get_json(silent=True) or {}).get('click_id')
+        time_spent = request.args.get('time_spent') or (request.get_json(silent=True) or {}).get('time_spent')
+
+        if not click_id:
+            return jsonify({'error': 'click_id required'}), 400
+
+        clicks_collection = db_instance.get_collection('clicks')
+        if clicks_collection is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        update_data = {}
+        time_spent_val = 0
+        if time_spent:
+            try:
+                time_spent_val = float(time_spent)
+            except (ValueError, TypeError):
+                pass
+
+        if time_spent_val > 0:
+            # User is leaving/closing — record when_closed and time_spent
+            update_data['when_closed'] = datetime.utcnow()
+            update_data['time_spent_seconds'] = time_spent_val
+        else:
+            # Initial beacon — just mark that the redirect page was opened
+            update_data['beacon_received'] = True
+
+        result = clicks_collection.update_one(
+            {'click_id': click_id},
+            {'$set': update_data}
+        )
+
+        # Return 1x1 transparent pixel for img-based beacons
+        if request.method == 'GET':
+            from flask import Response
+            pixel = b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x00\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b'
+            return Response(pixel, mimetype='image/gif')
+
+        return jsonify({'success': True, 'updated': result.modified_count}), 200
+
+    except Exception as e:
+        logger.error(f"Beacon error: {str(e)}")
+        return jsonify({'error': 'beacon failed'}), 500
 
 
 @simple_tracking_bp.route('/track/<offer_id>/test', methods=['GET'])
