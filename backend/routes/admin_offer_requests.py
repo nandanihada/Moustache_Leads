@@ -490,7 +490,7 @@ Moustache Leads"""
                         'body': 'You have new offer recommendations from the admin team.',
                         'image_url': None,
                         'status': 'replied',
-                        'replies': [{'reply': body, 'replied_by': 'admin', 'admin_id': str(request.current_user['_id']), 'admin_username': request.current_user.get('username', 'Admin'), 'created_at': datetime.utcnow()}],
+                        'replies': [{'_id': ObjId(), 'text': body, 'from': 'admin', 'image_url': None, 'created_at': datetime.utcnow()}],
                         'created_at': datetime.utcnow(),
                         'updated_at': datetime.utcnow(),
                         'read_by_admin': True,
