@@ -815,7 +815,13 @@ class Offer:
             return None
         
         try:
-            return self.collection.find_one({'offer_id': offer_id, 'is_active': True})
+            # Try with is_active first, then without (some offers may not have this field)
+            offer = self.collection.find_one({'offer_id': offer_id, 'is_active': True})
+            if not offer:
+                offer = self.collection.find_one({'offer_id': offer_id, '$or': [{'is_active': {'$exists': False}}, {'deleted': {'$ne': True}}]})
+            if not offer:
+                offer = self.collection.find_one({'offer_id': offer_id})
+            return offer
         except:
             return None
     

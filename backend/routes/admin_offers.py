@@ -917,11 +917,16 @@ def get_networks():
 def get_offer(offer_id):
     """Get a specific offer by ID (Admin only)"""
     try:
-        offer = offer_model.get_offer_by_id(offer_id)
+        # Query DB directly to avoid model's is_active filter issues
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database not available'}), 503
         
+        offer = offers_collection.find_one({'offer_id': offer_id})
         if not offer:
-            return jsonify({'error': 'Offer not found'}), 404
+            return jsonify({'error': f'Offer {offer_id} not found'}), 404
         
+        offer['_id'] = str(offer['_id'])
         return safe_json_response({'offer': offer})
         
     except Exception as e:

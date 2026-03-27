@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -7,12 +7,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown, CheckCircle, XCircle, Loader2, AlertTriangle, AlertCircle,
   TrendingUp, MousePointerClick, Target, DollarSign, ExternalLink, Calendar,
-  Shield, Zap, Send, Package
+  Shield, Zap, Send, Package, Eye, Link2, Edit
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { ResponsiveContainer, Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import type { PProf, PSt, Inv } from '@/pages/AdminOfferAccessRequests';
 import { fd, rsk } from '@/pages/AdminOfferAccessRequests';
+import { EditOfferModal } from '@/components/EditOfferModal';
+import { adminOfferApi } from '@/services/adminOfferApi';
 
 interface PublisherRowProps {
   pub: PProf;
@@ -33,6 +35,11 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [bulkApproving, setBulkApproving] = useState(false);
   const [selectedInv, setSelectedInv] = useState<Set<string>>(new Set());
+  const [selectedReqs, setSelectedReqs] = useState<Set<string>>(new Set());
+  const [bulkActing, setBulkActing] = useState(false);
+  const [editOffer, setEditOffer] = useState<any>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
   const token = localStorage.getItem('token');
   const risk = rsk(pub.risk_level);
 
@@ -87,7 +94,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   };
 
   const bulkApprove = async () => {
-    const ids = pub.requests.filter(r => r.status === 'pending').map(r => r.request_id);
+    const ids = pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(r => r.request_id);
     if (ids.length === 0) return;
     setBulkApproving(true);
     try {
@@ -100,6 +107,55 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
       onRefreshList();
     } catch { toast.error('Bulk approve failed'); }
     finally { setBulkApproving(false); }
+  };
+
+  const markForReview = async (rid: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/mark-review`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ request_ids: [rid] }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success('Marked for review');
+      onRefreshList();
+    } catch { toast.error('Failed to mark for review'); }
+  };
+
+  const bulkRequestAction = async (action: 'approve' | 'reject' | 'review') => {
+    const ids = Array.from(selectedReqs);
+    if (!ids.length) return;
+    setBulkActing(true);
+    try {
+      const endpoint = action === 'approve' ? 'bulk-approve' : action === 'reject' ? 'bulk-reject' : 'mark-review';
+      const body: Record<string, unknown> = { request_ids: ids };
+      if (action === 'reject') body.reason = 'Bulk rejected by admin';
+      const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/${endpoint}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      const label = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'marked for review';
+      toast.success(`${ids.length} request(s) ${label}`);
+      setSelectedReqs(new Set());
+      onRefreshList();
+    } catch { toast.error(`Bulk ${action} failed`); }
+    finally { setBulkActing(false); }
+  };
+
+  const toggleReqSelect = (rid: string) => {
+    setSelectedReqs(prev => { const n = new Set(prev); n.has(rid) ? n.delete(rid) : n.add(rid); return n; });
+  };
+
+  const handleEditOffer = async (offerId: string) => {
+    setLoadingEdit(offerId);
+    try {
+      const res = await adminOfferApi.getOffer(offerId);
+      if (res.offer) {
+        setEditOffer(res.offer);
+        setEditModalOpen(true);
+      }
+    } catch { toast.error('Failed to load offer for editing'); }
+    finally { setLoadingEdit(null); }
   };
 
   const initials = ((pub.first_name?.[0] || '') + (pub.last_name?.[0] || pub.username?.[1] || '')).toUpperCase() || '??';
@@ -162,38 +218,167 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                 </Badge>
               </div>
 
-              {/* Pending Requests — AT TOP */}
-              {pub.requests.filter(r => r.status === 'pending').length > 0 && (
+              {/* Pending & Review Requests — AT TOP */}
+              {pub.requests.filter(r => r.status === 'pending' || r.status === 'review').length > 0 && (
                 <div className="space-y-2">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                     <Zap className="w-3.5 h-3.5 text-amber-500" />Pending Requests ({pub.requests.filter(r => r.status === 'pending').length})
+                    {pub.requests.filter(r => r.status === 'review').length > 0 && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-50 text-blue-600 border-blue-200 ml-1">
+                        {pub.requests.filter(r => r.status === 'review').length} in review
+                      </Badge>
+                    )}
                   </h4>
-                  {pub.requests.filter(r => r.status === 'pending').map(req => (
-                    <div key={req.request_id} className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 px-3 py-2.5 text-xs">
-                      <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{req.offer_name}</p>
-                        <p className="text-muted-foreground">{req.offer_network} · ${req.offer_payout.toFixed(2)} · {fd(req.requested_at)}</p>
+                  {/* Icon Legend */}
+                  <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground bg-muted/40 rounded-md px-3 py-1.5">
+                    <span className="font-medium text-foreground/70">Legend:</span>
+                    <span className="flex items-center gap-1"><MousePointerClick className="w-3 h-3 text-blue-500" />Total Clicks</span>
+                    <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-emerald-600" />Approved</span>
+                    <span className="flex items-center gap-1"><XCircle className="w-3 h-3 text-red-500" />Rejected</span>
+                    <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-amber-500" />Pending</span>
+                    <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3 text-red-500" />Health Issues</span>
+                    <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-emerald-500" />Healthy</span>
+                  </div>
+                  {/* Bulk action bar for selected requests */}
+                  {selectedReqs.size > 0 && (
+                    <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 rounded-lg px-3 py-2">
+                      <Badge className="bg-blue-100 text-blue-700 text-[10px]">{selectedReqs.size} selected</Badge>
+                      <Button size="sm" className="h-6 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => bulkRequestAction('approve')} disabled={bulkActing}>
+                        {bulkActing ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1 text-amber-600 border-amber-300" onClick={() => bulkRequestAction('review')} disabled={bulkActing}>
+                        <AlertTriangle className="w-3 h-3" />Review
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1 text-red-600 border-red-300" onClick={() => bulkRequestAction('reject')} disabled={bulkActing}>
+                        <XCircle className="w-3 h-3" />Reject
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-gray-500" onClick={() => setSelectedReqs(new Set())}>Clear</Button>
+                    </div>
+                  )}
+                  {pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(req => (
+                    <div key={req.request_id} className={`rounded-lg border px-3 py-2.5 text-xs space-y-2 ${
+                      req.status === 'review'
+                        ? 'border-blue-200 bg-blue-50 dark:bg-blue-950/20'
+                        : 'border-amber-200 bg-amber-50 dark:bg-amber-950/20'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          className="rounded border-gray-300 shrink-0 cursor-pointer w-4 h-4"
+                          checked={selectedReqs.has(req.request_id)}
+                          onChange={() => toggleReqSelect(req.request_id)}
+                          onClick={e => e.stopPropagation()}
+                        />
+                        {req.status === 'review' ? (
+                          <Eye className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                        ) : (
+                          <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium truncate">{req.offer_name}</p>
+                            {req.status === 'review' && (
+                              <Badge className="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700 border-blue-200">
+                                In Review
+                              </Badge>
+                            )}
+                            {(req.request_count || 0) > 1 && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
+                                {req.request_count}x requested
+                              </Badge>
+                            )}
+                            {req.offer_health && req.offer_health.status === 'unhealthy' && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-600 border-red-200">
+                                <AlertCircle className="w-2.5 h-2.5 mr-0.5" />{req.offer_health.failures.length} issues
+                              </Badge>
+                            )}
+                            {req.offer_health && req.offer_health.status === 'healthy' && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-200">
+                                <CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-muted-foreground">{req.offer_network} · ${req.offer_payout.toFixed(2)} · {fd(req.requested_at)}</p>
+                        </div>
+                        {/* Offer-level stats */}
+                        {req.offer_stats && (
+                          <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground shrink-0">
+                            {(req.offer_stats.total_clicks || 0) > 0 && (
+                              <span className="flex items-center gap-0.5"><MousePointerClick className="w-3 h-3" />{(req.offer_stats.total_clicks || 0).toLocaleString()}</span>
+                            )}
+                            <span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle className="w-3 h-3" />{req.offer_stats.approved_count || 0}</span>
+                            <span className="flex items-center gap-0.5 text-red-500"><XCircle className="w-3 h-3" />{req.offer_stats.rejected_count || 0}</span>
+                            <span className="flex items-center gap-0.5 text-amber-500"><AlertTriangle className="w-3 h-3" />{req.offer_stats.pending_count || 0}</span>
+                          </div>
+                        )}
+                        {req.message && <span className="text-muted-foreground italic truncate max-w-[150px]">"{req.message}"</span>}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-300 hover:bg-blue-50"
+                            onClick={() => handleEditOffer(req.offer_id)} disabled={loadingEdit === req.offer_id}>
+                            {loadingEdit === req.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}Edit
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-amber-600 border-amber-300 hover:bg-amber-100"
+                            onClick={() => markForReview(req.request_id)}>
+                            <AlertTriangle className="w-3 h-3" />Review
+                          </Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200 hover:bg-red-50"
+                            onClick={() => rejectReq(req.request_id)} disabled={rejecting === req.request_id}>
+                            {rejecting === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject
+                          </Button>
+                          <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => approveReq(req.request_id)} disabled={approving === req.request_id}>
+                            {approving === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve
+                          </Button>
+                        </div>
                       </div>
-                      {req.message && <span className="text-muted-foreground italic truncate max-w-[150px]">"{req.message}"</span>}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-amber-600 border-amber-300 hover:bg-amber-100"
-                          onClick={() => { /* mark for review */ toast.success('Marked for review'); }}>
-                          <AlertTriangle className="w-3 h-3" />Review
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200 hover:bg-red-50"
-                          onClick={() => rejectReq(req.request_id)} disabled={rejecting === req.request_id}>
-                          {rejecting === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject
-                        </Button>
-                        <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                          onClick={() => approveReq(req.request_id)} disabled={approving === req.request_id}>
-                          {approving === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve
-                        </Button>
-                      </div>
+                      {/* Health issues detail (if unhealthy) */}
+                      {req.offer_health && req.offer_health.failures && req.offer_health.failures.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pl-6">
+                          {req.offer_health.failures.map(f => (
+                            <span key={f.criterion} className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />{f.criterion.replace('_', ' ')}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
+
+              {/* Postback Status Section */}
+              <div className="rounded-xl border bg-card p-3 space-y-2">
+                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                  <Link2 className="w-3.5 h-3.5" />Postback Status
+                </h4>
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Postback added</span>
+                    {pub.postback_url ? (
+                      <span className="flex items-center gap-1 text-emerald-600 font-medium"><span className="w-2 h-2 rounded-full bg-emerald-500" />Yes</span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-red-500 font-medium"><span className="w-2 h-2 rounded-full bg-red-400" />No</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Postback tested</span>
+                    {pub.postback_tested ? (
+                      <span className="flex items-center gap-1 text-emerald-600 font-medium"><span className="w-2 h-2 rounded-full bg-emerald-500" />Tested</span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-amber-500 font-medium"><span className="w-2 h-2 rounded-full bg-amber-400" />Not tested</span>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Date added</span>
+                    <span className="font-medium">{fd(pub.created_at)}</span>
+                  </div>
+                </div>
+                {pub.postback_url && (
+                  <div className="text-[10px] font-mono text-muted-foreground bg-muted/50 rounded px-2 py-1 truncate" title={pub.postback_url}>
+                    {pub.postback_url}
+                  </div>
+                )}
+              </div>
 
               {/* Good standing banner */}
               {pub.fraud_score < 40 && pub.postback_status !== 'none' && (
@@ -355,19 +540,52 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                       </div>
                     </div>
                   )}
+
+                  {/* Offer Views (30d) */}
+                  {stats.offer_views && stats.offer_views.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                        <Eye className="w-3.5 h-3.5" />Offers Viewed (30d)
+                      </h4>
+                      <div className="space-y-1.5">
+                        {(() => {
+                          const maxViews = Math.max(...stats.offer_views!.map(v => v.view_count), 1);
+                          const colors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1'];
+                          return stats.offer_views!.map((v, i) => (
+                            <div key={v.offer_id} className="flex items-center gap-2 text-xs">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colors[i % colors.length] }} />
+                              <span className="flex-1 truncate min-w-0 font-medium">{v.offer_name}</span>
+                              <span className="text-muted-foreground shrink-0 w-8 text-right">{v.view_count}</span>
+                              <div className="w-20 h-2 bg-muted rounded-full overflow-hidden shrink-0">
+                                <div className="h-full rounded-full" style={{ width: `${(v.view_count / maxViews) * 100}%`, backgroundColor: colors[i % colors.length] }} />
+                              </div>
+                            </div>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Action buttons */}
               <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
                 <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                  onClick={bulkApprove} disabled={bulkApproving || pub.requests.filter(r => r.status === 'pending').length === 0}>
+                  onClick={bulkApprove} disabled={bulkApproving || pub.requests.filter(r => r.status === 'pending' || r.status === 'review').length === 0}>
                   {bulkApproving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
-                  Approve All ({pub.requests.filter(r => r.status === 'pending').length})
+                  Approve All ({pub.requests.filter(r => r.status === 'pending' || r.status === 'review').length})
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50"
-                  onClick={() => toast.success('Marked for review')}>
-                  <AlertTriangle className="w-3.5 h-3.5" />Mark for Review
+                  onClick={() => {
+                    const ids = pub.requests.filter(r => r.status === 'pending').map(r => r.request_id);
+                    if (ids.length === 0) { toast.info('No pending requests to mark'); return; }
+                    fetch(`${API_BASE_URL}/api/admin/offer-access-requests/mark-review`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                      body: JSON.stringify({ request_ids: ids }),
+                    }).then(r => { if (r.ok) { toast.success(`${ids.length} request(s) marked for review`); onRefreshList(); } else toast.error('Failed'); })
+                    .catch(() => toast.error('Failed'));
+                  }}>
+                  <AlertTriangle className="w-3.5 h-3.5" />Mark All for Review
                 </Button>
                 <div className="flex-1" />
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => onSendOffers(pub)}>
@@ -378,6 +596,14 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Edit Offer Modal */}
+      <EditOfferModal
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+        offer={editOffer}
+        onOfferUpdated={() => { setEditOffer(null); onRefreshList(); }}
+      />
     </div>
   );
 }

@@ -26,7 +26,7 @@ def get_publisher_profiles_with_requests():
         risk_filter = request.args.get('risk', 'all')
         search = request.args.get('search', '')
         page = max(1, int(request.args.get('page', 1)))
-        per_page = min(int(request.args.get('per_page', 20)), 100)
+        per_page = min(int(request.args.get('per_page', 20)), 200)
         
         requests_collection = db_instance.get_collection('affiliate_requests')
         users_collection = db_instance.get_collection('users')
@@ -35,7 +35,11 @@ def get_publisher_profiles_with_requests():
         # Build request query
         req_query = {}
         if status != 'all':
-            req_query['status'] = status
+            if status == 'pending':
+                # When viewing pending, also include review status so they stay visible
+                req_query['status'] = {'$in': ['pending', 'review']}
+            else:
+                req_query['status'] = status
         
         # Get all matching requests
         all_requests = list(requests_collection.find(req_query).sort('requested_at', -1))
@@ -101,6 +105,40 @@ def get_publisher_profiles_with_requests():
             for o in offers_collection.find({'offer_id': {'$in': list(offer_ids_needed)}}):
                 offer_cache[o['offer_id']] = o
         
+        # Compute offer-level stats across ALL requests (not just this page)
+        offer_stats = {}
+        for oid in offer_ids_needed:
+            reqs_for_offer = [r for r in all_requests if r.get('offer_id') == oid]
+            offer_stats[oid] = {
+                'total_requests': len(reqs_for_offer),
+                'approved_count': len([r for r in reqs_for_offer if r.get('status') == 'approved']),
+                'rejected_count': len([r for r in reqs_for_offer if r.get('status') == 'rejected']),
+                'pending_count': len([r for r in reqs_for_offer if r.get('status') == 'pending']),
+            }
+        
+        # Get click counts per offer from clicks collection
+        clicks_collection = db_instance.get_collection('clicks')
+        if clicks_collection is not None and offer_ids_needed:
+            try:
+                click_pipeline = [
+                    {'$match': {'offer_id': {'$in': list(offer_ids_needed)}}},
+                    {'$group': {'_id': '$offer_id', 'total_clicks': {'$sum': 1}}}
+                ]
+                for doc in clicks_collection.aggregate(click_pipeline):
+                    oid = doc['_id']
+                    if oid in offer_stats:
+                        offer_stats[oid]['total_clicks'] = doc['total_clicks']
+            except Exception as e:
+                logging.warning(f"Failed to get click counts: {e}")
+        
+        # Compute offer health
+        from services.health_check_service import HealthCheckService
+        health_service = HealthCheckService()
+        offer_health = {}
+        offers_for_health = [offer_cache[oid] for oid in offer_ids_needed if oid in offer_cache]
+        if offers_for_health:
+            offer_health = health_service.evaluate_offers_batch(offers_for_health)
+        
         # Build profiles (NO per-request click/conversion queries - those load on expand)
         publisher_profiles = []
         for uid in user_ids:
@@ -125,6 +163,11 @@ def get_publisher_profiles_with_requests():
             enriched_requests = []
             for req in user_reqs:
                 offer = offer_cache.get(req.get('offer_id'))
+                
+                # Count how many times this user requested this specific offer
+                same_offer_requests = [r for r in all_requests if str(r.get('user_id')) == uid and r.get('offer_id') == req.get('offer_id')]
+                request_count = len(same_offer_requests)
+                
                 enriched_requests.append({
                     '_id': str(req['_id']),
                     'request_id': req.get('request_id', str(req['_id'])),
@@ -132,9 +175,15 @@ def get_publisher_profiles_with_requests():
                     'offer_name': offer.get('name') if offer else 'Unknown',
                     'offer_payout': offer.get('payout', 0) if offer else 0,
                     'offer_network': offer.get('network', '') if offer else '',
+                    'offer_category': (offer.get('category') or offer.get('vertical', '')) if offer else '',
+                    'offer_status': offer.get('status', '') if offer else '',
+                    'offer_countries': offer.get('countries', []) if offer else [],
                     'status': req.get('status'),
                     'requested_at': req.get('requested_at'),
                     'message': req.get('message', ''),
+                    'request_count': request_count,
+                    'offer_stats': offer_stats.get(req.get('offer_id'), {}),
+                    'offer_health': offer_health.get(req.get('offer_id'), {'status': 'unknown', 'failures': []}),
                     'clicks': 0, 'conversions': 0, 'conv_rate': 0, 'last_conversion': None
                 })
             
@@ -573,11 +622,42 @@ def get_publisher_detailed_stats(user_id):
         
         epc = round(total_earnings / total_clicks, 2) if total_clicks > 0 else 0
         
+        # Get offer views for this publisher (top viewed offers in last 30 days)
+        offer_views_list = []
+        offer_views_col = db_instance.get_collection('offer_views')
+        if offer_views_col is not None:
+            try:
+                username = user.get('username', '')
+                views_pipeline = [
+                    {'$match': {
+                        '$or': [{'user_id': user_id}, {'username': username}],
+                        'timestamp': {'$gte': start_date}
+                    }},
+                    {'$group': {
+                        '_id': '$offer_id',
+                        'offer_name': {'$first': '$offer_name'},
+                        'view_count': {'$sum': 1},
+                        'last_viewed': {'$max': '$timestamp'}
+                    }},
+                    {'$sort': {'view_count': -1}},
+                    {'$limit': 10}
+                ]
+                for doc in offer_views_col.aggregate(views_pipeline):
+                    offer_views_list.append({
+                        'offer_id': doc['_id'],
+                        'offer_name': doc.get('offer_name', 'Unknown'),
+                        'view_count': doc['view_count'],
+                        'last_viewed': doc.get('last_viewed')
+                    })
+            except Exception as e:
+                logging.warning(f"Failed to get offer views: {e}")
+        
         return safe_json_response({
             'user_id': user_id,
             'username': user.get('username'),
             'daily_stats': daily_stats,
             'traffic_sources': traffic_sources,
+            'offer_views': offer_views_list,
             'totals': {
                 'clicks': total_clicks,
                 'conversions': total_conversions,
@@ -1135,50 +1215,51 @@ def bulk_reject_access_requests():
 @token_required
 @subadmin_or_admin_required('offer-access-requests')
 def get_access_requests_stats():
-    """Get statistics for access requests"""
+    """Get detailed statistics for access requests including 24h breakdowns"""
     try:
         requests_collection = db_instance.get_collection('affiliate_requests')
+        cutoff_24h = datetime.utcnow() - timedelta(hours=24)
         
-        # Get basic stats
+        # Total counts
         total_requests = requests_collection.count_documents({})
-        pending_requests = requests_collection.count_documents({'status': 'pending'})
-        approved_requests = requests_collection.count_documents({'status': 'approved'})
-        rejected_requests = requests_collection.count_documents({'status': 'rejected'})
+        pending_total = requests_collection.count_documents({'status': {'$in': ['pending', 'review']}})
+        approved_total = requests_collection.count_documents({'status': 'approved'})
+        rejected_total = requests_collection.count_documents({'status': 'rejected'})
         
-        # Get requests by offer
-        pipeline = [
-            {
-                '$group': {
-                    '_id': '$offer_id',
-                    'total_requests': {'$sum': 1},
-                    'pending': {'$sum': {'$cond': [{'$eq': ['$status', 'pending']}, 1, 0]}},
-                    'approved': {'$sum': {'$cond': [{'$eq': ['$status', 'approved']}, 1, 0]}},
-                    'rejected': {'$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}}
-                }
-            },
-            {'$sort': {'total_requests': -1}},
-            {'$limit': 10}
-        ]
+        # 24h counts
+        approved_24h = requests_collection.count_documents({'status': 'approved', 'approved_at': {'$gte': cutoff_24h}})
+        if approved_24h == 0:
+            approved_24h = requests_collection.count_documents({'status': 'approved', 'updated_at': {'$gte': cutoff_24h}})
+        rejected_24h = requests_collection.count_documents({'status': 'rejected', 'updated_at': {'$gte': cutoff_24h}})
+        requested_24h = requests_collection.count_documents({'requested_at': {'$gte': cutoff_24h}})
         
-        requests_by_offer = list(requests_collection.aggregate(pipeline))
-        
-        # Enrich with offer names
-        offers_collection = db_instance.get_collection('offers')
-        for item in requests_by_offer:
-            offer = offers_collection.find_one({'offer_id': item['_id']})
-            if offer:
-                item['offer_name'] = offer.get('name', 'Unknown')
-                item['offer_payout'] = offer.get('payout', 0)
+        # Mails and support messages sent (from send_offers tracking)
+        mails_sent_total = 0
+        mails_sent_24h = 0
+        support_sent_total = 0
+        support_sent_24h = 0
+        try:
+            activity_col = db_instance.get_collection('recent_activity')
+            if activity_col is not None:
+                mails_sent_total = activity_col.count_documents({'type': {'$in': ['offer_email_sent', 'bulk_email_sent', 'send_offers_email']}})
+                mails_sent_24h = activity_col.count_documents({'type': {'$in': ['offer_email_sent', 'bulk_email_sent', 'send_offers_email']}, 'created_at': {'$gte': cutoff_24h}})
+                support_sent_total = activity_col.count_documents({'type': {'$in': ['support_message_sent', 'bulk_support_sent', 'send_offers_support']}})
+                support_sent_24h = activity_col.count_documents({'type': {'$in': ['support_message_sent', 'bulk_support_sent', 'send_offers_support']}, 'created_at': {'$gte': cutoff_24h}})
+        except Exception:
+            pass
         
         return jsonify({
-            'stats': {
-                'total_requests': total_requests,
-                'pending_requests': pending_requests,
-                'approved_requests': approved_requests,
-                'rejected_requests': rejected_requests,
-                'approval_rate': round((approved_requests / total_requests * 100) if total_requests > 0 else 0, 2),
-                'requests_by_offer': requests_by_offer
-            }
+            'pending_total': pending_total,
+            'approved_total': approved_total,
+            'approved_24h': approved_24h,
+            'rejected_total': rejected_total,
+            'rejected_24h': rejected_24h,
+            'requested_total': total_requests,
+            'requested_24h': requested_24h,
+            'mails_sent_total': mails_sent_total,
+            'mails_sent_24h': mails_sent_24h,
+            'support_sent_total': support_sent_total,
+            'support_sent_24h': support_sent_24h,
         })
         
     except Exception as e:
