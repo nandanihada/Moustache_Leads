@@ -45,7 +45,8 @@ def get_available_offers():
             return jsonify({'error': 'Database connection failed'}), 500
         
         query = {
-            'status': status
+            'status': status,
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
         }
         
         # Add search if provided
@@ -58,7 +59,10 @@ def get_available_offers():
             
             query = {
                 'status': status,
-                '$or': search_conditions
+                '$and': [
+                    {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                    {'$or': search_conditions}
+                ]
             }
         
         # Get total count
@@ -67,7 +71,7 @@ def get_available_offers():
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1,
-            'payout': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'payout': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
             'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
             'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
             'affiliates': 1, 'selected_users': 1, 'is_active': 1,
@@ -151,6 +155,13 @@ def get_available_offers():
                     original_payout = 0.0
                 publisher_payout = round(original_payout * 0.8, 2)
                 
+                # Calculate publisher revenue share (90% of admin percentage)
+                try:
+                    original_revenue_share = float(offer.get('revenue_share_percent', 0) or 0)
+                except (ValueError, TypeError):
+                    original_revenue_share = 0.0
+                publisher_revenue_share = round(original_revenue_share * 0.9, 2) if original_revenue_share > 0 else 0
+                
                 # Get approval settings
                 approval_settings = offer.get('approval_settings', {}) or {}
                 # Check both approval_settings.type AND top-level approval_type for robustness
@@ -231,6 +242,7 @@ def get_available_offers():
                     'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
                     'device_targeting': offer.get('device_targeting', 'all'),
                     'payout': publisher_payout,
+                    'revenue_share_percent': publisher_revenue_share,
                     'currency': offer.get('currency', 'USD'),
                     'network': offer.get('network', 'Unknown'),
                     'countries': offer.get('countries', []),

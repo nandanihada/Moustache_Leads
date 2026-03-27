@@ -584,36 +584,59 @@ class EmailService:
         thread = threading.Thread(target=send_in_background, daemon=False)
         thread.start()
 
-    def _create_approval_email_html(self, offer_name: str, status: str, reason: str = '') -> str:
+    def _create_approval_email_html(self, offer_name: str, status: str, reason: str = '', notification_type: str = 'offer') -> str:
         """Create HTML email template for offer/placement approval notification"""
+        
+        is_placement = notification_type == 'placement'
         
         if status == 'approved':
             header_gradient = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
             icon = '✅'
-            title = 'Offer Approved!'
-            message = f'Great news! Your offer "{offer_name}" has been approved and is now live.'
-            button_text = 'VIEW OFFER'
+            if is_placement:
+                title = 'Placement Approved!'
+                message = f'Great news! Your placement "{offer_name}" has been approved and is now live.'
+            else:
+                title = 'Offer Approved!'
+                message = f'Great news! Your offer "{offer_name}" has been approved and is now live.'
+            button_text = 'VIEW DASHBOARD'
         elif status == 'rejected':
             header_gradient = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
             icon = '❌'
-            title = 'Offer Rejected'
-            message = f'Unfortunately, your offer "{offer_name}" was not approved.'
-            button_text = 'EDIT OFFER'
+            if is_placement:
+                title = 'Placement Not Approved'
+                message = f'Unfortunately, your placement "{offer_name}" was not approved.'
+            else:
+                title = 'Offer Not Approved'
+                message = f'Unfortunately, your offer "{offer_name}" was not approved.'
+            button_text = 'VIEW DASHBOARD'
         else:
             header_gradient = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
             icon = '⏳'
-            title = 'Offer Under Review'
-            message = f'Your offer "{offer_name}" is currently under review.'
+            if is_placement:
+                title = 'Placement Under Review'
+                message = f'Your placement "{offer_name}" is currently under review.'
+            else:
+                title = 'Offer Under Review'
+                message = f'Your offer "{offer_name}" is currently under review.'
             button_text = 'VIEW STATUS'
         
+        # Only show reason for non-rejected statuses (remove reason from rejection emails)
         reason_section = ''
-        if reason:
+        if reason and status != 'rejected':
             reason_section = f"""
             <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
                 <p style="margin: 0 0 10px 0; color: #374151; font-weight: 600;">Reason:</p>
                 <p style="margin: 0; color: #6b7280; line-height: 1.6;">{reason}</p>
             </div>
             """
+        
+        # For placements, don't show the name details block
+        name_block = ''
+        if not is_placement:
+            name_block = f"""
+                                        <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 13px; text-transform: uppercase; font-weight: 600;">Offer Name</p>
+                                        <p style="margin: 0 0 20px 0; color: #111827; font-size: 18px; font-weight: 700;">{offer_name}</p>
+                                        {reason_section}"""
         
         frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
         
@@ -644,9 +667,7 @@ class EmailService:
                             <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e5e7eb;">
                                 <tr>
                                     <td>
-                                        <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 13px; text-transform: uppercase; font-weight: 600;">Offer Name</p>
-                                        <p style="margin: 0 0 20px 0; color: #111827; font-size: 18px; font-weight: 700;">{offer_name}</p>
-                                        {reason_section}
+                                        {name_block}
                                     </td>
                                 </tr>
                             </table>
@@ -674,27 +695,35 @@ class EmailService:
 """
         return html
     
-    def send_approval_notification(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '') -> bool:
+    def send_approval_notification(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '', notification_type: str = 'offer') -> bool:
         """Send offer/placement approval/rejection notification"""
         if not self.is_configured:
             logger.warning("⚠️ Email service not configured. Skipping approval notification.")
             return False
         
-        if status == 'approved':
-            subject = f"✅ Your Offer '{offer_name}' Has Been Approved!"
-        elif status == 'rejected':
-            subject = f"❌ Your Offer '{offer_name}' Was Not Approved"
+        if notification_type == 'placement':
+            if status == 'approved':
+                subject = "✅ Your Placement Has Been Approved!"
+            elif status == 'rejected':
+                subject = "❌ Your Placement Was Not Approved"
+            else:
+                subject = "⏳ Your Placement Is Under Review"
         else:
-            subject = f"⏳ Your Offer '{offer_name}' Is Under Review"
+            if status == 'approved':
+                subject = f"✅ Your Offer '{offer_name}' Has Been Approved!"
+            elif status == 'rejected':
+                subject = f"❌ Your Offer '{offer_name}' Was Not Approved"
+            else:
+                subject = f"⏳ Your Offer '{offer_name}' Is Under Review"
         
-        html_content = self._create_approval_email_html(offer_name, status, reason)
+        html_content = self._create_approval_email_html(offer_name, status, reason, notification_type)
         return self._send_email(recipient_email, subject, html_content)
     
-    def send_approval_notification_async(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '') -> None:
+    def send_approval_notification_async(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '', notification_type: str = 'offer') -> None:
         """Send approval notification asynchronously"""
         def send_in_background():
             try:
-                result = self.send_approval_notification(recipient_email, offer_name, status, reason, offer_id)
+                result = self.send_approval_notification(recipient_email, offer_name, status, reason, offer_id, notification_type)
                 logger.info(f"✅ Background approval notification complete: {result}")
             except Exception as e:
                 logger.error(f"❌ Error sending approval notification: {str(e)}")

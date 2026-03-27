@@ -713,12 +713,8 @@ class Offer:
         
         try:
             # Exclude deleted offers by default
-            # Exclude deleted offers — show offers where is_active is True or not set
             query = {
-                '$and': [
-                    {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
-                    {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
-                ]
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
             }
             
             if filters:
@@ -730,7 +726,6 @@ class Offer:
                     search_regex = {'$regex': filters['search'], '$options': 'i'}
                     query = {
                         '$and': [
-                            {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
                             {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
                             {'$or': [
                                 {'name': search_regex},

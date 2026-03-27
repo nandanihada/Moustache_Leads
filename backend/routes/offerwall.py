@@ -1989,7 +1989,7 @@ def get_offers():
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1,
-            'status': 1, 'payout': 1, 'currency': 1, 'network': 1,
+            'status': 1, 'payout': 1, 'currency': 1, 'network': 1, 'revenue_share_percent': 1,
             'image_url': 1, 'creative_url': 1, 'preview_url': 1, 'thumbnail_url': 1,
             'masked_url': 1, 'target_url': 1, 'url': 1,
             'countries': 1, 'geo': 1, 'allowed_countries': 1, 'country': 1,
@@ -2106,6 +2106,13 @@ def get_offers():
                     original_payout = 0.0
                 publisher_payout = round(original_payout * 0.8, 2)
                 
+                # Revenue share percentage (90% of admin percentage)
+                try:
+                    original_revenue_share = float(offer.get('revenue_share_percent', 0) or 0)
+                except (ValueError, TypeError):
+                    original_revenue_share = 0.0
+                publisher_revenue_share = round(original_revenue_share * 0.9, 2) if original_revenue_share > 0 else 0
+                
                 # Category - use stored value, only detect if missing
                 stored_category = offer.get('category') or offer.get('vertical') or ''
                 if stored_category and str(stored_category).upper() not in ('GENERAL', '', 'UNKNOWN'):
@@ -2139,6 +2146,7 @@ def get_offers():
                     'estimated_time': offer.get('estimated_time', ''),
                     'created_at': created_at_str,
                     'payout': publisher_payout,
+                    'revenue_share_percent': publisher_revenue_share,
                     'star_rating': offer.get('star_rating', 5),
                     'urgency_type': offer.get('urgency_type'),
                     'timer_enabled': offer.get('timer_enabled', False),

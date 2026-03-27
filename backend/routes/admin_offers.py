@@ -530,10 +530,11 @@ def get_running_offers():
         # 6. Rejected
         subcategory_ids['rejected'] = rejected_ids
 
-        # Compute "all" as union of all subcategories
+        # Compute "all" as union of all subcategories EXCEPT searched
         all_running = set()
-        for ids in subcategory_ids.values():
-            all_running.update(ids)
+        for key, ids in subcategory_ids.items():
+            if key != 'searched':
+                all_running.update(ids)
         subcategory_ids['all'] = all_running
 
         # Compute counts per subcategory for the tabs
@@ -1672,15 +1673,16 @@ def get_offers_stats():
         if not offer_model._check_db_connection():
             return jsonify({'error': 'Database connection not available'}), 500
         
-        # Get basic stats
-        total_offers = offer_model.collection.count_documents({'is_active': True})
-        active_offers = offer_model.collection.count_documents({'is_active': True, 'status': 'active'})
-        pending_offers = offer_model.collection.count_documents({'is_active': True, 'status': 'pending'})
-        inactive_offers = offer_model.collection.count_documents({'is_active': True, 'status': 'inactive'})
+        # Get basic stats — use deleted filter instead of is_active for consistency
+        not_deleted = {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+        total_offers = offer_model.collection.count_documents(not_deleted)
+        active_offers = offer_model.collection.count_documents({**not_deleted, 'status': 'active'})
+        pending_offers = offer_model.collection.count_documents({**not_deleted, 'status': 'pending'})
+        inactive_offers = offer_model.collection.count_documents({**not_deleted, 'status': 'inactive'})
         
         # Get top networks
         pipeline = [
-            {'$match': {'is_active': True}},
+            {'$match': not_deleted},
             {'$group': {'_id': '$network', 'count': {'$sum': 1}}},
             {'$sort': {'count': -1}},
             {'$limit': 5}
@@ -1689,7 +1691,7 @@ def get_offers_stats():
         
         # Get total hits
         pipeline = [
-            {'$match': {'is_active': True}},
+            {'$match': not_deleted},
             {'$group': {'_id': None, 'total_hits': {'$sum': '$hits'}}}
         ]
         hits_result = list(offer_model.collection.aggregate(pipeline))

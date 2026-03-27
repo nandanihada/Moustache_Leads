@@ -543,7 +543,8 @@ def approve_placement_admin(placement_id):
                     offer_name=placement_name,
                     status='approved',
                     reason='',
-                    offer_id=str(placement.get('_id', ''))
+                    offer_id=str(placement.get('_id', '')),
+                    notification_type='placement'
                 )
                 logger.info(f"✅ Placement approval email sent to {publisher['email']} for placement {placement_name}")
             else:
@@ -626,7 +627,8 @@ def reject_placement_admin(placement_id):
                     offer_name=placement_name,
                     status='rejected',
                     reason=reason,
-                    offer_id=str(placement.get('_id', ''))
+                    offer_id=str(placement.get('_id', '')),
+                    notification_type='placement'
                 )
                 logger.info(f"✅ Placement rejection email sent to {publisher['email']} for placement {placement_name}")
             else:

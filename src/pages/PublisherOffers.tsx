@@ -135,7 +135,7 @@ const PublisherOffersContent = () => {
   const uniqueVerticals = useMemo(() => {
     const set = new Set<string>();
     offers.forEach((o) => {
-      const v = (o as any).vertical || (o as any).category;
+      const v = (o as any).category || (o as any).vertical;
       if (v) set.add(v);
     });
     return Array.from(set).sort();
@@ -153,7 +153,7 @@ const PublisherOffersContent = () => {
     }
     if (verticalFilter !== "all") {
       list = list.filter((o) => {
-        const v = (o as any).vertical || (o as any).category || "";
+        const v = (o as any).category || (o as any).vertical || "";
         return v.toLowerCase() === verticalFilter.toLowerCase();
       });
     }
@@ -519,7 +519,13 @@ const PublisherOffersContent = () => {
                   myRequests.map((req) => (
                     <TableRow key={req._id || req.offer_id} className="text-sm hover:bg-purple-50/40 transition-colors">
                       <TableCell className="py-2.5 font-medium">{req.offer_details?.name || req.offer_name || req.offer_id}</TableCell>
-                      <TableCell className="py-2.5 font-semibold text-green-600">${(req.offer_details?.payout ? (req.offer_details.payout * 0.8) : (req.payout || 0)).toFixed(2)}</TableCell>
+                      <TableCell className="py-2.5 font-semibold text-green-600">
+                        {(() => {
+                          const revShare = req.offer_details?.revenue_share_percent || 0;
+                          if (revShare > 0) return `${Math.round(revShare * 0.9 * 100) / 100}%`;
+                          return `$${(req.offer_details?.payout ? (req.offer_details.payout * 0.8) : (req.payout || 0)).toFixed(2)}`;
+                        })()}
+                      </TableCell>
                       <TableCell className="py-2.5">{statusBadge(req.status)}</TableCell>
                       <TableCell className="py-2.5 text-xs text-muted-foreground">{req.requested_at ? new Date(req.requested_at).toLocaleDateString() : "-"}</TableCell>
                     </TableRow>
@@ -590,7 +596,9 @@ const PublisherOffersContent = () => {
 
                           {/* Payout */}
                           <TableCell className="py-2.5">
-                            <span className="font-bold text-emerald-600">${offer.payout.toFixed(2)}</span>
+                            <span className="font-bold text-emerald-600">
+                              {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
+                            </span>
                           </TableCell>
 
                           {/* Countries */}
@@ -696,7 +704,9 @@ const PublisherOffersContent = () => {
                         {/* Payout */}
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-muted-foreground">Payout</span>
-                          <span className="font-bold text-lg text-emerald-600">${offer.payout.toFixed(2)}</span>
+                          <span className="font-bold text-lg text-emerald-600">
+                            {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
+                          </span>
                         </div>
 
                         {/* Countries */}
