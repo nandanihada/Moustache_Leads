@@ -18,6 +18,44 @@ admin_offers_bp = Blueprint('admin_offers', __name__)
 offer_model = Offer()
 extended_offer_model = OfferExtended()  # For schedule + smart rules operations
 admin_offer_model = offer_model  # Use the same model instance
+
+
+def _cascade_cleanup_offer(offer_ids):
+    """Remove all related data when offers are deleted.
+    Cleans up: affiliate_requests, search_logs picks, notifications, etc.
+    Runs in background to not block the delete response.
+    """
+    if not offer_ids:
+        return
+    if isinstance(offer_ids, str):
+        offer_ids = [offer_ids]
+
+    def _cleanup():
+        try:
+            # 1. Remove affiliate access requests for these offers
+            req_col = db_instance.get_collection('affiliate_requests')
+            if req_col is not None:
+                result = req_col.delete_many({'offer_id': {'$in': offer_ids}})
+                logging.info(f"Cascade cleanup: removed {result.deleted_count} affiliate_requests for {len(offer_ids)} offer(s)")
+
+            # 2. Clean up search_logs picked_offer references
+            search_col = db_instance.get_collection('search_logs')
+            if search_col is not None:
+                search_col.update_many(
+                    {'picked_offer_id': {'$in': offer_ids}},
+                    {'$unset': {'picked_offer_id': '', 'picked_offer_name': ''}}
+                )
+
+            # 3. Remove offer-related notifications
+            notif_col = db_instance.get_collection('notifications')
+            if notif_col is not None:
+                notif_col.delete_many({'offer_ids': {'$in': offer_ids}})
+
+        except Exception as e:
+            logging.error(f"Cascade cleanup error: {e}", exc_info=True)
+
+    thread = threading.Thread(target=_cleanup, daemon=True)
+    thread.start()
 link_masking_model = LinkMasking()  # For automatic link masking
 
 def admin_required(f):
@@ -1210,6 +1248,9 @@ def delete_offer(offer_id):
         if not success:
             return jsonify({'error': 'Offer not found or already deleted'}), 404
 
+        # Cascade cleanup: remove from user requests, notifications, etc.
+        _cascade_cleanup_offer(offer_id)
+
         # Log activity
         log_admin_activity(
             action='offer_deleted',
@@ -1272,6 +1313,9 @@ def bulk_delete_offers():
         
         deleted_count = result.modified_count
         failed_count = len(offer_ids) - deleted_count
+
+        # Cascade cleanup: remove from user requests, notifications, etc.
+        _cascade_cleanup_offer(offer_ids)
 
         # Log activity
         log_admin_activity(
@@ -1420,6 +1464,9 @@ def permanent_delete_offer(offer_id):
         
         if not success:
             return jsonify({'error': 'Offer not found'}), 404
+
+        # Cascade cleanup: remove from user requests, notifications, etc.
+        _cascade_cleanup_offer(offer_id)
         
         return jsonify({'message': 'Offer permanently deleted'}), 200
         
@@ -1433,7 +1480,18 @@ def permanent_delete_offer(offer_id):
 def empty_recycle_bin():
     """Permanently delete all offers in recycle bin"""
     try:
+        # Get offer_ids before deleting for cascade cleanup
+        offers_col = db_instance.get_collection('offers')
+        deleted_ids = []
+        if offers_col:
+            deleted_docs = offers_col.find({'deleted': True}, {'offer_id': 1})
+            deleted_ids = [d['offer_id'] for d in deleted_docs if d.get('offer_id')]
+
         deleted_count = offer_model.empty_recycle_bin()
+
+        # Cascade cleanup
+        if deleted_ids:
+            _cascade_cleanup_offer(deleted_ids)
 
         # Log activity
         log_admin_activity(
@@ -1465,11 +1523,18 @@ def clear_all_offers():
             return jsonify({'error': 'Database connection failed'}), 500
 
         from datetime import datetime
-        result = offers_collection.update_many(
-            {'$and': [
+
+        # Get offer_ids before soft-deleting for cascade cleanup
+        active_query = {
+            '$and': [
                 {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
                 {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
-            ]},
+            ]
+        }
+        all_ids = [d['offer_id'] for d in offers_collection.find(active_query, {'offer_id': 1}) if d.get('offer_id')]
+
+        result = offers_collection.update_many(
+            active_query,
             {
                 '$set': {
                     'is_active': False,
@@ -1479,6 +1544,10 @@ def clear_all_offers():
                 }
             }
         )
+
+        # Cascade cleanup: remove from user requests, notifications, etc.
+        if all_ids:
+            _cascade_cleanup_offer(all_ids)
 
         # Log activity
         log_admin_activity(

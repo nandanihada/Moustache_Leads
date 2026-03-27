@@ -527,23 +527,25 @@ def get_my_access_requests():
                        .skip(skip)
                        .limit(per_page))
         
-        # Enrich with offer details
+        # Enrich with offer details — skip requests for deleted offers
         offers_collection = db_instance.get_collection('offers')
+        filtered_requests = []
         for req in requests:
             req['_id'] = str(req['_id'])
             
             # Get offer details
             offer = offers_collection.find_one({'offer_id': req['offer_id']})
-            if offer:
+            if offer and not offer.get('deleted', False):
                 req['offer_details'] = {
                     'name': offer.get('name'),
                     'payout': offer.get('payout'),
                     'network': offer.get('network'),
                     'image_url': offer.get('image_url')
                 }
+                filtered_requests.append(req)
         
         return safe_json_response({
-            'requests': requests,
+            'requests': filtered_requests,
             'pagination': {
                 'page': page,
                 'per_page': per_page,
