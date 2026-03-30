@@ -2,6 +2,8 @@ from flask import Blueprint, request, jsonify
 from utils.auth import token_required, admin_required, subadmin_or_admin_required
 from models.publisher import Publisher
 from models.placement import Placement
+from datetime import datetime
+from bson import ObjectId
 import logging
 
 logger = logging.getLogger(__name__)
@@ -437,6 +439,8 @@ def get_all_placements_admin():
         page = int(request.args.get('page', 1))
         size = min(int(request.args.get('size', 10)), 100)  # Max 100 per page
         status_filter = request.args.get('status_filter')
+        if status_filter == 'ALL':
+            status_filter = None
         platform_filter = request.args.get('platform_filter')
         
         # Get placements
@@ -487,6 +491,71 @@ def get_all_placements_admin():
     except Exception as e:
         logger.error(f"Error fetching admin placements: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@placements_bp.route('/admin/<placement_id>/mark-review', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('placement-approval')
+def mark_placement_review(placement_id):
+    """Mark a placement as IN_REVIEW"""
+    try:
+        placement_model = Placement()
+        result = placement_model.collection.update_one(
+            {'_id': ObjectId(placement_id)},
+            {'$set': {
+                'approvalStatus': 'IN_REVIEW',
+                'reviewMessage': 'This placement is under admin review.',
+                'updatedAt': datetime.utcnow()
+            }}
+        )
+        if result.modified_count == 0:
+            return jsonify({'error': 'Placement not found or already in review'}), 400
+        return jsonify({'message': 'Placement marked for review'}), 200
+    except Exception as e:
+        logger.error(f"Error marking placement for review: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@placements_bp.route('/admin/<placement_id>/edit', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('placement-approval')
+def edit_placement_admin(placement_id):
+    """Admin edit placement details (postback URL, currency, exchange rate, etc.)"""
+    try:
+        data = request.get_json() or {}
+        allowed_fields = ['postbackUrl', 'offerwallTitle', 'currencyName', 'exchangeRate', 'platformType', 'status']
+        update_doc = {'updatedAt': datetime.utcnow()}
+        for field in allowed_fields:
+            if field in data:
+                val = data[field]
+                if field == 'exchangeRate':
+                    val = float(val)
+                update_doc[field] = val
+
+        placement_model = Placement()
+        result = placement_model.collection.update_one(
+            {'_id': ObjectId(placement_id)},
+            {'$set': update_doc}
+        )
+        if result.modified_count == 0:
+            return jsonify({'error': 'Placement not found or no changes'}), 400
+
+        updated = placement_model.collection.find_one({'_id': ObjectId(placement_id)})
+        return jsonify({
+            'message': 'Placement updated',
+            'placement': {
+                'id': str(updated['_id']),
+                'postbackUrl': updated.get('postbackUrl', ''),
+                'offerwallTitle': updated.get('offerwallTitle', ''),
+                'currencyName': updated.get('currencyName', ''),
+                'exchangeRate': updated.get('exchangeRate', 0),
+                'platformType': updated.get('platformType', ''),
+                'status': updated.get('status', ''),
+            }
+        }), 200
+    except Exception as e:
+        logger.error(f"Error editing placement: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @placements_bp.route('/admin/<placement_id>/approve', methods=['POST'])
@@ -556,15 +625,15 @@ def approve_placement_admin(placement_id):
             'message': 'Placement approved successfully',
             'placement': {
                 'id': str(placement['_id']),
-                'approvalStatus': placement['approvalStatus'],
-                'status': placement['status'],
-                'reviewMessage': placement['reviewMessage']
+                'approvalStatus': placement.get('approvalStatus', 'APPROVED'),
+                'status': placement.get('status', 'LIVE'),
+                'reviewMessage': placement.get('reviewMessage', 'Approved')
             }
         }), 200
         
     except Exception as e:
-        logger.error(f"Error approving placement: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"Error approving placement: {e}", exc_info=True)
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
 @placements_bp.route('/admin/<placement_id>/reject', methods=['POST'])
@@ -640,16 +709,16 @@ def reject_placement_admin(placement_id):
             'message': 'Placement rejected successfully',
             'placement': {
                 'id': str(placement['_id']),
-                'approvalStatus': placement['approvalStatus'],
-                'status': placement['status'],
-                'rejectionReason': placement['rejectionReason'],
-                'reviewMessage': placement['reviewMessage']
+                'approvalStatus': placement.get('approvalStatus', 'REJECTED'),
+                'status': placement.get('status', 'INACTIVE'),
+                'rejectionReason': placement.get('rejectionReason', reason),
+                'reviewMessage': placement.get('reviewMessage', '')
             }
         }), 200
         
     except Exception as e:
-        logger.error(f"Error rejecting placement: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        logger.error(f"Error rejecting placement: {e}", exc_info=True)
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
 @placements_bp.route('/admin/stats', methods=['GET'])

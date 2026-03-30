@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -13,169 +13,290 @@ import PublisherRow from '@/pages/offer-requests/PublisherRow';
 import SendOffersModal from '@/pages/offer-requests/SendOffersModal';
 import BulkMessageModal from '@/pages/offer-requests/BulkMessageModal';
 
-export interface OReq {
-  _id: string; request_id: string; offer_id: string; offer_name: string; offer_payout: number;
-  offer_network: string; offer_category?: string; offer_status?: string; offer_countries?: string[];
-  status: 'pending' | 'approved' | 'rejected' | 'review'; requested_at: string; message: string;
-  clicks: number; conversions: number; conv_rate: number; last_conversion: string | null;
-  request_count?: number;
-  offer_stats?: { total_requests?: number; approved_count?: number; rejected_count?: number; pending_count?: number; total_clicks?: number };
-  offer_health?: { status: string; failures: { criterion: string; description: string }[] };
+// ─── Exported Types ──────────────────────────────────────────────────────────
+
+export interface OfferReq {
+  _id: string;
+  request_id: string;
+  offer_id: string;
+  offer_name: string;
+  offer_payout: number;
+  offer_network: string;
+  offer_category: string;
+  offer_status: string;
+  offer_countries: string[];
+  status: string;
+  requested_at: string;
+  message: string;
+  request_count: number;
+  offer_stats: {
+    total_requests: number;
+    approved_count: number;
+    rejected_count: number;
+    pending_count: number;
+    total_clicks?: number;
+  };
+  offer_health: { status: string; failures: { criterion: string; detail?: string }[] };
+  clicks: number;
+  conversions: number;
+  conv_rate: number;
+  last_conversion: string | null;
 }
+
 export interface PProf {
-  user_id: string; username: string; email: string; first_name: string; last_name: string;
-  company_name: string; website: string; created_at: string; account_status: string;
-  risk_level: 'high_risk' | 'warn' | 'new' | 'none'; fraud_score: number;
-  total_clicks: number; total_conversions: number; conversion_rate: number;
-  postback_url: string; postback_tested: boolean; postback_status: 'tested' | 'configured' | 'none';
-  has_proofs: boolean; requests: OReq[]; pending_count: number;
-  latest_offer_name: string; latest_offer_id: string;
+  user_id: string;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  company_name: string;
+  website: string;
+  created_at: string;
+  account_status: string;
+  risk_level: string;
+  fraud_score: number;
+  total_clicks: number;
+  total_conversions: number;
+  conversion_rate: number;
+  postback_url: string;
+  postback_tested: boolean;
+  postback_status: string;
+  has_proofs: boolean;
+  requests: OfferReq[];
+  pending_count: number;
+  latest_offer_name: string;
+  latest_offer_id: string;
 }
+
 export interface PSt {
+  totals: { clicks: number; conversions: number; conversion_rate: number; epc: number };
   daily_stats: { date: string; clicks: number; conversions: number }[];
-  traffic_sources: { name: string; type: string; clicks: number; conversions: number; conv_rate: number }[];
-  totals: { clicks: number; conversions: number; conversion_rate: number; earnings: number; epc: number };
-  offer_views?: { offer_id: string; offer_name: string; view_count: number; last_viewed?: string }[];
+  traffic_sources: { name: string; type: string; clicks: number; conv_rate: number }[];
+  offer_views?: { offer_id: string; offer_name: string; view_count: number }[];
 }
+
 export interface Inv {
-  _id: string; offer_id: string; name: string; payout: number; network: string;
-  category: string; keywords: string; match_strength: 'Strong' | 'Good'; request_status: string | null;
+  _id: string;
+  offer_id: string;
+  name: string;
+  network: string;
+  payout: number;
+  match_strength: string;
+  keywords?: string;
+  request_status?: string;
 }
-export const fd = (d: string) => {
-  if (!d) return '\u2014';
-  const x = Math.floor((Date.now() - new Date(d).getTime()) / 864e5);
-  if (!x) return 'today'; if (x === 1) return 'yesterday';
-  if (x < 30) return x + 'd ago'; if (x < 365) return Math.floor(x / 30) + 'mo ago';
-  return Math.floor(x / 365) + 'y ago';
-};
-export const rsk = (r: string) => {
-  if (r === 'high_risk') return { bg: 'bg-gradient-to-r from-red-500 to-rose-500', t: 'text-white', bd: 'bg-red-100 text-red-700 border-red-200', lb: 'HIGH RISK' };
-  if (r === 'warn') return { bg: 'bg-gradient-to-r from-amber-400 to-orange-400', t: 'text-white', bd: 'bg-amber-100 text-amber-700 border-amber-200', lb: 'WARNING' };
-  if (r === 'new') return { bg: 'bg-gradient-to-r from-blue-400 to-indigo-400', t: 'text-white', bd: 'bg-blue-100 text-blue-700 border-blue-200', lb: 'NEW' };
-  return { bg: 'bg-gradient-to-r from-gray-100 to-gray-200', t: 'text-gray-700', bd: '', lb: '' };
-};
-const FILTERS = [
-  { key: 'all', label: 'All', ac: 'bg-gray-800 text-white', inac: '' },
-  { key: 'high_risk', label: 'High Risk', ac: 'bg-red-500 hover:bg-red-600 text-white', inac: 'text-red-600 border-red-200 hover:bg-red-50' },
-  { key: 'warn', label: 'Warning', ac: 'bg-amber-500 hover:bg-amber-600 text-white', inac: 'text-amber-600 border-amber-200 hover:bg-amber-50' },
-  { key: 'new', label: 'New', ac: 'bg-blue-500 hover:bg-blue-600 text-white', inac: 'text-blue-600 border-blue-200 hover:bg-blue-50' },
-  { key: 'none', label: 'Safe', ac: 'bg-emerald-500 hover:bg-emerald-600 text-white', inac: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' },
-];
-interface DStats { pending_total: number; approved_total: number; approved_24h: number; rejected_total: number; rejected_24h: number; requested_total: number; requested_24h: number; mails_sent_total: number; mails_sent_24h: number; support_sent_total: number; support_sent_24h: number; }
-function Main() {
+
+// ─── Exported Helpers ────────────────────────────────────────────────────────
+
+export function fd(d: string | Date | null | undefined): string {
+  if (!d) return '—';
+  try {
+    return new Date(d as string).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return '—'; }
+}
+
+export function rsk(level: string) {
+  switch (level) {
+    case 'high_risk': return { bg: 'bg-red-100 dark:bg-red-900/30', t: 'text-red-700 dark:text-red-400', bd: 'border-red-300 text-red-700', lb: 'High Risk' };
+    case 'warn': return { bg: 'bg-amber-100 dark:bg-amber-900/30', t: 'text-amber-700 dark:text-amber-400', bd: 'border-amber-300 text-amber-700', lb: 'Warning' };
+    case 'new': return { bg: 'bg-blue-100 dark:bg-blue-900/30', t: 'text-blue-700 dark:text-blue-400', bd: 'border-blue-300 text-blue-700', lb: 'New' };
+    default: return { bg: 'bg-emerald-100 dark:bg-emerald-900/30', t: 'text-emerald-700 dark:text-emerald-400', bd: '', lb: '' };
+  }
+}
+
+// ─── Summary Type ────────────────────────────────────────────────────────────
+
+interface Summary {
+  total_publishers: number;
+  high_risk: number;
+  warn: number;
+  new: number;
+  none: number;
+}
+
+// ─── Main Component ──────────────────────────────────────────────────────────
+
+function AdminOfferAccessRequests() {
   const [profiles, setProfiles] = useState<PProf[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pag, setPag] = useState({ page: 1, total: 0, pages: 1 });
-  const [perPage, setPerPage] = useState(20);
-  const [sum, setSum] = useState({ total_publishers: 0, high_risk: 0, warn: 0, new: 0, none: 0 });
-  const [risk, setRisk] = useState('all');
   const [search, setSearch] = useState('');
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [sendPub, setSendPub] = useState<PProf | null>(null);
-  const [sendOffers, setSendOffers] = useState<Inv[] | undefined>(undefined);
-  const [bulkModal, setBulkModal] = useState<{ open: boolean; mode: 'email' | 'support' }>({ open: false, mode: 'email' });
-  const [showMore, setShowMore] = useState(false);
-  const [ds, setDs] = useState<DStats | null>(null);
-  const tk = localStorage.getItem('token');
-  const fetchP = async () => {
-    try { setLoading(true);
-      const p = new URLSearchParams({ status: 'pending', risk, search, page: String(pag.page), per_page: String(perPage) });
-      const r = await fetch(API_BASE_URL + '/api/admin/offer-access-requests/publisher-profiles?' + p, { headers: { Authorization: 'Bearer ' + tk } });
-      if (!r.ok) throw new Error(); const d = await r.json();
-      setProfiles(d.profiles || []); setPag(d.pagination || { page: 1, total: 0, pages: 1 }); setSum(d.summary || sum);
-    } catch { toast.error('Failed to load'); } finally { setLoading(false); }
+  const [status, setStatus] = useState('pending');
+  const [riskFilter, setRiskFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [summary, setSummary] = useState<Summary>({ total_publishers: 0, high_risk: 0, warn: 0, new: 0, none: 0 });
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sendModal, setSendModal] = useState<{ pub: PProf; offers?: Inv[] } | null>(null);
+  const [bulkMsgModal, setBulkMsgModal] = useState<{ mode: 'email' | 'support' } | null>(null);
+  const token = localStorage.getItem('token');
+
+  const fetchProfiles = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        status, risk: riskFilter, page: String(page), per_page: '20',
+        ...(search && { search }),
+      });
+      const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/publisher-profiles?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setProfiles(data.profiles || []);
+      setTotalPages(data.pagination?.pages || 1);
+      setSummary(data.summary || { total_publishers: 0, high_risk: 0, warn: 0, new: 0, none: 0 });
+    } catch {
+      toast.error('Failed to load publisher profiles');
+    } finally {
+      setLoading(false);
+    }
+  }, [status, riskFilter, page, search, token]);
+
+  useEffect(() => { fetchProfiles(); }, [fetchProfiles]);
+  useEffect(() => { setPage(1); }, [status, riskFilter, search]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
-  useEffect(() => { fetchP(); }, [risk, search, pag.page, perPage]);
-  useEffect(() => { fetch(API_BASE_URL + '/api/admin/offer-access-requests/stats', { headers: { Authorization: 'Bearer ' + tk } }).then(r => r.json()).then(d => setDs(d)).catch(() => {}); }, []);
-  if (loading && !profiles.length) return (<div className="flex items-center justify-center h-64"><div className="flex flex-col items-center gap-3"><div className="relative"><div className="w-12 h-12 rounded-full border-4 border-gray-200 border-t-emerald-500 animate-spin" /><Sparkles className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-5 w-5 text-emerald-500" /></div><p className="text-sm text-gray-500">Loading...</p></div></div>);
-  const topCards = [
-    { label: 'Total', value: sum.total_publishers, icon: Users, cls: 'text-emerald-100' },
-    { label: 'High Risk', value: sum.high_risk, icon: AlertTriangle, cls: 'text-red-200' },
-    { label: 'Warning', value: sum.warn, icon: AlertCircle, cls: 'text-yellow-200' },
-    { label: 'New', value: sum.new, icon: Zap, cls: 'text-blue-200' },
-  ];
-  const moreCards = ds ? [
-    { label: 'Pending', value: ds.pending_total, icon: Clock, color: 'text-amber-200' },
-    { label: 'Approved (24h)', value: ds.approved_24h, icon: CheckCircle2, color: 'text-emerald-200' },
-    { label: 'Approved Total', value: ds.approved_total, icon: CheckCircle2, color: 'text-emerald-200' },
-    { label: 'New Requests (24h)', value: ds.requested_24h, icon: Inbox, color: 'text-blue-200' },
-    { label: 'Total Requested', value: ds.requested_total, icon: Inbox, color: 'text-blue-200' },
-    { label: 'Rejected', value: ds.rejected_total, sub: ds.rejected_24h + ' in 24h', icon: XCircle, color: 'text-red-200' },
-    { label: 'Mails Sent', value: ds.mails_sent_total, sub: ds.mails_sent_24h + ' in 24h', icon: Send, color: 'text-cyan-200' },
-    { label: 'Support Msgs', value: ds.support_sent_total, sub: ds.support_sent_24h + ' in 24h', icon: MessageSquare, color: 'text-purple-200' },
-  ] : [];
+
+  const selectedPubs = profiles.filter(p => selectedIds.has(p.user_id));
+
   return (
-    <div className="space-y-6 p-1">
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 via-teal-500 to-cyan-500 p-6 text-white shadow-xl">
-        <div className="relative flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2"><Users className="h-7 w-7" />Publisher Profiles</h1>
-            <p className="text-emerald-100 mt-1">Review and manage publisher access requests</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="secondary" size="sm" className="bg-white/20 hover:bg-white/30 text-white border-0" onClick={() => setShowMore(!showMore)}>
-              <ChevronDown className={'h-4 w-4 mr-1 transition-transform ' + (showMore ? 'rotate-180' : '')} />{showMore ? 'Less' : 'More Stats'}
-            </Button>
-            <Button variant="secondary" size="sm" className="bg-white/20 hover:bg-white/30 text-white border-0" onClick={fetchP}>
-              <RefreshCw className="h-4 w-4 mr-1" />Refresh
-            </Button>
-          </div>
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <Inbox className="h-6 w-6" /> Offer Access Requests
+          </h2>
+          <p className="text-sm text-muted-foreground">Review publisher offer access requests and send matching offers</p>
         </div>
-        <div className="relative mt-6 grid grid-cols-4 gap-4">
-          {topCards.map(s => (
-            <div key={s.label} className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-              <div className={'flex items-center gap-2 ' + s.cls + ' text-sm'}><s.icon className="h-4 w-4" />{s.label}</div>
-              <div className={'text-3xl font-bold mt-1 ' + s.cls}>{s.value}</div>
+        <Button variant="outline" size="sm" onClick={fetchProfiles} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        </Button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {[
+          { label: 'Total Publishers', value: summary.total_publishers, icon: Users, color: 'text-foreground' },
+          { label: 'High Risk', value: summary.high_risk, icon: AlertTriangle, color: 'text-red-500' },
+          { label: 'Warning', value: summary.warn, icon: AlertCircle, color: 'text-amber-500' },
+          { label: 'New Users', value: summary.new, icon: Sparkles, color: 'text-blue-500' },
+          { label: 'Clean', value: summary.none, icon: CheckCircle2, color: 'text-emerald-500' },
+        ].map(s => (
+          <Card key={s.label} className="p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <s.icon className={`h-4 w-4 ${s.color}`} />
+              <span className="text-xs text-muted-foreground">{s.label}</span>
             </div>
+            <p className="text-xl font-bold">{s.value}</p>
+          </Card>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Search publishers..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+        </div>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="approved">Approved</SelectItem>
+            <SelectItem value="rejected">Rejected</SelectItem>
+            <SelectItem value="all">All</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={riskFilter} onValueChange={setRiskFilter}>
+          <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Risk</SelectItem>
+            <SelectItem value="high_risk">High Risk</SelectItem>
+            <SelectItem value="warn">Warning</SelectItem>
+            <SelectItem value="new">New</SelectItem>
+            <SelectItem value="none">Clean</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Bulk Actions */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/50">
+          <Badge>{selectedIds.size} selected</Badge>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setBulkMsgModal({ mode: 'email' })}>
+            <Mail className="h-3.5 w-3.5" /> Email Selected
+          </Button>
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setBulkMsgModal({ mode: 'support' })}>
+            <MessageSquare className="h-3.5 w-3.5" /> Support Message
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+        </div>
+      )}
+
+      {/* Publisher List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <RefreshCw className="h-6 w-6 animate-spin mr-2" /> Loading...
+        </div>
+      ) : profiles.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">No publisher profiles found</div>
+      ) : (
+        <div className="space-y-3">
+          {profiles.map(pub => (
+            <PublisherRow
+              key={pub.user_id}
+              pub={pub}
+              isExpanded={expandedId === pub.user_id}
+              isSelected={selectedIds.has(pub.user_id)}
+              onToggleExpand={() => setExpandedId(prev => prev === pub.user_id ? null : pub.user_id)}
+              onToggleSelect={() => toggleSelect(pub.user_id)}
+              onSendOffers={(p, offers) => setSendModal({ pub: p, offers })}
+              onRefreshList={fetchProfiles}
+            />
           ))}
         </div>
-        {showMore && moreCards.length > 0 && (
-          <div className="relative mt-4 grid grid-cols-4 gap-3">
-            {moreCards.map(c => (
-              <div key={c.label} className="bg-white/10 backdrop-blur-sm rounded-lg p-3 border border-white/20">
-                <div className={'flex items-center gap-1.5 ' + c.color + ' text-xs'}><c.icon className="h-3.5 w-3.5" />{c.label}</div>
-                <div className={'text-xl font-bold mt-0.5 ' + c.color}>{c.value ?? 0}</div>
-                {'sub' in c && c.sub && <div className="text-[10px] text-white/60 mt-0.5">{c.sub}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <Card className="p-4 shadow-sm">
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 min-w-[200px] max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input placeholder="Search publishers..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9 h-10 bg-gray-50" />
-          </div>
-          <div className="h-8 w-px bg-gray-200" />
-          <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Risk</span>
-          {FILTERS.map(f => (<Button key={f.key} variant={risk === f.key ? 'default' : 'outline'} size="sm" onClick={() => setRisk(f.key)} className={'h-8 text-xs font-medium ' + (risk === f.key ? f.ac : f.inac)}>{f.label}</Button>))}
-          {selected.size > 0 && (<><div className="h-8 w-px bg-gray-200" /><Badge variant="secondary" className="bg-emerald-100 text-emerald-700">{selected.size} selected</Badge><Button size="sm" variant="outline" className="h-8 text-xs text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => setBulkModal({ open: true, mode: 'support' })}><MessageSquare className="h-3 w-3 mr-1" />Support</Button><Button size="sm" variant="outline" className="h-8 text-xs text-emerald-600 border-emerald-200 hover:bg-emerald-50" onClick={() => setBulkModal({ open: true, mode: 'email' })}><Mail className="h-3 w-3 mr-1" />Mail</Button><Button size="sm" variant="ghost" className="h-8 text-xs text-gray-500" onClick={() => setSelected(new Set())}>Clear</Button></>)}
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Prev</Button>
+          <span className="text-sm text-muted-foreground">Page {page} of {totalPages}</span>
+          <Button size="sm" variant="outline" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
-      </Card>
-      <div className="space-y-3">
-        <AnimatePresence>
-          {profiles.map((p, i) => (<motion.div key={p.user_id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}><PublisherRow pub={p} isExpanded={expanded.has(p.user_id)} isSelected={selected.has(p.user_id)} onToggleExpand={() => setExpanded(prev => { const n = new Set(prev); n.has(p.user_id) ? n.delete(p.user_id) : n.add(p.user_id); return n; })} onToggleSelect={() => setSelected(prev => { const n = new Set(prev); n.has(p.user_id) ? n.delete(p.user_id) : n.add(p.user_id); return n; })} onSendOffers={(pub, offers) => { setSendPub(pub); setSendOffers(offers); }} onRefreshList={fetchP} /></motion.div>))}
-        </AnimatePresence>
-        {!profiles.length && !loading && (<Card className="p-12 text-center"><Users className="h-8 w-8 text-gray-400 mx-auto mb-2" /><p className="font-medium text-gray-900">No publishers found</p></Card>)}
-      </div>
-      <div className="flex items-center justify-between pt-2 pb-4">
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">Page {pag.page} of {pag.pages} ({pag.total} publishers)</span>
-          <Select value={String(perPage)} onValueChange={v => { setPerPage(Number(v)); setPag(prev => ({ ...prev, page: 1 })); }}>
-            <SelectTrigger className="w-28 h-9 text-xs border-gray-300"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value="20">20 / page</SelectItem><SelectItem value="50">50 / page</SelectItem><SelectItem value="100">100 / page</SelectItem><SelectItem value="200">200 / page</SelectItem></SelectContent>
-          </Select>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setPag(prev => ({ ...prev, page: prev.page - 1 }))} disabled={pag.page <= 1}>Previous</Button>
-          <Button variant="outline" size="sm" onClick={() => setPag(prev => ({ ...prev, page: prev.page + 1 }))} disabled={pag.page >= pag.pages}>Next</Button>
-        </div>
-      </div>
-      <SendOffersModal open={!!sendPub} onClose={() => { setSendPub(null); setSendOffers(undefined); }} publisher={sendPub} preselectedOffers={sendOffers} />
-      <BulkMessageModal open={bulkModal.open} onClose={() => setBulkModal({ open: false, mode: 'email' })} publishers={profiles.filter(p => selected.has(p.user_id))} defaultMode={bulkModal.mode} />
+      )}
+
+      {/* Send Offers Modal */}
+      {sendModal && (
+        <SendOffersModal
+          open={!!sendModal}
+          onClose={() => setSendModal(null)}
+          publisher={sendModal.pub}
+          preselectedOffers={sendModal.offers}
+        />
+      )}
+
+      {/* Bulk Message Modal */}
+      {bulkMsgModal && (
+        <BulkMessageModal
+          open={!!bulkMsgModal}
+          onClose={() => setBulkMsgModal(null)}
+          publishers={selectedPubs}
+          defaultMode={bulkMsgModal.mode}
+        />
+      )}
     </div>
   );
 }
-export default function AdminOfferAccessRequestsPage() { return <AdminPageGuard requiredTab="offer-access-requests"><Main /></AdminPageGuard>; }
+
+export default function AdminOfferAccessRequestsPage() {
+  return (
+    <AdminPageGuard requiredTab="offer-access-requests">
+      <AdminOfferAccessRequests />
+    </AdminPageGuard>
+  );
+}
