@@ -22,7 +22,8 @@ import {
   Sparkles,
   Mail,
   Search,
-  ClipboardList
+  ClipboardList,
+  RefreshCw
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -88,6 +89,7 @@ const adminMenuStructure = [
       { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
       { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick, tab: "click-tracking" },
       { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },
+      { title: "Reactivation", url: "/admin/reactivation", icon: RefreshCw, tab: "reactivation" },
     ]
   },
   {

@@ -57,6 +57,7 @@ import AdminSupportInbox from "./pages/AdminSupportInbox";
 import AdminSearchLogs from "./pages/AdminSearchLogs";
 import AdminActivityLogs from "./pages/AdminActivityLogs";
 import AdminReportsTracking from "./pages/AdminReportsTracking";
+import AdminReactivation from "./pages/AdminReactivation";
 import SupportPage from "./pages/SupportPage";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
 import AdvertiserCampaigns from "./pages/AdvertiserCampaigns";
@@ -173,6 +174,7 @@ const App = () => (
                 <Route path="support-inbox" element={<AdminSupportInbox />} />
                 <Route path="search-logs" element={<AdminSearchLogs />} />
                 <Route path="tracking-reports" element={<AdminReportsTracking />} />
+                <Route path="reactivation" element={<AdminReactivation />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}
