@@ -63,7 +63,7 @@ export default function Referrals() {
 
   const FRONTEND_URL = window.location.origin;
   const p1Link = `${FRONTEND_URL}/publisher/register?ref=${referralCode}&p=1`;
-  const p2Link = `${FRONTEND_URL}/advertiser/register?ref=${referralCode}&p=2`;
+  const p2Link = `${FRONTEND_URL}/publisher/register?ref=${referralCode}&p=2`;
 
   useEffect(() => { loadData(); }, []);
 
@@ -199,7 +199,7 @@ export default function Referrals() {
 
             {/* Referral Link */}
             <div className="space-y-1.5">
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Your Referral Link (Advertiser Signup)</p>
+              <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Your Referral Link (Commission Share)</p>
               <div className="flex items-center gap-2">
                 <div className="flex-1 bg-muted rounded-lg px-3 py-2 text-xs font-mono truncate">{p2Link}</div>
                 <Button onClick={copyP2Link} size="sm" className="bg-green-600 hover:bg-green-700 text-white shrink-0">

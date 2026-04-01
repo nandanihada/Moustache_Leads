@@ -116,7 +116,6 @@ def register_publisher():
                     device_fingerprint = data.get('device_fingerprint', '')
                     user_agent_str = request.headers.get('User-Agent', '')
                     
-                    # Only create P1 for publisher signups (p=1)
                     if referral_program == '1':
                         p1_doc, p1_err = ref_model.create_p1_referral(
                             link['user_id'], str(user_data['_id']), email, username,
@@ -128,6 +127,10 @@ def register_publisher():
                             ref_model.update_p1_fraud_result(p1_doc['_id'], fraud_score, status)
                             if status == 'approved':
                                 ref_model.release_p1_bonus(p1_doc['_id'])
+                    elif referral_program == '2':
+                        ref_model.create_p2_referral(
+                            link['user_id'], str(user_data['_id']), email, username
+                        )
                     
                     # Mark user as referred
                     from database import db_instance
