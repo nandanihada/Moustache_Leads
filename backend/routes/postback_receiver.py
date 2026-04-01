@@ -771,6 +771,21 @@ def receive_postback(unique_key):
                                                                     'timestamp': datetime.utcnow(),
                                                                     'status': 'completed'
                                                                 })
+                                                            
+                                                            # 🔗 REFERRAL P2 COMMISSION TRACKING
+                                                            try:
+                                                                from models.referral import Referral
+                                                                ref_model = Referral()
+                                                                publisher_user = users_collection.find_one({'username': actual_username})
+                                                                if publisher_user and publisher_user.get('referred_by'):
+                                                                    p2_result = ref_model.update_p2_revenue(
+                                                                        str(publisher_user['_id']),
+                                                                        points_calc['total_points']
+                                                                    )
+                                                                    if p2_result and p2_result.get('commission', 0) > 0:
+                                                                        logger.info(f"🔗 Referral P2 commission: ${p2_result['commission']} for referrer of {actual_username}")
+                                                            except Exception as ref_error:
+                                                                logger.error(f"⚠️ Referral P2 tracking error: {ref_error}")
                                                         except Exception as points_error:
                                                             logger.error(f"❌ Error updating user points: {points_error}")
                                                     

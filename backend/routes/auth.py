@@ -443,6 +443,58 @@ def register():
         # Generate auth token
         token = generate_token(user_data)
         
+        # Handle referral code if provided
+        referral_code = data.get('referral_code', '').strip() if data else ''
+        referral_program = data.get('referral_program', '1').strip() if data else '1'
+        if referral_code:
+            try:
+                from models.referral import Referral
+                ref_model = Referral()
+                link = ref_model.find_referrer_by_code(referral_code)
+                if link and link['user_id'] != str(user_data['_id']):
+                    ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+                    device_fingerprint = data.get('device_fingerprint', '')
+                    user_agent_str = request.headers.get('User-Agent', '')
+                    
+                    if referral_program == '1':
+                        p1_doc, p1_err = ref_model.create_p1_referral(
+                            link['user_id'], str(user_data['_id']), email, username,
+                            ip_address, device_fingerprint, user_agent_str
+                        )
+                        if p1_doc and not p1_err:
+                            from services.referral_fraud_service import referral_fraud_service
+                            fraud_score, status, checks = referral_fraud_service.run_fraud_checks(p1_doc)
+                            ref_model.update_p1_fraud_result(p1_doc['_id'], fraud_score, status)
+                            if status == 'approved':
+                                ref_model.release_p1_bonus(p1_doc['_id'])
+                    elif referral_program == '2':
+                        ref_model.create_p2_referral(
+                            link['user_id'], str(user_data['_id']), email, username
+                        )
+                    
+                    from database import db_instance
+                    users_col = db_instance.get_collection('users')
+                    if users_col:
+                        users_col.update_one(
+                            {'_id': user_data['_id']},
+                            {'$set': {
+                                'referred_by': link['user_id'],
+                                'referral_code_used': referral_code,
+                                'referred_at': datetime.utcnow()
+                            }}
+                        )
+                    logging.info(f"✅ Referral processed for new user {username} via code {referral_code}")
+            except Exception as ref_err:
+                logging.error(f"⚠️ Referral processing error (non-blocking): {ref_err}")
+        
+        # Generate referral link for the new user
+        try:
+            from models.referral import Referral
+            ref_model = Referral()
+            ref_model.get_or_create_referral_link(str(user_data['_id']))
+        except Exception as ref_link_err:
+            logging.error(f"⚠️ Could not create referral link for new user: {ref_link_err}")
+        
         return jsonify({
             'message': 'User registered successfully. Please check your email to verify your account.',
             'token': token,

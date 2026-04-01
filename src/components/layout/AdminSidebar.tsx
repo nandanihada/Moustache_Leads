@@ -120,6 +120,13 @@ const adminMenuStructure = [
     tab: "support-inbox",
     type: "single" as const,
   },
+  {
+    title: "Referrals",
+    url: "/admin/referrals",
+    icon: Users,
+    tab: "referrals",
+    type: "single" as const,
+  },
 ];
 
 export function AdminSidebar() {

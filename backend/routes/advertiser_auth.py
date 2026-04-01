@@ -133,6 +133,40 @@ def register_advertiser():
         email_thread.start()
         logging.info(f"📧 Advertiser emails queued for {advertiser_data['email']}")
         
+        # Handle referral code if provided (P2 — Commission Share for advertisers)
+        referral_code = data.get('referral_code', '').strip() if data else ''
+        referral_program = data.get('referral_program', '2').strip() if data else '2'
+        if referral_code:
+            try:
+                from models.referral import Referral
+                ref_model = Referral()
+                link = ref_model.find_referrer_by_code(referral_code)
+                if link and link['user_id'] != str(advertiser_data['_id']):
+                    # Only create P2 for advertiser signups (p=2)
+                    if referral_program == '2':
+                        ref_model.create_p2_referral(
+                            link['user_id'], str(advertiser_data['_id']),
+                            advertiser_data['email'],
+                            advertiser_data.get('first_name', '') + ' ' + advertiser_data.get('last_name', '')
+                        )
+                    
+                    # Mark advertiser as referred
+                    from database import db_instance
+                    advertisers_col = db_instance.get_collection('advertisers')
+                    if advertisers_col:
+                        advertisers_col.update_one(
+                            {'_id': advertiser_data['_id']},
+                            {'$set': {
+                                'referred_by': link['user_id'],
+                                'referral_code_used': referral_code,
+                                'referral_program': referral_program,
+                                'referred_at': datetime.utcnow()
+                            }}
+                        )
+                    logging.info(f"✅ Referral P{referral_program} processed for advertiser {advertiser_data['email']}")
+            except Exception as ref_err:
+                logging.error(f"⚠️ Advertiser referral processing error (non-blocking): {ref_err}")
+        
         return jsonify({
             'message': 'Advertiser registered successfully. Your application is under review.',
             'token': token,

@@ -118,6 +118,12 @@ const menuStructure: MenuItem[] = [
     icon: MessageCircle,
     type: "single",
   },
+  {
+    title: "Referrals",
+    url: "/dashboard/referrals",
+    icon: Users,
+    type: "single",
+  },
 ];
 
 export function AppSidebar() {

@@ -1722,7 +1722,6 @@ const AdminOffers = () => {
                 <DropdownMenuContent align="start" className="w-52">
                   {[
                     { key: 'all', label: 'All', icon: '📊' },
-                    { key: 'searched', label: 'Searched', icon: '🔍' },
                     { key: 'picked', label: 'Picked', icon: '👆' },
                     { key: 'requested', label: 'Requested', icon: '📩' },
                     { key: 'approved', label: 'Approved', icon: '✅' },

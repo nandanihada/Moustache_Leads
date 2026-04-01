@@ -58,6 +58,8 @@ import AdminSearchLogs from "./pages/AdminSearchLogs";
 import AdminActivityLogs from "./pages/AdminActivityLogs";
 import AdminReportsTracking from "./pages/AdminReportsTracking";
 import AdminReactivation from "./pages/AdminReactivation";
+import AdminReferrals from "./pages/AdminReferrals";
+import Referrals from "./pages/Referrals";
 import SupportPage from "./pages/SupportPage";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
 import AdvertiserCampaigns from "./pages/AdvertiserCampaigns";
@@ -137,6 +139,7 @@ const App = () => (
                 <Route path="campaign-builder" element={<CampaignBuilder />} />
                 <Route path="ascend" element={<AscendIframe />} />
                 <Route path="support" element={<SupportPage />} />
+                <Route path="referrals" element={<Referrals />} />
               </Route>
 
               {/* Admin Dashboard routes */}
@@ -175,6 +178,7 @@ const App = () => (
                 <Route path="search-logs" element={<AdminSearchLogs />} />
                 <Route path="tracking-reports" element={<AdminReportsTracking />} />
                 <Route path="reactivation" element={<AdminReactivation />} />
+                <Route path="referrals" element={<AdminReferrals />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

@@ -464,50 +464,9 @@ def get_running_offers():
 
         subcategory_ids['has_clicks'] = set(click_counts.keys())
 
-        # 2. Searched - offers that appeared in search results
+        # 2. Searched - REMOVED: searched offers are not running offers
+        # Search logs are informational only, not an indicator of offer activity
         search_logs_col = db_instance.get_collection('search_logs')
-        searched_ids = set()
-        earliest_search_time = {}  # keyword -> earliest searched_at
-        if search_logs_col is not None:
-            try:
-                logs = search_logs_col.find(
-                    {'searched_at': {'$gte': cutoff}},
-                    {'keyword': 1, 'searched_at': 1}
-                )
-                keywords = set()
-                for log in logs:
-                    kw = (log.get('keyword') or '').strip()
-                    if kw:
-                        keywords.add(kw)
-                        ts = log.get('searched_at')
-                        if ts and (kw not in earliest_search_time or ts < earliest_search_time[kw]):
-                            earliest_search_time[kw] = ts
-                # Find offers matching any searched keyword and track first_active
-                if keywords:
-                    keyword_conditions = []
-                    for kw in list(keywords)[:200]:
-                        escaped = re_mod.escape(kw)
-                        keyword_conditions.append({'name': {'$regex': escaped, '$options': 'i'}})
-                        keyword_conditions.append({'offer_id': {'$regex': escaped, '$options': 'i'}})
-                    if keyword_conditions:
-                        matched = offers_col.find(
-                            {'$or': keyword_conditions, '$and': [{'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}]},
-                            {'offer_id': 1, 'name': 1}
-                        )
-                        for m in matched:
-                            oid = m.get('offer_id')
-                            if oid:
-                                searched_ids.add(oid)
-                                # Find earliest search time that matched this offer
-                                offer_name = (m.get('name') or '').lower()
-                                for kw, ts in earliest_search_time.items():
-                                    if kw.lower() in offer_name or kw.lower() in (oid or '').lower():
-                                        existing = first_active.get(oid)
-                                        if not existing or ts < existing:
-                                            first_active[oid] = ts
-            except Exception as e:
-                logging.warning(f"Running offers - searched query failed: {e}")
-        subcategory_ids['searched'] = searched_ids
 
         # 3. Picked - offers that were picked/selected after a search
         picked_ids = set()

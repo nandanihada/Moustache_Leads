@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Eye, EyeOff } from "lucide-react";
 import EmailVerificationPrompt from "../components/EmailVerificationPrompt";
@@ -31,6 +31,9 @@ export default function Register() {
     token: string;
   } | null>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const referralCode = searchParams.get('ref') || '';
+  const referralProgram = searchParams.get('p') || '1';
   const { login } = useAuth();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,6 +88,8 @@ export default function Register() {
           role: 'partner',
           terms_accepted: formData.termsAccepted,
           newsletter_consent: formData.newsletterConsent,
+          referral_code: referralCode,
+          referral_program: referralProgram,
         }),
       });
       
@@ -149,6 +154,15 @@ export default function Register() {
           </div>
 
           <div className="space-y-4">
+            {/* Referral code indicator */}
+            {referralCode && (
+              <div className="bg-green-500/20 border border-green-400/30 rounded-xl px-4 py-3 text-center">
+                <p className="text-green-300 text-sm">
+                  🎉 You were referred! Code: <span className="font-mono font-bold">{referralCode}</span>
+                </p>
+              </div>
+            )}
+
             {/* Name fields */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

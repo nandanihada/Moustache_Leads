@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { Eye, EyeOff, Plus, Trash2 } from "lucide-react";
 
@@ -49,6 +49,9 @@ export default function AdvertiserRegister() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const referralCode = searchParams.get('ref') || '';
+  const referralProgram = searchParams.get('p') || '2';
   const { login } = useAuth();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -159,7 +162,7 @@ export default function AdvertiserRegister() {
       const res = await fetch(`${API_URL}/api/auth/advertiser/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...formData, references }),
+        body: JSON.stringify({ ...formData, references, referral_code: referralCode, referral_program: referralProgram }),
       });
 
       const data = await res.json();
@@ -200,6 +203,14 @@ export default function AdvertiserRegister() {
             </p>
             <p className="text-gray-400 text-sm mt-2">Fields with an asterisk (*) are mandatory.</p>
           </div>
+
+          {referralCode && (
+            <div className="bg-green-500/20 border border-green-400/30 rounded-xl px-4 py-3 text-center mb-6">
+              <p className="text-green-300 text-sm">
+                🎉 You were referred! Code: <span className="font-mono font-bold">{referralCode}</span>
+              </p>
+            </div>
+          )}
 
           <div className="space-y-8">
             {/* General Section */}

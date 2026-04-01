@@ -17,3 +17,6 @@ class Config:
     
     # Tracking URL base - uses offers subdomain in production
     TRACKING_BASE_URL = os.getenv('TRACKING_BASE_URL', 'https://offers.moustacheleads.com')
+    
+    # IPQualityScore API key for referral fraud detection
+    IPQUALITYSCORE_API_KEY = os.getenv('IPQUALITYSCORE_API_KEY', '')
