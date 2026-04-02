@@ -51,15 +51,23 @@ def _send_support_notification_email(to_email: str, username: str, is_admin_repl
             email_service = get_email_service()
             frontend_url = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
             if is_admin_reply:
-                subject = "You have a new message from support"
+                subject = "You have received a message from admin"
                 html = f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
 <div style="max-width:500px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<div style="text-align:center;margin-bottom:24px;">
+<img src="{frontend_url}/logo.png" alt="Moustache Leads" style="height:40px;" onerror="this.style.display='none'" />
+<h1 style="margin:8px 0 0;font-size:20px;color:#111;">Moustache Leads</h1>
+</div>
 <h2 style="margin:0 0 16px;color:#111;">Hello {username},</h2>
-<p style="font-size:15px;color:#333;line-height:1.6;">Our team has replied to your support request.</p>
-<p style="font-size:15px;color:#333;line-height:1.6;">Login to your dashboard to view the reply.</p>
-<a href="{frontend_url}/publisher/signin" style="display:inline-block;margin-top:16px;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Reply</a>
+<p style="font-size:15px;color:#333;line-height:1.6;">You have received a message from admin. Please log in to your dashboard to view and respond.</p>
+<div style="text-align:center;margin-top:20px;">
+<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Message</a>
+</div>
+<p style="font-size:11px;color:#999;margin-top:32px;text-align:center;">
+<a href="{frontend_url}/unsubscribe" style="color:#999;">Unsubscribe</a> from these notifications
+</p>
 </div>
 </body></html>"""
             else:

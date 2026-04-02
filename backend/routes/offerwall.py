@@ -2178,6 +2178,11 @@ def get_offers():
                 else:
                     # Use batch-loaded request status
                     request_status = user_request_map.get(offer.get('offer_id'), 'not_requested')
+                    
+                    # HIDE rejected offers from publisher/offerwall completely
+                    if request_status == 'rejected':
+                        continue
+                    
                     is_approved = request_status == 'approved'
                     
                     transformed_offer['is_locked'] = not is_approved

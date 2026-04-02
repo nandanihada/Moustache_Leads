@@ -180,6 +180,11 @@ def get_available_offers():
                 if existing_request:
                     request_status = existing_request.get('status', 'pending')
                 
+                # HIDE rejected offers from publisher completely
+                if request_status == 'rejected' or (existing_request and existing_request.get('hidden_from_publisher')):
+                    skipped_count += 1
+                    continue
+                
                 # ALL offers require user to click Apply first.
                 # has_access is ONLY true if user has an approved request in affiliate_requests.
                 # For auto_approve offers, clicking Apply auto-approves instantly in the backend.
@@ -512,9 +517,12 @@ def get_my_access_requests():
         page = int(request.args.get('page', 1))
         per_page = min(int(request.args.get('per_page', 20)), 100)
         
-        # Build query
-        query = {'user_id': user_id}
+        # Build query — exclude rejected/hidden requests from publisher view
+        query = {'user_id': user_id, 'status': {'$ne': 'rejected'}, 'hidden_from_publisher': {'$ne': True}}
         if status != 'all':
+            if status == 'rejected':
+                # Publisher should never see rejected — return empty
+                return safe_json_response({'requests': [], 'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}})
             query['status'] = status
         
         # Get requests

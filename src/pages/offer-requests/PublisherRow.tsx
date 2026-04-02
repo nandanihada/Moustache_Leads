@@ -56,7 +56,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
     }
     if (inventory.length === 0 && !loadingInv) {
       setLoadingInv(true);
-      fetch(`${API_BASE_URL}/api/admin/offer-access-requests/inventory-matches?offer_name=${encodeURIComponent(pub.latest_offer_name)}&user_id=${pub.user_id}&limit=15`, {
+      fetch(`${API_BASE_URL}/api/admin/offer-access-requests/inventory-matches?offer_name=${encodeURIComponent(pub.latest_offer_name)}&user_id=${pub.user_id}&limit=12`, {
         headers: { Authorization: `Bearer ${token}` },
       }).then(r => { if (!r.ok) throw new Error(); return r.json(); })
         .then(d => setInventory(d.matches || []))
@@ -313,6 +313,20 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                         )}
                         {req.message && <span className="text-muted-foreground italic truncate max-w-[150px]">"{req.message}"</span>}
                         <div className="flex items-center gap-1.5 shrink-0">
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-200 hover:bg-blue-50"
+                            onClick={async () => {
+                              try {
+                                const r = await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: req.offer_id, request_id: req.request_id, collection_type: 'direct_partner' }) });
+                                const d = await r.json(); toast.success(d.already_exists ? 'Already in DP' : 'Added to Direct Partner');
+                              } catch { toast.error('Failed'); }
+                            }}>DP</Button>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-violet-600 border-violet-200 hover:bg-violet-50"
+                            onClick={async () => {
+                              try {
+                                const r = await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: req.offer_id, request_id: req.request_id, collection_type: 'affiliate' }) });
+                                const d = await r.json(); toast.success(d.already_exists ? 'Already in AF' : 'Added to Affiliate');
+                              } catch { toast.error('Failed'); }
+                            }}>AF</Button>
                           <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-300 hover:bg-blue-50"
                             onClick={() => handleEditOffer(req.offer_id)} disabled={loadingEdit === req.offer_id}>
                             {loadingEdit === req.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}Edit
@@ -427,7 +441,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                           <th className="px-3 py-2 text-left font-medium">Network</th>
                           <th className="px-3 py-2 text-right font-medium">Payout</th>
                           <th className="px-3 py-2 text-left font-medium">Keywords</th>
-                          <th className="px-3 py-2 text-center font-medium">Action</th>
+                          <th className="px-3 py-2 text-center font-medium min-w-[160px]">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
@@ -458,10 +472,20 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                             <td className="px-3 py-2 text-right font-mono">${inv.payout.toFixed(2)}</td>
                             <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">{inv.keywords || '—'}</td>
                             <td className="px-3 py-2 text-center">
-                              <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
-                                onClick={() => onSendOffers(pub, [inv])}>
-                                Send <ExternalLink className="w-3 h-3" />
-                              </Button>
+                              <div className="flex items-center justify-center gap-1">
+                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
+                                  onClick={() => handleEditOffer(inv.offer_id)} disabled={loadingEdit === inv.offer_id}>
+                                  {loadingEdit === inv.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
+                                  onClick={() => onSendOffers(pub, [inv])}>
+                                  <Send className="w-3 h-3" />Send
+                                </Button>
+                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
+                                  onClick={() => onSendOffers(pub, [inv])}>
+                                  <Calendar className="w-3 h-3" />Schedule
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -541,23 +565,33 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                     </div>
                   )}
 
-                  {/* Offer Views (30d) */}
+                  {/* Offer Views (30d) — Dual bars: all users vs this user */}
                   {stats.offer_views && stats.offer_views.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
                         <Eye className="w-3.5 h-3.5" />Offers Viewed (30d)
                       </h4>
+                      <div className="flex items-center gap-3 text-[10px] text-muted-foreground mb-1">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600" />All Users</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" />This User</span>
+                      </div>
                       <div className="space-y-1.5">
                         {(() => {
-                          const maxViews = Math.max(...stats.offer_views!.map(v => v.view_count), 1);
-                          const colors = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1'];
-                          return stats.offer_views!.map((v, i) => (
+                          const sorted = [...stats.offer_views!].sort((a, b) => b.view_count - a.view_count).slice(0, 7);
+                          const maxGlobal = Math.max(...sorted.map(v => v.global_view_count || v.view_count), 1);
+                          const colors = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899'];
+                          return sorted.map((v, i) => (
                             <div key={v.offer_id} className="flex items-center gap-2 text-xs">
                               <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: colors[i % colors.length] }} />
                               <span className="flex-1 truncate min-w-0 font-medium">{v.offer_name}</span>
-                              <span className="text-muted-foreground shrink-0 w-8 text-right">{v.view_count}</span>
-                              <div className="w-20 h-2 bg-muted rounded-full overflow-hidden shrink-0">
-                                <div className="h-full rounded-full" style={{ width: `${(v.view_count / maxViews) * 100}%`, backgroundColor: colors[i % colors.length] }} />
+                              <span className="text-muted-foreground shrink-0 w-14 text-right tabular-nums">{v.view_count} / {v.global_view_count || v.view_count}</span>
+                              <div className="w-24 h-3.5 bg-muted rounded-full overflow-hidden shrink-0 relative">
+                                {/* Background bar: global views (all users) */}
+                                <div className="absolute inset-y-0 left-0 rounded-full bg-gray-300 dark:bg-gray-600 opacity-60"
+                                  style={{ width: `${((v.global_view_count || v.view_count) / maxGlobal) * 100}%` }} />
+                                {/* Foreground bar: this user's views */}
+                                <div className="absolute inset-y-0.5 left-0 rounded-full"
+                                  style={{ width: `${(v.view_count / maxGlobal) * 100}%`, backgroundColor: colors[i % colors.length] }} />
                               </div>
                             </div>
                           ));

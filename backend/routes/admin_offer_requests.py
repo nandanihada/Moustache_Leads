@@ -7,11 +7,34 @@ from utils.auth import token_required, admin_required, subadmin_or_admin_require
 from utils.json_serializer import safe_json_response
 from database import db_instance
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 admin_offer_requests_bp = Blueprint('admin_offer_requests', __name__)
 access_service = AccessControlService()
 offer_model = Offer()
+
+# IST = UTC+5:30
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def _parse_ist_to_utc(scheduled_at):
+    """Parse a datetime string from frontend (IST) and convert to UTC for storage."""
+    if not scheduled_at:
+        return datetime.utcnow()
+    try:
+        if isinstance(scheduled_at, str):
+            # Frontend sends "2026-04-02T16:30" (no timezone = IST)
+            dt = datetime.fromisoformat(scheduled_at.replace('Z', ''))
+            if dt.tzinfo is None:
+                # Treat as IST, convert to UTC
+                dt_ist = dt.replace(tzinfo=IST)
+                dt_utc = dt_ist.astimezone(timezone.utc).replace(tzinfo=None)
+                return dt_utc
+            else:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return scheduled_at
+    except Exception as e:
+        logging.warning(f"Failed to parse scheduled_at '{scheduled_at}': {e}")
+        return datetime.utcnow()
 
 
 @admin_offer_requests_bp.route('/offer-access-requests/publisher-profiles', methods=['GET'])
@@ -36,8 +59,7 @@ def get_publisher_profiles_with_requests():
         req_query = {}
         if status != 'all':
             if status == 'pending':
-                # When viewing pending, also include review status so they stay visible
-                req_query['status'] = {'$in': ['pending', 'review']}
+                req_query['status'] = 'pending'
             else:
                 req_query['status'] = status
         
@@ -242,7 +264,7 @@ def get_inventory_matches():
     try:
         offer_name = request.args.get('offer_name', '')
         user_id = request.args.get('user_id', '')
-        limit = min(int(request.args.get('limit', 15)), 50)
+        limit = min(int(request.args.get('limit', 12)), 50)
         
         if not offer_name:
             return jsonify({'error': 'offer_name is required'}), 400
@@ -649,6 +671,20 @@ def get_publisher_detailed_stats(user_id):
                         'view_count': doc['view_count'],
                         'last_viewed': doc.get('last_viewed')
                     })
+                
+                # Get global view counts for the same offers (all users)
+                if offer_views_list:
+                    offer_ids_viewed = [v['offer_id'] for v in offer_views_list]
+                    global_pipeline = [
+                        {'$match': {'offer_id': {'$in': offer_ids_viewed}}},
+                        {'$group': {'_id': '$offer_id', 'total_views': {'$sum': 1}}}
+                    ]
+                    global_views = {}
+                    for doc in offer_views_col.aggregate(global_pipeline):
+                        global_views[doc['_id']] = doc['total_views']
+                    
+                    for v in offer_views_list:
+                        v['global_view_count'] = global_views.get(v['offer_id'], v['view_count'])
             except Exception as e:
                 logging.warning(f"Failed to get offer views: {e}")
         
@@ -979,6 +1015,10 @@ def reject_access_request(request_id):
             return jsonify(result), 400
         
         # Update with admin details using the correct _id
+        rejection_category = data.get('category', 'other')
+        if rejection_category not in ('wrong_link', 'empty_link', 'not_approved', 'wrong_user', 'other'):
+            rejection_category = 'other'
+
         requests_collection.update_one(
             {'_id': access_request['_id']},
             {
@@ -986,6 +1026,8 @@ def reject_access_request(request_id):
                     'rejected_by': str(user['_id']),
                     'rejected_by_username': user.get('username'),
                     'rejection_reason': reason,
+                    'rejection_category': rejection_category,
+                    'hidden_from_publisher': True,
                     'updated_at': datetime.utcnow()
                 }
             }
@@ -1324,3 +1366,786 @@ def check_inactive_offers():
     except Exception as e:
         logging.error(f"Check inactive offers error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to check inactive offers: {str(e)}'}), 500
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# NEW ENDPOINTS — Offer Access Request Redesign (Tab System)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/tab-counts', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_tab_counts():
+    """Get counts for all tabs (for badges)"""
+    try:
+        requests_col = db_instance.get_collection('affiliate_requests')
+        collections_col = db_instance.get_collection('offer_collections')
+
+        approved = requests_col.count_documents({'status': 'approved'})
+        rejected = requests_col.count_documents({'status': 'rejected'})
+        # all_requests = only pending (review items appear in In Review tab)
+        all_requests = requests_col.count_documents({'status': 'pending'})
+        # in_review = only explicitly marked as 'review'
+        in_review = requests_col.count_documents({'status': 'review'})
+
+        dp_count = 0
+        af_count = 0
+        if collections_col is not None:
+            dp_count = collections_col.count_documents({'collection_type': 'direct_partner'})
+            af_count = collections_col.count_documents({'collection_type': 'affiliate'})
+
+        # most_requested = distinct offer_ids in affiliate_requests
+        most_requested = len(requests_col.distinct('offer_id'))
+
+        return jsonify({
+            'all_requests': all_requests,
+            'approved': approved,
+            'rejected': rejected,
+            'in_review': in_review,
+            'direct_partner': dp_count,
+            'affiliate': af_count,
+            'most_requested': most_requested,
+        })
+    except Exception as e:
+        logging.error(f"Tab counts error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/tab-data', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_tab_data():
+    """Unified tab data endpoint for all 6 tabs"""
+    try:
+        from bson import ObjectId
+        from services.health_check_service import HealthCheckService
+
+        tab = request.args.get('tab', 'in_review')
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(int(request.args.get('per_page', 20)), 100)
+        sort_dir = request.args.get('sort_dir', 'desc')
+        user_id_filter = request.args.get('user_id', '')
+        offer_name_filter = request.args.get('offer_name', '')
+        network_filter = request.args.get('network', '')
+        vertical_filter = request.args.get('vertical', '')
+        country_filter = request.args.get('country', '')
+
+        user = request.current_user
+
+        # Rejected tab is admin-only
+        if tab == 'rejected' and user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required for rejected tab'}), 403
+
+        requests_col = db_instance.get_collection('affiliate_requests')
+        offers_col = db_instance.get_collection('offers')
+        users_col = db_instance.get_collection('users')
+        collections_col = db_instance.get_collection('offer_collections')
+
+        sort_val = 1 if sort_dir == 'asc' else -1
+
+        # ── Direct Partner / Affiliate tabs ──
+        if tab in ('direct_partner', 'affiliate'):
+            if collections_col is None:
+                return safe_json_response({'requests': [], 'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'pages': 0}})
+
+            q = {'collection_type': tab}
+            if offer_name_filter:
+                q['offer_snapshot.name'] = {'$regex': offer_name_filter, '$options': 'i'}
+            if network_filter:
+                q['offer_snapshot.network'] = {'$regex': network_filter, '$options': 'i'}
+
+            total = collections_col.count_documents(q)
+            items = list(collections_col.find(q).sort('created_at', sort_val).skip((page - 1) * per_page).limit(per_page))
+
+            results = []
+            for item in items:
+                results.append({
+                    '_id': str(item['_id']),
+                    'offer_id': item.get('offer_id'),
+                    'collection_type': item.get('collection_type'),
+                    'offer_name': item.get('offer_snapshot', {}).get('name', ''),
+                    'offer_payout': item.get('offer_snapshot', {}).get('payout', 0),
+                    'offer_network': item.get('offer_snapshot', {}).get('network', ''),
+                    'offer_category': item.get('offer_snapshot', {}).get('category', ''),
+                    'offer_countries': item.get('offer_snapshot', {}).get('countries', []),
+                    'publisher_username': item.get('publisher_username', ''),
+                    'added_by_username': item.get('added_by_username', ''),
+                    'created_at': item.get('created_at'),
+                    'status': tab,
+                })
+
+            return safe_json_response({
+                'requests': results,
+                'pagination': {'page': page, 'per_page': per_page, 'total': total, 'pages': max(1, (total + per_page - 1) // per_page)},
+                'tab_stats': {'count': total},
+            })
+
+        # ── Most Requested tab ──
+        if tab == 'most_requested':
+            match_stage = {}
+            if user_id_filter:
+                match_stage['user_id'] = user_id_filter
+            if offer_name_filter:
+                # We'll filter after enrichment
+                pass
+
+            pipeline = []
+            if match_stage:
+                pipeline.append({'$match': match_stage})
+
+            pipeline.extend([
+                {'$group': {
+                    '_id': '$offer_id',
+                    'total_requests': {'$sum': 1},
+                    'unique_users': {'$addToSet': '$user_id'},
+                    'approved_count': {'$sum': {'$cond': [{'$eq': ['$status', 'approved']}, 1, 0]}},
+                    'rejected_count': {'$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}},
+                    'pending_count': {'$sum': {'$cond': [{'$in': ['$status', ['pending', 'review']]}, 1, 0]}},
+                    'last_requested_at': {'$max': '$requested_at'},
+                }},
+                {'$addFields': {'unique_users_count': {'$size': '$unique_users'}}},
+                {'$sort': {'total_requests': -1}},
+            ])
+
+            raw = list(requests_col.aggregate(pipeline))
+
+            # Enrich with offer details
+            offer_ids = [r['_id'] for r in raw]
+            offer_map = {}
+            if offer_ids:
+                for o in offers_col.find({'offer_id': {'$in': offer_ids}}):
+                    offer_map[o['offer_id']] = o
+
+            enriched = []
+            for r in raw:
+                oid = r['_id']
+                offer = offer_map.get(oid, {})
+                name = offer.get('name', oid or 'Unknown')
+                net = offer.get('network', '')
+                cat = offer.get('category', offer.get('vertical', ''))
+                countries = offer.get('countries', [])
+                payout = offer.get('payout', 0)
+
+                # Apply post-enrichment filters
+                if offer_name_filter and offer_name_filter.lower() not in name.lower():
+                    continue
+                if network_filter and network_filter.lower() not in net.lower():
+                    continue
+                if vertical_filter and vertical_filter.lower() not in cat.lower():
+                    continue
+                if country_filter and country_filter.upper() not in [c.upper() for c in countries]:
+                    continue
+
+                enriched.append({
+                    'offer_id': oid,
+                    'offer_name': name,
+                    'offer_network': net,
+                    'offer_category': cat,
+                    'offer_countries': countries,
+                    'offer_payout': payout,
+                    'total_requests': r['total_requests'],
+                    'unique_users': r['unique_users_count'],
+                    'approved_count': r['approved_count'],
+                    'rejected_count': r['rejected_count'],
+                    'pending_count': r['pending_count'],
+                    'last_requested_at': r.get('last_requested_at'),
+                    'status': 'most_requested',
+                })
+
+            total = len(enriched)
+            start = (page - 1) * per_page
+            paginated = enriched[start:start + per_page]
+
+            return safe_json_response({
+                'requests': paginated,
+                'pagination': {'page': page, 'per_page': per_page, 'total': total, 'pages': max(1, (total + per_page - 1) // per_page)},
+                'tab_stats': {'count': total},
+            })
+
+        # ── Standard tabs: approved, rejected, in_review ──
+        status_map = {
+            'approved': 'approved',
+            'rejected': 'rejected',
+            'in_review': 'review',
+        }
+        q = {'status': status_map.get(tab, 'review')}
+
+        if user_id_filter:
+            q['user_id'] = user_id_filter
+
+        # For offer_name / network / vertical / country we need to resolve offer_ids first
+        offer_id_constraint = None
+        if offer_name_filter or network_filter or vertical_filter or country_filter:
+            oq = {}
+            if offer_name_filter:
+                oq['name'] = {'$regex': offer_name_filter, '$options': 'i'}
+            if network_filter:
+                oq['network'] = {'$regex': network_filter, '$options': 'i'}
+            if vertical_filter:
+                oq['$or'] = [
+                    {'category': {'$regex': vertical_filter, '$options': 'i'}},
+                    {'vertical': {'$regex': vertical_filter, '$options': 'i'}},
+                ]
+            if country_filter:
+                oq['countries'] = {'$regex': country_filter, '$options': 'i'}
+            matching_ids = [o['offer_id'] for o in offers_col.find(oq, {'offer_id': 1})]
+            q['offer_id'] = {'$in': matching_ids}
+
+        total = requests_col.count_documents(q)
+        reqs = list(requests_col.find(q).sort('requested_at', sort_val).skip((page - 1) * per_page).limit(per_page))
+
+        # Enrich
+        needed_offer_ids = list({r.get('offer_id') for r in reqs if r.get('offer_id')})
+        needed_user_ids = list({str(r.get('user_id')) for r in reqs if r.get('user_id')})
+
+        offer_cache = {}
+        for o in offers_col.find({'offer_id': {'$in': needed_offer_ids}}):
+            offer_cache[o['offer_id']] = o
+
+        user_cache = {}
+        obj_uids = []
+        for uid in needed_user_ids:
+            try:
+                obj_uids.append(ObjectId(uid))
+            except:
+                pass
+        if obj_uids:
+            for u in users_col.find({'_id': {'$in': obj_uids}}):
+                user_cache[str(u['_id'])] = u
+
+        # Health check
+        health_service = HealthCheckService()
+        offers_for_health = [offer_cache[oid] for oid in needed_offer_ids if oid in offer_cache]
+        offer_health = health_service.evaluate_offers_batch(offers_for_health) if offers_for_health else {}
+
+        # Check collection membership
+        collection_status = {}
+        if collections_col is not None and needed_offer_ids:
+            for doc in collections_col.find({'offer_id': {'$in': needed_offer_ids}}):
+                oid = doc['offer_id']
+                if oid not in collection_status:
+                    collection_status[oid] = {'direct_partner': False, 'affiliate': False}
+                collection_status[oid][doc['collection_type']] = True
+
+        results = []
+        for r in reqs:
+            oid = r.get('offer_id')
+            offer = offer_cache.get(oid, {})
+            uid = str(r.get('user_id', ''))
+            usr = user_cache.get(uid, {})
+
+            item = {
+                '_id': str(r['_id']),
+                'request_id': r.get('request_id', str(r['_id'])),
+                'offer_id': oid,
+                'offer_name': offer.get('name', 'Unknown'),
+                'offer_payout': offer.get('payout', 0),
+                'offer_network': offer.get('network', ''),
+                'offer_category': offer.get('category', offer.get('vertical', '')),
+                'offer_countries': offer.get('countries', []),
+                'offer_status': offer.get('status', ''),
+                'status': r.get('status'),
+                'requested_at': r.get('requested_at'),
+                'message': r.get('message', ''),
+                'request_count': 1,
+                'offer_health': offer_health.get(oid, {'status': 'unknown', 'failures': []}),
+                'publisher_id': uid,
+                'publisher_username': usr.get('username', r.get('username', '')),
+                'publisher_email': usr.get('email', r.get('email', '')),
+                'is_in_collection': collection_status.get(oid, {'direct_partner': False, 'affiliate': False}),
+            }
+
+            if tab == 'rejected':
+                item['rejection_reason'] = r.get('rejection_reason', '')
+                item['rejection_category'] = r.get('rejection_category', '')
+
+            results.append(item)
+
+        return safe_json_response({
+            'requests': results,
+            'pagination': {'page': page, 'per_page': per_page, 'total': total, 'pages': max(1, (total + per_page - 1) // per_page)},
+            'tab_stats': {'count': total},
+        })
+
+    except Exception as e:
+        logging.error(f"Tab data error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-collections/add', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def add_to_collection():
+    """Add offer to Direct Partner or Affiliate collection"""
+    try:
+        data = request.get_json() or {}
+        offer_id = data.get('offer_id')
+        request_id = data.get('request_id')
+        collection_type = data.get('collection_type')
+        user = request.current_user
+
+        if not offer_id or collection_type not in ('direct_partner', 'affiliate'):
+            return jsonify({'error': 'offer_id and valid collection_type required'}), 400
+
+        collections_col = db_instance.get_collection('offer_collections')
+        if collections_col is None:
+            return jsonify({'error': 'Collection not available'}), 500
+
+        # Check for duplicate
+        existing = collections_col.find_one({'offer_id': offer_id, 'collection_type': collection_type})
+        if existing:
+            return jsonify({'success': True, 'already_exists': True})
+
+        # Get offer snapshot
+        offers_col = db_instance.get_collection('offers')
+        offer = offers_col.find_one({'offer_id': offer_id})
+        snapshot = {}
+        if offer:
+            snapshot = {
+                'name': offer.get('name', ''),
+                'network': offer.get('network', ''),
+                'payout': offer.get('payout', 0),
+                'category': offer.get('category', offer.get('vertical', '')),
+                'countries': offer.get('countries', []),
+            }
+
+        # Get publisher info from request if available
+        publisher_username = ''
+        publisher_id = ''
+        if request_id:
+            req_col = db_instance.get_collection('affiliate_requests')
+            ar = req_col.find_one({'$or': [{'request_id': request_id}, {'_id': request_id}]})
+            if ar:
+                publisher_id = str(ar.get('user_id', ''))
+                publisher_username = ar.get('username', '')
+
+        collections_col.insert_one({
+            'offer_id': offer_id,
+            'request_id': request_id,
+            'collection_type': collection_type,
+            'added_by': str(user['_id']),
+            'added_by_username': user.get('username', ''),
+            'offer_snapshot': snapshot,
+            'publisher_id': publisher_id,
+            'publisher_username': publisher_username,
+            'created_at': datetime.utcnow(),
+            'updated_at': datetime.utcnow(),
+        })
+
+        return jsonify({'success': True, 'already_exists': False})
+
+    except Exception as e:
+        logging.error(f"Add to collection error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-collections/remove', methods=['DELETE'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def remove_from_collection():
+    """Remove offer from collection"""
+    try:
+        data = request.get_json() or {}
+        offer_id = data.get('offer_id')
+        collection_type = data.get('collection_type')
+
+        if not offer_id or collection_type not in ('direct_partner', 'affiliate'):
+            return jsonify({'error': 'offer_id and valid collection_type required'}), 400
+
+        collections_col = db_instance.get_collection('offer_collections')
+        if collections_col is not None:
+            collections_col.delete_one({'offer_id': offer_id, 'collection_type': collection_type})
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        logging.error(f"Remove from collection error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/push-mail', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def push_mail():
+    """Push mail to all users for selected offers"""
+    try:
+        import threading
+
+        data = request.get_json() or {}
+        offer_ids = data.get('offer_ids', [])
+        send_type = data.get('send_type', 'send_now')
+        scheduled_at = data.get('scheduled_at')
+        message_template = data.get('message_template', {})
+        recipient_ids = data.get('recipient_ids', [])  # Optional: filter to specific users
+        admin_user = request.current_user
+
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        offers_col = db_instance.get_collection('offers')
+        users_col = db_instance.get_collection('users')
+
+        offers = list(offers_col.find({'offer_id': {'$in': offer_ids}}))
+        
+        # If specific recipients provided, filter to those users only
+        if recipient_ids:
+            from bson import ObjectId as RId
+            obj_ids = []
+            for rid in recipient_ids:
+                try:
+                    obj_ids.append(RId(rid))
+                except:
+                    pass
+            all_users = list(users_col.find({'_id': {'$in': obj_ids}}, {'email': 1, 'username': 1, '_id': 1}))
+        else:
+            all_users = list(users_col.find({}, {'email': 1, 'username': 1, '_id': 1}))
+        
+        recipients = [u['email'] for u in all_users if u.get('email')]
+        logging.info(f"📧 Push mail: {len(all_users)} users, {len(recipients)} with email, send_type={send_type}")
+
+        subject = message_template.get('subject', '🚀 Hot Offers You Should Check Out!')
+        offer_lines = '\n'.join([f"• {o.get('name', '')} — ${o.get('payout', 0)}" for o in offers])
+        body_text = message_template.get('body', f"Check out these offers:\n\n{offer_lines}")
+
+        import os
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
+        html_body = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
+<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<div style="text-align:center;margin-bottom:24px;">
+<h1 style="margin:0;font-size:24px;color:#111;">Moustache Leads</h1>
+</div>
+<p style="font-size:15px;color:#333;line-height:1.6;">{body_text.replace(chr(10), '<br>')}</p>
+<div style="text-align:center;margin-top:24px;">
+<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Offers</a>
+</div>
+<p style="font-size:11px;color:#999;margin-top:32px;text-align:center;">
+<a href="{frontend_url}/unsubscribe" style="color:#999;">Unsubscribe</a>
+</p>
+</div>
+</body></html>"""
+
+        if send_type == 'schedule' and scheduled_at:
+            sched_col = db_instance.get_collection('scheduled_emails')
+            result = sched_col.insert_one({
+                'subject': subject,
+                'body': html_body,
+                'recipients': recipients,
+                'scheduled_at': _parse_ist_to_utc(scheduled_at),
+                'status': 'pending',
+                'source_tab': data.get('source_tab', ''),
+                'is_push_mail': True,
+                'offer_ids': offer_ids,
+                'created_by': admin_user.get('username', ''),
+                'created_at': datetime.utcnow(),
+            })
+            # Log to history
+            try:
+                history_col = db_instance.get_collection('offer_send_history')
+                if history_col is not None:
+                    history_col.insert_one({
+                        'type': 'email', 'send_mode': 'scheduled', 'subject': subject,
+                        'offer_ids': offer_ids, 'offer_names': [o.get('name', '') for o in offers],
+                        'recipient_count': len(recipients), 'recipient_emails': recipients[:20],
+                        'recipient_type': 'selected_users' if recipient_ids else 'all_users',
+                        'sent_by': admin_user.get('username', ''),
+                        'source_tab': data.get('source_tab', ''), 'created_at': datetime.utcnow(),
+                        'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'scheduled',
+                    })
+            except Exception:
+                pass
+            return jsonify({'success': True, 'scheduled_id': str(result.inserted_id)})
+
+        if send_type == 'support':
+            from bson import ObjectId as OId
+            support_col = db_instance.get_collection('support_messages')
+            count = 0
+            for u in all_users:
+                try:
+                    support_col.insert_one({
+                        'user_id': OId(str(u['_id'])),
+                        'username': u.get('username', ''),
+                        'email': u.get('email', ''),
+                        'subject': subject,
+                        'body': 'You have new offer recommendations from the admin team.',
+                        'image_url': None,
+                        'status': 'replied',
+                        'replies': [{'_id': OId(), 'text': body_text, 'from': 'admin', 'image_url': None, 'created_at': datetime.utcnow()}],
+                        'created_at': datetime.utcnow(),
+                        'updated_at': datetime.utcnow(),
+                        'read_by_admin': True,
+                        'read_by_user': False,
+                    })
+                    # Trigger email notification for this support message
+                    if u.get('email'):
+                        try:
+                            from routes.support_messages import _send_support_notification_email
+                            _send_support_notification_email(u['email'], u.get('username', 'User'), is_admin_reply=True)
+                        except Exception as email_err:
+                            logging.warning(f"Support email trigger failed for {u.get('username')}: {email_err}")
+                    count += 1
+                except Exception:
+                    pass
+            # Log support send history
+            try:
+                history_col = db_instance.get_collection('offer_send_history')
+                if history_col is not None:
+                    history_col.insert_one({
+                        'type': 'support',
+                        'send_mode': 'support',
+                        'subject': subject,
+                        'offer_ids': offer_ids,
+                        'offer_names': [o.get('name', '') for o in offers],
+                        'recipient_count': count,
+                        'recipient_emails': [u.get('email', '') for u in all_users[:20]],
+                        'recipient_type': 'selected_users' if recipient_ids else 'all_users',
+                        'sent_by': admin_user.get('username', ''),
+                        'source_tab': data.get('source_tab', ''),
+                        'created_at': datetime.utcnow(),
+                        'status': 'sent',
+                    })
+            except Exception:
+                pass
+            return jsonify({'success': True, 'sent_count': count})
+
+        # send_now — BCC batches
+        email_service = get_email_service()
+
+        def send_bcc():
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            batch_size = 50
+            logging.info(f"📧 Push mail: sending to {len(recipients)} recipients in batches of {batch_size}")
+            sent = 0
+            for i in range(0, len(recipients), batch_size):
+                batch = recipients[i:i + batch_size]
+                try:
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = subject
+                    msg['From'] = email_service.from_email
+                    msg['To'] = email_service.from_email
+                    msg['Bcc'] = ', '.join(batch)
+                    msg.attach(MIMEText(html_body, 'html'))
+                    ok = email_service._send_email_smtp(msg)
+                    if ok:
+                        sent += len(batch)
+                        logging.info(f"📧 Push mail batch {i//batch_size + 1}: sent to {len(batch)} recipients")
+                    else:
+                        logging.error(f"❌ Push mail batch {i//batch_size + 1}: SMTP returned False")
+                except Exception as ex:
+                    logging.error(f"❌ Push mail batch error: {ex}")
+            logging.info(f"📧 Push mail complete: {sent}/{len(recipients)} sent")
+
+        threading.Thread(target=send_bcc, daemon=True).start()
+
+        # Log activity + send history
+        try:
+            offer_names = [o.get('name', '') for o in offers]
+            recipient_emails = recipients[:20]  # Store first 20 for display
+            
+            activity_col = db_instance.get_collection('email_activity_logs')
+            if activity_col is not None:
+                activity_col.insert_one({
+                    'action': 'sent', 'source': 'push_mail',
+                    'offer_ids': offer_ids, 'offer_count': len(offer_ids),
+                    'recipient_type': 'selected_users' if recipient_ids else 'all_users',
+                    'recipient_count': len(recipients),
+                    'admin_username': admin_user.get('username', ''),
+                    'created_at': datetime.utcnow(),
+                })
+            
+            history_col = db_instance.get_collection('offer_send_history')
+            if history_col is not None:
+                history_col.insert_one({
+                    'type': 'email',
+                    'send_mode': 'send_now',
+                    'subject': subject,
+                    'offer_ids': offer_ids,
+                    'offer_names': offer_names,
+                    'recipient_count': len(recipients),
+                    'recipient_emails': recipient_emails,
+                    'recipient_type': 'selected_users' if recipient_ids else 'all_users',
+                    'sent_by': admin_user.get('username', ''),
+                    'source_tab': data.get('source_tab', ''),
+                    'created_at': datetime.utcnow(),
+                    'status': 'sent',
+                })
+        except Exception:
+            pass
+
+        return jsonify({'success': True, 'sent_count': len(recipients)})
+
+    except Exception as e:
+        logging.error(f"Push mail error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/schedule-send', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def schedule_send():
+    """Schedule send for selected offers"""
+    try:
+        from bson import ObjectId as OId
+
+        data = request.get_json() or {}
+        offer_ids = data.get('offer_ids', [])
+        recipient_ids = data.get('recipient_ids', [])
+        custom_emails = data.get('custom_emails', [])
+        scheduled_at = data.get('scheduled_at')
+        send_type = data.get('send_type', 'schedule')
+        send_frequency = data.get('send_frequency', 'single')
+        message_body = data.get('message_body', '')
+        subject = data.get('subject', 'Offers from Moustache Leads')
+        source_tab = data.get('source_tab', '')
+        admin_user = request.current_user
+
+        if not offer_ids and not message_body:
+            return jsonify({'error': 'offer_ids or message_body required'}), 400
+        if not recipient_ids and not custom_emails:
+            return jsonify({'error': 'At least one recipient required'}), 400
+
+        # Resolve recipient emails
+        users_col = db_instance.get_collection('users')
+        emails = list(custom_emails)
+        if recipient_ids:
+            for uid in recipient_ids:
+                try:
+                    u = users_col.find_one({'_id': OId(uid)})
+                    if u and u.get('email'):
+                        emails.append(u['email'])
+                except Exception:
+                    pass
+
+        # Build HTML body
+        offers_col = db_instance.get_collection('offers')
+        offers = list(offers_col.find({'offer_id': {'$in': offer_ids}})) if offer_ids else []
+
+        if not message_body:
+            if send_frequency == 'single' and len(offers) == 1:
+                o = offers[0]
+                message_body = f"Offer: {o.get('name', '')}\nPayout: ${o.get('payout', 0)}\nNetwork: {o.get('network', '')}"
+            else:
+                lines = [f"• {o.get('name', '')} — ${o.get('payout', 0)}" for o in offers]
+                message_body = '\n'.join(lines)
+
+        import os
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
+        html_body = f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
+<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;">
+<h2 style="margin:0 0 16px;color:#111;">Moustache Leads</h2>
+<div style="font-size:15px;color:#333;line-height:1.6;">{message_body.replace(chr(10), '<br>')}</div>
+<div style="text-align:center;margin-top:24px;">
+<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Offers</a>
+</div>
+</div>
+</body></html>"""
+
+        if send_type == 'schedule' and scheduled_at:
+            sched_col = db_instance.get_collection('scheduled_emails')
+            result = sched_col.insert_one({
+                'subject': subject,
+                'body': html_body,
+                'recipients': emails,
+                'scheduled_at': _parse_ist_to_utc(scheduled_at),
+                'status': 'pending',
+                'source_tab': source_tab,
+                'send_frequency': send_frequency,
+                'offer_ids': offer_ids,
+                'created_by': admin_user.get('username', ''),
+                'created_at': datetime.utcnow(),
+            })
+            # Log scheduled email to history
+            try:
+                offers_col_s = db_instance.get_collection('offers')
+                offer_names_s = [o.get('name', '') for o in offers_col_s.find({'offer_id': {'$in': offer_ids}}, {'name': 1})] if offer_ids else []
+                history_col = db_instance.get_collection('offer_send_history')
+                if history_col is not None:
+                    history_col.insert_one({
+                        'type': 'email', 'send_mode': 'scheduled', 'subject': subject,
+                        'offer_ids': offer_ids, 'offer_names': offer_names_s,
+                        'recipient_count': len(emails), 'recipient_emails': emails[:20],
+                        'recipient_type': 'targeted', 'sent_by': admin_user.get('username', ''),
+                        'source_tab': source_tab, 'created_at': datetime.utcnow(),
+                        'scheduled_at': _parse_ist_to_utc(scheduled_at),
+                        'status': 'scheduled',
+                    })
+            except Exception:
+                pass
+            return jsonify({'success': True, 'scheduled_id': str(result.inserted_id)})
+
+        # send_now
+        import threading
+        email_service = get_email_service()
+
+        def send_bcc():
+            from email.mime.text import MIMEText
+            from email.mime.multipart import MIMEMultipart
+            for i in range(0, len(emails), 50):
+                batch = emails[i:i + 50]
+                try:
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = subject
+                    msg['From'] = email_service.from_email
+                    msg['To'] = email_service.from_email
+                    msg['Bcc'] = ', '.join(batch)
+                    msg.attach(MIMEText(html_body, 'html'))
+                    email_service._send_email_smtp(msg)
+                except Exception as ex:
+                    logging.error(f"Schedule send batch error: {ex}")
+
+        threading.Thread(target=send_bcc, daemon=True).start()
+
+        # Log send history
+        try:
+            offers_col_h = db_instance.get_collection('offers')
+            offer_names_h = [o.get('name', '') for o in offers_col_h.find({'offer_id': {'$in': offer_ids}}, {'name': 1})] if offer_ids else []
+            history_col = db_instance.get_collection('offer_send_history')
+            if history_col is not None:
+                history_col.insert_one({
+                    'type': 'email', 'send_mode': send_type, 'subject': subject,
+                    'offer_ids': offer_ids, 'offer_names': offer_names_h,
+                    'recipient_count': len(emails), 'recipient_emails': emails[:20],
+                    'recipient_type': 'targeted', 'sent_by': admin_user.get('username', ''),
+                    'source_tab': source_tab, 'created_at': datetime.utcnow(), 'status': 'sent',
+                })
+        except Exception:
+            pass
+
+        return jsonify({'success': True, 'sent_count': len(emails)})
+
+    except Exception as e:
+        logging.error(f"Schedule send error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/send-history', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_send_history():
+    """Get history of all emails/support messages sent from offer access requests"""
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(int(request.args.get('per_page', 20)), 100)
+
+        history_col = db_instance.get_collection('offer_send_history')
+        if history_col is None:
+            return safe_json_response({'history': [], 'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}})
+
+        total = history_col.count_documents({})
+        items = list(history_col.find({}).sort('created_at', -1).skip((page - 1) * per_page).limit(per_page))
+
+        for item in items:
+            item['_id'] = str(item['_id'])
+
+        return safe_json_response({
+            'history': items,
+            'pagination': {'page': page, 'per_page': per_page, 'total': total, 'pages': max(1, (total + per_page - 1) // per_page)},
+        })
+    except Exception as e:
+        logging.error(f"Send history error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
