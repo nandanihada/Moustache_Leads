@@ -94,7 +94,7 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
     if (sendFrequency === 'single') {
       const o = offers[0];
       setMessageBody([
-        '[🏷️ Moustache Leads]', '', 'Hi,', '', 'We have a great offer for you:', '',
+        'Hi,', '', 'We have a great offer for you:', '',
         `📋 ${o.name}`, `💰 Amount: $${o.payout.toFixed(2)}`,
         `📂 Category: ${o.category || 'N/A'}`, `🚦 Traffic Source: ${o.traffic_source || 'All'}`,
         `🔍 Preview: ${o.preview_link || 'Not available'}`, '',
@@ -104,7 +104,7 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
     } else {
       const lines = offers.map(o => `• ${o.name} — $${o.payout.toFixed(2)}`).join('\n');
       setMessageBody([
-        '[🏷️ Moustache Leads]', '', 'Hi,', '', 'Check out these offers:', '', lines, '',
+        'Hi,', '', 'Check out these offers:', '', lines, '',
         'Log in to your dashboard to get started.', '', 'Best regards,', 'Moustache Leads Team',
       ].join('\n'));
     }

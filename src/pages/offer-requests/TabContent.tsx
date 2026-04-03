@@ -11,6 +11,7 @@ import {
 import { API_BASE_URL } from '@/services/apiConfig';
 import OfferCard, { type TabOfferRequest } from './OfferCard';
 import SendScheduleModal from './SendScheduleModal';
+import PushMailModal from './PushMailModal';
 
 type GroupBy = 'all' | 'network' | 'vertical' | 'country' | 'user';
 
@@ -38,9 +39,11 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
 
   // Modal
   const [sendModal, setSendModal] = useState<{ offerIds: string[]; mode: 'schedule' | 'send_now' } | null>(null);
+  const [pushMailModal, setPushMailModal] = useState<{ offerIds: string[] } | null>(null);
 
   // History items (for history tab)
   const [historyItems, setHistoryItems] = useState<any[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'push_mail'>('all');
 
   const token = localStorage.getItem('token');
 
@@ -50,6 +53,7 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
     try {
       if (tab === 'history') {
         const params = new URLSearchParams({ page: String(page), per_page: String(perPage) });
+        if (historyFilter === 'push_mail') params.set('type', 'push_mail');
         const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/send-history?${params}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -84,7 +88,7 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
     } finally {
       setLoading(false);
     }
-  }, [tab, page, perPage, sortDir, offerName, network, isActive, token]);
+  }, [tab, page, perPage, sortDir, offerName, network, isActive, token, historyFilter]);
 
   useEffect(() => { if (isActive) fetchData(); }, [fetchData, isActive]);
   useEffect(() => { setPage(1); }, [offerName, network, sortDir, perPage]);
@@ -195,9 +199,9 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
         <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
           <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
         </Button>
-        {(tab === 'approved' || tab === 'most_requested') && (
+        {(tab === 'approved' || tab === 'rejected' || tab === 'most_requested') && (
           <Button size="sm" variant="default" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-            onClick={() => setSendModal({ offerIds: items.map(i => i.offer_id), mode: 'schedule' })}>
+            onClick={() => setPushMailModal({ offerIds: items.map(i => i.offer_id) })}>
             <Mail className="h-3.5 w-3.5" /> Push Mail
           </Button>
         )}
@@ -213,8 +217,8 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
           <Button size="sm" variant="outline" className="gap-1.5" onClick={handlePushMail}>
             <Calendar className="h-3.5 w-3.5" /> Schedule
           </Button>
-          {(tab === 'approved' || tab === 'most_requested') && (
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={handlePushMail}>
+          {(tab === 'approved' || tab === 'rejected' || tab === 'most_requested') && (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPushMailModal({ offerIds: selectedOfferIds })}>
               <MessageSquare className="h-3.5 w-3.5" /> Push Mail
             </Button>
           )}
@@ -235,7 +239,12 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
       {/* Items */}
       {tab === 'history' ? (
         /* ── History View ── */
-        loading ? (
+        <>
+        <div className="flex gap-1 bg-muted/60 rounded-lg p-1 mb-3">
+          <Button size="sm" variant={historyFilter === 'all' ? 'default' : 'ghost'} onClick={() => { setHistoryFilter('all'); setPage(1); }}>All</Button>
+          <Button size="sm" variant={historyFilter === 'push_mail' ? 'default' : 'ghost'} onClick={() => { setHistoryFilter('push_mail'); setPage(1); }}>Push Mail</Button>
+        </div>
+        {loading ? (
           <div className="flex items-center justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin mr-2" /> Loading...</div>
         ) : historyItems.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">No send history yet</div>
@@ -246,28 +255,34 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Badge variant={h.type === 'support' ? 'secondary' : 'outline'} className="text-[10px] px-1.5 py-0">
-                      {h.type === 'support' ? '💬 Support' : h.send_mode === 'schedule' ? '📅 Scheduled' : '📧 Email'}
+                      {h.type === 'push_mail' ? '📬 Push Mail' : h.type === 'support' ? '💬 Support' : h.send_mode === 'schedule' || h.send_mode === 'scheduled' ? '📅 Scheduled' : '📧 Email'}
                     </Badge>
-                    <span className="font-medium">{h.subject || 'No subject'}</span>
+                    {h.send_mode === 'one_by_one' && <Badge variant="outline" className="text-[10px] px-1.5 py-0">1-by-1</Badge>}
+                    {h.send_mode === 'all_in_one' && <Badge variant="outline" className="text-[10px] px-1.5 py-0">All-in-1</Badge>}
+                    <span className="font-medium">{h.subject || h.offer_name || 'No subject'}</span>
                   </div>
                   <span className="text-muted-foreground">{h.created_at ? new Date(h.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}</span>
                 </div>
                 <div className="flex items-center gap-3 text-muted-foreground">
-                  <span>To: {h.recipient_count} {h.recipient_type === 'all_users' ? 'users (all)' : 'selected users'}</span>
+                  <span>To: {h.recipient_count || (h.recipient_emails?.length ?? 0)} {h.recipient_type === 'all_users' ? 'users (all)' : 'selected users'}</span>
                   <span>By: {h.sent_by || 'admin'}</span>
                   <span>Tab: {h.source_tab || '—'}</span>
                   <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600">{h.status || 'sent'}</Badge>
                 </div>
+                {h.offer_name && !h.offer_names && <div className="text-muted-foreground">Offer: {h.offer_name}</div>}
                 {h.offer_names && h.offer_names.length > 0 && (
-                  <div className="text-muted-foreground">Offers: {h.offer_names.join(', ')}</div>
+                  <div className="text-muted-foreground">
+                    {h.offer_count || h.offer_names.length} offer{(h.offer_count || h.offer_names.length) !== 1 ? 's' : ''}: {h.offer_names.slice(0, 3).join(', ')}{h.offer_names.length > 3 ? ' +' + (h.offer_names.length - 3) + ' more' : ''}
+                  </div>
                 )}
                 {h.recipient_emails && h.recipient_emails.length > 0 && (
-                  <div className="text-muted-foreground truncate">Recipients: {h.recipient_emails.slice(0, 5).join(', ')}{h.recipient_count > 5 ? ` +${h.recipient_count - 5} more` : ''}</div>
+                  <div className="text-muted-foreground truncate">Recipients: {h.recipient_emails.slice(0, 5).join(', ')}{(h.recipient_count || h.recipient_emails.length) > 5 ? ` +${(h.recipient_count || h.recipient_emails.length) - 5} more` : ''}</div>
                 )}
               </div>
             ))}
           </div>
-        )
+        )}
+        </>
       ) : loading ? (
         <div className="flex items-center justify-center py-12">
           <RefreshCw className="h-6 w-6 animate-spin mr-2" /> Loading...
@@ -352,6 +367,17 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
           onClose={() => { setSendModal(null); setSelectedIds(new Set()); }}
           offerIds={sendModal.offerIds}
           defaultMode={sendModal.mode}
+          sourceTab={tab}
+          onSuccess={fetchData}
+        />
+      )}
+
+      {/* Push Mail Modal */}
+      {pushMailModal && (
+        <PushMailModal
+          open={!!pushMailModal}
+          onClose={() => { setPushMailModal(null); setSelectedIds(new Set()); }}
+          offerIds={pushMailModal.offerIds}
           sourceTab={tab}
           onSuccess={fetchData}
         />

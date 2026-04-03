@@ -40,6 +40,8 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [editOffer, setEditOffer] = useState<any>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
+  const [healthPopup, setHealthPopup] = useState<{ offerId: string; name: string; health: any } | null>(null);
+  const [loadingHealth, setLoadingHealth] = useState<string | null>(null);
   const token = localStorage.getItem('token');
   const risk = rsk(pub.risk_level);
 
@@ -477,6 +479,48 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                                   onClick={() => handleEditOffer(inv.offer_id)} disabled={loadingEdit === inv.offer_id}>
                                   {loadingEdit === inv.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}
                                 </Button>
+                                <div className="relative">
+                                  <Button size="sm" variant="ghost" className={`h-6 px-2 text-[10px] gap-1 ${healthPopup?.offerId === inv.offer_id ? 'bg-muted' : 'text-emerald-600'}`}
+                                    disabled={loadingHealth === inv.offer_id}
+                                    onClick={() => {
+                                      if (healthPopup?.offerId === inv.offer_id) { setHealthPopup(null); return; }
+                                      setLoadingHealth(inv.offer_id);
+                                      fetch(`${API_BASE_URL}/api/admin/offer-health/${inv.offer_id}`, { headers: { Authorization: `Bearer ${token}` } })
+                                        .then(r => r.json()).then(d => {
+                                          setHealthPopup({ offerId: inv.offer_id, name: inv.name, health: d.health || { status: 'unknown', failures: [] } });
+                                        }).catch(() => toast.error('Failed to check health'))
+                                        .finally(() => setLoadingHealth(null));
+                                    }}>
+                                    {loadingHealth === inv.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Shield className="w-3 h-3" />}
+                                  </Button>
+                                  {healthPopup?.offerId === inv.offer_id && (
+                                    <div className="absolute right-0 top-7 z-50 w-64 rounded-lg border bg-popover p-3 shadow-lg text-xs space-y-2">
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-semibold truncate max-w-[160px]">{healthPopup.name}</span>
+                                        <Badge variant={healthPopup.health.status === 'healthy' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
+                                          {healthPopup.health.status}
+                                        </Badge>
+                                      </div>
+                                      {healthPopup.health.failures && healthPopup.health.failures.length > 0 ? (
+                                        <div className="space-y-1.5">
+                                          {healthPopup.health.failures.map((f: any, idx: number) => (
+                                            <div key={idx} className="flex items-start gap-1.5 text-red-600">
+                                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 mt-1 shrink-0" />
+                                              <div>
+                                                <span className="font-medium">{(f.criterion || '').replace(/_/g, ' ')}</span>
+                                                {f.detail && <p className="text-muted-foreground">{f.detail}</p>}
+                                                {f.description && <p className="text-muted-foreground">{f.description}</p>}
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <p className="text-emerald-600">No issues detected</p>
+                                      )}
+                                      <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px] w-full" onClick={() => setHealthPopup(null)}>Close</Button>
+                                    </div>
+                                  )}
+                                </div>
                                 <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
                                   onClick={() => onSendOffers(pub, [inv])}>
                                   <Send className="w-3 h-3" />Send

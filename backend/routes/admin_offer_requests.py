@@ -37,6 +37,30 @@ def _parse_ist_to_utc(scheduled_at):
         return datetime.utcnow()
 
 
+def _build_email_html(body_text, frontend_url=None):
+    """Build a branded HTML email with logo and unsubscribe link."""
+    import os
+    if not frontend_url:
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
+<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<div style="text-align:center;margin-bottom:24px;">
+<img src="{frontend_url}/logo.png" alt="Moustache Leads" style="height:40px;" onerror="this.style.display='none'" />
+<h1 style="margin:8px 0 0;font-size:20px;color:#111;">Moustache Leads</h1>
+</div>
+<div style="font-size:15px;color:#333;line-height:1.6;">{body_text.replace(chr(10), '<br>') if isinstance(body_text, str) else body_text}</div>
+<div style="text-align:center;margin-top:24px;">
+<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Offers</a>
+</div>
+<p style="font-size:11px;color:#999;margin-top:32px;text-align:center;">
+<a href="{frontend_url}/dashboard/settings" style="color:#999;">Unsubscribe</a> from these notifications
+</p>
+</div>
+</body></html>"""
+
+
 @admin_offer_requests_bp.route('/offer-access-requests/publisher-profiles', methods=['GET'])
 @token_required
 @subadmin_or_admin_required('offer-access-requests')
@@ -464,11 +488,7 @@ Moustache Leads"""
                     email_service = get_email_service()
                     body = build_body('Publisher')
                     html_body = body.replace('\n', '<br>')
-                    html_content = f"""<html><body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;">
-                    <div style="max-width:600px;margin:0 auto;padding:20px;">
-                    <h2 style="color:#10b981;">Moustache Leads</h2>
-                    <div>{html_body}</div>
-                    </div></body></html>"""
+                    html_content = _build_email_html(body)
                     
                     logging.info(f"📧 Sending BCC email to {len(all_emails)} recipients")
                     
@@ -1809,23 +1829,8 @@ def push_mail():
         body_text = message_template.get('body', f"Check out these offers:\n\n{offer_lines}")
 
         import os
-        frontend_url = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
-        html_body = f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
-<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
-<div style="text-align:center;margin-bottom:24px;">
-<h1 style="margin:0;font-size:24px;color:#111;">Moustache Leads</h1>
-</div>
-<p style="font-size:15px;color:#333;line-height:1.6;">{body_text.replace(chr(10), '<br>')}</p>
-<div style="text-align:center;margin-top:24px;">
-<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Offers</a>
-</div>
-<p style="font-size:11px;color:#999;margin-top:32px;text-align:center;">
-<a href="{frontend_url}/unsubscribe" style="color:#999;">Unsubscribe</a>
-</p>
-</div>
-</body></html>"""
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
+        html_body = _build_email_html(body_text, frontend_url)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -2032,18 +2037,8 @@ def schedule_send():
                 message_body = '\n'.join(lines)
 
         import os
-        frontend_url = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
-        html_body = f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
-<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;">
-<h2 style="margin:0 0 16px;color:#111;">Moustache Leads</h2>
-<div style="font-size:15px;color:#333;line-height:1.6;">{message_body.replace(chr(10), '<br>')}</div>
-<div style="text-align:center;margin-top:24px;">
-<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Offers</a>
-</div>
-</div>
-</body></html>"""
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
+        html_body = _build_email_html(message_body, frontend_url)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -2131,13 +2126,21 @@ def get_send_history():
     try:
         page = max(1, int(request.args.get('page', 1)))
         per_page = min(int(request.args.get('per_page', 20)), 100)
+        history_type = request.args.get('type', '')
 
-        history_col = db_instance.get_collection('offer_send_history')
-        if history_col is None:
-            return safe_json_response({'history': [], 'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}})
-
-        total = history_col.count_documents({})
-        items = list(history_col.find({}).sort('created_at', -1).skip((page - 1) * per_page).limit(per_page))
+        # If type=push_mail, query from push_mail_history collection
+        if history_type == 'push_mail':
+            col = db_instance.get_collection('push_mail_history')
+            if col is None:
+                return safe_json_response({'history': [], 'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}})
+            total = col.count_documents({})
+            items = list(col.find({}).sort('created_at', -1).skip((page - 1) * per_page).limit(per_page))
+        else:
+            col = db_instance.get_collection('offer_send_history')
+            if col is None:
+                return safe_json_response({'history': [], 'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}})
+            total = col.count_documents({})
+            items = list(col.find({}).sort('created_at', -1).skip((page - 1) * per_page).limit(per_page))
 
         for item in items:
             item['_id'] = str(item['_id'])
@@ -2148,4 +2151,385 @@ def get_send_history():
         })
     except Exception as e:
         logging.error(f"Send history error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-health/<offer_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def check_offer_health(offer_id):
+    """Check health status of a specific offer"""
+    try:
+        from services.health_check_service import HealthCheckService
+        offers_col = db_instance.get_collection('offers')
+        offer = offers_col.find_one({'offer_id': offer_id})
+        if not offer:
+            return jsonify({'health': {'status': 'not_found', 'failures': [{'criterion': 'offer_missing', 'detail': f'Offer {offer_id} not found in database'}]}}), 200
+
+        health_service = HealthCheckService()
+        results = health_service.evaluate_offers_batch([offer])
+        health = results.get(offer_id, {'status': 'unknown', 'failures': []})
+        return jsonify({'health': health, 'offer_id': offer_id, 'offer_name': offer.get('name', '')})
+    except Exception as e:
+        logging.error(f"Offer health check error: {e}", exc_info=True)
+        return jsonify({'health': {'status': 'error', 'failures': [{'criterion': 'check_failed', 'detail': str(e)}]}}), 200
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/push-mail-check-duplicates', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def push_mail_check_duplicates():
+    """Check if push mail was already sent for these offers to these users"""
+    try:
+        from bson import ObjectId as OId
+        data = request.get_json() or {}
+        offer_ids = data.get('offer_ids', [])
+        recipient_ids = data.get('recipient_ids', [])
+
+        if not offer_ids or not recipient_ids:
+            return jsonify({'has_duplicates': False, 'duplicates': []})
+
+        history_col = db_instance.get_collection('push_mail_history')
+        if history_col is None:
+            return jsonify({'has_duplicates': False, 'duplicates': []})
+
+        # Find any push_mail_history entries matching these offer_ids AND recipient_ids
+        duplicates = []
+        for oid in offer_ids:
+            existing = list(history_col.find({
+                'offer_id': oid,
+                'recipient_ids': {'$in': recipient_ids},
+                'status': {'$in': ['sent', 'sending', 'scheduled']},
+            }).sort('created_at', -1).limit(20))
+            for entry in existing:
+                for rid in recipient_ids:
+                    if rid in (entry.get('recipient_ids') or []):
+                        duplicates.append({
+                            'offer_id': oid,
+                            'offer_name': entry.get('offer_name', ''),
+                            'user_id': rid,
+                            'username': '',
+                            'pushed_at': entry.get('created_at', ''),
+                        })
+
+        # Resolve usernames
+        if duplicates:
+            users_col = db_instance.get_collection('users')
+            user_ids_set = list(set(d['user_id'] for d in duplicates))
+            obj_ids = []
+            for uid in user_ids_set:
+                try:
+                    obj_ids.append(OId(uid))
+                except Exception:
+                    pass
+            users = {str(u['_id']): u.get('username', '') for u in users_col.find({'_id': {'$in': obj_ids}}, {'username': 1})}
+            for d in duplicates:
+                d['username'] = users.get(d['user_id'], '')
+                if d.get('pushed_at') and hasattr(d['pushed_at'], 'isoformat'):
+                    d['pushed_at'] = d['pushed_at'].isoformat() + 'Z'
+
+        # Deduplicate
+        seen = set()
+        unique_dupes = []
+        for d in duplicates:
+            key = f"{d['offer_id']}_{d['user_id']}"
+            if key not in seen:
+                seen.add(key)
+                unique_dupes.append(d)
+
+        return jsonify({
+            'has_duplicates': len(unique_dupes) > 0,
+            'duplicates': unique_dupes,
+        })
+    except Exception as e:
+        logging.error(f"Push mail duplicate check error: {e}", exc_info=True)
+        return jsonify({'has_duplicates': False, 'duplicates': [], 'error': str(e)})
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/push-mail-v2', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def push_mail_v2():
+    """Push mail v2 — supports one_by_one and all_in_one send modes"""
+    try:
+        import threading
+        import time as time_mod
+        import os
+        from bson import ObjectId as OId
+
+        data = request.get_json() or {}
+        offer_ids = data.get('offer_ids', [])
+        recipient_ids = data.get('recipient_ids', [])
+        custom_emails = data.get('custom_emails', [])
+        send_mode = data.get('send_mode', 'all_in_one')  # one_by_one | all_in_one
+        interval_minutes = int(data.get('interval_minutes', 5))
+        send_type = data.get('send_type', 'send_now')  # send_now | schedule | support
+        scheduled_at = data.get('scheduled_at')
+        subject = data.get('subject', '🚀 Push Mail — Check These Offers!')
+        message_body = data.get('message_body', '')
+        source_tab = data.get('source_tab', '')
+        admin_user = request.current_user
+
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+        if not recipient_ids and not custom_emails:
+            return jsonify({'error': 'At least one recipient required'}), 400
+
+        # Resolve offers
+        offers_col = db_instance.get_collection('offers')
+        offers = list(offers_col.find({'offer_id': {'$in': offer_ids}}))
+        offer_map = {o['offer_id']: o for o in offers}
+
+        # Resolve recipient emails
+        users_col = db_instance.get_collection('users')
+        emails = list(custom_emails)
+        resolved_users = []
+        if recipient_ids:
+            obj_ids = []
+            for rid in recipient_ids:
+                try:
+                    obj_ids.append(OId(rid))
+                except Exception:
+                    pass
+            resolved_users = list(users_col.find({'_id': {'$in': obj_ids}}, {'email': 1, 'username': 1, '_id': 1}))
+            for u in resolved_users:
+                if u.get('email'):
+                    emails.append(u['email'])
+
+        if not emails:
+            return jsonify({'error': 'No valid recipient emails found'}), 400
+
+        frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
+        email_service = get_email_service()
+        admin_username = admin_user.get('username', 'admin')
+        history_col = db_instance.get_collection('push_mail_history')
+
+        # ── SUPPORT MODE ──
+        if send_type == 'support':
+            support_col = db_instance.get_collection('support_messages')
+            count = 0
+
+            # Build body from all offers
+            if not message_body:
+                offer_lines = '\n'.join([f"ID: {o.get('offer_id', '')}\nName: {o.get('name', '')}" for o in offers])
+                import calendar as cal_mod
+                day_name = cal_mod.day_name[datetime.utcnow().weekday()]
+                message_body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n{offer_lines}"
+
+            for u in resolved_users:
+                try:
+                    support_col.insert_one({
+                        'user_id': OId(str(u['_id'])),
+                        'username': u.get('username', ''),
+                        'email': u.get('email', ''),
+                        'subject': subject,
+                        'body': 'You have new push mail from the admin team.',
+                        'image_url': None,
+                        'status': 'replied',
+                        'replies': [{'_id': OId(), 'text': message_body, 'from': 'admin', 'image_url': None, 'created_at': datetime.utcnow()}],
+                        'created_at': datetime.utcnow(),
+                        'updated_at': datetime.utcnow(),
+                        'read_by_admin': True,
+                        'read_by_user': False,
+                    })
+                    if u.get('email'):
+                        try:
+                            from routes.support_messages import _send_support_notification_email
+                            _send_support_notification_email(u['email'], u.get('username', 'User'), is_admin_reply=True)
+                        except Exception:
+                            pass
+                    count += 1
+                except Exception:
+                    pass
+
+            # If scheduled support, also schedule the email
+            if scheduled_at:
+                sched_col = db_instance.get_collection('scheduled_emails')
+                html_body = _build_email_html(message_body, frontend_url)
+                sched_col.insert_one({
+                    'subject': subject, 'body': html_body, 'recipients': emails,
+                    'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
+                    'source_tab': source_tab, 'is_push_mail': True, 'offer_ids': offer_ids,
+                    'created_by': admin_username, 'created_at': datetime.utcnow(),
+                })
+
+            # Log to push_mail_history (one batch entry)
+            if history_col is not None:
+                history_col.insert_one({
+                    'offer_ids': offer_ids,
+                    'offer_names': [o.get('name', '') for o in offers],
+                    'offer_count': len(offers),
+                    'recipient_ids': recipient_ids, 'recipient_emails': emails[:20],
+                    'recipient_count': len(emails),
+                    'send_mode': send_mode, 'interval_minutes': interval_minutes,
+                    'source_tab': source_tab, 'sent_by': admin_username,
+                    'created_at': datetime.utcnow(), 'status': 'sent', 'type': 'push_mail',
+                    'subject': subject,
+                })
+
+            return jsonify({'success': True, 'sent_count': count})
+
+        # ── SCHEDULE MODE ──
+        if send_type == 'schedule' and scheduled_at:
+            sched_col = db_instance.get_collection('scheduled_emails')
+
+            if send_mode == 'one_by_one':
+                # Schedule each offer as a separate email
+                for idx, oid in enumerate(offer_ids):
+                    o = offer_map.get(oid, {})
+                    if not message_body:
+                        import calendar as cal_mod
+                        day_name = cal_mod.day_name[datetime.utcnow().weekday()]
+                        body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${o.get('payout', 0)}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
+                    else:
+                        body = message_body
+                    html_body = _build_email_html(body, frontend_url)
+                    base_dt = _parse_ist_to_utc(scheduled_at)
+                    offset_dt = base_dt + timedelta(minutes=interval_minutes * idx)
+                    sched_col.insert_one({
+                        'subject': subject, 'body': html_body, 'recipients': emails,
+                        'scheduled_at': offset_dt, 'status': 'pending',
+                        'source_tab': source_tab, 'is_push_mail': True,
+                        'offer_ids': [oid], 'created_by': admin_username,
+                        'created_at': datetime.utcnow(),
+                    })
+                    if history_col is not None:
+                        history_col.insert_one({
+                            'offer_id': oid, 'offer_name': o.get('name', ''),
+                            'recipient_ids': recipient_ids, 'recipient_emails': emails[:20],
+                            'send_mode': 'one_by_one', 'interval_minutes': interval_minutes,
+                            'source_tab': source_tab, 'sent_by': admin_username,
+                            'created_at': datetime.utcnow(), 'status': 'scheduled', 'type': 'push_mail',
+                            'scheduled_at': offset_dt, 'subject': subject,
+                        })
+            else:
+                # all_in_one: single scheduled email
+                if not message_body:
+                    import calendar as cal_mod
+                    day_name = cal_mod.day_name[datetime.utcnow().weekday()]
+                    offer_lines = '\n'.join([f"ID: {o.get('offer_id', '')}\nName: {o.get('name', '')}" for o in offers])
+                    message_body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n{offer_lines}"
+                html_body = _build_email_html(message_body, frontend_url)
+                result = sched_col.insert_one({
+                    'subject': subject, 'body': html_body, 'recipients': emails,
+                    'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
+                    'source_tab': source_tab, 'is_push_mail': True,
+                    'offer_ids': offer_ids, 'created_by': admin_username,
+                    'created_at': datetime.utcnow(),
+                })
+                if history_col is not None:
+                    history_col.insert_one({
+                        'offer_ids': offer_ids,
+                        'offer_names': [o.get('name', '') for o in offers],
+                        'offer_count': len(offers),
+                        'recipient_ids': recipient_ids, 'recipient_emails': emails[:20],
+                        'recipient_count': len(emails),
+                        'send_mode': 'all_in_one', 'interval_minutes': 0,
+                        'source_tab': source_tab, 'sent_by': admin_username,
+                        'created_at': datetime.utcnow(), 'status': 'scheduled', 'type': 'push_mail',
+                        'scheduled_at': _parse_ist_to_utc(scheduled_at), 'subject': subject,
+                    })
+            return jsonify({'success': True, 'scheduled': True, 'offer_count': len(offer_ids)})
+
+        # ── SEND NOW MODE ──
+        if send_mode == 'one_by_one':
+            # Log one batch entry for the whole one-by-one send
+            if history_col is not None:
+                history_col.insert_one({
+                    'offer_ids': offer_ids,
+                    'offer_names': [o.get('name', '') for o in offers],
+                    'offer_count': len(offers),
+                    'recipient_ids': recipient_ids, 'recipient_emails': emails[:20],
+                    'recipient_count': len(emails),
+                    'send_mode': 'one_by_one', 'interval_minutes': interval_minutes,
+                    'source_tab': source_tab, 'sent_by': admin_username,
+                    'created_at': datetime.utcnow(), 'status': 'sending', 'type': 'push_mail',
+                    'subject': subject,
+                })
+
+            def send_one_by_one():
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                for idx, oid in enumerate(offer_ids):
+                    o = offer_map.get(oid, {})
+                    if not message_body:
+                        import calendar as cal_mod
+                        day_name = cal_mod.day_name[datetime.utcnow().weekday()]
+                        body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${o.get('payout', 0)}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
+                    else:
+                        body = message_body
+                    html_body = _build_email_html(body, frontend_url)
+                    # Send in BCC batches
+                    for i in range(0, len(emails), 50):
+                        batch = emails[i:i + 50]
+                        try:
+                            msg = MIMEMultipart('alternative')
+                            msg['Subject'] = subject
+                            msg['From'] = email_service.from_email
+                            msg['To'] = email_service.from_email
+                            msg['Bcc'] = ', '.join(batch)
+                            msg.attach(MIMEText(html_body, 'html'))
+                            email_service._send_email_smtp(msg)
+                        except Exception as ex:
+                            logging.error(f"Push mail v2 one_by_one batch error: {ex}")
+                    # Update batch history status after last offer
+                    if idx == len(offer_ids) - 1:
+                        try:
+                            if history_col is not None:
+                                history_col.update_one(
+                                    {'sent_by': admin_username, 'status': 'sending', 'type': 'push_mail', 'send_mode': 'one_by_one'},
+                                    {'$set': {'status': 'sent'}},
+                                )
+                        except Exception:
+                            pass
+                    # Wait interval before next offer (skip after last)
+                    if idx < len(offer_ids) - 1 and interval_minutes > 0:
+                        time_mod.sleep(interval_minutes * 60)
+
+            threading.Thread(target=send_one_by_one, daemon=True).start()
+            return jsonify({'success': True, 'sent_count': len(emails), 'mode': 'one_by_one', 'total_offers': len(offer_ids)})
+
+        else:
+            # all_in_one: send all offers in one email
+            if not message_body:
+                import calendar as cal_mod
+                day_name = cal_mod.day_name[datetime.utcnow().weekday()]
+                offer_lines = '\n'.join([f"ID: {o.get('offer_id', '')}\nName: {o.get('name', '')}" for o in offers])
+                message_body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n{offer_lines}"
+            html_body = _build_email_html(message_body, frontend_url)
+
+            if history_col is not None:
+                history_col.insert_one({
+                    'offer_ids': offer_ids,
+                    'offer_names': [o.get('name', '') for o in offers],
+                    'offer_count': len(offers),
+                    'recipient_ids': recipient_ids, 'recipient_emails': emails[:20],
+                    'recipient_count': len(emails),
+                    'send_mode': 'all_in_one', 'interval_minutes': 0,
+                    'source_tab': source_tab, 'sent_by': admin_username,
+                    'created_at': datetime.utcnow(), 'status': 'sent', 'type': 'push_mail',
+                    'subject': subject,
+                })
+
+            def send_all_in_one():
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                for i in range(0, len(emails), 50):
+                    batch = emails[i:i + 50]
+                    try:
+                        msg = MIMEMultipart('alternative')
+                        msg['Subject'] = subject
+                        msg['From'] = email_service.from_email
+                        msg['To'] = email_service.from_email
+                        msg['Bcc'] = ', '.join(batch)
+                        msg.attach(MIMEText(html_body, 'html'))
+                        email_service._send_email_smtp(msg)
+                    except Exception as ex:
+                        logging.error(f"Push mail v2 all_in_one batch error: {ex}")
+
+            threading.Thread(target=send_all_in_one, daemon=True).start()
+            return jsonify({'success': True, 'sent_count': len(emails), 'mode': 'all_in_one'})
+
+    except Exception as e:
+        logging.error(f"Push mail v2 error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500

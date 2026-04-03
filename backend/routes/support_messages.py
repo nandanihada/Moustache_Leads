@@ -66,7 +66,7 @@ def _send_support_notification_email(to_email: str, username: str, is_admin_repl
 <a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Message</a>
 </div>
 <p style="font-size:11px;color:#999;margin-top:32px;text-align:center;">
-<a href="{frontend_url}/unsubscribe" style="color:#999;">Unsubscribe</a> from these notifications
+<a href="{frontend_url}/dashboard/settings" style="color:#999;">Unsubscribe</a> from these notifications
 </p>
 </div>
 </body></html>"""
