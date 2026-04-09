@@ -383,3 +383,82 @@ def get_activity_overview(current_user):
     except Exception as e:
         logger.error(f"Error getting activity overview: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to get activity overview: {str(e)}'}), 500
+
+@login_logs_bp.route('/send-mail', methods=['POST'])
+@token_required_with_user
+@subadmin_or_admin_required('login-logs')
+def send_custom_mail(current_user):
+    """Send a custom email or schedule it to users"""
+    try:
+        data = request.get_json()
+        to_emails = data.get('to', []) # List of emails
+        subject = data.get('subject', '')
+        body = data.get('body', '')
+        schedule_time = data.get('schedule_time') # ISO format
+        
+        if not to_emails or not subject or not body:
+            return jsonify({'error': 'to, subject, and body are required'}), 400
+            
+        if schedule_time:
+            # Schedule it using ScheduledEmail model
+            try:
+                from models.scheduled_email import ScheduledEmail
+                from datetime import datetime
+                import pytz
+                
+                dt = datetime.fromisoformat(schedule_time.replace('Z', '+00:00'))
+                
+                # Insert into scheduled emails
+                # Get DB directly since we might need to insert raw document if ScheduledEmail class doesn't support it directly
+                from database import db_instance
+                db = db_instance.get_db()
+                
+                email_doc = {
+                    'subject': subject,
+                    'body': body,
+                    'recipients': to_emails,
+                    'status': 'pending',
+                    'scheduled_at': dt,
+                    'created_at': datetime.utcnow(),
+                    'created_by': current_user.get('username', 'system')
+                }
+                
+                db['scheduled_emails'].insert_one(email_doc)
+                
+                return jsonify({'message': f'Scheduled email for {len(to_emails)} users'}), 200
+            except Exception as e:
+                logger.error(f"Error scheduling email: {str(e)}")
+                return jsonify({'error': 'Failed to schedule email'}), 500
+        else:
+            # Send immediately via BCC
+            from services.email_service import get_email_service
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            
+            email_service = get_email_service()
+            if not email_service.is_configured:
+                return jsonify({'error': 'Email service not configured'}), 500
+                
+            batch_size = 50
+            success_count = 0
+            
+            for i in range(0, len(to_emails), batch_size):
+                batch = to_emails[i:i+batch_size]
+                try:
+                    msg = MIMEMultipart('alternative')
+                    msg['Subject'] = subject
+                    msg['From'] = email_service.from_email
+                    msg['To'] = email_service.from_email
+                    msg['Bcc'] = ', '.join(batch)
+                    msg.attach(MIMEText(body, 'html'))
+                    
+                    if email_service._send_email_smtp(msg):
+                        success_count += len(batch)
+                except Exception as e:
+                    logger.error(f"Error sending immediate batch: {str(e)}")
+                    
+            return jsonify({'message': f'Sent email to {success_count} recipients'}), 200
+
+    except Exception as e:
+        logger.error(f"Error sending email: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to send email: {str(e)}'}), 500

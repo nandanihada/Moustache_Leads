@@ -9,6 +9,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Globe, 
   DollarSign, 
@@ -425,6 +426,152 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
             </Card>
           </div>
         </div>
+
+        {/* LOGS AND TRACKING SECTION */}
+        <div className="mt-4">
+          <Card>
+            <CardHeader className="py-3 px-4 border-b">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Globe className="h-4 w-4"/> Tracking & Logs
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-4">
+              <Tabs defaultValue="network">
+                <TabsList className="grid grid-cols-4 w-[600px] mb-4">
+                  <TabsTrigger value="network">Network Clicks</TabsTrigger>
+                  <TabsTrigger value="users">Users Activity</TabsTrigger>
+                  <TabsTrigger value="offers">Offer Views</TabsTrigger>
+                  <TabsTrigger value="logs">Actions Log</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="network" className="mt-0">
+                  <div className="border rounded-lg bg-white overflow-hidden">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-muted/50 text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Time</th>
+                          <th className="px-4 py-3 font-medium">Click ID</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                          <th className="px-4 py-3 font-medium">Sub ID</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        <tr className="hover:bg-muted/30">
+                          <td className="px-4 py-3 text-muted-foreground">2 mins ago</td>
+                          <td className="px-4 py-3 font-mono text-xs">clk_983hf8s</td>
+                          <td className="px-4 py-3"><Badge className="bg-green-100 text-green-800">Verified</Badge></td>
+                          <td className="px-4 py-3 font-mono">user_109</td>
+                        </tr>
+                        <tr className="hover:bg-muted/30">
+                          <td className="px-4 py-3 text-muted-foreground">15 mins ago</td>
+                          <td className="px-4 py-3 font-mono text-xs">clk_12dh29d</td>
+                          <td className="px-4 py-3"><Badge className="bg-yellow-100 text-yellow-800">Pending</Badge></td>
+                          <td className="px-4 py-3 font-mono">user_042</td>
+                        </tr>
+                        <tr className="hover:bg-muted/30">
+                          <td className="px-4 py-3 text-muted-foreground">1 hour ago</td>
+                          <td className="px-4 py-3 font-mono text-xs">clk_65jf8sk</td>
+                          <td className="px-4 py-3"><Badge className="bg-red-100 text-red-800">Rejected</Badge></td>
+                          <td className="px-4 py-3 font-mono">user_109</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="users" className="mt-0">
+                  <div className="border rounded-lg bg-white overflow-hidden">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-muted/50 text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">User / Affiliate</th>
+                          <th className="px-4 py-3 font-medium">Clicks</th>
+                          <th className="px-4 py-3 font-medium">Conversions</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        <tr className="hover:bg-muted/30">
+                          <td className="px-4 py-3 font-medium">John Doe (user_109)</td>
+                          <td className="px-4 py-3">1,245</td>
+                          <td className="px-4 py-3 text-green-600 font-semibold">42</td>
+                          <td className="px-4 py-3"><Badge variant="outline">Active</Badge></td>
+                        </tr>
+                        <tr className="hover:bg-muted/30">
+                          <td className="px-4 py-3 font-medium">Jane Smith (user_042)</td>
+                          <td className="px-4 py-3">890</td>
+                          <td className="px-4 py-3 text-green-600 font-semibold">15</td>
+                          <td className="px-4 py-3"><Badge variant="outline">Active</Badge></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="offers" className="mt-0">
+                  <div className="border rounded-lg bg-white overflow-hidden">
+                    <table className="w-full text-sm text-left">
+                      <thead className="bg-muted/50 text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Timestamp</th>
+                          <th className="px-4 py-3 font-medium">IP Address</th>
+                          <th className="px-4 py-3 font-medium">Location</th>
+                          <th className="px-4 py-3 font-medium">Source</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        <tr className="hover:bg-muted/30">
+                          <td className="px-4 py-3 text-muted-foreground">Just now</td>
+                          <td className="px-4 py-3 font-mono text-xs">192.168.1.1</td>
+                          <td className="px-4 py-3">US, New York</td>
+                          <td className="px-4 py-3">Search</td>
+                        </tr>
+                        <tr className="hover:bg-muted/30">
+                          <td className="px-4 py-3 text-muted-foreground">5 mins ago</td>
+                          <td className="px-4 py-3 font-mono text-xs">203.0.113.42</td>
+                          <td className="px-4 py-3">UK, London</td>
+                          <td className="px-4 py-3">Direct Link</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="logs" className="mt-0">
+                  <div className="border rounded-lg bg-white overflow-hidden">
+                    <div className="p-4 space-y-4">
+                      <div className="flex gap-4 items-start">
+                        <div className="w-2 h-2 mt-2 rounded-full bg-blue-500 shrink-0"></div>
+                        <div>
+                          <div className="text-sm font-medium">Offer Payout Updated</div>
+                          <div className="text-xs text-muted-foreground">Changed from $10.00 to $12.50 by Admin</div>
+                          <div className="text-xs text-muted-foreground mt-1">2 hours ago</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 items-start">
+                        <div className="w-2 h-2 mt-2 rounded-full bg-green-500 shrink-0"></div>
+                        <div>
+                          <div className="text-sm font-medium">Offer Activated</div>
+                          <div className="text-xs text-muted-foreground">Status changed from Pending to Active</div>
+                          <div className="text-xs text-muted-foreground mt-1">1 day ago</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-4 items-start">
+                        <div className="w-2 h-2 mt-2 rounded-full bg-gray-500 shrink-0"></div>
+                        <div>
+                          <div className="text-sm font-medium">Offer Created</div>
+                          <div className="text-xs text-muted-foreground">Offer initialized in the system</div>
+                          <div className="text-xs text-muted-foreground mt-1">1 day ago</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+
       </DialogContent>
     </Dialog>
   );

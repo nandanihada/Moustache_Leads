@@ -182,13 +182,22 @@ const PublisherOffersContent = () => {
     return () => { if (searchLogTimer.current) clearTimeout(searchLogTimer.current); };
   }, [searchTerm, filteredOffers.length]);
 
-  // Paginated
+  // Split filtered offers into pinned and regular
+  const pinnedOffers = useMemo(() => {
+    return filteredOffers.filter(o => (o as any).is_pinned);
+  }, [filteredOffers]);
+
+  const regularFilteredOffers = useMemo(() => {
+    return filteredOffers.filter(o => !(o as any).is_pinned);
+  }, [filteredOffers]);
+
+  // Paginated (only applied to regular offers)
   const paginatedOffers = useMemo(() => {
     const start = (page - 1) * perPage;
-    return filteredOffers.slice(start, start + perPage);
-  }, [filteredOffers, page]);
+    return regularFilteredOffers.slice(start, start + perPage);
+  }, [regularFilteredOffers, page]);
 
-  const totalPages = Math.ceil(filteredOffers.length / perPage);
+  const totalPages = Math.ceil(regularFilteredOffers.length / perPage);
 
   // Track dashboard click
   const trackDashboardClick = async (offer: PublisherOffer) => {
@@ -539,6 +548,93 @@ const PublisherOffersContent = () => {
         {/* OFFERS TABLE (available + my_offers) */}
         {viewMode !== "requests" && (
           <>
+            {pinnedOffers.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles className="h-5 w-5 text-amber-500" />
+                  <h2 className="text-lg font-bold text-gray-900">Featured Offers</h2>
+                </div>
+                <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
+                  {pinnedOffers.map((offer) => {
+                  const hasAccess = offer.has_access;
+                  const isPending = offer.request_status === "pending";
+                  return (
+                    <div
+                      key={offer.offer_id}
+                      className="group relative bg-white rounded-xl border border-amber-200 overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 hover:border-amber-400 w-[240px] shrink-0 flex flex-col"
+                    >
+                      {/* Image */}
+                      <div className="relative h-32 bg-gradient-to-br from-amber-50 to-orange-50 overflow-hidden shrink-0">
+                        <img
+                          src={getOfferImage(offer as any)}
+                          alt={offer.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                          onError={(e) => { (e.target as HTMLImageElement).src = "/category-images/other.png"; }}
+                        />
+                        {/* Status badge overlay */}
+                        <div className="absolute top-2 right-2">
+                          <span className="inline-flex items-center text-[10px] font-semibold text-white bg-amber-500 px-2 py-1 rounded-full shadow-sm">
+                            <Sparkles className="h-3 w-3 mr-1" /> Featured
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Content */}
+                      <div className="p-4 space-y-3 flex-1 flex flex-col">
+                        {/* Title */}
+                        <button
+                          className="text-left w-full hover:text-amber-600 transition-colors"
+                          onClick={() => handleViewDetails(offer)}
+                        >
+                          <h3 className="font-semibold text-sm leading-tight line-clamp-2 min-h-[2.5rem]">{offer.name}</h3>
+                        </button>
+
+                        {/* Payout */}
+                        <div className="flex items-center justify-between mt-auto">
+                          <span className="text-xs text-muted-foreground">Payout</span>
+                          <span className="font-bold text-lg text-emerald-600">
+                            {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
+                          </span>
+                        </div>
+
+                        {/* Action button */}
+                        <div className="pt-2">
+                          {hasAccess ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full h-8 text-xs rounded-full border-amber-200 text-amber-600 hover:bg-amber-50"
+                              onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}
+                            >
+                              <ExternalLink className="h-3 w-3 mr-1" />Open Offer
+                            </Button>
+                          ) : isPending ? (
+                            <Button size="sm" variant="outline" className="w-full h-8 text-xs rounded-full opacity-40" disabled>
+                              <Clock className="h-3 w-3 mr-1" />Pending
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              className="w-full h-8 text-xs rounded-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-sm border-0"
+                              onClick={() => handleApplyClick(offer)}
+                            >
+                              <Send className="h-3 w-3 mr-1" />Apply Now
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 mb-3">
+              <List className="h-5 w-5 text-purple-500" />
+              <h2 className="text-lg font-bold text-gray-900">All Offers</h2>
+            </div>
+
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-purple-400" />

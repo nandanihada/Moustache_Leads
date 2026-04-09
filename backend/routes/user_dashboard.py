@@ -55,51 +55,22 @@ def get_dashboard_stats():
             placements_collection is None or offers_collection is None):
             return jsonify({'error': 'Database collections not available'}), 503
         
-        # 1. Calculate Total Revenue from forwarded postbacks
-        # Sum all points where publisher_id matches current user
-        revenue_pipeline = [
-            {
-                '$match': {
-                    'publisher_id': user_id,
-                    'forward_status': 'success'
-                }
-            },
-            {
-                '$group': {
-                    '_id': None,
-                    'total_revenue': {'$sum': '$points'},
-                    'total_conversions': {'$sum': 1}
-                }
-            }
-        ]
+        from routes.user_payments import calculate_user_earnings
         
-        revenue_result = list(forwarded_postbacks.aggregate(revenue_pipeline))
-        total_revenue = revenue_result[0]['total_revenue'] if revenue_result else 0
-        total_conversions = revenue_result[0]['total_conversions'] if revenue_result else 0
+        earnings_data = calculate_user_earnings(user_id)
+        total_revenue = earnings_data['total_balance']
+        total_conversions = earnings_data['conversion_earnings'] / 10 if earnings_data['conversion_earnings'] > 0 else 0
+        # If we need exact conversion counts we keep the aggregate
+        try:
+            total_conv_count = list(forwarded_postbacks.aggregate([
+                {'$match': {'publisher_id': user_id, 'forward_status': 'success'}},
+                {'$group': {'_id': None, 'total': {'$sum': 1}}}
+            ]))
+            total_conversions = total_conv_count[0]['total'] if total_conv_count else 0
+        except:
+            total_conversions = 0
         
-        # Also include gift card redemptions in total revenue
-        gift_card_redemptions_col = get_collection('gift_card_redemptions')
-        gift_card_revenue = 0
-        if gift_card_redemptions_col is not None:
-            try:
-                user_obj_id_for_gc = ObjectId(user_id)
-            except:
-                user_obj_id_for_gc = None
-            
-            gc_query = {'$or': [{'user_id': user_id}]}
-            if user_obj_id_for_gc:
-                gc_query['$or'].append({'user_id': user_obj_id_for_gc})
-            
-            gc_pipeline = [
-                {'$match': gc_query},
-                {'$group': {'_id': None, 'total': {'$sum': '$amount'}}}
-            ]
-            gc_result = list(gift_card_redemptions_col.aggregate(gc_pipeline))
-            gift_card_revenue = gc_result[0]['total'] if gc_result else 0
-        
-        total_revenue = total_revenue + gift_card_revenue
-        
-        logger.info(f"💰 Total revenue: {total_revenue} (postbacks: {total_revenue - gift_card_revenue}, gift cards: {gift_card_revenue}), Conversions: {total_conversions}")
+        logger.info(f"💰 Total revenue: {total_revenue}, Conversions: {total_conversions}")
         
         # 2. Calculate Total Clicks from user's placements AND dashboard clicks
         # First get all user's placement IDs

@@ -7,7 +7,7 @@ export interface Offer {
   campaign_id: string;
   name: string;
   description?: string;
-  status: 'active' | 'pending' | 'inactive' | 'paused' | 'hidden';
+  status: 'active' | 'pending' | 'inactive' | 'paused' | 'hidden' | 'running';
   
   // Extended fields
   category?: string;
@@ -143,6 +143,7 @@ export interface Offer {
   created_at?: string;
   updated_at?: string;
   is_active?: boolean;
+  is_pinned?: boolean;
 }
 
 export interface CreateOfferData {
@@ -638,6 +639,32 @@ class AdminOfferApi {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ status, offer_ids: offerIds }),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async bulkUpdatePayout(payout: number, offerIds: string[]): Promise<{ message: string; updated_count: number }> {
+    if (!offerIds || offerIds.length === 0) {
+      throw new Error('No offers selected. Please select specific offers to update.');
+    }
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-payout`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ payout, offer_ids: offerIds }),
+    });
+
+    return this.handleResponse(response);
+  }
+
+  async bulkPinOffers(isPinned: boolean, offerIds: string[]): Promise<{ message: string; updated_count: number }> {
+    if (!offerIds || offerIds.length === 0) {
+      throw new Error('No offers selected. Please select specific offers to update.');
+    }
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-pin`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ is_pinned: isPinned, offer_ids: offerIds }),
     });
 
     return this.handleResponse(response);

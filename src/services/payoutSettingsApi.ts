@@ -151,6 +151,73 @@ class PayoutSettingsApi {
 
     return response.json();
   }
+
+  async getPaymentsSummary(): Promise<any> {
+    const response = await fetch(`${BASE_URL}/api/payments/summary`, {
+      headers: this.getAuthHeaders()
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to fetch payment summary');
+    }
+
+    return response.json();
+  }
+
+  async getPaymentsTransactions(): Promise<any> {
+    const response = await fetch(`${BASE_URL}/api/payments/transactions`, {
+      headers: this.getAuthHeaders()
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to fetch payment transactions');
+    }
+
+    return response.json();
+  }
+
+  async savePaymentsMethod(methodData: any): Promise<any> {
+    const response = await fetch(`${BASE_URL}/api/payments/method`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(methodData)
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to save payout method');
+    }
+
+    return response.json();
+  }
+
+  async getPaymentsHistory(): Promise<any> {
+    const response = await fetch(`${BASE_URL}/api/payments/history`, {
+      headers: this.getAuthHeaders()
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to fetch payment history');
+    }
+
+    return response.json();
+  }
+
+  async getInvoiceDetails(invoiceId: string): Promise<any> {
+    const response = await fetch(`${BASE_URL}/api/payments/invoice/${invoiceId}`, {
+      headers: this.getAuthHeaders()
+    });
+
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.error || 'Failed to fetch invoice details');
+    }
+
+    return response.json();
+  }
 }
 
 export const payoutSettingsApi = new PayoutSettingsApi();

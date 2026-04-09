@@ -19,9 +19,11 @@ import CampaignBuilder from "./pages/CampaignBuilder";
 import AscendIframe from "@/pages/AscendIframe";   // ✅ Updated import
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminOffers from "./pages/AdminOffers";
+import AdminOffersV3 from "./pages/AdminOffersV3";
 import AdminAnalytics from "./pages/AdminAnalytics";
 import AdminReports from "./pages/AdminReports";
 import AdminTracking from "./pages/AdminTracking";
+import AdminOffersV2 from "./pages/AdminOffersV2";
 import TrackingTest from "./pages/TrackingTest";
 import Partners from "./pages/Partners";
 import PostbackLogs from "./pages/PostbackLogs";
@@ -60,6 +62,8 @@ import AdminReportsTracking from "./pages/AdminReportsTracking";
 import AdminReactivation from "./pages/AdminReactivation";
 import AdminReferrals from "./pages/AdminReferrals";
 import Referrals from "./pages/Referrals";
+import AdminPayments from "./pages/AdminPayments";
+import Invoice from "./pages/Invoice";
 import SupportPage from "./pages/SupportPage";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
 import AdvertiserCampaigns from "./pages/AdvertiserCampaigns";
@@ -130,6 +134,7 @@ const App = () => (
                 <Route path="placements" element={<Placements />} />
                 <Route path="assets" element={<Assets />} />
                 <Route path="payments" element={<Payments />} />
+                <Route path="payments/invoice/:id" element={<Invoice />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="profile" element={<PartnerProfile />} />
                 <Route path="gift-cards" element={<GiftCardRedemption />} />
@@ -154,6 +159,8 @@ const App = () => (
                 <Route index element={<AdminDashboard />} />
                 <Route path="users" element={<Users />} />
                 <Route path="offers" element={<AdminOffers />} />
+                <Route path="offers-new" element={<AdminOffersV2 />} />
+                <Route path="offers-v3" element={<AdminOffersV3 />} />
                 <Route path="missing-offers" element={<AdminMissingOffers />} />
                 <Route path="offer-insights" element={<AdminOfferInsights />} />
                 <Route path="email-activity" element={<AdminEmailActivityLogs />} />
@@ -179,6 +186,7 @@ const App = () => (
                 <Route path="tracking-reports" element={<AdminReportsTracking />} />
                 <Route path="reactivation" element={<AdminReactivation />} />
                 <Route path="referrals" element={<AdminReferrals />} />
+                <Route path="payments" element={<AdminPayments />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

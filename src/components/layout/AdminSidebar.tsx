@@ -23,7 +23,8 @@ import {
   Mail,
   Search,
   ClipboardList,
-  RefreshCw
+  RefreshCw,
+  CreditCard
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -73,6 +74,7 @@ const adminMenuStructure = [
     type: "group" as const,
     subtabs: [
       { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
+      { title: "OffersNew", url: "/admin/offers-new", icon: Gift, tab: "offers-new" },
       { title: "Missing Offers", url: "/admin/missing-offers", icon: AlertTriangle, tab: "missing-offers" },
       { title: "Offer Insights", url: "/admin/offer-insights", icon: Sparkles, tab: "offer-insights" },
       { title: "Email Activity", url: "/admin/email-activity", icon: Mail, tab: "email-activity" },
@@ -125,6 +127,13 @@ const adminMenuStructure = [
     url: "/admin/referrals",
     icon: Users,
     tab: "referrals",
+    type: "single" as const,
+  },
+  {
+    title: "Payments",
+    url: "/admin/payments",
+    icon: CreditCard,
+    tab: "payments",
     type: "single" as const,
   },
 ];
