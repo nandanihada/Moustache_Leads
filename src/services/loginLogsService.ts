@@ -340,6 +340,19 @@ class LoginLogsService {
   }
 
   /**
+   * Send custom mail to users
+   */
+  async sendCustomMail(to: string[], subject: string, body: string, scheduleTime?: string): Promise<{ message: string }> {
+    const response = await api.post('/api/admin/send-mail', {
+      to,
+      subject,
+      body,
+      schedule_time: scheduleTime
+    });
+    return response.data;
+  }
+
+  /**
    * Export login logs to CSV
    */
   exportToCSV(logs: LoginLog[]): void {

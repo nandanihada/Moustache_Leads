@@ -88,6 +88,7 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="active">Active</SelectItem>
+              <SelectItem value="running">Running</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="inactive">Inactive</SelectItem>
               <SelectItem value="paused">Paused</SelectItem>

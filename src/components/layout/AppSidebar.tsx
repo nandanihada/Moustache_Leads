@@ -108,7 +108,6 @@ const menuStructure: MenuItem[] = [
     icon: Users,
     type: "group",
     subtabs: [
-      { title: "Payments", url: "/dashboard/payments", icon: CreditCard, requiresPlacement: true },
       { title: "Settings", url: "/dashboard/settings", icon: Settings },
     ]
   },
@@ -122,6 +121,12 @@ const menuStructure: MenuItem[] = [
     title: "Referrals",
     url: "/dashboard/referrals",
     icon: Users,
+    type: "single",
+  },
+  {
+    title: "Payments",
+    url: "/dashboard/payments",
+    icon: CreditCard,
     type: "single",
   },
 ];

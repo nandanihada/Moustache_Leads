@@ -78,7 +78,7 @@ def get_available_offers():
             'target_url': 1, 'masked_url': 1, 'show_in_offerwall': 1,
             'promo_code': 1, 'promo_code_id': 1, 'bonus_amount': 1, 'bonus_type': 1,
             'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1,
-            'device_targeting': 1,
+            'device_targeting': 1, 'is_pinned': 1,
         }
         
         # Get paginated results with projection
@@ -270,6 +270,7 @@ def get_available_offers():
                     'is_locked': is_locked,
                     'lock_reason': lock_reason,
                     'estimated_approval_time': estimated_approval_time,
+                    'is_pinned': offer.get('is_pinned', False),
                 }
                 
                 # Add request status if exists

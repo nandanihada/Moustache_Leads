@@ -1,0 +1,6 @@
+1707: <TabsContent value="offers" className="space-y-4">
+2453: </TabsContent>
+2456: <TabsContent value="recycle-bin" className="space-y-4">
+2667: </TabsContent>
+2670: <TabsContent value="rotation" className="space-y-4">
+2885: </TabsContent>

@@ -831,6 +831,69 @@ const AdminOffers = () => {
     }
   };
 
+  const handleBulkPriceUpdate = async () => {
+    const isRunningView = offersSubView === 'running';
+    const ids = Array.from(isRunningView ? selectedRunningOffers : selectedOffers);
+
+    if (ids.length === 0) {
+      toast({ title: "No Selection", description: "Please select offers first", variant: "destructive" });
+      return;
+    }
+
+    const price = prompt(`Enter new payout amount for ${ids.length} selected offer(s):`);
+    if (price === null) return;
+    const numPrice = parseFloat(price);
+    if (isNaN(numPrice) || numPrice < 0) {
+      toast({ title: "Invalid Price", description: "Please enter a valid positive number", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const result = await adminOfferApi.bulkUpdatePayout(numPrice, ids);
+      toast({
+        title: "Success",
+        description: `Updated payouts for ${result.updated_count} offer(s)`,
+      });
+      if (isRunningView) fetchRunningOffers();
+      else fetchOffers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update payouts",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkPin = async (isPinned: boolean) => {
+    const isRunningView = offersSubView === 'running';
+    const ids = Array.from(isRunningView ? selectedRunningOffers : selectedOffers);
+
+    if (ids.length === 0) {
+      toast({ title: "No Selection", description: "Please select offers first", variant: "destructive" });
+      return;
+    }
+
+    const action = isPinned ? 'Pin to top' : 'Unpin';
+    if (!confirm(`${action} for ${ids.length} selected offer(s)?`)) return;
+
+    try {
+      const result = await adminOfferApi.bulkPinOffers(isPinned, ids);
+      toast({
+        title: "Success",
+        description: `${isPinned ? 'Pinned' : 'Unpinned'} ${result.updated_count} offer(s)`,
+      });
+      if (isRunningView) fetchRunningOffers();
+      else fetchOffers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update pinning status",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Export running offers to CSV
   const handleRunningOffersExport = async () => {
     try {
@@ -1608,6 +1671,25 @@ const AdminOffers = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="shrink-0">
+                    <Zap className="h-4 w-4 mr-2" />
+                    Actions ({selectedOffers.size})
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent>
+                  <DropdownMenuItem onClick={handleBulkPriceUpdate}>
+                    <span className="mr-2">💰</span> Increase Price
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkPin(true)}>
+                    <span className="mr-2">📌</span> Pin to Top
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkPin(false)}>
+                    <span className="mr-2">❌</span> Unpin
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <Button
                 variant="destructive"
                 size="sm"
@@ -1767,6 +1849,25 @@ const AdminOffers = () => {
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleBulkStatusChange('hidden')}>
                         <span className="mr-2">👁️</span> Hidden
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="shrink-0">
+                        <Zap className="h-4 w-4 mr-2" />
+                        Actions ({selectedRunningOffers.size})
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={handleBulkPriceUpdate}>
+                        <span className="mr-2">💰</span> Increase Price
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleBulkPin(true)}>
+                        <span className="mr-2">📌</span> Pin to Top
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleBulkPin(false)}>
+                        <span className="mr-2">❌</span> Unpin
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

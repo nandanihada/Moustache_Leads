@@ -846,7 +846,7 @@ def get_offers():
     try:
         # Get query parameters
         page = int(request.args.get('page', 1))
-        per_page = min(int(request.args.get('per_page', 20)), 100)  # Max 100 per page
+        per_page = min(int(request.args.get('per_page', 20)), 15000)  # Max 15000 per admin page for drilldown
         status = request.args.get('status')
         network = request.args.get('network')
         search = request.args.get('search')
@@ -1360,6 +1360,98 @@ def bulk_update_status():
     except Exception as e:
         logging.error(f"Bulk update status error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to update status: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/bulk-payout', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_update_payout():
+    """Update payout of multiple offers at once"""
+    try:
+        data = request.get_json()
+        if not data or 'payout' not in data:
+            return jsonify({'error': 'payout is required'}), 400
+
+        try:
+            new_payout = float(data['payout'])
+            if new_payout < 0:
+                raise ValueError()
+        except ValueError:
+            return jsonify({'error': 'payout must be a positive number'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids or not isinstance(offer_ids, list) or len(offer_ids) == 0:
+            return jsonify({'error': 'offer_ids is required.'}), 400
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        from datetime import datetime
+
+        query = {'offer_id': {'$in': offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+        result = offers_collection.update_many(
+            query,
+            {'$set': {'payout': new_payout, 'updated_at': datetime.utcnow()}}
+        )
+
+        log_admin_activity(
+            action='bulk_payout_update',
+            category='offer',
+            admin_user=request.current_user,
+            details={'new_payout': new_payout, 'updated_count': result.modified_count, 'requested_count': len(offer_ids)},
+            affected_count=result.modified_count,
+            request_obj=request
+        )
+
+        return jsonify({'message': f'Updated payout for {result.modified_count} offer(s)', 'updated_count': result.modified_count}), 200
+
+    except Exception as e:
+        logging.error(f"Bulk update payout error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to update payout: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/bulk-pin', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_pin_offers():
+    """Pin/Unpin multiple offers at once"""
+    try:
+        data = request.get_json()
+        if not data or 'is_pinned' not in data:
+            return jsonify({'error': 'is_pinned is required'}), 400
+
+        is_pinned = bool(data['is_pinned'])
+        offer_ids = data.get('offer_ids', [])
+
+        if not offer_ids or not isinstance(offer_ids, list) or len(offer_ids) == 0:
+            return jsonify({'error': 'offer_ids is required.'}), 400
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        from datetime import datetime
+
+        query = {'offer_id': {'$in': offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+        result = offers_collection.update_many(
+            query,
+            {'$set': {'is_pinned': is_pinned, 'updated_at': datetime.utcnow()}}
+        )
+
+        log_admin_activity(
+            action='bulk_pin_update',
+            category='offer',
+            admin_user=request.current_user,
+            details={'is_pinned': is_pinned, 'updated_count': result.modified_count, 'requested_count': len(offer_ids)},
+            affected_count=result.modified_count,
+            request_obj=request
+        )
+
+        status_msg = "Pinned" if is_pinned else "Unpinned"
+        return jsonify({'message': f'{status_msg} {result.modified_count} offer(s)', 'updated_count': result.modified_count}), 200
+
+    except Exception as e:
+        logging.error(f"Bulk pin offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to pin offers: {str(e)}'}), 500
 
 
 # ============================================

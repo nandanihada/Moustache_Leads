@@ -182,27 +182,21 @@ main > div {
   max-width: 100%;
 }
 
-/* Fix Card components */
-[class*="Card"] {
+/* Fix Card components - scoped to avoid catching dialog/modal elements */
+.main-content-area [class*="Card"],
+main [class*="Card"] {
   max-width: 100%;
   overflow: hidden;
 }
 
-[class*="CardContent"] {
+.main-content-area [class*="CardContent"],
+main [class*="CardContent"] {
   overflow-x: auto;
   max-width: 100%;
 }
 
 /* Fix dialog/modal overflow - ensure dialogs are scrollable */
-[role="dialog"] {
-  max-height: 90vh !important;
-  overflow-y: auto !important;
-}
-
-[data-radix-dialog-content] {
-  max-height: 85vh !important;
-  overflow-y: auto !important;
-}
+/* NOTE: Removed !important overrides - dialog scrolling is handled by component classes */
 
 /* Ensure dialog content scrolls properly */
 .dialog-scroll-content {

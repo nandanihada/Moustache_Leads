@@ -342,14 +342,5 @@ button:disabled {
   opacity: 0.6;
 }
 
-/* Smooth color transitions */
-* {
-  transition-property: background-color, border-color, color, fill, stroke;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-
-/* Remove transition from transform and opacity for performance */
-*:not(.no-transition) {
-  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
-}
+/* Smooth color transitions - scoped to avoid breaking dialogs/modals */
+/* NOTE: Removed global * transition override that was breaking Radix UI dialog positioning */
