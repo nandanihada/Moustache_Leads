@@ -305,6 +305,47 @@ def test_email():
         logging.error(f"Error sending test email: {str(e)}", exc_info=True)
         return jsonify({'error': f'Test email failed: {str(e)}'}), 500
 
+
+@auth_bp.route('/admin/smtp-diagnostic', methods=['GET'])
+@token_required
+def smtp_diagnostic():
+    """Diagnostic endpoint to check SMTP connectivity — returns detailed error info"""
+    import os, smtplib, ssl
+    host = os.getenv('SMTP_HOST', 'not set')
+    port = os.getenv('SMTP_PORT', 'not set')
+    user = os.getenv('SMTP_USER', 'not set')
+    has_pass = bool(os.getenv('SMTP_PASS'))
+    from_email = os.getenv('FROM_EMAIL', 'not set')
+    
+    results = {
+        'config': {'host': host, 'port': port, 'user': user, 'has_pass': has_pass, 'from_email': from_email},
+        'starttls_587': None,
+        'ssl_465': None,
+    }
+    
+    ctx = ssl.create_default_context()
+    smtp_pass = os.getenv('SMTP_PASS', '')
+    
+    # Test STARTTLS on 587
+    try:
+        with smtplib.SMTP(host, 587, timeout=15) as s:
+            s.starttls(context=ctx)
+            s.login(user, smtp_pass)
+            results['starttls_587'] = 'OK — connected and authenticated'
+    except Exception as e:
+        results['starttls_587'] = f'FAILED: {str(e)}'
+    
+    # Test SSL on 465
+    try:
+        with smtplib.SMTP_SSL(host, 465, context=ctx, timeout=15) as s:
+            s.login(user, smtp_pass)
+            results['ssl_465'] = 'OK — connected and authenticated'
+    except Exception as e:
+        results['ssl_465'] = f'FAILED: {str(e)}'
+    
+    return jsonify(results)
+
+
 @auth_bp.route('/register', methods=['POST'])
 def register():
     """User registration endpoint with partner support"""

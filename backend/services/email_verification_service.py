@@ -49,15 +49,18 @@ class EmailVerificationService:
                     s.send_message(msg)
                 return True
             except Exception as e1:
+                logger.warning(f"SMTP STARTTLS 587 failed (attempt {attempt+1}): {e1}")
                 try:
                     with smtplib.SMTP_SSL(self.smtp_host, 465, context=ctx, timeout=30) as s:
                         s.login(self.smtp_user, self.smtp_pass)
                         s.send_message(msg)
                     return True
                 except Exception as e2:
+                    logger.error(f"SMTP SSL 465 also failed (attempt {attempt+1}): {e2}")
                     if attempt < max_retries - 1:
                         import time
                         time.sleep(2)
+        logger.error(f"All SMTP attempts failed for host={self.smtp_host}, user={self.smtp_user}")
         return False
 
     def _send_email(self, to, subj, html, plain_text=None):
