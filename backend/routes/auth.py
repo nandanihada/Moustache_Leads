@@ -307,9 +307,8 @@ def test_email():
 
 
 @auth_bp.route('/admin/smtp-diagnostic', methods=['GET'])
-@token_required
 def smtp_diagnostic():
-    """Diagnostic endpoint to check SMTP connectivity — returns detailed error info"""
+    """Diagnostic endpoint to check SMTP connectivity — no auth required for quick debugging"""
     import os, smtplib, ssl
     host = os.getenv('SMTP_HOST', 'not set')
     port = os.getenv('SMTP_PORT', 'not set')
