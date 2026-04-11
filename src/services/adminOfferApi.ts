@@ -144,6 +144,8 @@ export interface Offer {
   updated_at?: string;
   is_active?: boolean;
   is_pinned?: boolean;
+  pinned_at?: string;
+  pin_expires_at?: string;
 }
 
 export interface CreateOfferData {
@@ -657,16 +659,39 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
-  async bulkPinOffers(isPinned: boolean, offerIds: string[]): Promise<{ message: string; updated_count: number }> {
+  async bulkPinOffers(isPinned: boolean, offerIds: string[], pinDurationHours?: number): Promise<{ message: string; updated_count: number }> {
     if (!offerIds || offerIds.length === 0) {
       throw new Error('No offers selected. Please select specific offers to update.');
     }
+    const body: Record<string, unknown> = { is_pinned: isPinned, offer_ids: offerIds };
+    if (pinDurationHours && pinDurationHours > 0) body.pin_duration_hours = pinDurationHours;
     const response = await fetch(`${API_BASE_URL}/offers/bulk-pin`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
-      body: JSON.stringify({ is_pinned: isPinned, offer_ids: offerIds }),
+      body: JSON.stringify(body),
     });
 
+    return this.handleResponse(response);
+  }
+
+  async bulkPercentagePayout(percentage: number, offerIds: string[]): Promise<{ message: string; updated_count: number }> {
+    if (!offerIds || offerIds.length === 0) {
+      throw new Error('No offers selected.');
+    }
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-percentage-payout`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ percentage, offer_ids: offerIds }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async inlineUpdateOffer(offerId: string, fields: Record<string, unknown>): Promise<{ message: string; updated_fields: string[] }> {
+    const response = await fetch(`${API_BASE_URL}/offers/${offerId}/inline-update`, {
+      method: 'PATCH',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(fields),
+    });
     return this.handleResponse(response);
   }
 
@@ -731,6 +756,20 @@ class AdminOfferApi {
   }
 
   // ---- Offer Rotation API ----
+
+  async getRotatingOffers(params?: { page?: number; per_page?: number }): Promise<{
+    offers: Offer[];
+    pagination: { page: number; per_page: number; total: number; pages: number };
+  }> {
+    const qp = new URLSearchParams();
+    if (params?.page) qp.append('page', params.page.toString());
+    if (params?.per_page) qp.append('per_page', params.per_page.toString());
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/current-batch?${qp}`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
 
   async getRotationStatus(): Promise<RotationStatus> {
     const response = await fetch(`${API_BASE_URL}/offers/rotation/status`, {

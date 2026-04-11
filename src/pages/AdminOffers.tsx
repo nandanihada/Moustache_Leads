@@ -83,7 +83,7 @@ const AdminOffers = () => {
   const [recycleBinSearchTerm, setRecycleBinSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('offers');
-  const [offersSubView, setOffersSubView] = useState<'all' | 'running'>('all');
+  const [offersSubView, setOffersSubView] = useState<'all' | 'running' | 'rotating'>('all');
   const [addOfferModalOpen, setAddOfferModalOpen] = useState(false);
   const [editOfferModalOpen, setEditOfferModalOpen] = useState(false);
   const [linkMaskingModalOpen, setLinkMaskingModalOpen] = useState(false);
@@ -161,6 +161,24 @@ const AdminOffers = () => {
   const [bulkDeleteWarningOpen, setBulkDeleteWarningOpen] = useState(false);
   const [bulkDeleteRunningDetails, setBulkDeleteRunningDetails] = useState<Array<{ offer_id: string; name: string; total_clicks: number; days_remaining: number; sub_statuses: string[] }>>([]);
   const [bulkDeleteNonRunningIds, setBulkDeleteNonRunningIds] = useState<string[]>([]);
+
+  // Pin duration dialog state
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
+  const [pinDurationHours, setPinDurationHours] = useState('');
+
+  // Percentage payout dialog state
+  const [percentagePayoutDialogOpen, setPercentagePayoutDialogOpen] = useState(false);
+  const [percentageValue, setPercentageValue] = useState('');
+
+  // Inline price editing
+  const [editingPriceOfferId, setEditingPriceOfferId] = useState<string | null>(null);
+  const [editingPriceValue, setEditingPriceValue] = useState('');
+
+  // Rotating offers state
+  const [rotatingOffers, setRotatingOffers] = useState<Offer[]>([]);
+  const [rotatingLoading, setRotatingLoading] = useState(false);
+  const [rotatingPagination, setRotatingPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
+  const [selectedRotatingOffers, setSelectedRotatingOffers] = useState<Set<string>>(new Set());
   // Category definitions for multi-select filter
   const CATEGORIES = [
     { id: 'all', name: 'All', icon: '🎯' },
@@ -234,6 +252,13 @@ const AdminOffers = () => {
           sortedOffers.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
           break;
       }
+      
+      // Always keep pinned offers at top
+      sortedOffers.sort((a, b) => {
+        const aPinned = a.is_pinned ? 1 : 0;
+        const bPinned = b.is_pinned ? 1 : 0;
+        return bPinned - aPinned;
+      });
       
       setRawOffers(sortedOffers);
       setPagination(response.pagination);
@@ -410,13 +435,34 @@ const AdminOffers = () => {
         network: runningNetworkFilter,
         sort: runningSortBy,
       });
-      setRunningOffers(res.offers);
+      const sortedOffers = [...res.offers].sort((a, b) => {
+        const aPinned = (a as any).is_pinned ? 1 : 0;
+        const bPinned = (b as any).is_pinned ? 1 : 0;
+        return bPinned - aPinned;
+      });
+      setRunningOffers(sortedOffers);
       setSubcategoryCounts(res.subcategory_counts || {});
       setRunningPagination(prev => ({ ...prev, ...res.pagination }));
     } catch {
       toast({ title: "Error", description: "Failed to load running offers", variant: "destructive" });
     } finally {
       setRunningLoading(false);
+    }
+  };
+
+  const fetchRotatingOffers = async (pageOverride?: number) => {
+    setRotatingLoading(true);
+    try {
+      const res = await adminOfferApi.getRotatingOffers({
+        page: pageOverride || rotatingPagination.page,
+        per_page: rotatingPagination.per_page,
+      });
+      setRotatingOffers(res.offers);
+      setRotatingPagination(prev => ({ ...prev, ...res.pagination }));
+    } catch {
+      toast({ title: "Error", description: "Failed to load rotating offers", variant: "destructive" });
+    } finally {
+      setRotatingLoading(false);
     }
   };
 
@@ -854,8 +900,8 @@ const AdminOffers = () => {
         title: "Success",
         description: `Updated payouts for ${result.updated_count} offer(s)`,
       });
-      if (isRunningView) fetchRunningOffers();
-      else fetchOffers();
+      if (isRunningView) { setSelectedRunningOffers(new Set()); fetchRunningOffers(); }
+      else { setSelectedOffers(new Set()); fetchOffers(); }
     } catch (error) {
       toast({
         title: "Error",
@@ -874,14 +920,20 @@ const AdminOffers = () => {
       return;
     }
 
-    const action = isPinned ? 'Pin to top' : 'Unpin';
-    if (!confirm(`${action} for ${ids.length} selected offer(s)?`)) return;
+    if (isPinned) {
+      // Show pin duration dialog
+      setPinDialogOpen(true);
+      return;
+    }
+
+    // Unpin directly
+    if (!confirm(`Unpin ${ids.length} selected offer(s)?`)) return;
 
     try {
-      const result = await adminOfferApi.bulkPinOffers(isPinned, ids);
+      const result = await adminOfferApi.bulkPinOffers(false, ids);
       toast({
         title: "Success",
-        description: `${isPinned ? 'Pinned' : 'Unpinned'} ${result.updated_count} offer(s)`,
+        description: `Unpinned ${result.updated_count} offer(s)`,
       });
       if (isRunningView) fetchRunningOffers();
       else fetchOffers();
@@ -889,6 +941,89 @@ const AdminOffers = () => {
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to update pinning status",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const executeBulkPin = async () => {
+    const isRunningView = offersSubView === 'running';
+    const isRotatingView = offersSubView === 'rotating';
+    const ids = Array.from(isRotatingView ? selectedRotatingOffers : isRunningView ? selectedRunningOffers : selectedOffers);
+    const hours = pinDurationHours ? parseFloat(pinDurationHours) : undefined;
+
+    try {
+      const result = await adminOfferApi.bulkPinOffers(true, ids, hours);
+      toast({
+        title: "Success",
+        description: `Pinned ${result.updated_count} offer(s)${hours ? ` for ${hours}h` : ' permanently'}`,
+      });
+      setPinDialogOpen(false);
+      setPinDurationHours('');
+      // Clear selections
+      if (isRotatingView) { setSelectedRotatingOffers(new Set()); fetchRotatingOffers(); }
+      else if (isRunningView) { setSelectedRunningOffers(new Set()); fetchRunningOffers(); }
+      else { setSelectedOffers(new Set()); fetchOffers(); }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to pin offers",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkPercentagePayout = async () => {
+    const isRunningView = offersSubView === 'running';
+    const ids = Array.from(isRunningView ? selectedRunningOffers : selectedOffers);
+
+    if (ids.length === 0) {
+      toast({ title: "No Selection", description: "Please select offers first", variant: "destructive" });
+      return;
+    }
+
+    setPercentagePayoutDialogOpen(true);
+  };
+
+  const executePercentagePayout = async () => {
+    const isRunningView = offersSubView === 'running';
+    const isRotatingView = offersSubView === 'rotating';
+    const ids = Array.from(isRotatingView ? selectedRotatingOffers : isRunningView ? selectedRunningOffers : selectedOffers);
+    const pct = parseFloat(percentageValue);
+
+    if (isNaN(pct)) {
+      toast({ title: "Invalid", description: "Enter a valid percentage", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const result = await adminOfferApi.bulkPercentagePayout(pct, ids);
+      toast({ title: "Success", description: result.message });
+      setPercentagePayoutDialogOpen(false);
+      setPercentageValue('');
+      // Clear selections
+      if (isRotatingView) { setSelectedRotatingOffers(new Set()); fetchRotatingOffers(); }
+      else if (isRunningView) { setSelectedRunningOffers(new Set()); fetchRunningOffers(); }
+      else { setSelectedOffers(new Set()); fetchOffers(); }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update payouts",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleInlinePriceEdit = async (offerId: string, newPayout: number) => {
+    try {
+      await adminOfferApi.inlineUpdateOffer(offerId, { payout: newPayout });
+      toast({ title: "Updated", description: `Payout updated to $${newPayout.toFixed(2)}` });
+      if (offersSubView === 'running') fetchRunningOffers();
+      else fetchOffers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update payout",
         variant: "destructive",
       });
     }
@@ -1448,6 +1583,13 @@ const AdminOffers = () => {
     }
   }, [runningSearchTerm]);
 
+  // Fetch rotating offers when sub-view changes
+  useEffect(() => {
+    if (offersSubView === 'rotating') {
+      fetchRotatingOffers();
+    }
+  }, [offersSubView, rotatingPagination.page, rotatingPagination.per_page]);
+
   // Pre-fetch running offers count for the dropdown
   useEffect(() => {
     const fetchRunningCount = async () => {
@@ -1680,7 +1822,10 @@ const AdminOffers = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
                   <DropdownMenuItem onClick={handleBulkPriceUpdate}>
-                    <span className="mr-2">💰</span> Increase Price
+                    <span className="mr-2">💰</span> Set Fixed Price
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleBulkPercentagePayout}>
+                    <span className="mr-2">📊</span> % Price Adjust
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => handleBulkPin(true)}>
                     <span className="mr-2">📌</span> Pin to Top
@@ -1751,7 +1896,7 @@ const AdminOffers = () => {
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="offers" className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
-              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : `Active Offers (${pagination.total})`}
+              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : `Active Offers (${pagination.total})`}
             </TabsTrigger>
             <TabsTrigger value="recycle-bin" className="flex items-center gap-2">
               <Trash2 className="h-4 w-4" />
@@ -1767,7 +1912,7 @@ const AdminOffers = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="flex items-center gap-1.5 h-9">
                   <Activity className="h-4 w-4" />
-                  {offersSubView === 'all' ? 'All Offers' : 'Running Offers'}
+                  {offersSubView === 'all' ? 'All Offers' : offersSubView === 'running' ? 'Running Offers' : 'Rotating Offers'}
                   <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1779,6 +1924,10 @@ const AdminOffers = () => {
                 <DropdownMenuItem onClick={() => { setOffersSubView('running'); fetchRunningOffers(1); }} className={offersSubView === 'running' ? 'bg-accent' : ''}>
                   <Activity className="h-4 w-4 mr-2 text-green-500" />
                   Running Offers ({runningPagination.total})
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setOffersSubView('rotating'); fetchRotatingOffers(1); }} className={offersSubView === 'rotating' ? 'bg-accent' : ''}>
+                  <RotateCcw className="h-4 w-4 mr-2 text-blue-500" />
+                  Rotating Offers ({rotatingPagination.total})
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1861,7 +2010,10 @@ const AdminOffers = () => {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
                       <DropdownMenuItem onClick={handleBulkPriceUpdate}>
-                        <span className="mr-2">💰</span> Increase Price
+                        <span className="mr-2">💰</span> Set Fixed Price
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleBulkPercentagePayout}>
+                        <span className="mr-2">📊</span> % Price Adjust
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleBulkPin(true)}>
                         <span className="mr-2">📌</span> Pin to Top
@@ -2069,6 +2221,150 @@ const AdminOffers = () => {
               </Card>
             )}
           </div>
+          ) : offersSubView === 'rotating' ? (
+          /* Rotating Offers Sub-View */
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => fetchRotatingOffers()} disabled={rotatingLoading} className="shrink-0">
+                <RefreshCw className={`h-4 w-4 mr-2 ${rotatingLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              {selectedRotatingOffers.size > 0 && (
+                <>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="shrink-0">
+                        <Zap className="h-4 w-4 mr-2" />
+                        Actions ({selectedRotatingOffers.size})
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => setPinDialogOpen(true)}>
+                        <span className="mr-2">📌</span> Pin to Top
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => {
+                        const ids = Array.from(selectedRotatingOffers);
+                        if (!confirm(`Unpin ${ids.length} offer(s)?`)) return;
+                        adminOfferApi.bulkPinOffers(false, ids).then(r => {
+                          toast({ title: "Success", description: r.message });
+                          setSelectedRotatingOffers(new Set());
+                          fetchRotatingOffers();
+                        }).catch(e => toast({ title: "Error", description: e.message, variant: "destructive" }));
+                      }}>
+                        <span className="mr-2">❌</span> Unpin
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleBulkPercentagePayout}>
+                        <span className="mr-2">📊</span> % Price Adjust
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
+              )}
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Rotating Offers ({rotatingPagination.total})</CardTitle>
+                <CardDescription>Offers currently in the active rotation batch. Pin them to keep them at the top for publishers.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {rotatingLoading ? (
+                  <div className="flex items-center justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin mr-2" /> Loading...</div>
+                ) : rotatingOffers.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <RotateCcw className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    No offers in current rotation batch. Enable rotation first.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-10">
+                            <input type="checkbox" checked={selectedRotatingOffers.size === rotatingOffers.length && rotatingOffers.length > 0} onChange={() => {
+                              if (selectedRotatingOffers.size === rotatingOffers.length) setSelectedRotatingOffers(new Set());
+                              else setSelectedRotatingOffers(new Set(rotatingOffers.map(o => o.offer_id)));
+                            }} />
+                          </TableHead>
+                          <TableHead>Offer ID</TableHead>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Payout</TableHead>
+                          <TableHead>Network</TableHead>
+                          <TableHead>Countries</TableHead>
+                          <TableHead>Pinned</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {rotatingOffers.map(offer => (
+                          <TableRow key={offer.offer_id} className={offer.is_pinned ? 'bg-amber-50 dark:bg-amber-950/20' : ''}>
+                            <TableCell>
+                              <input type="checkbox" checked={selectedRotatingOffers.has(offer.offer_id)} onChange={() => {
+                                const s = new Set(selectedRotatingOffers);
+                                s.has(offer.offer_id) ? s.delete(offer.offer_id) : s.add(offer.offer_id);
+                                setSelectedRotatingOffers(s);
+                              }} />
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">{offer.offer_id}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1.5">
+                                {offer.is_pinned && <span title="Pinned to top">📌</span>}
+                                <span className="font-medium">{offer.name}</span>
+                              </div>
+                            </TableCell>
+                            <TableCell><Badge className={getStatusColor(offer.status)}>{offer.status}</Badge></TableCell>
+                            <TableCell className="font-medium text-green-600">${offer.payout?.toFixed(2)}</TableCell>
+                            <TableCell className="text-sm">{offer.network}</TableCell>
+                            <TableCell>
+                              <div className="flex gap-1 flex-wrap">
+                                {(offer.countries || []).slice(0, 3).map(c => <Badge key={c} variant="outline" className="text-xs">{c}</Badge>)}
+                                {(offer.countries || []).length > 3 && <Badge variant="outline" className="text-xs">+{offer.countries.length - 3}</Badge>}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {offer.is_pinned ? (
+                                <Badge className="bg-amber-100 text-amber-800">📌 Pinned</Badge>
+                              ) : (
+                                <span className="text-muted-foreground text-sm">—</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild><Button variant="ghost" size="sm"><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setOfferDetailsModalOpen(true); }}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setEditOfferModalOpen(true); }}><Edit className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => {
+                                    adminOfferApi.bulkPinOffers(!offer.is_pinned, [offer.offer_id]).then(() => {
+                                      toast({ title: "Success", description: offer.is_pinned ? 'Unpinned' : 'Pinned to top' });
+                                      fetchRotatingOffers();
+                                    });
+                                  }}>
+                                    {offer.is_pinned ? '❌ Unpin' : '📌 Pin to Top'}
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {rotatingPagination.pages > 1 && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-muted-foreground">Page {rotatingPagination.page} of {rotatingPagination.pages}</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" disabled={rotatingPagination.page <= 1} onClick={() => setRotatingPagination(p => ({ ...p, page: p.page - 1 }))}>Previous</Button>
+                  <Button size="sm" variant="outline" disabled={rotatingPagination.page >= rotatingPagination.pages} onClick={() => setRotatingPagination(p => ({ ...p, page: p.page + 1 }))}>Next</Button>
+                </div>
+              </div>
+            )}
+          </div>
           ) : (
           <>
           {/* Offers Table */}
@@ -2239,7 +2535,10 @@ const AdminOffers = () => {
                     </TableCell>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{offer.name}</div>
+                        <div className="font-medium flex items-center gap-1">
+                          {offer.is_pinned && <span title="Pinned to top" className="text-amber-500">📌</span>}
+                          {offer.name}
+                        </div>
                         <div className="text-sm text-muted-foreground">
                           {offer.affiliates === 'all' || !offer.affiliates ? 'All Users' :
                             offer.affiliates === 'premium' ? 'Premium Only' : 
@@ -3707,6 +4006,91 @@ const AdminOffers = () => {
         offerName={healthPopupOffer?.name || ''}
         failures={healthPopupOffer?.health?.failures || []}
       />
+
+      {/* Pin Duration Dialog */}
+      <Dialog open={pinDialogOpen} onOpenChange={setPinDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>📌 Pin Offers to Top</DialogTitle>
+            <DialogDescription>
+              Pinned offers appear first for publishers. Set duration or leave empty for permanent pin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label>Duration (hours) — leave empty for permanent</Label>
+              <Input
+                type="number"
+                min="1"
+                placeholder="e.g. 24, 48, 72..."
+                value={pinDurationHours}
+                onChange={e => setPinDurationHours(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {[6, 12, 24, 48, 72, 168].map(h => (
+                <Button key={h} size="sm" variant="outline" onClick={() => setPinDurationHours(String(h))}>
+                  {h < 24 ? `${h}h` : `${h / 24}d`}
+                </Button>
+              ))}
+              <Button size="sm" variant="outline" onClick={() => setPinDurationHours('')}>∞ Permanent</Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPinDialogOpen(false)}>Cancel</Button>
+            <Button onClick={executeBulkPin}>
+              Pin {(offersSubView === 'running' ? selectedRunningOffers : selectedOffers).size} Offer(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Percentage Payout Dialog */}
+      <Dialog open={percentagePayoutDialogOpen} onOpenChange={setPercentagePayoutDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>📊 Bulk Price Adjustment</DialogTitle>
+            <DialogDescription>
+              Apply a percentage increase or decrease to selected offers' payouts.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label>Percentage (use negative for decrease)</Label>
+              <Input
+                type="number"
+                placeholder="e.g. 10 for +10%, -15 for -15%"
+                value={percentageValue}
+                onChange={e => setPercentageValue(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              {[5, 10, 15, 20, 25, -5, -10, -15, -20, -25].map(p => (
+                <Button
+                  key={p}
+                  size="sm"
+                  variant="outline"
+                  className={p < 0 ? 'text-red-600 border-red-200' : 'text-green-600 border-green-200'}
+                  onClick={() => setPercentageValue(String(p))}
+                >
+                  {p > 0 ? '+' : ''}{p}%
+                </Button>
+              ))}
+            </div>
+            {percentageValue && !isNaN(parseFloat(percentageValue)) && (
+              <p className="text-sm text-muted-foreground">
+                Example: $1.00 → ${(1 * (1 + parseFloat(percentageValue) / 100)).toFixed(2)}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setPercentagePayoutDialogOpen(false); setPercentageValue(''); }}>Cancel</Button>
+            <Button onClick={executePercentagePayout}>
+              Apply to {(offersSubView === 'running' ? selectedRunningOffers : selectedOffers).size} Offer(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

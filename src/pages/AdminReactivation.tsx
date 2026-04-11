@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchInactiveUsers, fetchReactivationStats, fetchUserProfile,
   sendOutreach, createSupportTicket, executeSandS, fetchOffersForPicker,
-  fetchRecommendedOffers,
+  fetchRecommendedOffers, fetchUserEnrichedDetail, fetchQuickPickOffers,
+  fetchOutreachHistory,
   type InactiveUser, type Filters, type UserProfile, type OfferOption,
 } from '@/services/reactivationApi';
 import { toast } from 'sonner';
@@ -55,12 +56,9 @@ function initials(user: InactiveUser) {
 
 const INACTIVITY_OPTIONS = [
   { value: '', label: 'All' },
-  { value: '7d', label: '7+ days' },
-  { value: '7_30d', label: '7–30 days' },
-  { value: '30_90d', label: '30–90 days' },
-  { value: '90_plus', label: '90+ days' },
-  { value: '180d', label: '180+ days' },
-  { value: 'never', label: 'Never logged in' },
+  { value: '7d', label: '1 week+' },
+  { value: '30_90d', label: '1–3 months' },
+  { value: '90_plus', label: '3 months+' },
 ];
 
 const ACTIVITY_OPTIONS = [
@@ -88,6 +86,52 @@ const SORT_OPTIONS = [
 const PER_PAGE_OPTIONS = [10, 25, 50, 100];
 
 
+// ── Quick Pick Dropdown with checkboxes ─────────────────────────────────
+function QuickPickDropdown({ items, category, onApply, onClose }: {
+  items: any[]; category: string; onApply: (selected: any[]) => void; onClose: () => void;
+}) {
+  const [checked, setChecked] = useState<Set<number>>(new Set());
+
+  const toggle = (idx: number) => {
+    setChecked(prev => { const n = new Set(prev); n.has(idx) ? n.delete(idx) : n.add(idx); return n; });
+  };
+
+  const selectAll = () => setChecked(new Set(items.map((_, i) => i)));
+  const clearAll = () => setChecked(new Set());
+
+  const isPromo = category === 'promo_codes';
+  const isGift = category === 'gift_cards';
+
+  return (
+    <div className="absolute z-20 left-0 top-full mt-1 w-72 bg-card border border-border rounded-lg shadow-xl max-h-60 flex flex-col">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+        <div className="flex gap-2">
+          <button onClick={selectAll} className="text-[10px] text-blue-400 hover:text-blue-300">Select All</button>
+          <button onClick={clearAll} className="text-[10px] text-muted-foreground hover:text-foreground">Clear</button>
+        </div>
+        <button onClick={() => { onApply(items.filter((_, i) => checked.has(i))); }} disabled={checked.size === 0}
+          className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500 text-white disabled:opacity-30">
+          Add {checked.size} to Mail
+        </button>
+      </div>
+      <div className="overflow-y-auto flex-1 p-1">
+        {items.map((item, i) => (
+          <label key={i} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted cursor-pointer text-xs">
+            <input type="checkbox" checked={checked.has(i)} onChange={() => toggle(i)} className="accent-orange-500 flex-shrink-0" />
+            <span className="flex-1 truncate text-foreground">
+              {isPromo ? `${item.code} — ${item.bonus_type === 'percentage' ? `${item.bonus_value}%` : `$${item.bonus_value}`}` :
+               isGift ? `${item.name || item.code} — $${item.value}` :
+               item.name}
+            </span>
+            {!isPromo && !isGift && <span className="text-muted-foreground flex-shrink-0">${(item.payout || 0).toFixed(0)}</span>}
+          </label>
+        ))}
+        {items.length === 0 && <p className="text-xs text-muted-foreground p-2">No items available</p>}
+      </div>
+    </div>
+  );
+}
+
 // ── S+S Modal (Schedule + Support) ─────────────────────────────────────
 function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveUser[]; open: boolean; onClose: () => void; prefilledOffer?: { id: string; name: string } }) {
   const queryClient = useQueryClient();
@@ -105,12 +149,12 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
   const [assignTo, setAssignTo] = useState('auto');
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>(users.map(u => u._id));
   const [showOfferDropdown, setShowOfferDropdown] = useState(false);
+  const [openPicker, setOpenPicker] = useState<string | null>(null); // which quick-pick dropdown is open
 
   // Sync prefilled offer when modal opens with prefilledOffer
   if (open && prefilledOffer && offerName !== prefilledOffer.name) {
     setOfferId(prefilledOffer.id);
     setOfferName(prefilledOffer.name);
-    // Clean subject — short and readable
     const offerEntries = prefilledOffer.name.split(', ');
     if (offerEntries.length === 1) {
       setSubject(`Check out this offer for you 🎯`);
@@ -128,7 +172,33 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
   });
   const offers: OfferOption[] = offersData?.offers || [];
 
-  // Convert local datetime to UTC ISO string for the backend
+  const { data: quickPickData } = useQuery({
+    queryKey: ['reactivation-quick-pick'],
+    queryFn: fetchQuickPickOffers,
+    enabled: open,
+    staleTime: 60000,
+  });
+
+  // Apply selected items from a picker to the message
+  const applyPickedItems = (items: { name: string; payout?: number; code?: string; value?: number; bonus_value?: number; bonus_type?: string }[], type: 'offers' | 'promo' | 'gift') => {
+    if (items.length === 0) return;
+    let lines: string[] = [];
+    if (type === 'offers') {
+      lines = items.map(o => `• ${o.name} — $${(o.payout || 0).toFixed(2)}`);
+      setOfferId('');
+      setOfferName(items.map(o => o.name).join(', '));
+      setSubject(`${items.length} offers selected for you 🎯`);
+    } else if (type === 'promo') {
+      lines = items.map(o => `🎟️ Promo Code: ${o.code} — ${o.bonus_type === 'percentage' ? `${o.bonus_value}% Bonus` : `$${o.bonus_value} Bonus`}`);
+      setSubject(`Exclusive promo code${items.length > 1 ? 's' : ''} for you 🎁`);
+    } else {
+      lines = items.map(o => `🎁 Gift Card: ${o.name || o.code} — $${o.value}`);
+      setSubject(`Gift card${items.length > 1 ? 's' : ''} waiting for you 🎁`);
+    }
+    setMessage(`Hey {name}!\n\n${lines.join('\n')}\n\nCheck them out and start earning! 🔥`);
+    setOpenPicker(null);
+  };
+
   const getScheduledAtUTC = () => {
     if (sendTime !== 'custom' || !customDateTime) return undefined;
     return new Date(customDateTime).toISOString();
@@ -140,31 +210,41 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
       outreach: { offer_id: offerId, offer_name: offerName, channel, message, subject, send_time: sendTime, scheduled_at: getScheduledAtUTC() },
       support: { issue_type: issueType, priority, note, assign_to: assignTo },
     }),
-    onSuccess: () => { toast.success('S+S action completed'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); onClose(); },
+    onSuccess: () => { toast.success('S+S action completed'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
     onError: () => toast.error('Failed to execute S+S'),
   });
 
   const outreachOnlyMutation = useMutation({
     mutationFn: () => sendOutreach({ user_ids: selectedUserIds, offer_id: offerId, offer_name: offerName, channel, message, subject, send_time: sendTime, scheduled_at: getScheduledAtUTC() }),
-    onSuccess: () => { toast.success('Outreach sent'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); onClose(); },
+    onSuccess: () => { toast.success('Outreach sent'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
     onError: () => toast.error('Failed to send outreach'),
   });
 
   const sendEmailNowMutation = useMutation({
     mutationFn: () => sendOutreach({ user_ids: selectedUserIds, offer_id: offerId, offer_name: offerName, channel: 'email', message, subject, send_time: 'now' }),
-    onSuccess: () => { toast.success('Email sent now!'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); onClose(); },
+    onSuccess: () => { toast.success('Email sent now!'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
     onError: () => toast.error('Failed to send email'),
   });
 
   const supportOnlyMutation = useMutation({
     mutationFn: () => createSupportTicket({ user_ids: selectedUserIds, issue_type: issueType, priority, note, assign_to: assignTo }),
-    onSuccess: () => { toast.success('Support tickets created'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); onClose(); },
+    onSuccess: () => { toast.success('Support tickets created'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
     onError: () => toast.error('Failed to create tickets'),
   });
 
   const toggleUser = (id: string) => setSelectedUserIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   if (!open) return null;
+
+  // Quick-pick categories config
+  const pickerCategories = [
+    { key: 'top_requested', label: '🔥 Top Requested', color: 'purple', items: (quickPickData?.top_requested || []) as any[] },
+    { key: 'top_running', label: '▶ Top Running', color: 'green', items: (quickPickData?.top_running || []) as any[] },
+    { key: 'recently_edited', label: '✏️ Recently Edited', color: 'cyan', items: (quickPickData?.recently_edited || []) as any[] },
+    { key: 'recently_deleted', label: '🗑 Recently Deleted', color: 'red', items: (quickPickData?.recently_deleted || []) as any[] },
+    { key: 'promo_codes', label: '🎟️ Promo Codes', color: 'amber', items: (quickPickData?.promo_codes || []) as any[] },
+    { key: 'gift_cards', label: '🎁 Gift Cards', color: 'pink', items: (quickPickData?.gift_cards || []) as any[] },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -255,6 +335,31 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
                     ))}
                   </div>
                 )}
+              </div>
+              {/* Quick-pick buttons — each opens a picker to select individual items */}
+              <div className="mt-2">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Quick Select (click to pick items)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {pickerCategories.map(cat => (
+                    <div key={cat.key} className="relative">
+                      <button type="button" onClick={() => setOpenPicker(openPicker === cat.key ? null : cat.key)}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-medium border transition-colors ${openPicker === cat.key ? `bg-${cat.color}-500/25 text-${cat.color}-400 border-${cat.color}-500/40` : `bg-${cat.color}-500/15 text-${cat.color}-400 hover:bg-${cat.color}-500/25 border-${cat.color}-500/20`}`}>
+                        {cat.label} {cat.items.length > 0 ? `(${cat.items.length})` : ''}
+                      </button>
+                      {openPicker === cat.key && cat.items.length > 0 && (
+                        <QuickPickDropdown
+                          items={cat.items}
+                          category={cat.key}
+                          onApply={(selected) => {
+                            const type = cat.key === 'promo_codes' ? 'promo' : cat.key === 'gift_cards' ? 'gift' : 'offers';
+                            applyPickedItems(selected, type as any);
+                          }}
+                          onClose={() => setOpenPicker(null)}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -370,7 +475,7 @@ function SendMessageModal({ users, open, onClose }: { users: InactiveUser[]; ope
 
   const mutation = useMutation({
     mutationFn: () => sendOutreach({ user_ids: selectedUserIds, channel, message, subject, send_time: 'now' }),
-    onSuccess: () => { toast.success('Messages sent'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); onClose(); },
+    onSuccess: () => { toast.success('Messages sent'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
     onError: () => toast.error('Failed to send messages'),
   });
 
@@ -565,14 +670,44 @@ function UserDetailCard({ user }: { user: InactiveUser }) {
                 <span className={`px-2 py-1 rounded text-xs font-bold ${user.email_verified ? 'bg-green-500/15 text-green-500' : 'bg-red-500/15 text-red-400'}`}>
                   {user.email_verified ? '✅ Email Verified' : '❌ Email NOT Verified'}
                 </span>
-                <span className={`px-2 py-1 rounded text-xs font-bold ${user.has_approved_placement ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-500/15 text-gray-400'}`}>
-                  {user.has_approved_placement ? `✓ ${user.approved_placements} Placement(s)` : '✗ No Placement'}
+                <span className={`px-2 py-1 rounded text-xs font-bold ${user.has_approved_placement ? 'bg-blue-500/15 text-blue-400' : user.total_placements > 0 ? 'bg-yellow-500/15 text-yellow-400' : 'bg-gray-500/15 text-gray-400'}`}>
+                  {user.has_approved_placement ? `✓ ${user.approved_placements} Approved Placement(s)` : user.total_placements > 0 ? `⏳ ${user.pending_placements} Pending` : '✗ No Placement'}
                 </span>
+                {user.has_offer_requests && (
+                  <span className="px-2 py-1 rounded text-xs font-bold bg-purple-500/15 text-purple-400">
+                    📋 {user.total_offer_requests} Requests ({user.pending_offer_requests} pending, {user.approved_offer_requests} approved)
+                  </span>
+                )}
                 <span className={`px-2 py-1 rounded text-xs font-bold ${user.account_status === 'approved' ? 'bg-green-500/15 text-green-500' : 'bg-yellow-500/15 text-yellow-500'}`}>
                   Account: {user.account_status}
                 </span>
                 {riskBadge(user.risk_level)}
               </div>
+
+              {/* Offer Request Details — which offers requested, which approved */}
+              {user.offer_request_details && user.offer_request_details.length > 0 && (
+                <div>
+                  <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">📋 Offer Access Requests</h4>
+                  {!user.has_approved_placement && user.offer_request_details.length > 0 && (
+                    <div className="mb-2 px-3 py-1.5 rounded-lg text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      ⚠️ This user has no approved placement but has offer requests — verify data integrity
+                    </div>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    {user.offer_request_details.map((r, i) => (
+                      <div key={i} className="flex items-center justify-between bg-background border border-border rounded-lg px-3 py-2">
+                        <span className="text-xs text-foreground truncate max-w-[200px]">{r.offer_name}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          r.status === 'approved' ? 'bg-green-500/20 text-green-400' :
+                          r.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                          r.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
+                          'bg-gray-500/20 text-gray-400'
+                        }`}>{r.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <h4 className="text-xs font-bold text-orange-500 uppercase tracking-wider">🧠 User Interest Profile — Auto-Built from Behavior</h4>
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
@@ -870,7 +1005,7 @@ function UserCard({ user, selected, onSelect, expanded, onToggle }: {
   user: InactiveUser; selected: boolean; onSelect: () => void; expanded: boolean; onToggle: () => void;
 }) {
   return (
-    <div className="border border-border rounded-xl overflow-hidden bg-card hover:border-orange-500/30 transition-colors">
+    <div className={`border rounded-xl overflow-hidden bg-card transition-colors ${selected ? 'border-orange-500 bg-orange-500/5 ring-1 ring-orange-500/30' : 'border-border hover:border-orange-500/30'}`}>
       <div className="flex items-center gap-3 p-4 cursor-pointer" onClick={onToggle}>
         {/* Checkbox */}
         <button onClick={e => { e.stopPropagation(); onSelect(); }} className="flex-shrink-0">
@@ -888,6 +1023,8 @@ function UserCard({ user, selected, onSelect, expanded, onToggle }: {
             <span className="font-medium text-foreground text-sm">{user.first_name || user.username}</span>
             {user.email_verified && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-500/20 text-green-400">✓ Confirmed</span>}
             {user.has_approved_placement && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400">Placement ✓</span>}
+            {!user.has_approved_placement && user.total_placements > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-500/20 text-yellow-400">Placement ⏳</span>}
+            {user.has_offer_requests && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-400">{user.total_offer_requests} req</span>}
             {riskBadge(user.risk_level)}
           </div>
           <p className="text-xs text-muted-foreground truncate">{user.email}{user.country && user.country !== 'Unknown' ? ` · ${user.country}` : ''}{user.city && user.city !== 'Unknown' ? ` · ${user.city}` : ''}</p>
@@ -930,8 +1067,9 @@ import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 're
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
-function WorldMap({ points }: { points: { lat: number; lng: number; country: string; country_code: string; days_inactive: number; username: string }[] }) {
+function WorldMap({ points, onUserClick, onCountryClick }: { points: { user_id: string; lat: number; lng: number; country: string; country_code: string; days_inactive: number; username: string; has_placement?: boolean; total_clicks?: number; total_conversions?: number; total_earnings?: number }[]; onUserClick?: (userId: string) => void; onCountryClick?: (countryCode: string, countryName: string) => void }) {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [zoom, setZoom] = useState(1);
 
   return (
     <div className="relative w-full h-72 rounded-xl border border-border overflow-hidden" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
@@ -939,23 +1077,34 @@ function WorldMap({ points }: { points: { lat: number; lng: number; country: str
         projectionConfig={{ scale: 140, center: [10, 20] }}
         style={{ width: '100%', height: '100%' }}
       >
-        <ZoomableGroup>
+        <ZoomableGroup zoom={zoom} onMoveEnd={({ zoom: z }) => setZoom(z)}>
           <Geographies geography={GEO_URL}>
             {({ geographies }) =>
-              geographies.map((geo) => (
+              geographies.map((geo) => {
+                const geoName = geo.properties?.name || '';
+                return (
                 <Geography
                   key={geo.rsmKey}
                   geography={geo}
                   fill="#1e3a5f"
                   stroke="#3b82f6"
                   strokeWidth={0.4}
+                  onMouseEnter={(e) => {
+                    const rect = (e.target as SVGElement).closest('svg')?.getBoundingClientRect();
+                    if (rect && geoName) setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top - 10, text: `🌍 ${geoName} — click to filter` });
+                  }}
+                  onMouseLeave={() => setTooltip(null)}
+                  onClick={() => {
+                    const geoName = geo.properties?.name || '';
+                    if (geoName && onCountryClick) onCountryClick('', geoName);
+                  }}
                   style={{
-                    default: { outline: 'none' },
-                    hover: { fill: '#2d4a6f', outline: 'none' },
+                    default: { outline: 'none', cursor: 'pointer' },
+                    hover: { fill: '#2d4a6f', outline: 'none', cursor: 'pointer' },
                     pressed: { outline: 'none' },
                   }}
                 />
-              ))
+              );})
             }
           </Geographies>
 
@@ -967,9 +1116,10 @@ function WorldMap({ points }: { points: { lat: number; lng: number; country: str
                 <g
                   onMouseEnter={(e) => {
                     const rect = (e.target as SVGElement).closest('svg')?.getBoundingClientRect();
-                    if (rect) setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top - 10, text: `${p.username} · ${p.country} · ${p.days_inactive}d inactive` });
+                    if (rect) setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top - 10, text: `${p.username} · ${p.country} (${p.country_code}) · ${p.days_inactive >= 9999 ? 'Never' : p.days_inactive + 'd'} inactive · ${p.total_clicks || 0} clicks · ${p.total_conversions || 0} conv · $${(p.total_earnings || 0).toFixed(0)} · ${p.has_placement ? '✓ Placement' : '✗ No Placement'}` });
                   }}
                   onMouseLeave={() => setTooltip(null)}
+                  onClick={() => onUserClick?.(p.user_id)}
                   style={{ cursor: 'pointer' }}
                 >
                   {/* Glow */}
@@ -998,6 +1148,14 @@ function WorldMap({ points }: { points: { lat: number; lng: number; country: str
         </div>
       )}
 
+      {/* Zoom Controls */}
+      <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
+        <button onClick={() => setZoom(z => Math.min(z * 1.5, 8))}
+          className="w-7 h-7 rounded bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center backdrop-blur-sm border border-white/10">+</button>
+        <button onClick={() => setZoom(z => Math.max(z / 1.5, 1))}
+          className="w-7 h-7 rounded bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center backdrop-blur-sm border border-white/10">−</button>
+      </div>
+
       {/* Legend */}
       <div className="absolute bottom-2 left-2 flex items-center gap-3 text-[10px] text-white/70">
         <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500" /> &lt;90d</span>
@@ -1009,6 +1167,152 @@ function WorldMap({ points }: { points: { lat: number; lng: number; country: str
 }
 
 
+// ── Map User Info Card (full detail, fetches enriched data, expandable) ──
+function MapUserInfoCard({ userId, point, onRemove }: {
+  userId: string;
+  point: { username: string; country: string; country_code: string; days_inactive: number; has_placement?: boolean; total_clicks?: number; total_conversions?: number; total_earnings?: number; lat?: number; lng?: number };
+  onRemove: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ['reactivation-enriched', userId],
+    queryFn: () => fetchUserEnrichedDetail(userId),
+  });
+
+  // Build a minimal InactiveUser for UserDetailCard
+  const fakeUser = useMemo((): InactiveUser => ({
+    _id: userId,
+    username: data?.user?.username || point.username,
+    email: data?.user?.email || '',
+    first_name: data?.user?.first_name || point.username,
+    last_name: data?.user?.last_name || '',
+    email_verified: data?.user?.email_verified || false,
+    account_status: data?.user?.account_status || '',
+    created_at: data?.user?.created_at || '',
+    days_inactive: data?.days_inactive ?? point.days_inactive,
+    last_login: data?.last_login || null,
+    login_count: 0,
+    country: data?.country || point.country,
+    country_code: data?.country_code || point.country_code,
+    city: data?.city || '',
+    latitude: point.lat as any,
+    longitude: point.lng as any,
+    last_device: null,
+    total_clicks: point.total_clicks || 0,
+    last_click: null,
+    total_conversions: point.total_conversions || 0,
+    total_earnings: point.total_earnings || 0,
+    total_searches: 0,
+    last_search: null,
+    search_keywords: [],
+    has_approved_placement: data?.placement?.approved > 0 || point.has_placement || false,
+    approved_placements: data?.placement?.approved || 0,
+    total_placements: data?.placement?.total || 0,
+    pending_placements: data?.placement?.pending || 0,
+    placement_statuses: [],
+    outreach_count: 0,
+    last_outreach: null,
+    total_offer_requests: data?.pending_request_count || 0,
+    pending_offer_requests: data?.pending_request_count || 0,
+    approved_offer_requests: data?.approved_not_clicked_count || 0,
+    has_offer_requests: (data?.pending_request_count || 0) > 0,
+    offer_request_details: [],
+    reactivation_score: 0,
+    risk_level: 'safe' as const,
+    activity_level: 'never_clicked' as const,
+    intent_tags: [],
+  }), [userId, data, point]);
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden bg-card">
+      {/* Header row — same style as UserCard */}
+      <div className="flex items-center gap-3 p-3 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <div className="w-9 h-9 rounded-full bg-gradient-to-r from-orange-500 to-red-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+          {(point.username || '?')[0]?.toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-foreground text-sm">{data?.user?.first_name || point.username}</span>
+            {(data?.placement?.approved > 0 || point.has_placement) && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400">Placement ✓</span>}
+            {data?.pending_request_count > 0 && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-400">{data.pending_request_count} req</span>}
+          </div>
+          <p className="text-xs text-muted-foreground truncate">{data?.user?.email || ''} · {point.country} ({point.country_code})</p>
+        </div>
+        <div className="hidden md:flex items-center gap-3 text-xs flex-shrink-0">
+          <span className="text-orange-400 font-medium">{point.days_inactive >= 9999 ? 'Never' : `${point.days_inactive}d ago`}</span>
+          <span className="text-green-400">${(point.total_earnings || 0).toFixed(0)}</span>
+          <span className="text-blue-400">{point.total_conversions || 0} conv</span>
+          <span className="text-purple-400">{point.total_clicks || 0} clicks</span>
+        </div>
+        <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="p-1 rounded hover:bg-muted flex-shrink-0"><X className="h-4 w-4 text-muted-foreground" /></button>
+        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground flex-shrink-0" /> : <ChevronDown className="h-4 w-4 text-muted-foreground flex-shrink-0" />}
+      </div>
+
+      {/* Expanded: show full UserDetailCard */}
+      {expanded && !isLoading && <UserDetailCard user={fakeUser} />}
+      {expanded && isLoading && (
+        <div className="flex items-center justify-center py-6 border-t border-border"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      )}
+    </div>
+  );
+}
+
+// ── Outreach History Section ────────────────────────────────────────────
+function OutreachHistorySection() {
+  const [showHistory, setShowHistory] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ['reactivation-outreach-history'],
+    queryFn: () => fetchOutreachHistory(1, 50),
+    enabled: showHistory,
+  });
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      <button onClick={() => setShowHistory(!showHistory)}
+        className="w-full flex items-center justify-between p-4 bg-card hover:bg-muted/50 transition-colors">
+        <div className="flex items-center gap-2">
+          <Mail className="h-4 w-4 text-orange-500" />
+          <span className="text-sm font-bold text-foreground">📨 Outreach History</span>
+          {data?.stats && (
+            <span className="text-xs text-muted-foreground">
+              {data.stats.sent} sent · {data.stats.failed} failed · {data.stats.scheduled} scheduled
+            </span>
+          )}
+        </div>
+        {showHistory ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+      </button>
+      {showHistory && (
+        <div className="border-t border-border p-4 bg-muted/20 max-h-96 overflow-y-auto">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+          ) : data?.history?.length > 0 ? (
+            <div className="space-y-2">
+              {data.history.map((h: any) => (
+                <div key={h._id} className="flex items-center gap-3 p-3 bg-background border border-border rounded-lg text-sm">
+                  <div className={`w-2 h-2 rounded-full flex-shrink-0 ${h.status === 'sent' ? 'bg-green-500' : h.status === 'failed' ? 'bg-red-500' : h.status === 'scheduled' ? 'bg-yellow-500' : 'bg-gray-500'}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-foreground">{h.username || h.user_email}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${h.status === 'sent' ? 'bg-green-500/20 text-green-400' : h.status === 'failed' ? 'bg-red-500/20 text-red-400' : 'bg-yellow-500/20 text-yellow-400'}`}>{h.status}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/20 text-blue-400">{h.channel}</span>
+                      {h.bulk_send && <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-400">BCC bulk ({h.bulk_count})</span>}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{h.subject}</p>
+                    {h.offer_name && <p className="text-[10px] text-orange-400 truncate">Offers: {h.offer_name}</p>}
+                  </div>
+                  <span className="text-xs text-muted-foreground flex-shrink-0">{h.created_at ? new Date(h.created_at).toLocaleString() : ''}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">No outreach history yet</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page Content ──────────────────────────────────────────────────
 function AdminReactivationContent() {
   const [filters, setFilters] = useState<Filters>({ page: 1, per_page: 25, sort_by: 'longest_inactive' });
@@ -1018,6 +1322,9 @@ function AdminReactivationContent() {
   const [showFilters, setShowFilters] = useState(true);
   const [bulkSandsOpen, setBulkSandsOpen] = useState(false);
   const [bulkMessageOpen, setBulkMessageOpen] = useState(false);
+  const [mapSandsOpen, setMapSandsOpen] = useState(false);
+  const [mapMessageOpen, setMapMessageOpen] = useState(false);
+  const [mapPopupUserIds, setMapPopupUserIds] = useState<Set<string>>(new Set());
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['reactivation-stats'],
@@ -1030,6 +1337,9 @@ function AdminReactivationContent() {
     queryFn: () => fetchInactiveUsers(filters),
   });
 
+  // Fetch enriched detail for ALL map-clicked users
+  const mapPopupUserIdArray = useMemo(() => Array.from(mapPopupUserIds), [mapPopupUserIds]);
+
   const stats = statsData || {};
   const users: InactiveUser[] = usersData?.users || [];
   const totalUsers = usersData?.total || 0;
@@ -1038,9 +1348,24 @@ function AdminReactivationContent() {
 
   const selectedUsers = useMemo(() => users.filter(u => selectedIds.has(u._id)), [users, selectedIds]);
 
+  // Find map-clicked user info from map_points
+  const mapClickedPoints = useMemo(() => {
+    if (mapPopupUserIds.size === 0 || !stats.map_points) return [];
+    return stats.map_points.filter((p: any) => mapPopupUserIds.has(p.user_id));
+  }, [mapPopupUserIds, stats.map_points]);
+
   const handleSearch = useCallback(() => {
     setFilters(f => ({ ...f, search: searchInput, page: 1 }));
   }, [searchInput]);
+
+  const handleMapUserClick = useCallback((userId: string) => {
+    setMapPopupUserIds(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }, []);
 
   const toggleSelectAll = () => {
     if (selectedIds.size === users.length) {
@@ -1053,6 +1378,69 @@ function AdminReactivationContent() {
   const updateFilter = (key: string, value: any) => {
     setFilters(f => ({ ...f, [key]: value || undefined, page: 1 }));
   };
+
+  // Multi-country helpers
+  const selectedCountries = useMemo(() => {
+    const c = filters.country || '';
+    return c ? c.split(',').map(s => s.trim()).filter(Boolean) : [];
+  }, [filters.country]);
+
+  const toggleCountry = (code: string) => {
+    const current = new Set(selectedCountries);
+    if (current.has(code)) current.delete(code);
+    else current.add(code);
+    const val = Array.from(current).join(',');
+    setFilters(f => ({ ...f, country: val || undefined, page: 1 }));
+  };
+
+  // Build InactiveUser-like objects for map-selected users (for S+S modal)
+  const mapSelectedUsersForModal = useMemo((): InactiveUser[] => {
+    if (mapPopupUserIds.size === 0 || !stats.map_points) return [];
+    return stats.map_points
+      .filter((p: any) => mapPopupUserIds.has(p.user_id))
+      .map((p: any) => ({
+        _id: p.user_id,
+        username: p.username,
+        email: '',
+        first_name: p.username,
+        last_name: '',
+        email_verified: false,
+        account_status: '',
+        created_at: '',
+        days_inactive: p.days_inactive,
+        last_login: null,
+        login_count: 0,
+        country: p.country,
+        country_code: p.country_code,
+        city: '',
+        latitude: p.lat,
+        longitude: p.lng,
+        last_device: null,
+        total_clicks: 0,
+        last_click: null,
+        total_conversions: 0,
+        total_earnings: 0,
+        total_searches: 0,
+        last_search: null,
+        search_keywords: [],
+        has_approved_placement: p.has_placement || false,
+        approved_placements: 0,
+        total_placements: 0,
+        pending_placements: 0,
+        placement_statuses: [],
+        outreach_count: 0,
+        last_outreach: null,
+        total_offer_requests: 0,
+        pending_offer_requests: 0,
+        approved_offer_requests: 0,
+        has_offer_requests: false,
+        offer_request_details: [],
+        reactivation_score: 0,
+        risk_level: 'safe' as const,
+        activity_level: 'never_clicked' as const,
+        intent_tags: [],
+      }));
+  }, [mapPopupUserIds, stats.map_points]);
 
   return (
     <div className="space-y-5">
@@ -1102,26 +1490,91 @@ function AdminReactivationContent() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <WorldMap points={stats.map_points || []} />
+            <WorldMap points={stats.map_points || []} onUserClick={handleMapUserClick} onCountryClick={(_code, name) => {
+              // Look up country code from stats by name
+              const match = (stats.country_stats || []).find((c: any) => c.country?.toLowerCase() === name?.toLowerCase());
+              if (match) toggleCountry(match.code);
+            }} />
           )}
         </div>
         <div className="bg-card border border-border rounded-xl p-4 space-y-3 max-h-72 overflow-y-auto">
           <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">📍 User Locations</h3>
+          {selectedCountries.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {selectedCountries.map(cc => (
+                <span key={cc} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                  {cc}
+                  <button onClick={() => toggleCountry(cc)} className="hover:text-white">✕</button>
+                </span>
+              ))}
+              <button onClick={() => setFilters(f => ({ ...f, country: undefined, page: 1 }))} className="text-[10px] text-muted-foreground hover:text-foreground">Clear all</button>
+            </div>
+          )}
           {(stats.country_stats || []).slice(0, 15).map((c: any, i: number) => (
             <div key={i} className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-foreground">{c.country}</p>
                 <p className="text-[10px] text-muted-foreground">{c.code} · {c.count} users · avg {c.avg_days}d inactive</p>
               </div>
-              <button onClick={() => updateFilter('country', c.code)}
-                className="text-xs text-orange-400 hover:text-orange-300">Filter</button>
+              <button onClick={() => toggleCountry(c.code)}
+                className={`text-xs ${selectedCountries.includes(c.code) ? 'text-orange-500 font-bold' : 'text-orange-400 hover:text-orange-300'}`}>
+                {selectedCountries.includes(c.code) ? '✓ Selected' : '+ Add'}
+              </button>
             </div>
           ))}
           {(!stats.country_stats || stats.country_stats.length === 0) && (
             <p className="text-sm text-muted-foreground">No location data available</p>
           )}
+          <p className="text-[9px] text-muted-foreground mt-2">📍 Map shows users with geo coordinates. Filter may show more users without exact location.</p>
         </div>
       </div>
+
+      {/* Map User Info Popup Panel — supports multiple users */}
+      {mapPopupUserIds.size > 0 && mapClickedPoints.length > 0 && (
+        <div className="bg-card border-2 border-orange-500/50 rounded-xl p-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-foreground">{mapClickedPoints.length} User{mapClickedPoints.length > 1 ? 's' : ''} Selected from Map</h3>
+            <button onClick={() => setMapPopupUserIds(new Set())} className="px-2 py-1 rounded-lg text-xs text-muted-foreground hover:text-foreground hover:bg-muted">Clear All ✕</button>
+          </div>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {mapClickedPoints.map((p: any) => (
+              <MapUserInfoCard
+                key={p.user_id}
+                userId={p.user_id}
+                point={p}
+                onRemove={() => setMapPopupUserIds(prev => { const n = new Set(prev); n.delete(p.user_id); return n; })}
+              />
+            ))}
+          </div>
+          <div className="flex items-center gap-2 pt-1 border-t border-border">
+            {mapClickedPoints.length > 0 && (
+              <>
+                <button onClick={() => setMapSandsOpen(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-orange-500 to-red-500 text-white hover:opacity-90">
+                  S+S ({mapClickedPoints.length})
+                </button>
+                <button onClick={() => setMapMessageOpen(true)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">
+                  📨 Send Message
+                </button>
+              </>
+            )}
+            {mapClickedPoints.length === 1 && (
+              <button onClick={() => { setFilters(f => ({ ...f, search: mapClickedPoints[0].username, page: 1 })); setSearchInput(mapClickedPoints[0].username); setMapPopupUserIds(new Set()); }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-orange-500/20 text-orange-400 hover:bg-orange-500/30">
+                🔍 Find in List
+              </button>
+            )}
+            {mapClickedPoints.length > 0 && mapClickedPoints[0].country_code && (
+              <button onClick={() => { toggleCountry(mapClickedPoints[0].country_code); }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">
+                🌍 + {mapClickedPoints[0].country_code}
+              </button>
+            )}
+            <p className="text-[10px] text-muted-foreground ml-auto">💡 Click more users on the map to add them here</p>
+          </div>
+        </div>
+      )}
 
       {/* Search + Filter Toggle + Bulk Actions */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -1153,14 +1606,23 @@ function AdminReactivationContent() {
 
       {/* Filters Panel */}
       {showFilters && (
-        <div className="bg-card border border-border rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          {/* Inactivity */}
+        <div className="bg-card border border-border rounded-xl p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          {/* Inactivity — 3 tick boxes */}
           <div>
             <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Inactivity</label>
-            <select value={filters.inactivity_period || ''} onChange={e => updateFilter('inactivity_period', e.target.value)}
-              className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-background text-foreground text-sm">
-              {INACTIVITY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+            <div className="mt-1.5 space-y-1.5">
+              {INACTIVITY_OPTIONS.filter(o => o.value).map(o => (
+                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="radio" name="inactivity" checked={filters.inactivity_period === o.value}
+                    onChange={() => updateFilter('inactivity_period', filters.inactivity_period === o.value ? '' : o.value)}
+                    className="accent-orange-500" />
+                  <span className="text-muted-foreground">{o.label}</span>
+                </label>
+              ))}
+              {filters.inactivity_period && (
+                <button onClick={() => updateFilter('inactivity_period', '')} className="text-[10px] text-orange-400 hover:text-orange-300">Clear</button>
+              )}
+            </div>
           </div>
           {/* Activity */}
           <div>
@@ -1178,14 +1640,24 @@ function AdminReactivationContent() {
               {RISK_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
-          {/* Account */}
+          {/* Placement filter — yes/no */}
           <div>
-            <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Email</label>
-            <select value={filters.email_verified || ''} onChange={e => updateFilter('email_verified', e.target.value)}
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Placement</label>
+            <select value={filters.has_placement || ''} onChange={e => updateFilter('has_placement', e.target.value)}
               className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-background text-foreground text-sm">
               <option value="">All</option>
-              <option value="true">Confirmed</option>
-              <option value="false">Not confirmed</option>
+              <option value="true">✓ Has Placement</option>
+              <option value="false">✗ No Placement</option>
+            </select>
+          </div>
+          {/* Offer Requests filter */}
+          <div>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wider">Offer Requests</label>
+            <select value={filters.has_offer_requests || ''} onChange={e => updateFilter('has_offer_requests', e.target.value)}
+              className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-background text-foreground text-sm">
+              <option value="">All</option>
+              <option value="true">✓ Has Requested</option>
+              <option value="false">✗ Never Requested</option>
             </select>
           </div>
           {/* Sort */}
@@ -1202,12 +1674,15 @@ function AdminReactivationContent() {
               <input type="checkbox" checked={filters.has_earnings === 'true'} onChange={e => updateFilter('has_earnings', e.target.checked ? 'true' : '')} className="accent-orange-500" />
               <span className="text-muted-foreground">Has earnings</span>
             </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={filters.has_placement === 'true'} onChange={e => updateFilter('has_placement', e.target.checked ? 'true' : '')} className="accent-orange-500" />
-              <span className="text-muted-foreground">Has placement</span>
-            </label>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Email</label>
+            <select value={filters.email_verified || ''} onChange={e => updateFilter('email_verified', e.target.value)}
+              className="w-full px-2 py-1 rounded-lg border border-border bg-background text-foreground text-xs">
+              <option value="">All</option>
+              <option value="true">Confirmed</option>
+              <option value="false">Not confirmed</option>
+            </select>
             <button onClick={() => { setFilters({ page: 1, per_page: filters.per_page, sort_by: 'longest_inactive' }); setSearchInput(''); }}
-              className="text-xs text-orange-400 hover:text-orange-300 text-left">↻ Reset Filters</button>
+              className="text-xs text-orange-400 hover:text-orange-300 text-left mt-1">↻ Reset Filters</button>
           </div>
         </div>
       )}
@@ -1275,9 +1750,15 @@ function AdminReactivationContent() {
         </div>
       )}
 
+      {/* Outreach History */}
+      <OutreachHistorySection />
+
       {/* Bulk Modals */}
       <SandSModal users={selectedUsers} open={bulkSandsOpen} onClose={() => setBulkSandsOpen(false)} />
       <SendMessageModal users={selectedUsers} open={bulkMessageOpen} onClose={() => setBulkMessageOpen(false)} />
+      {/* Map-selected user modals */}
+      <SandSModal users={mapSelectedUsersForModal} open={mapSandsOpen} onClose={() => setMapSandsOpen(false)} />
+      <SendMessageModal users={mapSelectedUsersForModal} open={mapMessageOpen} onClose={() => setMapMessageOpen(false)} />
     </div>
   );
 }

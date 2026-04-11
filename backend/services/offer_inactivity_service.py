@@ -1,7 +1,7 @@
 """
 Offer Inactivity Service
-Marks running/active offers as inactive if they haven't received any clicks in 30 days.
-The 30-day window is rolling — based on the last click date for each offer.
+Marks running/active offers as inactive if they haven't received any clicks in 70 days.
+The 70-day window is rolling — based on the last click date for each offer.
 """
 
 import logging
@@ -12,7 +12,7 @@ from database import db_instance
 
 logger = logging.getLogger(__name__)
 
-INACTIVITY_DAYS = 30
+INACTIVITY_DAYS = 70
 CHECK_INTERVAL_SECONDS = 6 * 3600  # Check every 6 hours
 
 

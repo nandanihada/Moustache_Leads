@@ -742,9 +742,9 @@ class Offer:
             # Get total count
             total = self.collection.count_documents(query)
             
-            # Get offers with pagination
+            # Get offers with pagination - pinned offers first
             offers = list(self.collection.find(query)
-                         .sort('created_at', -1)
+                         .sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)])
                          .skip(skip)
                          .limit(limit))
             

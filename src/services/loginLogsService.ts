@@ -397,6 +397,11 @@ class LoginLogsService {
     link.click();
     document.body.removeChild(link);
   }
+
+  async getChartData(days: number = 7): Promise<any> {
+    const response = await api.get('/api/admin/login-logs/chart-data', { params: { days } });
+    return response.data;
+  }
 }
 
 export const loginLogsService = new LoginLogsService();

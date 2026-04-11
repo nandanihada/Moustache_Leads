@@ -83,7 +83,20 @@ def get_available_offers():
         
         # Get paginated results with projection
         skip = (page - 1) * per_page
-        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort('created_at', -1))
+
+        # Auto-expire pinned offers whose pin_expires_at has passed
+        try:
+            offers_collection.update_many(
+                {
+                    'is_pinned': True,
+                    'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}
+                },
+                {'$set': {'is_pinned': False, 'pinned_at': None, 'pin_expires_at': None}}
+            )
+        except Exception as pin_err:
+            logger.warning(f"Pin expiry cleanup error: {pin_err}")
+
+        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]))
         
         if not offers:
             # Log search even if no results

@@ -155,6 +155,151 @@ def get_login_stats(current_user):
         return jsonify({'error': f'Failed to get login stats: {str(e)}'}), 500
 
 
+@login_logs_bp.route('/login-logs/chart-data', methods=['GET'])
+@token_required_with_user
+@subadmin_or_admin_required('login-logs')
+def get_login_chart_data(current_user):
+    """Get login chart data: daily breakdown for last 7/14/30 days with hourly heatmap."""
+    try:
+        days = int(request.args.get('days', 7))
+        from database import db_instance
+        col = db_instance.get_collection('login_logs')
+        if col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        now = datetime.utcnow()
+        start = now - timedelta(days=days)
+
+        # 1. Daily breakdown: success vs failed per day
+        daily_pipeline = [
+            {'$match': {'login_time': {'$gte': start, '$lte': now}}},
+            {'$group': {
+                '_id': {
+                    'date': {'$dateToString': {'format': '%Y-%m-%d', 'date': '$login_time'}},
+                    'status': '$status'
+                },
+                'count': {'$sum': 1}
+            }},
+            {'$sort': {'_id.date': 1}}
+        ]
+        daily_raw = list(col.aggregate(daily_pipeline))
+
+        # Build daily map
+        daily_map = {}
+        for d in daily_raw:
+            date = d['_id']['date']
+            status = d['_id'].get('status', 'unknown')
+            if date not in daily_map:
+                daily_map[date] = {'date': date, 'success': 0, 'failed': 0, 'total': 0}
+            if status == 'success':
+                daily_map[date]['success'] = d['count']
+            else:
+                daily_map[date]['failed'] = d['count']
+            daily_map[date]['total'] += d['count']
+
+        # Fill missing days
+        daily = []
+        for i in range(days):
+            dt = start + timedelta(days=i)
+            date_str = dt.strftime('%Y-%m-%d')
+            if date_str in daily_map:
+                daily.append(daily_map[date_str])
+            else:
+                daily.append({'date': date_str, 'success': 0, 'failed': 0, 'total': 0})
+
+        # 2. Hourly heatmap (0-23 hours, Mon-Sun)
+        hourly_pipeline = [
+            {'$match': {'login_time': {'$gte': start, '$lte': now}}},
+            {'$group': {
+                '_id': {
+                    'dow': {'$dayOfWeek': '$login_time'},  # 1=Sun, 7=Sat
+                    'hour': {'$hour': '$login_time'}
+                },
+                'count': {'$sum': 1}
+            }}
+        ]
+        hourly_raw = list(col.aggregate(hourly_pipeline))
+        heatmap = []
+        for h in hourly_raw:
+            heatmap.append({
+                'day': h['_id']['dow'],
+                'hour': h['_id']['hour'],
+                'count': h['count']
+            })
+
+        # 3. Suspicious IPs: same IP, different accounts
+        suspicious_pipeline = [
+            {'$match': {'login_time': {'$gte': start, '$lte': now}, 'status': 'success'}},
+            {'$group': {
+                '_id': '$ip_address',
+                'users': {'$addToSet': '$user_id'},
+                'count': {'$sum': 1}
+            }},
+            {'$match': {'$expr': {'$gt': [{'$size': '$users'}, 1]}}},
+            {'$sort': {'count': -1}},
+            {'$limit': 10}
+        ]
+        suspicious_raw = list(col.aggregate(suspicious_pipeline))
+        suspicious_ips = [{'ip': s['_id'], 'user_count': len(s['users']), 'login_count': s['count']} for s in suspicious_raw if s['_id']]
+
+        # 4. Top countries
+        country_pipeline = [
+            {'$match': {'login_time': {'$gte': start, '$lte': now}, 'location.country': {'$exists': True, '$ne': None}}},
+            {'$group': {'_id': '$location.country', 'count': {'$sum': 1}}},
+            {'$sort': {'count': -1}},
+            {'$limit': 8}
+        ]
+        top_countries = [{'country': c['_id'], 'count': c['count']} for c in col.aggregate(country_pipeline) if c['_id']]
+
+        # 5. Device breakdown
+        device_pipeline = [
+            {'$match': {'login_time': {'$gte': start, '$lte': now}}},
+            {'$group': {'_id': {'$ifNull': ['$device.type', 'Unknown']}, 'count': {'$sum': 1}}},
+            {'$sort': {'count': -1}}
+        ]
+        devices = [{'device': d['_id'] or 'Unknown', 'count': d['count']} for d in col.aggregate(device_pipeline)]
+
+        # 6. Browser breakdown
+        browser_pipeline = [
+            {'$match': {'login_time': {'$gte': start, '$lte': now}}},
+            {'$group': {'_id': {'$ifNull': ['$device.browser', 'Unknown']}, 'count': {'$sum': 1}}},
+            {'$sort': {'count': -1}},
+            {'$limit': 6}
+        ]
+        browsers = [{'browser': b['_id'] or 'Unknown', 'count': b['count']} for b in col.aggregate(browser_pipeline)]
+
+        # 7. Summary stats
+        total = col.count_documents({'login_time': {'$gte': start, '$lte': now}})
+        success = col.count_documents({'login_time': {'$gte': start, '$lte': now}, 'status': 'success'})
+        failed = total - success
+        unique_ips = len(col.distinct('ip_address', {'login_time': {'$gte': start, '$lte': now}}))
+        unique_users = len(col.distinct('user_id', {'login_time': {'$gte': start, '$lte': now}}))
+
+        return jsonify({
+            'success': True,
+            'daily': daily,
+            'heatmap': heatmap,
+            'suspicious_ips': suspicious_ips,
+            'top_countries': top_countries,
+            'devices': devices,
+            'browsers': browsers,
+            'summary': {
+                'total': total,
+                'success': success,
+                'failed': failed,
+                'unique_ips': unique_ips,
+                'unique_users': unique_users,
+                'suspicious_count': len(suspicious_ips),
+                'success_rate': round(success / total * 100, 1) if total > 0 else 0,
+            },
+            'days': days,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting login chart data: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @login_logs_bp.route('/login-logs/failed-attempts', methods=['GET'])
 @token_required_with_user
 @subadmin_or_admin_required('login-logs')
@@ -462,3 +607,115 @@ def send_custom_mail(current_user):
     except Exception as e:
         logger.error(f"Error sending email: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to send email: {str(e)}'}), 500
+
+
+@login_logs_bp.route('/login-logs/chart-data', methods=['GET'])
+@token_required_with_user
+@subadmin_or_admin_required('login-logs')
+def get_chart_data(current_user):
+    """Get login chart data: daily trend, devices, browsers, countries, hourly heatmap."""
+    try:
+        days = int(request.args.get('days', 7))
+        from database import db_instance
+        col = db_instance.get_collection('login_logs')
+        if col is None:
+            return jsonify({'error': 'Database not connected'}), 500
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        query = {'login_time': {'$gte': cutoff}}
+
+        logs = list(col.find(query, {
+            'login_time': 1, 'status': 1, 'user_id': 1, 'ip_address': 1,
+            'location': 1, 'device': 1
+        }))
+
+        # Daily trend
+        daily_map = {}
+        for i in range(days):
+            d = (datetime.utcnow() - timedelta(days=days - 1 - i)).strftime('%Y-%m-%d')
+            daily_map[d] = {'date': d, 'success': 0, 'failed': 0, 'total': 0}
+
+        unique_users = set()
+        unique_ips = set()
+        device_counts = {}
+        browser_counts = {}
+        country_counts = {}
+        hourly = [[0] * 24 for _ in range(7)]  # 7 days x 24 hours
+        suspicious_ips = set()
+        ip_fail_counts = {}
+
+        for log in logs:
+            lt = log.get('login_time')
+            if not lt:
+                continue
+            if isinstance(lt, str):
+                try:
+                    lt = datetime.fromisoformat(lt.replace('Z', ''))
+                except Exception:
+                    continue
+
+            day_key = lt.strftime('%Y-%m-%d')
+            status = log.get('status', 'success')
+            uid = log.get('user_id', '')
+            ip = log.get('ip_address', '')
+
+            if day_key in daily_map:
+                daily_map[day_key]['total'] += 1
+                if status == 'failed':
+                    daily_map[day_key]['failed'] += 1
+                else:
+                    daily_map[day_key]['success'] += 1
+
+            if uid:
+                unique_users.add(uid)
+            if ip:
+                unique_ips.add(ip)
+                if status == 'failed':
+                    ip_fail_counts[ip] = ip_fail_counts.get(ip, 0) + 1
+                    if ip_fail_counts[ip] >= 3:
+                        suspicious_ips.add(ip)
+
+            # Device
+            device = log.get('device', {})
+            dtype = device.get('type', 'Unknown') if isinstance(device, dict) else 'Unknown'
+            device_counts[dtype] = device_counts.get(dtype, 0) + 1
+
+            browser = device.get('browser', 'Unknown') if isinstance(device, dict) else 'Unknown'
+            browser_counts[browser] = browser_counts.get(browser, 0) + 1
+
+            # Country
+            loc = log.get('location', {})
+            country = loc.get('country', 'Unknown') if isinstance(loc, dict) else 'Unknown'
+            country_counts[country] = country_counts.get(country, 0) + 1
+
+            # Hourly heatmap
+            try:
+                dow = lt.weekday()
+                hour = lt.hour
+                hourly[dow][hour] += 1
+            except Exception:
+                pass
+
+        total_success = sum(d['success'] for d in daily_map.values())
+        total_failed = sum(d['failed'] for d in daily_map.values())
+
+        return jsonify({
+            'summary': {
+                'total': total_success + total_failed,
+                'success': total_success,
+                'failed': total_failed,
+                'unique_users': len(unique_users),
+                'unique_ips': len(unique_ips),
+                'suspicious_count': len(suspicious_ips),
+            },
+            'daily': list(daily_map.values()),
+            'devices': sorted([{'device': k, 'count': v} for k, v in device_counts.items()], key=lambda x: -x['count'])[:6],
+            'browsers': sorted([{'browser': k, 'count': v} for k, v in browser_counts.items()], key=lambda x: -x['count'])[:6],
+            'top_countries': sorted([{'country': k, 'count': v} for k, v in country_counts.items()], key=lambda x: -x['count'])[:10],
+            'hourly_heatmap': hourly,
+            'suspicious_ips': [{'ip': ip, 'failed_count': ip_fail_counts.get(ip, 0)} for ip in list(suspicious_ips)[:20]],
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting chart data: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get chart data: {str(e)}'}), 500

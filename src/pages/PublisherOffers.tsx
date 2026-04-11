@@ -157,11 +157,17 @@ const PublisherOffersContent = () => {
         return v.toLowerCase() === verticalFilter.toLowerCase();
       });
     }
-    // Sort
+    // Sort - always keep pinned offers at top regardless of sort choice
     if (sortBy === "newest") list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     else if (sortBy === "payout_high") list.sort((a, b) => b.payout - a.payout);
     else if (sortBy === "payout_low") list.sort((a, b) => a.payout - b.payout);
     else if (sortBy === "name") list.sort((a, b) => a.name.localeCompare(b.name));
+    // Move pinned offers to top (stable sort preserves relative order within pinned/unpinned)
+    list.sort((a, b) => {
+      const aPinned = (a as any).is_pinned ? 1 : 0;
+      const bPinned = (b as any).is_pinned ? 1 : 0;
+      return bPinned - aPinned;
+    });
     return list;
   }, [offers, myOffers, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
 
@@ -187,8 +193,9 @@ const PublisherOffersContent = () => {
     return filteredOffers.filter(o => (o as any).is_pinned);
   }, [filteredOffers]);
 
+  // All offers in one list - pinned offers already sorted first by backend
   const regularFilteredOffers = useMemo(() => {
-    return filteredOffers.filter(o => !(o as any).is_pinned);
+    return filteredOffers;
   }, [filteredOffers]);
 
   // Paginated (only applied to regular offers)
@@ -548,87 +555,7 @@ const PublisherOffersContent = () => {
         {/* OFFERS TABLE (available + my_offers) */}
         {viewMode !== "requests" && (
           <>
-            {pinnedOffers.length > 0 && (
-              <div className="mb-6">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="h-5 w-5 text-amber-500" />
-                  <h2 className="text-lg font-bold text-gray-900">Featured Offers</h2>
-                </div>
-                <div className="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
-                  {pinnedOffers.map((offer) => {
-                  const hasAccess = offer.has_access;
-                  const isPending = offer.request_status === "pending";
-                  return (
-                    <div
-                      key={offer.offer_id}
-                      className="group relative bg-white rounded-xl border border-amber-200 overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 hover:border-amber-400 w-[240px] shrink-0 flex flex-col"
-                    >
-                      {/* Image */}
-                      <div className="relative h-32 bg-gradient-to-br from-amber-50 to-orange-50 overflow-hidden shrink-0">
-                        <img
-                          src={getOfferImage(offer as any)}
-                          alt={offer.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                          onError={(e) => { (e.target as HTMLImageElement).src = "/category-images/other.png"; }}
-                        />
-                        {/* Status badge overlay */}
-                        <div className="absolute top-2 right-2">
-                          <span className="inline-flex items-center text-[10px] font-semibold text-white bg-amber-500 px-2 py-1 rounded-full shadow-sm">
-                            <Sparkles className="h-3 w-3 mr-1" /> Featured
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Content */}
-                      <div className="p-4 space-y-3 flex-1 flex flex-col">
-                        {/* Title */}
-                        <button
-                          className="text-left w-full hover:text-amber-600 transition-colors"
-                          onClick={() => handleViewDetails(offer)}
-                        >
-                          <h3 className="font-semibold text-sm leading-tight line-clamp-2 min-h-[2.5rem]">{offer.name}</h3>
-                        </button>
-
-                        {/* Payout */}
-                        <div className="flex items-center justify-between mt-auto">
-                          <span className="text-xs text-muted-foreground">Payout</span>
-                          <span className="font-bold text-lg text-emerald-600">
-                            {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
-                          </span>
-                        </div>
-
-                        {/* Action button */}
-                        <div className="pt-2">
-                          {hasAccess ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="w-full h-8 text-xs rounded-full border-amber-200 text-amber-600 hover:bg-amber-50"
-                              onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}
-                            >
-                              <ExternalLink className="h-3 w-3 mr-1" />Open Offer
-                            </Button>
-                          ) : isPending ? (
-                            <Button size="sm" variant="outline" className="w-full h-8 text-xs rounded-full opacity-40" disabled>
-                              <Clock className="h-3 w-3 mr-1" />Pending
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              className="w-full h-8 text-xs rounded-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-sm border-0"
-                              onClick={() => handleApplyClick(offer)}
-                            >
-                              <Send className="h-3 w-3 mr-1" />Apply Now
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                </div>
-              </div>
-            )}
+            {pinnedOffers.length >= 0 && /* pinned offers merged into main list */ null}
 
             <div className="flex items-center gap-2 mb-3">
               <List className="h-5 w-5 text-purple-500" />

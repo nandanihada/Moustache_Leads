@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { RefreshCw, CheckCircle, XCircle, ChevronDown, ChevronUp, ExternalLink, Shield, AlertTriangle, Mail } from 'lucide-react';
+import { RefreshCw, CheckCircle, XCircle, ChevronDown, ChevronUp, ExternalLink, Shield, AlertTriangle, Mail, X, TrendingUp, Users, Globe, Monitor, Smartphone } from 'lucide-react';
 import loginLogsService, { LoginLog, PageVisit } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
 import { FraudIndicators } from '@/components/FraudIndicators';
@@ -11,6 +11,183 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend } from 'recharts';
+
+const LOGIN_GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
+
+function LoginMap({ logs, onUserMail }: { logs: LoginLog[]; onUserMail: (user: LoginLog) => void }) {
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [selectedLog, setSelectedLog] = useState<LoginLog | null>(null);
+
+  // Build map points — deduplicate by user_id, keep latest login per user
+  const points = useMemo(() => {
+    const userMap = new Map<string, LoginLog>();
+    for (const l of logs) {
+      if (!l.location?.latitude || !l.location?.longitude) continue;
+      const existing = userMap.get(l.user_id);
+      if (!existing || new Date(l.login_time) > new Date(existing.login_time)) {
+        userMap.set(l.user_id, l);
+      }
+    }
+    return Array.from(userMap.values()).map(l => ({
+      log: l,
+      lat: l.location.latitude!,
+      lng: l.location.longitude!,
+    }));
+  }, [logs]);
+
+  const counts = useMemo(() => {
+    let active = 0, success = 0, failed = 0;
+    for (const p of points) {
+      if (p.log.status === 'failed') failed++;
+      else if ((p.log as any).is_active) active++;
+      else success++;
+    }
+    return { active, success, failed };
+  }, [points]);
+
+  const getColor = (log: LoginLog) => {
+    if (log.status === 'failed') return '#ef4444';
+    if ((log as any).is_active) return '#22c55e';
+    return '#3b82f6';
+  };
+
+  const getLabel = (log: LoginLog) => {
+    if (log.status === 'failed') return 'Failed';
+    if ((log as any).is_active) return 'Online Now';
+    return 'Logged In';
+  };
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium flex items-center gap-2">
+          🗺️ Login Locations Map
+          <span className="text-muted-foreground font-normal">({points.length} users)</span>
+          {counts.active > 0 && <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-[10px] h-5">{counts.active} online</Badge>}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="relative w-full h-80 overflow-hidden rounded-b-lg" style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
+          <ComposableMap projectionConfig={{ scale: 140, center: [10, 20] }} style={{ width: '100%', height: '100%' }}>
+            <ZoomableGroup zoom={zoom} onMoveEnd={({ zoom: z }) => setZoom(z)}>
+              <Geographies geography={LOGIN_GEO_URL}>
+                {({ geographies }) => geographies.map((geo) => (
+                  <Geography key={geo.rsmKey} geography={geo} fill="#1e3a5f" stroke="#3b82f6" strokeWidth={0.4}
+                    style={{ default: { outline: 'none' }, hover: { fill: '#2d4a6f', outline: 'none' }, pressed: { outline: 'none' } }} />
+                ))}
+              </Geographies>
+              {points.map((p, i) => {
+                const color = getColor(p.log);
+                const isActive = (p.log as any).is_active && p.log.status !== 'failed';
+                return (
+                  <Marker key={i} coordinates={[p.lng, p.lat]}>
+                    <g
+                      onMouseEnter={(e) => {
+                        const rect = (e.target as SVGElement).closest('svg')?.getBoundingClientRect();
+                        if (rect) setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top - 10, text: `${p.log.username} · ${p.log.location?.country || '?'} · ${getLabel(p.log)}` });
+                      }}
+                      onMouseLeave={() => setTooltip(null)}
+                      onClick={() => setSelectedLog(selectedLog?._id === p.log._id ? null : p.log)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {isActive && (
+                        <circle cx="0" cy="0" r="8" fill="none" stroke={color} strokeWidth="1" opacity="0.4">
+                          <animate attributeName="r" from="5" to="12" dur="1.5s" repeatCount="indefinite" />
+                          <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite" />
+                        </circle>
+                      )}
+                      <circle cx="0" cy="0" r={isActive ? 6 : 4} fill={color} opacity="0.3" />
+                      <circle cx="0" cy="-4" r="2" fill={color} />
+                      <line x1="0" y1="-2" x2="0" y2="2.5" stroke={color} strokeWidth="1.2" />
+                      <line x1="-2.5" y1="0" x2="2.5" y2="0" stroke={color} strokeWidth="0.8" />
+                      <line x1="0" y1="2.5" x2="-1.5" y2="5.5" stroke={color} strokeWidth="0.8" />
+                      <line x1="0" y1="2.5" x2="1.5" y2="5.5" stroke={color} strokeWidth="0.8" />
+                    </g>
+                  </Marker>
+                );
+              })}
+            </ZoomableGroup>
+          </ComposableMap>
+
+          {tooltip && (
+            <div className="absolute pointer-events-none z-10 px-3 py-1.5 rounded-lg text-xs font-medium text-white shadow-lg"
+              style={{ left: tooltip.x, top: tooltip.y, transform: 'translate(-50%, -100%)', background: 'rgba(0,0,0,0.85)' }}>
+              {tooltip.text}
+            </div>
+          )}
+
+          <div className="absolute top-2 right-2 flex flex-col gap-1 z-10">
+            <button onClick={() => setZoom(z => Math.min(z * 1.5, 8))} className="w-7 h-7 rounded bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center backdrop-blur-sm border border-white/10">+</button>
+            <button onClick={() => setZoom(z => Math.max(z / 1.5, 1))} className="w-7 h-7 rounded bg-white/10 hover:bg-white/20 text-white text-sm font-bold flex items-center justify-center backdrop-blur-sm border border-white/10">−</button>
+          </div>
+
+          <div className="absolute bottom-2 left-2 flex items-center gap-4 text-[10px] text-white/80 bg-black/30 backdrop-blur-sm rounded-lg px-3 py-1.5">
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]" /> Online ({counts.active})</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Logged In ({counts.success})</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Failed ({counts.failed})</span>
+          </div>
+        </div>
+
+        {/* Selected user info panel */}
+        {selectedLog && (
+          <div className="border-t border-border p-4 bg-muted/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-sm ${selectedLog.status === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                  {(selectedLog.username || '?')[0]?.toUpperCase()}
+                </div>
+                <div>
+                  <p className="font-medium text-foreground text-sm">{selectedLog.username}</p>
+                  <p className="text-xs text-muted-foreground">{selectedLog.email}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onUserMail(selectedLog)}>
+                  <Mail className="h-3 w-3 mr-1" /> Mail
+                </Button>
+                <button onClick={() => setSelectedLog(null)} className="p-1 rounded hover:bg-muted"><X className="h-4 w-4 text-muted-foreground" /></button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              <div className="bg-background border border-border rounded-lg p-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Status</p>
+                <p className={`text-sm font-bold ${selectedLog.status === 'success' ? 'text-green-500' : 'text-red-500'}`}>{selectedLog.status}</p>
+              </div>
+              <div className="bg-background border border-border rounded-lg p-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Country</p>
+                <p className="text-sm font-medium text-foreground">{selectedLog.location?.country || 'Unknown'} ({selectedLog.location?.country_code || '?'})</p>
+              </div>
+              <div className="bg-background border border-border rounded-lg p-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase">City</p>
+                <p className="text-sm font-medium text-foreground">{selectedLog.location?.city || 'Unknown'}</p>
+              </div>
+              <div className="bg-background border border-border rounded-lg p-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Device</p>
+                <p className="text-sm font-medium text-foreground">{selectedLog.device?.type || '?'} · {selectedLog.device?.browser || '?'}</p>
+              </div>
+              <div className="bg-background border border-border rounded-lg p-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase">IP</p>
+                <p className="text-sm font-medium text-foreground font-mono">{selectedLog.ip_address}</p>
+              </div>
+              <div className="bg-background border border-border rounded-lg p-2.5">
+                <p className="text-[10px] text-muted-foreground uppercase">Login Time</p>
+                <p className="text-xs font-medium text-foreground">{new Date(selectedLog.login_time).toLocaleString()}</p>
+              </div>
+            </div>
+            {selectedLog.status === 'failed' && selectedLog.failure_reason && (
+              <div className="px-3 py-2 rounded-lg bg-red-500/10 text-red-400 text-xs border border-red-500/20">
+                ⚠️ Failure reason: {selectedLog.failure_reason}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 
 const AdminLoginLogs: React.FC = () => {
@@ -28,14 +205,37 @@ const AdminLoginLogs: React.FC = () => {
     const [mailConfig, setMailConfig] = useState({ to: '', subject: '', body: '', isScheduled: false, scheduledTime: '', promoCode: '', promoType: '15% Bonus', usePromo: false });
     const [sendingMail, setSendingMail] = useState(false);
     
+    // Chart State
+    const [chartData, setChartData] = useState<any>(null);
+    const [chartDays, setChartDays] = useState(7);
+    const [chartLoading, setChartLoading] = useState(false);
+    
     const { toast } = useToast();
+
+    const loadChartData = async (days = chartDays) => {
+        setChartLoading(true);
+        try {
+            const data = await loginLogsService.getChartData(days);
+            setChartData(data);
+        } catch {
+            // Silent fail — charts are supplementary
+        } finally {
+            setChartLoading(false);
+        }
+    };
 
     const loadLogs = async () => {
         try {
             setLoading(true);
-            const response = await loginLogsService.getLoginLogs({ page: 1, limit: 100 });
-            setLogs(response.logs);
-            setTotal(response.total);
+            const [logsRes, sessionsRes] = await Promise.all([
+                loginLogsService.getLoginLogs({ page: 1, limit: 500 }),
+                loginLogsService.getActiveSessions(true).catch(() => ({ sessions: [], count: 0 })),
+            ]);
+            // Tag logs with is_active based on active sessions
+            const activeUserIds = new Set(sessionsRes.sessions.map((s: any) => s.user_id));
+            const taggedLogs = logsRes.logs.map(l => ({ ...l, is_active: activeUserIds.has(l.user_id) }));
+            setLogs(taggedLogs);
+            setTotal(logsRes.total);
         } catch (error: any) {
             toast({
                 title: 'Error',
@@ -103,6 +303,7 @@ const AdminLoginLogs: React.FC = () => {
 
     useEffect(() => {
         loadLogs();
+        loadChartData();
     }, []);
 
     const toggleRow = async (logId: string, sessionId: string | undefined) => {
@@ -274,6 +475,231 @@ const AdminLoginLogs: React.FC = () => {
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Login Map — click user to see info */}
+            <LoginMap logs={logs} onUserMail={prefillMailForUser} />
+
+            {/* Login Analytics Charts */}
+            {chartData && (
+              <div className="space-y-4">
+                {/* Summary Stats Row */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                  {[
+                    { label: 'Total Logins', value: chartData.summary?.total || 0, icon: '📊', color: 'text-blue-600' },
+                    { label: 'Successful', value: chartData.summary?.success || 0, icon: '✅', color: 'text-green-600' },
+                    { label: 'Failed', value: chartData.summary?.failed || 0, icon: '❌', color: 'text-red-500' },
+                    { label: 'Unique Users', value: chartData.summary?.unique_users || 0, icon: '👥', color: 'text-purple-600' },
+                    { label: 'Unique IPs', value: chartData.summary?.unique_ips || 0, icon: '🌐', color: 'text-indigo-600' },
+                    { label: 'Suspicious IPs', value: chartData.summary?.suspicious_count || 0, icon: '⚠️', color: 'text-amber-600' },
+                  ].map((s, i) => (
+                    <Card key={i} className="border-border">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-lg">{s.icon}</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-medium">{s.label}</span>
+                        </div>
+                        <p className={`text-2xl font-bold ${s.color}`}>{s.value.toLocaleString()}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+
+                {/* Time Range Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Period:</span>
+                  {[7, 14, 30].map(d => (
+                    <Button key={d} size="sm" variant={chartDays === d ? 'default' : 'outline'} onClick={() => { setChartDays(d); loadChartData(d); }} className="h-7 text-xs">
+                      {d}d
+                    </Button>
+                  ))}
+                  {chartLoading && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+
+                {/* Main Charts Row */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* Daily Login Trend — Area Chart */}
+                  <Card className="lg:col-span-2 border-border">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <TrendingUp className="h-4 w-4 text-blue-500" />
+                        Login Activity — Last {chartDays} Days
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={260}>
+                        <AreaChart data={chartData.daily || []} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="gradSuccess" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                            </linearGradient>
+                            <linearGradient id="gradFailed" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                              <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                          <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => { const d = new Date(v); return d.toLocaleDateString('en', { weekday: 'short', day: 'numeric' }); }} />
+                          <YAxis tick={{ fontSize: 10 }} />
+                          <RechartsTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} labelFormatter={(v: string) => new Date(v).toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' })} />
+                          <Legend wrapperStyle={{ fontSize: 11 }} />
+                          <Area type="monotone" dataKey="success" name="Successful" stroke="#22c55e" fill="url(#gradSuccess)" strokeWidth={2} />
+                          <Area type="monotone" dataKey="failed" name="Failed" stroke="#ef4444" fill="url(#gradFailed)" strokeWidth={2} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  {/* Device & Browser Pie */}
+                  <Card className="border-border">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Monitor className="h-4 w-4 text-purple-500" />
+                        Devices & Browsers
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={120}>
+                        <PieChart>
+                          <Pie data={chartData.devices || []} dataKey="count" nameKey="device" cx="50%" cy="50%" outerRadius={45} innerRadius={25} paddingAngle={3}>
+                            {(chartData.devices || []).map((_: any, i: number) => (
+                              <Cell key={i} fill={['#8b5cf6', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444'][i % 5]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="flex flex-wrap gap-2 justify-center mt-1">
+                        {(chartData.devices || []).map((d: any, i: number) => (
+                          <span key={i} className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <span className="w-2 h-2 rounded-full" style={{ background: ['#8b5cf6', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444'][i % 5] }} />
+                            {d.device} ({d.count})
+                          </span>
+                        ))}
+                      </div>
+                      <div className="mt-3 pt-3 border-t">
+                        <p className="text-[10px] text-muted-foreground uppercase font-medium mb-1.5">Top Browsers</p>
+                        <div className="space-y-1">
+                          {(chartData.browsers || []).slice(0, 4).map((b: any, i: number) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${Math.min(100, (b.count / (chartData.summary?.total || 1)) * 100)}%`, background: ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd'][i % 4] }} />
+                              </div>
+                              <span className="text-[10px] text-muted-foreground w-20 truncate">{b.browser}</span>
+                              <span className="text-[10px] font-medium w-8 text-right">{b.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Second Row: Countries Bar + Suspicious IPs + Heatmap */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  {/* Top Countries */}
+                  <Card className="border-border">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <Globe className="h-4 w-4 text-emerald-500" />
+                        Top Countries
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <BarChart data={chartData.top_countries || []} layout="vertical" margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                          <XAxis type="number" tick={{ fontSize: 10 }} />
+                          <YAxis type="category" dataKey="country" tick={{ fontSize: 10 }} width={60} />
+                          <RechartsTooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
+                          <Bar dataKey="count" name="Logins" fill="#10b981" radius={[0, 4, 4, 0]} barSize={16} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </CardContent>
+                  </Card>
+
+                  {/* Suspicious IPs */}
+                  <Card className="border-border">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-500" />
+                        Suspicious IPs
+                        {(chartData.suspicious_ips || []).length > 0 && (
+                          <Badge variant="destructive" className="text-[10px] h-4">{chartData.suspicious_ips.length}</Badge>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {(chartData.suspicious_ips || []).length === 0 ? (
+                        <div className="text-center py-8 text-muted-foreground text-sm">
+                          <Shield className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                          No suspicious activity detected
+                        </div>
+                      ) : (
+                        <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                          {(chartData.suspicious_ips || []).map((s: any, i: number) => (
+                            <div key={i} className="flex items-center justify-between p-2 bg-amber-50 dark:bg-amber-950/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                              <div>
+                                <code className="text-xs font-mono text-amber-800 dark:text-amber-200">{s.ip}</code>
+                                <p className="text-[10px] text-amber-600">{s.user_count} different accounts</p>
+                              </div>
+                              <Badge className="bg-amber-100 text-amber-800 text-[10px]">{s.login_count} logins</Badge>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Activity Heatmap */}
+                  <Card className="border-border">
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium flex items-center gap-2">
+                        🔥 Activity Heatmap
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="overflow-x-auto">
+                        <div className="min-w-[280px]">
+                          <div className="grid grid-cols-[40px_repeat(24,1fr)] gap-[2px] text-[8px]">
+                            <div />
+                            {Array.from({ length: 24 }, (_, h) => (
+                              <div key={h} className="text-center text-muted-foreground">{h % 6 === 0 ? `${h}h` : ''}</div>
+                            ))}
+                            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, di) => (
+                              <React.Fragment key={day}>
+                                <div className="text-muted-foreground text-right pr-1 leading-[14px]">{day}</div>
+                                {Array.from({ length: 24 }, (_, h) => {
+                                  const entry = (chartData.heatmap || []).find((e: any) => e.day === di + 1 && e.hour === h);
+                                  const count = entry?.count || 0;
+                                  const maxCount = Math.max(...(chartData.heatmap || []).map((e: any) => e.count), 1);
+                                  const intensity = count / maxCount;
+                                  return (
+                                    <div
+                                      key={h}
+                                      className="aspect-square rounded-[2px]"
+                                      style={{ background: count === 0 ? '#f3f4f6' : `rgba(99, 102, 241, ${0.15 + intensity * 0.85})` }}
+                                      title={`${day} ${h}:00 — ${count} logins`}
+                                    />
+                                  );
+                                })}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                          <div className="flex items-center gap-1 mt-2 justify-end">
+                            <span className="text-[8px] text-muted-foreground">Less</span>
+                            {[0.1, 0.3, 0.5, 0.7, 1].map((o, i) => (
+                              <div key={i} className="w-2.5 h-2.5 rounded-[2px]" style={{ background: `rgba(99, 102, 241, ${o})` }} />
+                            ))}
+                            <span className="text-[8px] text-muted-foreground">More</span>
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+            )}
             
             {/* Geo Intelligence & Bulk Mail */}
             <Card id="mail-compose-box" className="border-border">

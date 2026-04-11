@@ -462,3 +462,265 @@ def track_search_action():
     except Exception as e:
         logger.error(f"Error tracking search action: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@search_logs_bp.route('/search-logs/send-inventory-email', methods=['POST'])
+@token_required
+def send_inventory_email():
+    """
+    When a search log shows 'In Inventory (Not Active)', admin can send the user
+    an email with that offer + up to 7 related offers (by category/keyword proximity).
+    Admin can edit offers (image, link, name) before sending.
+    """
+    try:
+        user = request.current_user
+        if user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        search_log_id = data.get('search_log_id')
+        user_id = data.get('user_id')
+        keyword = data.get('keyword', '')
+        offers_to_send = data.get('offers', [])  # list of {offer_id, name, image_url, target_url, payout}
+        custom_subject = data.get('subject', '')
+        custom_message = data.get('message', '')
+
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        if not offers_to_send or len(offers_to_send) == 0:
+            return jsonify({'error': 'At least one offer is required'}), 400
+
+        # Get user email
+        users_col = db_instance.get_collection('users')
+        if users_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        target_user = None
+        if ObjectId.is_valid(user_id):
+            target_user = users_col.find_one({'_id': ObjectId(user_id)})
+        if not target_user:
+            target_user = users_col.find_one({'username': user_id})
+        if not target_user or not target_user.get('email'):
+            return jsonify({'error': 'User not found or has no email'}), 404
+
+        recipient_email = target_user['email']
+        username = target_user.get('username', 'Publisher')
+
+        import os
+        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+        subject = custom_subject or f'🔥 Offers matching "{keyword}" are available for you!'
+
+        # Build offer rows HTML - single column, clean card layout
+        offer_rows_html = ''
+        for idx, offer in enumerate(offers_to_send[:8]):
+            img = offer.get('image_url', '')
+            name = offer.get('name', 'Offer')
+            payout = offer.get('payout', 0)
+            offer_id = offer.get('offer_id', '')
+
+            img_cell = f'''<td style="width:80px;vertical-align:middle;padding-right:15px;">
+                <img src="{img}" alt="" style="width:70px;height:70px;object-fit:cover;border-radius:10px;display:block;" />
+            </td>''' if img else f'''<td style="width:80px;vertical-align:middle;padding-right:15px;">
+                <div style="width:70px;height:70px;background:linear-gradient(135deg,#f97316,#ea580c);border-radius:10px;display:flex;align-items:center;justify-content:center;">
+                    <span style="font-size:28px;">📋</span>
+                </div>
+            </td>'''
+
+            border_top = 'border-top:1px solid #f3f4f6;' if idx > 0 else ''
+
+            offer_rows_html += f'''
+            <tr>
+                <td style="padding:16px 0;{border_top}">
+                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                        <tr>
+                            {img_cell}
+                            <td style="vertical-align:middle;">
+                                <div style="font-weight:600;font-size:15px;color:#1f2937;margin-bottom:3px;">{name}</div>
+                                <div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">{offer_id}</div>
+                                <div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;">${payout:.2f}</div>
+                            </td>
+                            <td style="width:100px;vertical-align:middle;text-align:right;">
+                                <a href="{frontend_url}/publisher/signin" style="display:inline-block;background:#f97316;color:#ffffff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:0.3px;">View →</a>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>'''
+
+        message_section = ''
+        if custom_message:
+            message_section = f'''<tr><td style="padding:0 30px 20px;">
+                <div style="font-size:15px;color:#374151;line-height:1.7;background:#fff7ed;border-left:4px solid #f97316;padding:15px 18px;border-radius:0 8px 8px 0;white-space:pre-wrap;">{custom_message}</div>
+            </td></tr>'''
+
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background-color:#f8fafc;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;padding:30px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+    <!-- Header with Logo -->
+    <tr>
+        <td style="background:linear-gradient(135deg,#f97316 0%,#ea580c 50%,#dc2626 100%);padding:35px 30px;text-align:center;">
+            <img src="https://moustacheleads.com/logo.png" alt="MoustacheLeads" style="height:50px;margin-bottom:12px;display:inline-block;" />
+            <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.5px;">MoustacheLeads</h1>
+            <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;">Hey {username}! We found offers for you 🎯</p>
+        </td>
+    </tr>
+    <!-- Keyword Banner -->
+    <tr>
+        <td style="padding:25px 30px 5px;">
+            <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 18px;text-align:center;">
+                <span style="font-size:13px;color:#9a3412;font-weight:600;">🔍 Matching your search:</span>
+                <span style="display:inline-block;background:#f97316;color:#fff;font-size:14px;font-weight:700;padding:4px 14px;border-radius:20px;margin-left:8px;">{keyword}</span>
+            </div>
+        </td>
+    </tr>
+    <!-- Custom Message -->
+    {message_section}
+    <!-- Offers List -->
+    <tr>
+        <td style="padding:15px 30px 5px;">
+            <h2 style="margin:0 0 5px;font-size:17px;color:#1f2937;font-weight:700;">📦 {len(offers_to_send)} Offers Available</h2>
+            <p style="margin:0 0 15px;font-size:13px;color:#6b7280;">These offers are in our inventory and ready for you to promote.</p>
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                {offer_rows_html}
+            </table>
+        </td>
+    </tr>
+    <!-- CTA Button -->
+    <tr>
+        <td style="padding:20px 30px 30px;text-align:center;">
+            <a href="{frontend_url}/publisher/signin" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;padding:16px 50px;text-decoration:none;border-radius:50px;font-weight:800;font-size:15px;letter-spacing:0.5px;box-shadow:0 4px 15px rgba(249,115,22,0.4);">BROWSE ALL OFFERS →</a>
+        </td>
+    </tr>
+    <!-- Divider -->
+    <tr><td style="padding:0 30px;"><div style="border-top:1px solid #e5e7eb;"></div></td></tr>
+    <!-- Footer -->
+    <tr>
+        <td style="padding:25px 30px;text-align:center;">
+            <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">Thanks for being part of the MoustacheLeads network!</p>
+            <p style="margin:0 0 15px;color:#1f2937;font-size:14px;font-weight:600;">Keep pushing! 🚀</p>
+            <p style="margin:0;color:#9ca3af;font-size:11px;">© {datetime.utcnow().year} MoustacheLeads. All rights reserved.</p>
+            <p style="margin:5px 0 0;color:#9ca3af;font-size:11px;">You received this because you're a registered publisher on MoustacheLeads.</p>
+        </td>
+    </tr>
+</table>
+</td></tr></table>
+</body></html>"""
+
+        # Send email
+        from services.email_service import EmailService
+        email_svc = EmailService()
+        success = email_svc._send_email(recipient_email, subject, html_content)
+
+        # Log email activity
+        try:
+            email_logs_col = db_instance.get_collection('email_activity_logs')
+            if email_logs_col is not None:
+                email_logs_col.insert_one({
+                    'action': 'sent',
+                    'source': 'search_logs_inventory',
+                    'offer_ids': [o.get('offer_id', '') for o in offers_to_send],
+                    'offer_names': [o.get('name', '') for o in offers_to_send],
+                    'offer_count': len(offers_to_send),
+                    'recipient_type': 'specific_user',
+                    'recipient_email': recipient_email,
+                    'recipient_count': 1,
+                    'keyword': keyword,
+                    'search_log_id': search_log_id,
+                    'admin_id': str(user.get('_id', '')),
+                    'admin_username': user.get('username', 'admin'),
+                    'created_at': datetime.utcnow()
+                })
+        except Exception as log_err:
+            logger.error(f"Email activity log error: {log_err}")
+
+        if success:
+            return jsonify({'success': True, 'message': f'Email sent to {recipient_email} with {len(offers_to_send)} offers'}), 200
+        else:
+            return jsonify({'error': 'Failed to send email'}), 500
+
+    except Exception as e:
+        logger.error(f"Error sending inventory email: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@search_logs_bp.route('/search-logs/related-offers', methods=['GET'])
+@token_required
+def get_related_offers():
+    """
+    Get up to 8 related offers for a keyword (the searched offer + 7 nearby).
+    Used by admin to preview/edit offers before sending inventory email.
+    """
+    try:
+        user = request.current_user
+        if user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        keyword = request.args.get('keyword', '').strip()
+        if not keyword:
+            return jsonify({'error': 'keyword is required'}), 400
+
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        search_regex = {'$regex': keyword, '$options': 'i'}
+
+        # Find offers matching the keyword (any status, not deleted)
+        matching = list(offers_col.find(
+            {
+                '$or': [
+                    {'name': search_regex},
+                    {'offer_id': search_regex},
+                    {'category': search_regex},
+                    {'vertical': search_regex},
+                    {'tags': search_regex},
+                    {'keywords': search_regex}
+                ],
+                '$and': [{'$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]}]
+            },
+            {
+                'offer_id': 1, 'name': 1, 'image_url': 1, 'thumbnail_url': 1,
+                'target_url': 1, 'preview_url': 1, 'payout': 1, 'status': 1,
+                'category': 1, 'vertical': 1, 'countries': 1, 'network': 1,
+                'description': 1, 'currency': 1
+            }
+        ).sort('payout', -1).limit(20))
+
+        # If we have fewer than 8, try to find more by category of the first match
+        if len(matching) < 8 and matching:
+            category = matching[0].get('vertical') or matching[0].get('category', '')
+            if category:
+                existing_ids = {o['offer_id'] for o in matching}
+                extra = list(offers_col.find(
+                    {
+                        '$or': [
+                            {'category': {'$regex': category, '$options': 'i'}},
+                            {'vertical': {'$regex': category, '$options': 'i'}}
+                        ],
+                        'offer_id': {'$nin': list(existing_ids)},
+                        '$and': [{'$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]}]
+                    },
+                    {
+                        'offer_id': 1, 'name': 1, 'image_url': 1, 'thumbnail_url': 1,
+                        'target_url': 1, 'preview_url': 1, 'payout': 1, 'status': 1,
+                        'category': 1, 'vertical': 1, 'countries': 1, 'network': 1,
+                        'description': 1, 'currency': 1
+                    }
+                ).sort('payout', -1).limit(8 - len(matching)))
+                matching.extend(extra)
+
+        # Serialize
+        result = []
+        for o in matching[:8]:
+            o['_id'] = str(o['_id'])
+            result.append(o)
+
+        return jsonify({'success': True, 'offers': result, 'total': len(result)}), 200
+
+    except Exception as e:
+        logger.error(f"Error getting related offers: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

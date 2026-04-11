@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import db_instance
 
 
-def get_running_offer_ids(days=30):
+def get_running_offer_ids(days=70):
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     # 1. Offers with clicks

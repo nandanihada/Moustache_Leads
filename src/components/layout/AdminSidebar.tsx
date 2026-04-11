@@ -147,6 +147,7 @@ export function AdminSidebar() {
   const [loading, setLoading] = useState(true);
   const [supportUnread, setSupportUnread] = useState(0);
   const [supportTotal, setSupportTotal] = useState(0);
+  const [badgeCounts, setBadgeCounts] = useState<Record<string, number>>({});
 
   // Track which main tabs are expanded
   const [expandedTabs, setExpandedTabs] = useState<string[]>(() => {
@@ -181,6 +182,52 @@ export function AdminSidebar() {
     const interval = setInterval(fetchUnread, 60_000);
     return () => clearInterval(interval);
   }, []);
+
+  // Fetch badge counts for all tabs
+  useEffect(() => {
+    const fetchBadges = () => {
+      const token = getAuthToken();
+      if (!token) return;
+      fetch(`${getApiBaseUrl()}/api/admin/badge-counts`, {
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.json())
+        .then(res => { if (res.success) setBadgeCounts(res.badges || {}); })
+        .catch(() => {});
+    };
+    fetchBadges();
+    const interval = setInterval(fetchBadges, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Mark tab as visited when navigating
+  useEffect(() => {
+    const currentPath = location.pathname;
+    // Find the matching tab
+    let matchedTab = '';
+    for (const item of adminMenuStructure) {
+      if (item.type === 'single' && item.url === currentPath) {
+        matchedTab = item.tab;
+        break;
+      }
+      if (item.type === 'group' && item.subtabs) {
+        const sub = item.subtabs.find(s => currentPath === s.url);
+        if (sub) { matchedTab = sub.tab; break; }
+      }
+    }
+    if (matchedTab && badgeCounts[matchedTab] && badgeCounts[matchedTab] > 0) {
+      const token = getAuthToken();
+      if (token) {
+        fetch(`${getApiBaseUrl()}/api/admin/badge-counts/visit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ tab: matchedTab }),
+        }).then(() => {
+          setBadgeCounts(prev => ({ ...prev, [matchedTab]: 0 }));
+        }).catch(() => {});
+      }
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     const fetchPermissions = async () => {
@@ -311,6 +358,7 @@ export function AdminSidebar() {
 
                     const isExpanded = expandedTabs.includes(item.title);
                     const isActive = visibleSubtabs.some(sub => location.pathname === sub.url);
+                    const groupBadgeTotal = visibleSubtabs.reduce((sum, sub) => sum + (badgeCounts[sub.tab] || 0), 0);
 
                     return (
                       <Collapsible
@@ -328,6 +376,11 @@ export function AdminSidebar() {
                             >
                               <item.icon className="h-5 w-5" />
                               <span className="font-medium flex-1 text-left">{item.title}</span>
+                              {!isExpanded && groupBadgeTotal > 0 && (
+                                <span className="bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 mr-1">
+                                  {groupBadgeTotal > 99 ? '99+' : groupBadgeTotal}
+                                </span>
+                              )}
                               {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                             </SidebarMenuButton>
                           </CollapsibleTrigger>
@@ -347,7 +400,12 @@ export function AdminSidebar() {
                                       }
                                     >
                                       <subtab.icon className="h-4 w-4" />
-                                      <span>{subtab.title}</span>
+                                      <span className="flex-1">{subtab.title}</span>
+                                      {badgeCounts[subtab.tab] > 0 && (
+                                        <span className="bg-red-500 text-white text-[10px] font-bold min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1">
+                                          {badgeCounts[subtab.tab] > 99 ? '99+' : badgeCounts[subtab.tab]}
+                                        </span>
+                                      )}
                                     </NavLink>
                                   </SidebarMenuButton>
                                 </SidebarMenuItem>

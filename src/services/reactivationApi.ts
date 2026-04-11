@@ -42,8 +42,16 @@ export interface InactiveUser {
   search_keywords: string[];
   has_approved_placement: boolean;
   approved_placements: number;
+  total_placements: number;
+  pending_placements: number;
+  placement_statuses: string[];
   outreach_count: number;
   last_outreach: string | null;
+  total_offer_requests: number;
+  pending_offer_requests: number;
+  approved_offer_requests: number;
+  has_offer_requests: boolean;
+  offer_request_details: { offer_id: string; offer_name: string; status: string }[];
   reactivation_score: number;
   risk_level: 'safe' | 'medium' | 'suspicious';
   activity_level: 'viewed_offers' | 'clicked_no_conv' | 'converted_before' | 'never_clicked';
@@ -55,7 +63,7 @@ export interface ReactivationStats {
   total_users: number;
   buckets: Record<string, number>;
   country_stats: { country: string; code: string; count: number; avg_days: number }[];
-  map_points: { user_id: string; username: string; lat: number; lng: number; country: string; country_code: string; days_inactive: number }[];
+  map_points: { user_id: string; username: string; lat: number; lng: number; country: string; country_code: string; days_inactive: number; has_placement: boolean; total_clicks: number; total_conversions: number; total_earnings: number }[];
   outreach_this_week: number;
 }
 
@@ -92,6 +100,7 @@ export interface Filters {
   email_verified?: string;
   has_earnings?: string;
   has_placement?: string;
+  has_offer_requests?: string;
   account_status?: string;
   sort_by?: string;
   page?: number;
@@ -117,6 +126,11 @@ export async function fetchReactivationStats() {
 
 export async function fetchUserProfile(userId: string) {
   const res = await fetch(`${BASE()}/users/${userId}/profile`, { headers: headers() });
+  return res.json();
+}
+
+export async function fetchUserEnrichedDetail(userId: string) {
+  const res = await fetch(`${BASE()}/users/${userId}/enriched`, { headers: headers() });
   return res.json();
 }
 
@@ -182,6 +196,16 @@ export async function executeSandS(data: {
 export async function fetchOffersForPicker(search = '') {
   const params = search ? `?search=${encodeURIComponent(search)}` : '';
   const res = await fetch(`${BASE()}/offers${params}`, { headers: headers() });
+  return res.json();
+}
+
+export async function fetchQuickPickOffers() {
+  const res = await fetch(`${BASE()}/offers/quick-pick`, { headers: headers() });
+  return res.json();
+}
+
+export async function fetchOutreachHistory(page = 1, perPage = 50) {
+  const res = await fetch(`${BASE()}/outreach-history?page=${page}&per_page=${perPage}`, { headers: headers() });
   return res.json();
 }
 

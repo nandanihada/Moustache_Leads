@@ -543,11 +543,172 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
             />
             <Input
               label="Postback URL"
-              placeholder="Enter your server's postback URL"
+              placeholder="https://yourserver.com/postback?click_id={click_id}&user_id={username}&points={points}"
               value={data.postbackUri}
               onChange={(e) => onChange('postbackUri', e.target.value)}
               icon={Send}
             />
+          </div>
+
+          {/* Postback URL Builder */}
+          <div className="mt-3 p-3 bg-gradient-to-br from-violet-50 to-indigo-50 rounded-lg border border-violet-200">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-violet-900 flex items-center gap-1.5">
+                <Code className="h-3.5 w-3.5" />
+                Postback URL Builder
+              </h4>
+            </div>
+
+            <p className="text-[11px] text-gray-500 mb-3">Add your parameters below. We'll build the postback URL automatically. On each conversion, we replace our macros with real data and hit your URL.</p>
+
+            {/* Base URL */}
+            <div className="mb-3">
+              <label className="text-[10px] font-semibold text-gray-600 uppercase tracking-wide mb-1 block">Your Server Base URL</label>
+              <input
+                type="text"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-200 focus:border-violet-400 outline-none font-mono"
+                placeholder="https://yourserver.com/postback"
+                value={data._postbackBaseUrl || (data.postbackUri ? data.postbackUri.split('?')[0] : '')}
+                onChange={(e) => {
+                  onChange('_postbackBaseUrl', e.target.value);
+                  // Rebuild full URL
+                  const params = (data._postbackParams || []).filter((p: any) => p.theirParam && p.ourMacro);
+                  const qs = params.map((p: any) => `${p.theirParam}=${p.ourMacro}`).join('&');
+                  onChange('postbackUri', qs ? `${e.target.value}?${qs}` : e.target.value);
+                }}
+              />
+            </div>
+
+            {/* Parameter Rows */}
+            <div className="space-y-2 mb-3">
+              <div className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-1">
+                <span>Your Parameter Name</span>
+                <span>=</span>
+                <span>Our Data (MoustacheLeads)</span>
+                <span></span>
+              </div>
+              {(data._postbackParams || [
+                { theirParam: '', ourMacro: '{click_id}' },
+                { theirParam: '', ourMacro: '{username}' },
+                { theirParam: '', ourMacro: '{points}' },
+              ]).map((param: any, idx: number) => (
+                <div key={idx} className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center">
+                  <input
+                    type="text"
+                    className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-200 focus:border-violet-400 outline-none font-mono"
+                    placeholder="e.g. uid, txn_id, reward"
+                    value={param.theirParam}
+                    onChange={(e) => {
+                      const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{username}' }, { theirParam: '', ourMacro: '{points}' }])];
+                      params[idx] = { ...params[idx], theirParam: e.target.value };
+                      onChange('_postbackParams', params);
+                      // Rebuild URL
+                      const base = data._postbackBaseUrl || (data.postbackUri ? data.postbackUri.split('?')[0] : '');
+                      const qs = params.filter((p: any) => p.theirParam && p.ourMacro).map((p: any) => `${p.theirParam}=${p.ourMacro}`).join('&');
+                      onChange('postbackUri', qs ? `${base}?${qs}` : base);
+                    }}
+                  />
+                  <span className="text-violet-400 text-sm font-bold">=</span>
+                  <select
+                    className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-200 focus:border-violet-400 outline-none bg-white font-mono text-violet-700"
+                    value={param.ourMacro}
+                    onChange={(e) => {
+                      const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{username}' }, { theirParam: '', ourMacro: '{points}' }])];
+                      params[idx] = { ...params[idx], ourMacro: e.target.value };
+                      onChange('_postbackParams', params);
+                      const base = data._postbackBaseUrl || (data.postbackUri ? data.postbackUri.split('?')[0] : '');
+                      const qs = params.filter((p: any) => p.theirParam && p.ourMacro).map((p: any) => `${p.theirParam}=${p.ourMacro}`).join('&');
+                      onChange('postbackUri', qs ? `${base}?${qs}` : base);
+                    }}
+                  >
+                    <option value="{click_id}">click_id — Transaction ID</option>
+                    <option value="{username}">username — User who completed</option>
+                    <option value="{points}">points — Reward amount</option>
+                    <option value="{payout}">payout — Payout in USD</option>
+                    <option value="{offer_id}">offer_id — Offer identifier</option>
+                    <option value="{offer_name}">offer_name — Offer name</option>
+                    <option value="{status}">status — Conversion status</option>
+                    <option value="{user_ip}">user_ip — User IP address</option>
+                    <option value="{affiliate_id}">affiliate_id — Affiliate ID</option>
+                    <option value="{transaction_id}">transaction_id — Transaction ID</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const params = [...(data._postbackParams || [])];
+                      params.splice(idx, 1);
+                      onChange('_postbackParams', params);
+                      const base = data._postbackBaseUrl || (data.postbackUri ? data.postbackUri.split('?')[0] : '');
+                      const qs = params.filter((p: any) => p.theirParam && p.ourMacro).map((p: any) => `${p.theirParam}=${p.ourMacro}`).join('&');
+                      onChange('postbackUri', qs ? `${base}?${qs}` : base);
+                    }}
+                    className="w-6 h-6 flex items-center justify-center rounded-full text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                    title="Remove parameter"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{username}' }, { theirParam: '', ourMacro: '{points}' }])];
+                  params.push({ theirParam: '', ourMacro: '{payout}' });
+                  onChange('_postbackParams', params);
+                }}
+                className="flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 font-medium mt-1"
+              >
+                <Plus className="h-3 w-3" /> Add Parameter
+              </button>
+            </div>
+
+            {/* Generated URL Preview */}
+            {data.postbackUri && (
+              <div className="p-2.5 bg-white rounded-lg border border-violet-100">
+                <p className="text-[10px] font-semibold text-gray-500 uppercase mb-1">Generated Postback URL:</p>
+                <code className="text-[11px] text-violet-700 break-all block font-mono">{data.postbackUri}</code>
+              </div>
+            )}
+
+            {/* Expandable Reference Info */}
+            <button
+              type="button"
+              onClick={() => onChange('_showParamHelp', !data._showParamHelp)}
+              className="flex items-center gap-1 text-[11px] text-violet-500 hover:text-violet-700 mt-2"
+            >
+              <Info className="h-3 w-3" />
+              {data._showParamHelp ? 'Hide detailed reference ▲' : 'Show detailed reference & how it works ▼'}
+            </button>
+
+            {data._showParamHelp && (
+              <div className="mt-2 p-3 bg-white rounded-lg border border-violet-100 text-xs text-gray-600 space-y-2">
+                <p className="font-medium text-violet-800">📋 How Postback Works:</p>
+                <p>When a user completes an offer on your offerwall, our system sends a GET request to your Postback URL. We replace the macros (like <code className="bg-violet-100 px-1 rounded text-violet-700">{'{click_id}'}</code>) with actual conversion data.</p>
+                <p className="font-medium text-violet-800 mt-2">Available Macros:</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { macro: '{click_id}', desc: 'Unique click/transaction ID' },
+                    { macro: '{username}', desc: 'User who completed the offer' },
+                    { macro: '{points}', desc: 'Calculated reward (in your currency)' },
+                    { macro: '{payout}', desc: 'Payout amount in USD' },
+                    { macro: '{offer_id}', desc: 'Offer identifier (e.g. ML-00123)' },
+                    { macro: '{offer_name}', desc: 'Name of the completed offer' },
+                    { macro: '{status}', desc: 'Always "approved" on conversion' },
+                    { macro: '{user_ip}', desc: 'IP address of the user' },
+                  ].map((m, i) => (
+                    <div key={i} className="flex items-center gap-1.5 bg-gray-50 rounded px-2 py-1">
+                      <code className="text-violet-700 font-mono text-[11px]">{m.macro}</code>
+                      <span className="text-gray-400 text-[10px]">{m.desc}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="font-medium text-violet-800 mt-2">Example:</p>
+                <code className="block bg-gray-50 p-2 rounded text-[11px] break-all">
+                  https://yoursite.com/postback?uid={'{username}'}&reward={'{points}'}&txn={'{click_id}'}&status={'{status}'}
+                </code>
+                <p className="text-gray-400 text-[10px] mt-1">After conversion: https://yoursite.com/postback?uid=john_doe&reward=100&txn=abc123&status=approved</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1032,89 +1193,219 @@ const IntegrationGuide = ({ data }) => {
   );
 };
 
-// 4. Testing Tab
+// 4. Testing Tab - Shows publisher's actual postback URL with editable test values per macro
 const TestingPostback = ({ data, onChange, onSubmit, loading = false }) => {
-  const STATUS_OPTIONS = [
-    { value: 'Completed', label: 'Completed' },
-    { value: 'Rejected', label: 'Rejected' },
-    { value: 'Pending', label: 'Pending' },
-  ];
+  const [testValues, setTestValues] = useState({
+    username: 'test_user_' + Math.floor(Math.random() * 9999),
+    click_id: 'click_' + Math.floor(Math.random() * 999999),
+    points: String(Math.floor(Math.random() * 500) + 10),
+    payout: (Math.random() * 5 + 0.5).toFixed(2),
+    offer_id: 'ML-TEST-' + Math.floor(Math.random() * 99999),
+    offer_name: 'Test Survey Offer',
+    status: 'approved',
+    user_ip: '192.168.1.' + Math.floor(Math.random() * 255),
+    user_id: 'test_user_' + Math.floor(Math.random() * 9999),
+    affiliate_id: 'aff_test',
+    transaction_id: 'txn_' + Math.floor(Math.random() * 999999),
+  });
+  const [testResult, setTestResult] = useState(null);
+  const [testing, setTesting] = useState(false);
 
-  const isPlacementReady = data.postbackUri && data.placementIdentifier;
+  const postbackUrl = data.postbackUri || '';
+  const hasUrl = !!postbackUrl.trim();
+
+  // Detect which macros are used in the URL
+  const usedMacros = useMemo(() => {
+    const macros = [];
+    const allMacros = [
+      { key: 'username', label: 'Username / User ID', icon: '👤' },
+      { key: 'user_id', label: 'User ID', icon: '👤' },
+      { key: 'click_id', label: 'Click ID', icon: '🔗' },
+      { key: 'points', label: 'Points / Reward', icon: '💰' },
+      { key: 'payout', label: 'Payout (USD)', icon: '💵' },
+      { key: 'offer_id', label: 'Offer ID', icon: '📋' },
+      { key: 'offer_name', label: 'Offer Name', icon: '📝' },
+      { key: 'status', label: 'Status', icon: '✅' },
+      { key: 'user_ip', label: 'User IP', icon: '🌐' },
+      { key: 'affiliate_id', label: 'Affiliate ID', icon: '🤝' },
+      { key: 'transaction_id', label: 'Transaction ID', icon: '🔑' },
+    ];
+    for (const m of allMacros) {
+      if (postbackUrl.includes(`{${m.key}}`)) {
+        macros.push(m);
+      }
+    }
+    // If no macros detected, show common ones so they can still test
+    if (macros.length === 0 && hasUrl) {
+      return allMacros.slice(0, 5);
+    }
+    return macros;
+  }, [postbackUrl, hasUrl]);
+
+  // Build the final URL with test values injected
+  const finalUrl = useMemo(() => {
+    let url = postbackUrl;
+    for (const [key, value] of Object.entries(testValues)) {
+      url = url.replace(new RegExp(`\\{${key}\\}`, 'g'), encodeURIComponent(value));
+    }
+    return url;
+  }, [postbackUrl, testValues]);
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const startTime = Date.now();
+      // Use backend proxy to hit the publisher's postback URL (avoids CORS)
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const token = localStorage.getItem('token');
+      const proxyRes = await fetch(`${API_BASE_URL}/api/placements/test-postback-url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ url: finalUrl }),
+      });
+      const elapsed = Date.now() - startTime;
+      const proxyData = await proxyRes.json();
+      
+      if (proxyData.error) {
+        setTestResult({
+          success: false,
+          statusCode: 0,
+          responseTime: elapsed,
+          message: proxyData.error,
+          responseBody: '',
+        });
+      } else {
+        setTestResult({
+          success: proxyData.success,
+          statusCode: proxyData.status_code || 0,
+          responseTime: proxyData.response_time || elapsed,
+          message: proxyData.message || (proxyData.success ? 'Postback received successfully!' : 'Failed to reach your server'),
+          responseBody: proxyData.response_body || '',
+        });
+      }
+    } catch (err) {
+      setTestResult({
+        success: false,
+        statusCode: 0,
+        responseTime: 0,
+        message: `Error: ${err.message}. Make sure the backend server is running.`,
+        responseBody: '',
+      });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const randomize = () => {
+    setTestValues({
+      username: 'test_user_' + Math.floor(Math.random() * 9999),
+      click_id: 'click_' + Math.floor(Math.random() * 999999),
+      points: String(Math.floor(Math.random() * 500) + 10),
+      payout: (Math.random() * 5 + 0.5).toFixed(2),
+      offer_id: 'ML-TEST-' + Math.floor(Math.random() * 99999),
+      offer_name: 'Test Survey Offer',
+      status: 'approved',
+      user_ip: '192.168.1.' + Math.floor(Math.random() * 255),
+      user_id: 'test_user_' + Math.floor(Math.random() * 9999),
+      affiliate_id: 'aff_test',
+      transaction_id: 'txn_' + Math.floor(Math.random() * 999999),
+    });
+    setTestResult(null);
+  };
 
   return (
-    <Card title="Test Postback" description="Simulate a conversion to verify your postback URI configuration." className="space-y-6">
-      {!isPlacementReady && (
-        <p className="text-base p-4 rounded-xl bg-yellow-50 border border-yellow-300 text-yellow-800 shadow-inner">
+    <Card title="🧪 Test Your Postback" description="We'll hit your postback URL with test data so you can verify it works." className="space-y-5">
+      {!hasUrl ? (
+        <div className="p-4 rounded-xl bg-yellow-50 border border-yellow-300 text-yellow-800">
           <Info className="h-4 w-4 inline mr-2" />
-          **Setup Required:** Please ensure the Postback URI and Placement Identifier are configured before running tests.
-        </p>
-      )}
-      
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Input
-          label="User ID"
-          placeholder="e.g., user_12345"
-          value={data.userId}
-          onChange={(e) => onChange('userId', e.target.value)}
-          icon={Settings}
-        />
-        <Input
-          label="Reward Value (In Local Currency)"
-          placeholder="e.g., 100"
-          type="number"
-          value={data.rewardValue}
-          onChange={(e) => onChange('rewardValue', e.target.value)}
-          icon={DollarSign}
-        />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Input
-          label="Offer Name"
-          placeholder="e.g., Survey - Platinum Tier"
-          value={data.offerName}
-          onChange={(e) => onChange('offerName', e.target.value)}
-          icon={BarChart}
-        />
-        <Select
-          label="Status"
-          value={data.status}
-          onChange={(e) => onChange('status', e.target.value)}
-          options={STATUS_OPTIONS}
-        />
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Input
-          label="Offer ID (Unique Transaction ID)"
-          placeholder="e.g., OFR-67890"
-          value={data.offerId}
-          onChange={(e) => onChange('offerId', e.target.value)}
-          icon={Play}
-        />
-        <Input
-          label="User IP (Optional)"
-          placeholder="e.g., 192.168.1.1"
-          value={data.userIp}
-          onChange={(e) => onChange('userIp', e.target.value)}
-          icon={Globe}
-        />
-      </div>
-
-      <p className="text-sm p-4 rounded-xl bg-red-50 border border-red-300 text-red-800 shadow-inner">
-        <Info className="h-4 w-4 inline mr-2" />
-        **Caution:** Test postbacks do not affect live user accounts or revenue reports.
-      </p>
-
-      <Button onClick={onSubmit} className="w-full" icon={Send} disabled={!isPlacementReady || loading}>
-        {loading ? (
-          <div className="flex items-center space-x-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>Testing Postback...</span>
+          <span className="font-medium">No Postback URL configured.</span> Go to the Details tab and add your Postback URL first.
+        </div>
+      ) : (
+        <>
+          {/* Your Postback URL */}
+          <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase mb-1">Your Postback URL</p>
+            <code className="text-xs text-gray-700 break-all block">{postbackUrl}</code>
           </div>
-        ) : (
-          'Send Test Postback'
-        )}
-      </Button>
+
+          {/* Editable test values per macro */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-xs font-semibold text-gray-700">Test Values (edit to customize)</h4>
+              <button type="button" onClick={randomize} className="text-[10px] bg-violet-100 hover:bg-violet-200 text-violet-700 px-2 py-1 rounded font-medium transition-colors">
+                🎲 Randomize
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {usedMacros.map(m => (
+                <div key={m.key} className="grid grid-cols-[140px_auto_1fr] gap-2 items-center">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm">{m.icon}</span>
+                    <code className="text-[11px] text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">{`{${m.key}}`}</code>
+                  </div>
+                  <span className="text-gray-300">→</span>
+                  <input
+                    type="text"
+                    value={testValues[m.key] || ''}
+                    onChange={e => setTestValues(prev => ({ ...prev, [m.key]: e.target.value }))}
+                    className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:border-violet-400 focus:ring-1 focus:ring-violet-200 outline-none transition-colors font-mono"
+                    placeholder={`Test value for ${m.key}`}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Final URL Preview */}
+          <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+            <p className="text-[10px] font-semibold text-indigo-600 uppercase mb-1">Final URL (will be hit)</p>
+            <code className="text-[11px] text-indigo-800 break-all block">{finalUrl}</code>
+          </div>
+
+          {/* Test Result */}
+          {testResult && (
+            <div className={`p-3 rounded-lg border ${testResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+              <div className="flex items-center gap-2 mb-1">
+                {testResult.success ? (
+                  <CheckCircle className="h-4 w-4 text-green-600" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-red-600" />
+                )}
+                <span className={`text-sm font-semibold ${testResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                  {testResult.success ? 'Success' : 'Failed'} — HTTP {testResult.statusCode}
+                </span>
+                <span className="text-xs text-gray-500 ml-auto">{testResult.responseTime}ms</span>
+              </div>
+              <p className="text-xs text-gray-600">{testResult.message}</p>
+              {testResult.responseBody && (
+                <pre className="mt-2 text-[10px] bg-white p-2 rounded border max-h-24 overflow-auto font-mono text-gray-600">{testResult.responseBody}</pre>
+              )}
+            </div>
+          )}
+
+          {/* Info */}
+          <p className="text-xs p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
+            <Info className="h-3.5 w-3.5 inline mr-1" />
+            When you click "Test Postback", we'll send a GET request to your URL with the test values above. Check your server to confirm it received the data. This does not affect live accounts.
+          </p>
+
+          {/* Test Button */}
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className={`w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-semibold text-sm transition-all duration-300 ${
+              testing ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-lg shadow-violet-200'
+            }`}
+          >
+            {testing ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Testing...</>
+            ) : (
+              <><Send className="h-4 w-4" /> Test Postback</>
+            )}
+          </button>
+        </>
+      )}
     </Card>
   );
 };

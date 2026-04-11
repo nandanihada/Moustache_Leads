@@ -42,8 +42,14 @@ def get_inactive_users():
             filters['email_verified'] = val == 'true'
     if request.args.get('has_earnings') == 'true':
         filters['has_earnings'] = True
-    if request.args.get('has_placement') == 'true':
-        filters['has_placement'] = True
+    if request.args.get('has_placement') is not None:
+        val = request.args.get('has_placement')
+        if val in ('true', 'false'):
+            filters['has_placement'] = val
+    if request.args.get('has_offer_requests') is not None:
+        val = request.args.get('has_offer_requests')
+        if val in ('true', 'false'):
+            filters['has_offer_requests'] = val
     if request.args.get('account_status'):
         filters['account_status'] = request.args.get('account_status')
 
@@ -61,6 +67,16 @@ def get_stats():
     svc = get_reactivation_service()
     stats = svc.get_stats()
     return jsonify({'success': True, **stats})
+
+
+@reactivation_bp.route('/reactivation/users/<user_id>/enriched', methods=['GET'])
+@token_required
+@admin_required
+def get_user_enriched_detail(user_id):
+    """Get enriched detail for a user — all data admin needs for reactivation decisions"""
+    svc = get_reactivation_service()
+    result = svc.get_user_enriched_detail(user_id)
+    return jsonify({'success': True, **result})
 
 
 @reactivation_bp.route('/reactivation/users/<user_id>/profile', methods=['GET'])
@@ -190,6 +206,68 @@ def get_offers_for_picker():
     search = request.args.get('search', '')
     offers = svc.get_offers_for_picker(search=search)
     return jsonify({'success': True, 'offers': offers})
+
+
+@reactivation_bp.route('/reactivation/outreach-history', methods=['GET'])
+@token_required
+@admin_required
+def get_outreach_history():
+    """Get overall outreach history for the reactivation tab"""
+    svc = get_reactivation_service()
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 50, type=int)
+
+    try:
+        if svc.outreach_col is None:
+            return jsonify({'success': True, 'history': [], 'total': 0})
+
+        total = svc.outreach_col.count_documents({})
+        docs = list(svc.outreach_col.find({}).sort('created_at', -1).skip((page - 1) * per_page).limit(per_page))
+
+        history = []
+        for d in docs:
+            history.append({
+                '_id': str(d.get('_id', '')),
+                'user_id': d.get('user_id', ''),
+                'user_email': d.get('user_email', ''),
+                'username': d.get('username', ''),
+                'offer_name': d.get('offer_name', ''),
+                'channel': d.get('channel', ''),
+                'subject': d.get('subject', ''),
+                'message': (d.get('message', '') or '')[:200],
+                'status': d.get('status', ''),
+                'send_time': d.get('send_time', ''),
+                'created_at': d.get('created_at'),
+                'sent_at': d.get('sent_at'),
+                'bulk_send': d.get('bulk_send', False),
+                'bulk_count': d.get('bulk_count', 0),
+            })
+
+        # Stats
+        sent_count = svc.outreach_col.count_documents({'status': 'sent'})
+        failed_count = svc.outreach_col.count_documents({'status': 'failed'})
+        scheduled_count = svc.outreach_col.count_documents({'status': 'scheduled'})
+
+        return jsonify({
+            'success': True,
+            'history': history,
+            'total': total,
+            'stats': {'sent': sent_count, 'failed': failed_count, 'scheduled': scheduled_count},
+            'page': page,
+            'per_page': per_page,
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@reactivation_bp.route('/reactivation/offers/quick-pick', methods=['GET'])
+@token_required
+@admin_required
+def get_quick_pick_offers():
+    """Get categorized offer lists for quick-pick buttons in S+S modal"""
+    svc = get_reactivation_service()
+    result = svc.get_quick_pick_offers()
+    return jsonify({'success': True, **result})
 
 
 @reactivation_bp.route('/reactivation/users/<user_id>/recommend', methods=['GET'])

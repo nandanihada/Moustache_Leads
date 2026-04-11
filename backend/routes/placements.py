@@ -407,6 +407,64 @@ def test_postback():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@placements_bp.route('/test-postback-url', methods=['POST'])
+@token_required
+def test_postback_url():
+    """Simple endpoint: takes a final URL and hits it via GET, returns status code and response."""
+    try:
+        data = request.get_json()
+        url = (data or {}).get('url', '').strip()
+        if not url:
+            return jsonify({'error': 'url is required'}), 400
+
+        import requests as req_lib
+        import time
+
+        start = time.time()
+        try:
+            resp = req_lib.get(url, timeout=15, headers={
+                'User-Agent': 'MoustacheLeads-PostbackTest/1.0',
+                'Accept': '*/*',
+            })
+            elapsed = int((time.time() - start) * 1000)
+            success = 200 <= resp.status_code < 400
+            return jsonify({
+                'success': success,
+                'status_code': resp.status_code,
+                'response_time': elapsed,
+                'message': f'Server responded with HTTP {resp.status_code}',
+                'response_body': resp.text[:500] if resp.text else '',
+            }), 200
+        except req_lib.exceptions.Timeout:
+            return jsonify({
+                'success': False,
+                'status_code': 0,
+                'response_time': int((time.time() - start) * 1000),
+                'message': 'Request timed out after 15 seconds',
+                'response_body': '',
+            }), 200
+        except req_lib.exceptions.ConnectionError as e:
+            return jsonify({
+                'success': False,
+                'status_code': 0,
+                'response_time': int((time.time() - start) * 1000),
+                'message': f'Connection error: Could not reach the server. Check the URL.',
+                'response_body': str(e)[:200],
+            }), 200
+        except req_lib.exceptions.RequestException as e:
+            return jsonify({
+                'success': False,
+                'status_code': 0,
+                'response_time': int((time.time() - start) * 1000),
+                'message': f'Request failed: {str(e)[:100]}',
+                'response_body': '',
+            }), 200
+
+    except Exception as e:
+        logger.error(f"Error testing postback URL: {e}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+
 @placements_bp.route('/migrate/add-api-keys', methods=['POST'])
 @token_required
 def migrate_add_api_keys():

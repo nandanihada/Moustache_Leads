@@ -396,7 +396,7 @@ def export_offers():
 @subadmin_or_admin_required('offers')
 def get_running_offers():
     """Get running offers with subcategory filters: searched, picked, requested, approved, rejected, has_clicks.
-    Running offers are those that have been interacted with in the last 30 days.
+    Running offers are those that have been interacted with in the last 70 days.
     """
     try:
         from datetime import timedelta
@@ -411,7 +411,7 @@ def get_running_offers():
         country_filter = request.args.get('country', '')
         network_filter = request.args.get('network', '')
         sort_by = request.args.get('sort', 'newest')
-        days = int(request.args.get('days', 30))
+        days = int(request.args.get('days', 70))
 
         cutoff = datetime.utcnow() - timedelta(days=days)
         offers_col = db_instance.get_collection('offers')
@@ -601,9 +601,10 @@ def get_running_offers():
         skip = (page - 1) * per_page
 
         if sort_field:
-            docs = list(offers_col.find(query).sort(sort_field, sort_dir).skip(skip).limit(per_page))
+            # Always sort pinned offers first, then by the requested sort
+            docs = list(offers_col.find(query).sort([('is_pinned', -1), (sort_field, sort_dir)]).skip(skip).limit(per_page))
         else:
-            docs = list(offers_col.find(query).skip(0).limit(total or 1000))
+            docs = list(offers_col.find(query).sort([('is_pinned', -1)]).skip(0).limit(total or 1000))
 
         # Track which offers have DIRECT interactions (not just keyword matches)
         directly_interacted = set()
@@ -1413,7 +1414,7 @@ def bulk_update_payout():
 @token_required
 @subadmin_or_admin_required('offers')
 def bulk_pin_offers():
-    """Pin/Unpin multiple offers at once"""
+    """Pin/Unpin multiple offers at once, with optional duration"""
     try:
         data = request.get_json()
         if not data or 'is_pinned' not in data:
@@ -1421,6 +1422,7 @@ def bulk_pin_offers():
 
         is_pinned = bool(data['is_pinned'])
         offer_ids = data.get('offer_ids', [])
+        pin_duration_hours = data.get('pin_duration_hours')  # optional
 
         if not offer_ids or not isinstance(offer_ids, list) or len(offer_ids) == 0:
             return jsonify({'error': 'offer_ids is required.'}), 400
@@ -1429,19 +1431,32 @@ def bulk_pin_offers():
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
 
-        from datetime import datetime
+        from datetime import datetime, timedelta
 
         query = {'offer_id': {'$in': offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
-        result = offers_collection.update_many(
-            query,
-            {'$set': {'is_pinned': is_pinned, 'updated_at': datetime.utcnow()}}
-        )
+
+        update_fields = {
+            'is_pinned': is_pinned,
+            'updated_at': datetime.utcnow(),
+        }
+
+        if is_pinned:
+            update_fields['pinned_at'] = datetime.utcnow()
+            if pin_duration_hours and float(pin_duration_hours) > 0:
+                update_fields['pin_expires_at'] = datetime.utcnow() + timedelta(hours=float(pin_duration_hours))
+            else:
+                update_fields['pin_expires_at'] = None  # permanent pin
+        else:
+            update_fields['pinned_at'] = None
+            update_fields['pin_expires_at'] = None
+
+        result = offers_collection.update_many(query, {'$set': update_fields})
 
         log_admin_activity(
             action='bulk_pin_update',
             category='offer',
             admin_user=request.current_user,
-            details={'is_pinned': is_pinned, 'updated_count': result.modified_count, 'requested_count': len(offer_ids)},
+            details={'is_pinned': is_pinned, 'pin_duration_hours': pin_duration_hours, 'updated_count': result.modified_count, 'requested_count': len(offer_ids)},
             affected_count=result.modified_count,
             request_obj=request
         )
@@ -1452,6 +1467,118 @@ def bulk_pin_offers():
     except Exception as e:
         logging.error(f"Bulk pin offers error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to pin offers: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/bulk-percentage-payout', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_percentage_payout():
+    """Apply percentage increase/decrease to selected offers' payouts"""
+    try:
+        data = request.get_json()
+        if not data or 'percentage' not in data:
+            return jsonify({'error': 'percentage is required'}), 400
+
+        try:
+            percentage = float(data['percentage'])
+        except ValueError:
+            return jsonify({'error': 'percentage must be a number'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids or not isinstance(offer_ids, list) or len(offer_ids) == 0:
+            return jsonify({'error': 'offer_ids is required'}), 400
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        query = {'offer_id': {'$in': offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+        offers = list(offers_collection.find(query, {'offer_id': 1, 'payout': 1}))
+
+        updated = 0
+        for offer in offers:
+            old_payout = float(offer.get('payout', 0) or 0)
+            new_payout = round(old_payout * (1 + percentage / 100), 2)
+            if new_payout < 0:
+                new_payout = 0
+            offers_collection.update_one(
+                {'offer_id': offer['offer_id']},
+                {'$set': {'payout': new_payout, 'updated_at': datetime.utcnow()}}
+            )
+            updated += 1
+
+        log_admin_activity(
+            action='bulk_percentage_payout',
+            category='offer',
+            admin_user=request.current_user,
+            details={'percentage': percentage, 'updated_count': updated, 'requested_count': len(offer_ids)},
+            affected_count=updated,
+            request_obj=request
+        )
+
+        direction = "increased" if percentage > 0 else "decreased"
+        return jsonify({
+            'message': f'Payout {direction} by {abs(percentage)}% for {updated} offer(s)',
+            'updated_count': updated
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Bulk percentage payout error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to update payouts: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/<offer_id>/inline-update', methods=['PATCH'])
+@token_required
+@subadmin_or_admin_required('offers')
+def inline_update_offer(offer_id):
+    """Quick inline update for offer fields (payout, status, pin) from running offers table"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        allowed_fields = {'payout', 'status', 'is_pinned', 'pin_expires_at', 'pinned_at'}
+        update_fields = {}
+        for key, value in data.items():
+            if key in allowed_fields:
+                if key == 'payout':
+                    update_fields[key] = float(value)
+                elif key == 'pin_expires_at' and value:
+                    update_fields[key] = datetime.fromisoformat(value.replace('Z', ''))
+                else:
+                    update_fields[key] = value
+
+        if not update_fields:
+            return jsonify({'error': 'No valid fields to update'}), 400
+
+        update_fields['updated_at'] = datetime.utcnow()
+
+        result = offers_collection.update_one(
+            {'offer_id': offer_id, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+            {'$set': update_fields}
+        )
+
+        if result.modified_count == 0:
+            return jsonify({'error': 'Offer not found or no changes made'}), 404
+
+        log_admin_activity(
+            action='inline_offer_update',
+            category='offer',
+            admin_user=request.current_user,
+            details={'offer_id': offer_id, 'updated_fields': list(update_fields.keys())},
+            affected_count=1,
+            request_obj=request
+        )
+
+        return jsonify({'message': 'Offer updated', 'updated_fields': list(update_fields.keys())}), 200
+
+    except Exception as e:
+        logging.error(f"Inline update error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to update offer: {str(e)}'}), 500
 
 
 # ============================================
@@ -3472,6 +3599,55 @@ def get_rotation_status():
         return jsonify(serialize_for_json(status)), 200
     except Exception as e:
         logging.error(f"Rotation status error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/current-batch', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_current_rotation_batch():
+    """Get paginated offers in the current rotation batch (for admin Rotating Offers sub-view)."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        state = service._get_state()
+        batch_ids = state.get('current_batch_ids', [])
+
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 20))
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        total = len(batch_ids)
+        start = (page - 1) * per_page
+        page_ids = batch_ids[start:start + per_page]
+
+        offers = list(offers_collection.find(
+            {'offer_id': {'$in': page_ids}},
+            {'offer_id': 1, 'name': 1, 'status': 1, 'payout': 1, 'network': 1,
+             'countries': 1, 'category': 1, 'vertical': 1, 'image_url': 1,
+             'is_pinned': 1, 'pinned_at': 1, 'pin_expires_at': 1,
+             'currency': 1, 'created_at': 1, 'campaign_id': 1,
+             'revenue_share_percent': 1, 'incentive_type': 1,
+             'device_targeting': 1, 'affiliates': 1}
+        ))
+
+        for o in offers:
+            o['_id'] = str(o['_id'])
+
+        return safe_json_response({
+            'offers': offers,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page if total > 0 else 0
+            }
+        })
+    except Exception as e:
+        logging.error(f"Rotation current batch error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

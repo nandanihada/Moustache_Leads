@@ -54,6 +54,24 @@ export interface SearchLogsFilters {
   date_to?: string;
 }
 
+export interface RelatedOffer {
+  _id: string;
+  offer_id: string;
+  name: string;
+  image_url?: string;
+  thumbnail_url?: string;
+  target_url?: string;
+  preview_url?: string;
+  payout: number;
+  status: string;
+  category?: string;
+  vertical?: string;
+  countries?: string[];
+  network?: string;
+  description?: string;
+  currency?: string;
+}
+
 export const searchLogsApi = {
   async getLogs(filters: SearchLogsFilters = {}): Promise<SearchLogsResponse> {
     const params = new URLSearchParams();
@@ -118,5 +136,30 @@ export const searchLogsApi = {
     } catch {
       // Silently fail
     }
+  },
+
+  async getRelatedOffers(keyword: string): Promise<{ success: boolean; offers: RelatedOffer[]; total: number }> {
+    const res = await fetch(`${API}/api/admin/search-logs/related-offers?keyword=${encodeURIComponent(keyword)}`, {
+      headers: headers(),
+    });
+    if (!res.ok) throw new Error('Failed to fetch related offers');
+    return res.json();
+  },
+
+  async sendInventoryEmail(data: {
+    search_log_id?: string;
+    user_id: string;
+    keyword: string;
+    offers: Array<{ offer_id: string; name: string; image_url?: string; target_url?: string; payout: number }>;
+    subject?: string;
+    message?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API}/api/admin/search-logs/send-inventory-email`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error('Failed to send inventory email');
+    return res.json();
   },
 };

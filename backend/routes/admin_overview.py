@@ -1122,3 +1122,168 @@ def get_click_details_log():
     except Exception as e:
         logger.error(f"Error getting click details log: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# BADGE COUNTS - Live activity counters for admin sidebar tabs
+# ============================================================================
+
+@admin_overview_bp.route('/api/admin/badge-counts', methods=['GET'])
+@token_required
+def get_badge_counts():
+    """
+    Return unread/new activity counts for admin sidebar tabs.
+    Uses admin_tab_visits to track when admin last visited each tab.
+    Badge = count of new items since last visit.
+    """
+    try:
+        user = request.current_user
+        if user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        admin_id = str(user.get('_id', ''))
+        now = datetime.utcnow()
+
+        # Get last visit timestamps per tab
+        visits_col = get_collection('admin_tab_visits')
+        last_visits = {}
+        if visits_col is not None:
+            doc = visits_col.find_one({'admin_id': admin_id})
+            if doc:
+                last_visits = doc.get('tabs', {})
+
+        badges = {}
+
+        # Search Logs - new searches since last visit
+        try:
+            search_col = get_collection('search_logs')
+            if search_col is not None:
+                since = last_visits.get('search-logs', now - timedelta(hours=24))
+                badges['search-logs'] = search_col.count_documents({'searched_at': {'$gt': since}})
+        except Exception:
+            badges['search-logs'] = 0
+
+        # Click Tracking - new clicks since last visit
+        try:
+            clicks_col = get_collection('clicks')
+            if clicks_col is not None:
+                since = last_visits.get('click-tracking', now - timedelta(hours=24))
+                badges['click-tracking'] = clicks_col.count_documents({'timestamp': {'$gt': since}})
+        except Exception:
+            badges['click-tracking'] = 0
+
+        # Offer Access Requests - pending requests
+        try:
+            req_col = get_collection('affiliate_requests')
+            if req_col is not None:
+                since = last_visits.get('offer-access-requests', now - timedelta(hours=24))
+                badges['offer-access-requests'] = req_col.count_documents({
+                    'status': 'pending',
+                    'requested_at': {'$gt': since}
+                })
+        except Exception:
+            badges['offer-access-requests'] = 0
+
+        # Placement Approval - pending placements
+        try:
+            place_col = get_collection('placements')
+            if place_col is not None:
+                since = last_visits.get('placement-approval', now - timedelta(hours=24))
+                badges['placement-approval'] = place_col.count_documents({
+                    'status': 'pending',
+                    'created_at': {'$gt': since}
+                })
+        except Exception:
+            badges['placement-approval'] = 0
+
+        # Activity Logs - new logs since last visit
+        try:
+            activity_col = get_collection('admin_activity_logs')
+            if activity_col is not None:
+                since = last_visits.get('activity-logs', now - timedelta(hours=24))
+                badges['activity-logs'] = activity_col.count_documents({'created_at': {'$gt': since}})
+        except Exception:
+            badges['activity-logs'] = 0
+
+        # Login Logs - new logins since last visit
+        try:
+            login_col = get_collection('login_logs')
+            if login_col is not None:
+                since = last_visits.get('login-logs', now - timedelta(hours=24))
+                badges['login-logs'] = login_col.count_documents({'timestamp': {'$gt': since}})
+        except Exception:
+            badges['login-logs'] = 0
+
+        # Offerwall Analytics - new sessions since last visit
+        try:
+            ow_col = get_collection('offerwall_sessions')
+            if ow_col is not None:
+                since = last_visits.get('offerwall-analytics', now - timedelta(hours=24))
+                badges['offerwall-analytics'] = ow_col.count_documents({'created_at': {'$gt': since}})
+        except Exception:
+            badges['offerwall-analytics'] = 0
+
+        # Reports - new tracking reports
+        try:
+            reports_col = get_collection('tracking_reports')
+            if reports_col is not None:
+                since = last_visits.get('tracking', now - timedelta(hours=24))
+                badges['tracking'] = reports_col.count_documents({'created_at': {'$gt': since}})
+        except Exception:
+            badges['tracking'] = 0
+
+        # Missing Offers
+        try:
+            missing_col = get_collection('missing_offers')
+            if missing_col is not None:
+                since = last_visits.get('missing-offers', now - timedelta(hours=24))
+                badges['missing-offers'] = missing_col.count_documents({'created_at': {'$gt': since}})
+        except Exception:
+            badges['missing-offers'] = 0
+
+        # Reactivation
+        try:
+            react_col = get_collection('reactivation_campaigns')
+            if react_col is not None:
+                since = last_visits.get('reactivation', now - timedelta(hours=24))
+                badges['reactivation'] = react_col.count_documents({'created_at': {'$gt': since}})
+        except Exception:
+            badges['reactivation'] = 0
+
+        return jsonify({'success': True, 'badges': badges}), 200
+
+    except Exception as e:
+        logger.error(f"Error getting badge counts: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_overview_bp.route('/api/admin/badge-counts/visit', methods=['POST'])
+@token_required
+def mark_tab_visited():
+    """Mark a tab as visited by the admin, clearing its badge count."""
+    try:
+        user = request.current_user
+        if user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        tab = data.get('tab', '')
+        if not tab:
+            return jsonify({'error': 'tab is required'}), 400
+
+        admin_id = str(user.get('_id', ''))
+        visits_col = get_collection('admin_tab_visits')
+        if visits_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        visits_col.update_one(
+            {'admin_id': admin_id},
+            {'$set': {f'tabs.{tab}': datetime.utcnow(), 'updated_at': datetime.utcnow()}},
+            upsert=True
+        )
+
+        return jsonify({'success': True, 'tab': tab}), 200
+
+    except Exception as e:
+        logger.error(f"Error marking tab visited: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

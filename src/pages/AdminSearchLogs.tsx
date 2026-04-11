@@ -20,7 +20,7 @@ import {
   Eye, MousePointer, Link, FileText,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { searchLogsApi, type SearchLog, type SearchLogsFilters } from '@/services/searchLogsApi';
+import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer } from '@/services/searchLogsApi';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 
 const AdminSearchLogsContent: React.FC = () => {
@@ -48,6 +48,71 @@ const AdminSearchLogsContent: React.FC = () => {
   const [customEmails, setCustomEmails] = useState('');
   const [sendToAll, setSendToAll] = useState(false);
   const [sending, setSending] = useState(false);
+
+  // Inventory email state
+  const [inventoryEmailOpen, setInventoryEmailOpen] = useState(false);
+  const [inventoryEmailLog, setInventoryEmailLog] = useState<SearchLog | null>(null);
+  const [relatedOffers, setRelatedOffers] = useState<RelatedOffer[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [inventorySubject, setInventorySubject] = useState('');
+  const [inventoryMessage, setInventoryMessage] = useState('');
+  const [inventorySending, setInventorySending] = useState(false);
+  const [editingOffers, setEditingOffers] = useState<Array<{ offer_id: string; name: string; image_url: string; target_url: string; payout: number; selected: boolean }>>([]);
+
+  const openInventoryEmail = async (log: SearchLog) => {
+    setInventoryEmailLog(log);
+    setInventorySubject(`🔥 Offers matching "${log.keyword}" are available for you!`);
+    setInventoryMessage('');
+    setInventoryEmailOpen(true);
+    setRelatedLoading(true);
+    try {
+      const res = await searchLogsApi.getRelatedOffers(log.keyword);
+      const mapped = (res.offers || []).map(o => ({
+        offer_id: o.offer_id,
+        name: o.name,
+        image_url: o.image_url || o.thumbnail_url || '',
+        target_url: o.target_url || o.preview_url || '',
+        payout: o.payout || 0,
+        selected: true,
+      }));
+      setEditingOffers(mapped);
+      setRelatedOffers(res.offers || []);
+    } catch (err: any) {
+      toast({ title: 'Error', description: 'Failed to load related offers', variant: 'destructive' });
+    } finally {
+      setRelatedLoading(false);
+    }
+  };
+
+  const handleSendInventoryEmail = async () => {
+    if (!inventoryEmailLog) return;
+    const selected = editingOffers.filter(o => o.selected);
+    if (selected.length === 0) {
+      toast({ title: 'Error', description: 'Select at least one offer', variant: 'destructive' });
+      return;
+    }
+    setInventorySending(true);
+    try {
+      const res = await searchLogsApi.sendInventoryEmail({
+        search_log_id: inventoryEmailLog._id,
+        user_id: inventoryEmailLog.user_id,
+        keyword: inventoryEmailLog.keyword,
+        offers: selected.map(o => ({ offer_id: o.offer_id, name: o.name, image_url: o.image_url, target_url: o.target_url, payout: o.payout })),
+        subject: inventorySubject,
+        message: inventoryMessage,
+      });
+      toast({ title: 'Sent', description: res.message });
+      setInventoryEmailOpen(false);
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setInventorySending(false);
+    }
+  };
+
+  const updateEditingOffer = (index: number, field: string, value: string | number | boolean) => {
+    setEditingOffers(prev => prev.map((o, i) => i === index ? { ...o, [field]: value } : o));
+  };
 
   const fetchLogs = useCallback(async (page = 1) => {
     setLoading(true);
@@ -294,19 +359,20 @@ const AdminSearchLogsContent: React.FC = () => {
                   <TableHead className="text-center">Preview</TableHead>
                   <TableHead className="text-center">Requested</TableHead>
                   <TableHead className="text-center">Tracking</TableHead>
+                  <TableHead className="text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-10">
+                    <TableCell colSpan={12} className="text-center py-10">
                       <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
                       Loading...
                     </TableCell>
                   </TableRow>
                 ) : logs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={12} className="text-center py-10 text-muted-foreground">
                       <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
                       No search logs found
                     </TableCell>
@@ -382,6 +448,29 @@ const AdminSearchLogsContent: React.FC = () => {
                           <Badge variant="outline" className="text-muted-foreground">No</Badge>
                         )}
                       </TableCell>
+                      <TableCell className="text-center">
+                        {log.inventory_status === 'in_inventory_not_active' ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-8 p-0 text-orange-600 hover:bg-orange-50 border-orange-200"
+                            title={`Send inventory offers email to ${log.username}`}
+                            onClick={() => openInventoryEmail(log)}
+                          >
+                            <Mail className="h-4 w-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 w-8 p-0 text-muted-foreground"
+                            title={`Send email to ${log.username}`}
+                            onClick={() => openInventoryEmail(log)}
+                          >
+                            <Mail className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -451,6 +540,123 @@ const AdminSearchLogsContent: React.FC = () => {
             <Button onClick={handleSendEmail} disabled={sending}>
               {sending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
               {sending ? 'Sending...' : 'Send Email'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Inventory Email Dialog - Send related offers to user */}
+      <Dialog open={inventoryEmailOpen} onOpenChange={setInventoryEmailOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-orange-500" />
+              Send Inventory Offers to {inventoryEmailLog?.username}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 bg-orange-50 dark:bg-orange-950 rounded-lg text-sm">
+              <p className="font-medium text-orange-800 dark:text-orange-200">
+                Keyword: "{inventoryEmailLog?.keyword}" — In Inventory but Not Active
+              </p>
+              <p className="text-orange-600 dark:text-orange-300 text-xs mt-1">
+                System found {inventoryEmailLog?.total_inventory_count || 0} total offers, {inventoryEmailLog?.active_inventory_count || 0} active.
+                Sending related offers so the publisher can still find value.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium mb-1 block">Email Subject</label>
+              <Input value={inventorySubject} onChange={e => setInventorySubject(e.target.value)} />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium mb-1 block">Custom Message (optional)</label>
+              <Textarea
+                value={inventoryMessage}
+                onChange={e => setInventoryMessage(e.target.value)}
+                placeholder="Add a personal message above the offer cards..."
+                rows={3}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium">Related Offers ({editingOffers.filter(o => o.selected).length} selected)</label>
+                <Button size="sm" variant="outline" onClick={() => setEditingOffers(prev => prev.map(o => ({ ...o, selected: !prev.every(p => p.selected) })))}>
+                  {editingOffers.every(o => o.selected) ? 'Deselect All' : 'Select All'}
+                </Button>
+              </div>
+
+              {relatedLoading ? (
+                <div className="text-center py-6">
+                  <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
+                  Loading related offers...
+                </div>
+              ) : editingOffers.length === 0 ? (
+                <div className="text-center py-6 text-muted-foreground text-sm">
+                  No related offers found for this keyword.
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
+                  {editingOffers.map((offer, idx) => (
+                    <div key={offer.offer_id} className={`border rounded-lg p-3 ${offer.selected ? 'border-orange-300 bg-orange-50/50 dark:bg-orange-950/30' : 'border-gray-200 opacity-60'}`}>
+                      <div className="flex items-start gap-3">
+                        <Checkbox
+                          checked={offer.selected}
+                          onCheckedChange={(checked) => updateEditingOffer(idx, 'selected', !!checked)}
+                          className="mt-1"
+                        />
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-mono text-muted-foreground">{offer.offer_id}</span>
+                            <Badge variant="outline" className="text-xs">${offer.payout.toFixed(2)}</Badge>
+                          </div>
+                          <Input
+                            value={offer.name}
+                            onChange={e => updateEditingOffer(idx, 'name', e.target.value)}
+                            className="h-8 text-sm font-medium"
+                            placeholder="Offer name"
+                          />
+                          <div className="grid grid-cols-2 gap-2">
+                            <Input
+                              value={offer.image_url}
+                              onChange={e => updateEditingOffer(idx, 'image_url', e.target.value)}
+                              className="h-7 text-xs"
+                              placeholder="Image URL"
+                            />
+                            <Input
+                              value={offer.target_url}
+                              onChange={e => updateEditingOffer(idx, 'target_url', e.target.value)}
+                              className="h-7 text-xs"
+                              placeholder="Target URL"
+                            />
+                          </div>
+                        </div>
+                        {offer.image_url && (
+                          <img
+                            src={offer.image_url}
+                            alt=""
+                            className="w-12 h-12 rounded object-cover border"
+                            onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInventoryEmailOpen(false)}>Cancel</Button>
+            <Button
+              onClick={handleSendInventoryEmail}
+              disabled={inventorySending || editingOffers.filter(o => o.selected).length === 0}
+              className="bg-orange-600 hover:bg-orange-700"
+            >
+              {inventorySending ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
+              {inventorySending ? 'Sending...' : `Send ${editingOffers.filter(o => o.selected).length} Offers`}
             </Button>
           </DialogFooter>
         </DialogContent>
