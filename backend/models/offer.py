@@ -45,67 +45,66 @@ CATEGORY_KEYWORDS = {
     'SURVEY': [
         'survey', 'poll', 'questionnaire', 'feedback', 'opinion',
         'answer questions', 'complete survey', 'take survey',
-        'market research', 'user feedback',
-        'earn rewards', 'earn money', 'payout', 'cash reward'
+        'market research', 'user feedback'
     ],
     'SWEEPSTAKES': [
         'sweepstakes', 'sweeps', 'giveaway', 'giveaways', 'prize', 'prizes',
-        'win', 'winner', 'winners', 'lottery', 'lotto', 'raffle',
+        'lottery', 'lotto', 'raffle',
         'contest', 'contests', 'jackpot', 'lucky draw', 'lucky winner',
-        'free entry', 'grand prize', 'cash prize', 'gift card',
+        'free entry', 'grand prize', 'cash prize',
         'chance to win', 'enter to win', 'win a', 'win free',
         'prize draw', 'prize giveaway', 'instant win', 'daily prize',
-        'weekly prize', 'monthly prize', 'mega prize', 'big win',
-        'scratch', 'scratch card', 'spin to win', 'wheel of fortune'
+        'weekly prize', 'monthly prize', 'mega prize',
+        'scratch card', 'spin to win', 'wheel of fortune'
     ],
     'EDUCATION': [
-        'education', 'course', 'learning', 'training', 'class', 'study',
-        'online course', 'certification', 'diploma', 'degree',
+        'education', 'online course', 'learning', 'training',
+        'certification', 'diploma', 'degree',
         'exam prep', 'mock test', 'coaching', 'tutoring',
         'skill development', 'upskill', 'reskill'
     ],
     'INSURANCE': [
-        'insurance', 'policy', 'coverage', 'premium',
-        'life insurance', 'health insurance',
+        'insurance', 'life insurance', 'health insurance',
         'car insurance', 'bike insurance', 'travel insurance',
-        'claim', 'renewal', 'insured amount', 'sum insured'
+        'home insurance', 'auto insurance', 'insured amount', 'sum insured',
+        'insurance policy', 'insurance coverage', 'insurance premium',
+        'insurance claim', 'insurance renewal'
     ],
     'LOAN': [
         'loan', 'loans', 'borrowing',
         'personal loan', 'home loan', 'business loan',
         'instant loan', 'payday loan', 'auto loan', 'car loan',
         'student loan', 'debt consolidation', 'refinance',
-        'interest rate', 'emi', 'repayment',
-        'credit score', 'eligibility', 'approval', 'lender', 'lending'
+        'lender', 'lending', 'mortgage'
     ],
     'FINANCE': [
-        'bank', 'banking', 'savings', 'investment', 'invest', 'trading',
-        'stock', 'stocks', 'forex', 'crypto', 'cryptocurrency', 'bitcoin',
-        'wallet', 'money transfer', 'payment', 'fintech', 'neobank',
-        'debit card', 'credit card', 'account opening', 'savings account',
-        'mutual fund', 'portfolio', 'wealth', 'financial planning',
-        'retirement', '401k', 'ira', 'pension', 'tax', 'budget'
+        'banking', 'investment', 'invest', 'trading',
+        'stock market', 'stocks', 'forex', 'crypto', 'cryptocurrency', 'bitcoin',
+        'money transfer', 'fintech', 'neobank',
+        'debit card', 'credit card', 'savings account',
+        'mutual fund', 'portfolio', 'financial planning',
+        'retirement', '401k', 'pension', 'financial'
     ],
     'DATING': [
-        'dating', 'date', 'match', 'matchmaking', 'singles', 'single',
-        'relationship', 'romance', 'romantic', 'love', 'partner',
-        'meet singles', 'find love', 'soulmate', 'hookup', 'flirt',
+        'dating', 'dating app', 'dating site', 'matchmaking',
+        'relationship', 'romance', 'romantic', 'find love',
+        'meet singles', 'soulmate', 'hookup', 'flirt',
         'tinder', 'bumble', 'hinge', 'okcupid', 'plenty of fish',
-        'chat', 'swipe', 'profile', 'compatible', 'connection'
+        'swipe right', 'swipe left', 'compatible match'
     ],
     'FREE_TRIAL': [
-        'free trial', 'trial', 'try free', 'free for', 'days free',
+        'free trial', 'try free', 'free for', 'days free',
         'trial period', 'trial offer', 'free access', 'free membership',
         'no commitment', 'cancel anytime', 'risk free', 'money back',
-        'sample', 'demo', 'test drive', 'preview', 'starter',
-        'introductory offer', 'limited time free', 'complimentary'
+        'introductory offer', 'limited time free', 'complimentary',
+        'try it free', 'start free trial', 'free 30 day', 'free 7 day'
     ],
     'INSTALLS': [
-        'install', 'download', 'app install', 'get app', 'download app',
-        'mobile app', 'android app', 'ios app', 'application',
+        'app install', 'get app', 'download app',
+        'mobile app', 'android app', 'ios app',
         'app store', 'play store', 'google play', 'apple store',
         'install now', 'download now', 'get it now', 'free download',
-        'software', 'extension', 'browser extension', 'plugin'
+        'browser extension', 'install app'
     ],
     'GAMES_INSTALL': [
         'game', 'games', 'gaming', 'play game',
@@ -149,113 +148,106 @@ LEGACY_CATEGORY_MAP = {
 DEFAULT_NON_ACCESS_URL = 'https://example.com/not-available'
 
 
-def detect_category_from_text(name, description=''):
+def detect_categories_from_text(name, description=''):
     """
-    Auto-detect category from offer name and description.
-    Uses keyword matching with priority order and global override rules.
+    Auto-detect up to 3 categories from offer name and description.
+    First checks the name for keyword matches, then falls back to description.
     
     Args:
         name: Offer name/title
         description: Offer description
         
     Returns:
-        Detected category string (one of VALID_CATEGORIES)
+        List of up to 3 detected category strings (from VALID_CATEGORIES)
     """
-    # Combine name and description for analysis
-    text = f"{name} {description}".lower()
+    MAX_CATEGORIES = 3
+    found = []
+    
+    name_lower = (name or '').lower()
+    desc_lower = (description or '').lower()
+    
+    def _has_keyword(text, keyword):
+        """Check if keyword exists as a whole word/phrase in text.
+        Treats underscores, commas, hyphens as word separators (not just whitespace).
+        """
+        # Normalize separators: replace _ , - with spaces for matching
+        normalized = text.replace('_', ' ').replace(',', ' ').replace('-', ' ')
+        # For multi-word phrases, use simple substring on normalized text
+        if ' ' in keyword:
+            return keyword in normalized
+        # For single words, use word boundary regex on normalized text
+        pattern = r'\b' + re.escape(keyword) + r'(?:s|ing|er|ed)?\b'
+        return bool(re.search(pattern, normalized))
     
     # ==================== EXPLICIT CAMPAIGN TYPE DETECTION ====================
-    # Check for "CAMPAIGN TYPE:" pattern in description (common in Chameleon offers)
-    campaign_type_match = re.search(r'campaign\s*type[:\s]+([a-zA-Z\s\-]+?)(?:\.|,|\n|$)', description.lower())
+    campaign_type_match = re.search(r'campaign\s*type[:\s]+([a-zA-Z\s\-]+?)(?:\.|,|\n|$)', desc_lower)
     if campaign_type_match:
         campaign_type = campaign_type_match.group(1).strip()
-        # Map campaign type to category
         campaign_type_mapping = {
-            'entertainment': 'OTHER',
-            'food delivery': 'OTHER',
-            'food': 'OTHER',
-            'ecommerce': 'OTHER',
-            'e-commerce': 'OTHER',
-            'shopping': 'OTHER',
-            'travel': 'OTHER',
-            'lifestyle': 'OTHER',
-            'utilities': 'OTHER',
-            'finance': 'FINANCE',
-            'banking': 'FINANCE',
-            'investment': 'FINANCE',
-            'crypto': 'FINANCE',
-            'loan': 'LOAN',
-            'lending': 'LOAN',
-            'credit': 'LOAN',
-            'insurance': 'INSURANCE',
-            'health': 'HEALTH',
-            'healthcare': 'HEALTH',
-            'medical': 'HEALTH',
-            'fitness': 'HEALTH',
-            'dating': 'DATING',
-            'romance': 'DATING',
-            'survey': 'SURVEY',
-            'surveys': 'SURVEY',
-            'sweepstakes': 'SWEEPSTAKES',
-            'giveaway': 'SWEEPSTAKES',
-            'contest': 'SWEEPSTAKES',
-            'education': 'EDUCATION',
-            'learning': 'EDUCATION',
-            'gaming': 'GAMES_INSTALL',
-            'games': 'GAMES_INSTALL',
-            'game': 'GAMES_INSTALL',
-            'app install': 'INSTALLS',
-            'mobile app': 'INSTALLS',
-            'free trial': 'FREE_TRIAL',
-            'trial': 'FREE_TRIAL',
+            'entertainment': 'OTHER', 'food delivery': 'OTHER', 'food': 'OTHER',
+            'ecommerce': 'OTHER', 'e-commerce': 'OTHER', 'shopping': 'OTHER',
+            'travel': 'OTHER', 'lifestyle': 'OTHER', 'utilities': 'OTHER',
+            'finance': 'FINANCE', 'banking': 'FINANCE', 'investment': 'FINANCE', 'crypto': 'FINANCE',
+            'loan': 'LOAN', 'lending': 'LOAN', 'credit': 'LOAN',
+            'insurance': 'INSURANCE', 'health': 'HEALTH', 'healthcare': 'HEALTH',
+            'medical': 'HEALTH', 'fitness': 'HEALTH',
+            'dating': 'DATING', 'romance': 'DATING',
+            'survey': 'SURVEY', 'surveys': 'SURVEY',
+            'sweepstakes': 'SWEEPSTAKES', 'giveaway': 'SWEEPSTAKES', 'contest': 'SWEEPSTAKES',
+            'education': 'EDUCATION', 'learning': 'EDUCATION',
+            'gaming': 'GAMES_INSTALL', 'games': 'GAMES_INSTALL', 'game': 'GAMES_INSTALL',
+            'app install': 'INSTALLS', 'mobile app': 'INSTALLS',
+            'free trial': 'FREE_TRIAL', 'trial': 'FREE_TRIAL',
         }
         for key, category in campaign_type_mapping.items():
-            if key in campaign_type:
-                return category
+            if key in campaign_type and category not in found:
+                found.append(category)
+                if len(found) >= MAX_CATEGORIES:
+                    return found
     
-    # ==================== GLOBAL OVERRIDE RULES ====================
-    # These take absolute precedence over keyword matching
+    # ==================== PASS 1: Check NAME for keyword matches ====================
+    all_categories_order = ['SWEEPSTAKES', 'GAMES_INSTALL', 'HEALTH', 'SURVEY', 'EDUCATION', 'INSURANCE', 'LOAN',
+                            'FINANCE', 'INSTALLS', 'FREE_TRIAL', 'DATING']
     
-    # Rule 0: SWEEPSTAKES has highest priority - check first
-    for keyword in CATEGORY_KEYWORDS.get('SWEEPSTAKES', []):
-        if keyword.lower() in text:
-            return 'SWEEPSTAKES'
-    
-    # Rule 1: If offer contains "survey" AND "install app" → SURVEY
-    if 'survey' in text and 'install app' in text:
-        return 'SURVEY'
-    
-    # Rule 2: If offer contains specific LOAN keywords → LOAN
-    # Be more specific - don't match just "credit" alone as it could be "credit card" in finance
-    loan_specific_keywords = ['loan', 'personal loan', 'home loan', 'business loan', 'payday loan', 
-                              'instant loan', 'borrowing', 'emi', 'repayment']
-    for keyword in loan_specific_keywords:
-        if keyword.lower() in text:
-            return 'LOAN'
-    
-    # Rule 3: If offer contains any INSURANCE keyword → INSURANCE (no other category allowed)
-    for keyword in CATEGORY_KEYWORDS['INSURANCE']:
-        if keyword.lower() in text:
-            return 'INSURANCE'
-    
-    # Rule 4: If offer contains "play" AND "download" AND "game" → GAMES_INSTALL
-    if 'play' in text and 'download' in text and 'game' in text:
-        return 'GAMES_INSTALL'
-    
-    # ==================== PRIORITY-BASED KEYWORD MATCHING ====================
-    # Check categories in priority order
-    
-    priority_order = ['HEALTH', 'SURVEY', 'EDUCATION', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL']
-    
-    for category in priority_order:
+    for category in all_categories_order:
+        if len(found) >= MAX_CATEGORIES:
+            break
+        if category in found:
+            continue
         keywords = CATEGORY_KEYWORDS.get(category, [])
         for keyword in keywords:
-            # Check for keyword match (case-insensitive)
-            if keyword.lower() in text:
-                return category
+            if _has_keyword(name_lower, keyword.lower()):
+                found.append(category)
+                break
     
-    # Rule 5: If no rule matches → OTHER
-    return 'OTHER'
+    # ==================== PASS 2: Check DESCRIPTION for additional matches ====================
+    if len(found) < MAX_CATEGORIES:
+        for category in all_categories_order:
+            if len(found) >= MAX_CATEGORIES:
+                break
+            if category in found:
+                continue
+            keywords = CATEGORY_KEYWORDS.get(category, [])
+            for keyword in keywords:
+                if _has_keyword(desc_lower, keyword.lower()):
+                    found.append(category)
+                    break
+    
+    # If nothing found, return OTHER
+    if not found:
+        return ['OTHER']
+    
+    return found
+
+
+def detect_category_from_text(name, description=''):
+    """
+    Auto-detect a single primary category from offer name and description.
+    Returns the first (highest priority) category from multi-category detection.
+    Kept for backward compatibility.
+    """
+    categories = detect_categories_from_text(name, description)
+    return categories[0] if categories else 'OTHER'
 
 
 def map_category_to_new_system(category_value):
@@ -507,11 +499,13 @@ class Offer:
             
             # If vertical is not explicitly set or is default 'Lifestyle', auto-detect from description
             if not vertical_input or vertical_input.lower() == 'lifestyle':
-                # Auto-detect vertical from name and description
+                # Auto-detect categories (up to 3) from name and description
                 offer_name = mapped_data.get('name', '')
                 offer_description = mapped_data.get('description', '')
-                vertical_value = detect_vertical_from_text(offer_name, offer_description)
-                print(f"🔍 AUTO-DETECTED VERTICAL: '{vertical_value}' from name='{offer_name[:50]}...'")
+                detected_categories = detect_categories_from_text(offer_name, offer_description)
+                vertical_value = detected_categories[0]  # Primary category
+                categories_list = detected_categories
+                print(f"🔍 AUTO-DETECTED CATEGORIES: {categories_list} from name='{offer_name[:50]}...'")
             else:
                 is_valid_vertical, vertical_result = validate_vertical(vertical_input)
                 if not is_valid_vertical:
@@ -519,6 +513,15 @@ class Offer:
                     vertical_value = map_category_to_vertical(vertical_input)
                 else:
                     vertical_value = vertical_result
+                # For manually set vertical, also try to detect additional categories
+                offer_name = mapped_data.get('name', '')
+                offer_description = mapped_data.get('description', '')
+                detected_categories = detect_categories_from_text(offer_name, offer_description)
+                # Ensure the manually set vertical is first
+                categories_list = [vertical_value]
+                for cat in detected_categories:
+                    if cat != vertical_value and len(categories_list) < 3:
+                        categories_list.append(cat)
             
             # Validate and process revenue share percent
             revenue_share_percent = float(offer_data.get('revenue_share_percent', 0) or 0)
@@ -556,6 +559,7 @@ class Offer:
                 'description': mapped_data.get('description', '').strip(),
                 'vertical': vertical_value,  # NEW: Replaces category - one of 10 predefined values
                 'category': vertical_value,  # DEPRECATED: Keep for backward compatibility
+                'categories': categories_list,  # NEW: Up to 3 categories per offer
                 'offer_type': mapped_data.get('offer_type', 'CPA'),  # CPA/CPL/CPS/CPI/CPC
                 'status': mapped_data.get('status', 'active').lower(),  # Active/Inactive/Pending/Paused/Hidden - force lowercase
                 'tags': mapped_data.get('tags', []),  # Internal filtering tags
@@ -730,7 +734,8 @@ class Offer:
                             {'$or': [
                                 {'name': search_regex},
                                 {'campaign_id': search_regex},
-                                {'offer_id': search_regex}
+                                {'offer_id': search_regex},
+                                {'categories': search_regex}
                             ]}
                         ]
                     }
@@ -773,6 +778,9 @@ class Offer:
                 'campaign_id': f"{original_offer['campaign_id']}-CLONE",
                 'name': f"{original_offer['name']} (Clone)",
                 'description': original_offer.get('description', ''),
+                'vertical': original_offer.get('vertical', 'OTHER'),
+                'category': original_offer.get('category', 'OTHER'),
+                'categories': original_offer.get('categories', [original_offer.get('vertical', 'OTHER')]),
                 'status': 'pending',  # New clones start as pending
                 'countries': original_offer.get('countries', []),
                 'payout': original_offer['payout'],
@@ -861,15 +869,36 @@ class Offer:
                     return False, "Payout must be a valid number"
             
             # Handle vertical field (replaces category)
-            if 'vertical' in update_data or 'category' in update_data:
+            if 'vertical' in update_data or 'category' in update_data or 'categories' in update_data:
                 vertical_input = update_data.get('vertical') or update_data.get('category')
-                is_valid, vertical_result = validate_vertical(vertical_input)
-                if not is_valid:
-                    vertical_value = map_category_to_vertical(vertical_input)
-                else:
-                    vertical_value = vertical_result
-                update_data['vertical'] = vertical_value
-                update_data['category'] = vertical_value  # Keep in sync for backward compatibility
+                
+                if 'categories' in update_data and isinstance(update_data['categories'], list):
+                    # Direct categories array provided (admin edit)
+                    categories_list = [c.upper() for c in update_data['categories'] if c][:3]
+                    if not categories_list:
+                        categories_list = ['OTHER']
+                    update_data['categories'] = categories_list
+                    update_data['vertical'] = categories_list[0]
+                    update_data['category'] = categories_list[0]
+                elif vertical_input:
+                    is_valid, vertical_result = validate_vertical(vertical_input)
+                    if not is_valid:
+                        vertical_value = map_category_to_vertical(vertical_input)
+                    else:
+                        vertical_value = vertical_result
+                    update_data['vertical'] = vertical_value
+                    update_data['category'] = vertical_value
+                    # Re-detect categories from name/description
+                    current_offer = self.collection.find_one({'offer_id': offer_id, 'is_active': True})
+                    if current_offer:
+                        offer_name = update_data.get('name', current_offer.get('name', ''))
+                        offer_desc = update_data.get('description', current_offer.get('description', ''))
+                        detected = detect_categories_from_text(offer_name, offer_desc)
+                        categories_list = [vertical_value]
+                        for cat in detected:
+                            if cat != vertical_value and len(categories_list) < 3:
+                                categories_list.append(cat)
+                        update_data['categories'] = categories_list
             
             # Handle allowed_countries for geo-restriction
             if 'allowed_countries' in update_data:

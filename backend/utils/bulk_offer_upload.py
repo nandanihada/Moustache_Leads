@@ -17,7 +17,8 @@ from models.offer import (
     VALID_VERTICALS, 
     calculate_incentive_type,
     validate_vertical,
-    map_category_to_vertical
+    map_category_to_vertical,
+    detect_categories_from_text
 )
 
 # Import tracking link generator for special networks
@@ -548,6 +549,7 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
             result['revenue_share_percent'] = 0
 
     # Handle vertical field - validate and normalize, or auto-detect from description
+    # Also detect up to 3 categories per offer
     if 'vertical' in result and result['vertical'] and result['vertical'].lower() != 'lifestyle':
         is_valid, vertical_result = validate_vertical(result['vertical'])
         if is_valid:
@@ -555,12 +557,25 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
         else:
             # Try mapping from old category value
             result['vertical'] = map_category_to_vertical(result['vertical'])
-    else:
-        # Auto-detect vertical from name and description
-        from models.offer import detect_vertical_from_text
+        # Detect additional categories from name/description
         offer_name = result.get('name', '')
         offer_description = result.get('description', '')
-        result['vertical'] = detect_vertical_from_text(offer_name, offer_description)
+        detected = detect_categories_from_text(offer_name, offer_description)
+        categories_list = [result['vertical']]
+        for cat in detected:
+            if cat != result['vertical'] and len(categories_list) < 3:
+                categories_list.append(cat)
+        result['categories'] = categories_list
+    else:
+        # Auto-detect categories (up to 3) from name and description
+        offer_name = result.get('name', '')
+        offer_description = result.get('description', '')
+        detected = detect_categories_from_text(offer_name, offer_description)
+        result['vertical'] = detected[0]
+        result['categories'] = detected
+    
+    # Keep category in sync for backward compatibility
+    result['category'] = result['vertical']
     
     # Auto-calculate incentive_type based on revenue_share_percent
     revenue_share_percent = result.get('revenue_share_percent', 0)

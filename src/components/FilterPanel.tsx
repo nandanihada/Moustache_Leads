@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/select';
 
 const CATEGORIES = [
-  { id: 'all', name: 'All Categories', icon: '🎯' },
+  { id: 'all', name: 'All Verticals', icon: '🎯' },
   { id: 'HEALTH', name: 'Health', icon: '💊' },
   { id: 'SURVEY', name: 'Survey', icon: '📋' },
   { id: 'SWEEPSTAKES', name: 'Sweepstakes', icon: '🎰' },
@@ -150,12 +150,12 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
           </Select>
         </div>
 
-        {/* Category */}
+        {/* Vertical */}
         <div className="space-y-1.5">
-          <Label>Category</Label>
+          <Label>Vertical</Label>
           <Select value={categoryFilter} onValueChange={onCategoryChange}>
             <SelectTrigger>
-              <SelectValue placeholder="Category" />
+              <SelectValue placeholder="Vertical" />
             </SelectTrigger>
             <SelectContent>
               {CATEGORIES.map((cat) => (

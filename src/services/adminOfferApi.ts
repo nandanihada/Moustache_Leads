@@ -12,6 +12,7 @@ export interface Offer {
   // Extended fields
   category?: string;
   vertical?: string;  // Alias for category (some APIs use this)
+  categories?: string[];  // Up to 3 categories per offer
   offer_type?: string;
   tags?: string[];
   keywords?: string[];

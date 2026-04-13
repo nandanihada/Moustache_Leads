@@ -135,8 +135,14 @@ const PublisherOffersContent = () => {
   const uniqueVerticals = useMemo(() => {
     const set = new Set<string>();
     offers.forEach((o) => {
-      const v = (o as any).category || (o as any).vertical;
-      if (v) set.add(v);
+      // Support both old single category and new categories array
+      const cats = (o as any).categories;
+      if (Array.isArray(cats)) {
+        cats.forEach((c: string) => { if (c) set.add(c); });
+      } else {
+        const v = (o as any).category || (o as any).vertical;
+        if (v) set.add(v);
+      }
     });
     return Array.from(set).sort();
   }, [offers]);
@@ -146,13 +152,28 @@ const PublisherOffersContent = () => {
     let list = viewMode === "my_offers" ? [...myOffers] : viewMode === "requests" ? [] : [...offers];
     if (searchTerm) {
       const q = searchTerm.toLowerCase();
-      list = list.filter((o) => o.name.toLowerCase().includes(q) || o.offer_id.toLowerCase().includes(q) || o.network?.toLowerCase().includes(q));
+      list = list.filter((o) => {
+        // Search by name, offer_id, network
+        if (o.name.toLowerCase().includes(q) || o.offer_id.toLowerCase().includes(q) || o.network?.toLowerCase().includes(q)) return true;
+        // Also search by categories
+        const cats = (o as any).categories;
+        if (Array.isArray(cats) && cats.some((c: string) => c.toLowerCase().includes(q))) return true;
+        const v = (o as any).category || (o as any).vertical || "";
+        if (v.toLowerCase().includes(q)) return true;
+        return false;
+      });
     }
     if (countryFilter !== "all") {
       list = list.filter((o) => o.countries?.some((c) => c.toUpperCase() === countryFilter));
     }
     if (verticalFilter !== "all") {
       list = list.filter((o) => {
+        // Check categories array first (new system)
+        const cats = (o as any).categories;
+        if (Array.isArray(cats) && cats.length > 0) {
+          return cats.some((c: string) => c.toLowerCase() === verticalFilter.toLowerCase());
+        }
+        // Fallback to old single category
         const v = (o as any).category || (o as any).vertical || "";
         return v.toLowerCase() === verticalFilter.toLowerCase();
       });

@@ -65,6 +65,7 @@ export interface PublisherOffer {
   countries: string[];
   category?: string;
   vertical?: string;
+  categories?: string[];  // Up to 3 categories per offer
   device_targeting?: string;
   thumbnail_url?: string;
   image_url?: string;

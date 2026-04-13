@@ -293,12 +293,19 @@ const AdminOffers = () => {
   const offers = useMemo(() => {
     let filtered = [...rawOffers];
 
-    // Apply category filter
+    // Apply category filter (supports new categories array)
     if (selectedCategories !== 'all') {
       filtered = filtered.filter(offer => {
-        const offerVertical = (offer.vertical || offer.category || '').toUpperCase();
         const catUpper = selectedCategories.toUpperCase();
         const matching = categoryMappings[catUpper] || [catUpper];
+        
+        // Check categories array first (new multi-category system)
+        const cats = (offer as any).categories;
+        if (Array.isArray(cats) && cats.length > 0) {
+          return cats.some((c: string) => matching.includes(c.toUpperCase()));
+        }
+        // Fallback to old single vertical/category
+        const offerVertical = (offer.vertical || offer.category || '').toUpperCase();
         return matching.includes(offerVertical);
       });
     }
@@ -1056,6 +1063,7 @@ const AdminOffers = () => {
         'Name': offer.name,
         'Status': offer.status,
         'Category': offer.category || offer.vertical || '',
+        'Categories': ((offer as any).categories || []).join(' / ') || offer.category || offer.vertical || '',
         'Network': offer.network || '',
         'Payout': `$${offer.payout?.toFixed(2) || '0.00'}`,
         'Countries': Array.isArray(offer.countries) ? offer.countries.join(', ') : '',
@@ -1409,6 +1417,7 @@ const AdminOffers = () => {
         'Description': offer.description || '',
         'Status': offer.status,
         'Category': offer.category || '',
+        'Categories': ((offer as any).categories || []).join(' / ') || offer.category || '',
         'Offer Type': offer.offer_type || '',
         'Network': offer.network,
         'Payout': (() => {
@@ -2081,7 +2090,7 @@ const AdminOffers = () => {
                           <TableHead className="w-16">Image</TableHead>
                           <TableHead className="w-24">Offer ID</TableHead>
                           <TableHead className="min-w-[150px]">Name</TableHead>
-                          <TableHead className="w-24">Category</TableHead>
+                          <TableHead className="w-24">Vertical</TableHead>
                           <TableHead className="w-20">Status</TableHead>
                           <TableHead className="w-24">Countries</TableHead>
                           <TableHead className="w-24">Payout</TableHead>
@@ -2107,9 +2116,25 @@ const AdminOffers = () => {
                               <span className="font-medium text-sm truncate max-w-[200px] block">{offer.name}</span>
                             </TableCell>
                             <TableCell>
-                              <Badge variant="outline" className="text-xs">
-                                {(offer.vertical || offer.category || 'OTHER').toUpperCase()}
-                              </Badge>
+                              {(() => {
+                                const cats = (offer as any).categories;
+                                if (Array.isArray(cats) && cats.length > 0) {
+                                  return (
+                                    <div className="flex flex-wrap gap-0.5">
+                                      {cats.map((c: string, i: number) => (
+                                        <Badge key={i} variant="outline" className="text-[10px]">
+                                          {c.toUpperCase()}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <Badge variant="outline" className="text-xs">
+                                    {(offer.vertical || offer.category || 'OTHER').toUpperCase()}
+                                  </Badge>
+                                );
+                              })()}
                             </TableCell>
                             <TableCell>
                               <Badge className={getStatusColor(offer.status)}>{offer.status}</Badge>
@@ -2455,7 +2480,7 @@ const AdminOffers = () => {
                   <TableHead className="w-24">Offer ID</TableHead>
                   <TableHead className="w-20">Campaign</TableHead>
                   <TableHead className="min-w-[150px]">Name</TableHead>
-                  <TableHead className="w-24">Category</TableHead>
+                  <TableHead className="w-24">Vertical</TableHead>
                   <TableHead className="w-20">Status</TableHead>
                   <TableHead className="w-24">Countries</TableHead>
                   <TableHead className="w-28">Payout/Revenue</TableHead>
@@ -2548,7 +2573,7 @@ const AdminOffers = () => {
                     </TableCell>
                     <TableCell>
                       {(() => {
-                        const category = (offer.vertical || offer.category || 'OTHER').toUpperCase();
+                        const cats = (offer as any).categories;
                         const categoryIcons: Record<string, string> = {
                           'HEALTH': '💊',
                           'SURVEY': '📋',
@@ -2563,6 +2588,22 @@ const AdminOffers = () => {
                           'GAMES_INSTALL': '🎮',
                           'OTHER': '📦'
                         };
+                        if (Array.isArray(cats) && cats.length > 0) {
+                          return (
+                            <div className="flex flex-wrap gap-0.5">
+                              {cats.map((c: string, i: number) => {
+                                const cu = c.toUpperCase();
+                                const icon = categoryIcons[cu] || '📦';
+                                return (
+                                  <Badge key={i} variant="outline" className="text-[10px]">
+                                    {icon} {cu}
+                                  </Badge>
+                                );
+                              })}
+                            </div>
+                          );
+                        }
+                        const category = (offer.vertical || offer.category || 'OTHER').toUpperCase();
                         const icon = categoryIcons[category] || '📦';
                         return (
                           <Badge variant="outline" className="text-xs">

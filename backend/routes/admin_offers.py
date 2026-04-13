@@ -568,6 +568,7 @@ def get_running_offers():
             and_conditions.append({'$or': [
                 {'category': {'$regex': f'^{re_mod.escape(category_filter)}$', '$options': 'i'}},
                 {'vertical': {'$regex': f'^{re_mod.escape(category_filter)}$', '$options': 'i'}},
+                {'categories': {'$regex': f'^{re_mod.escape(category_filter)}$', '$options': 'i'}},
             ]})
         if country_filter and country_filter != 'all':
             and_conditions.append({'countries': country_filter})

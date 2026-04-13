@@ -54,7 +54,8 @@ def get_available_offers():
             search_conditions = [
                 {'name': {'$regex': search, '$options': 'i'}},
                 {'offer_id': {'$regex': search, '$options': 'i'}},
-                {'category': {'$regex': search, '$options': 'i'}}
+                {'category': {'$regex': search, '$options': 'i'}},
+                {'categories': {'$regex': search, '$options': 'i'}}
             ]
             
             query = {
@@ -70,7 +71,7 @@ def get_available_offers():
         
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
-            'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1,
+            'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
             'payout': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
             'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
             'created_at': 1, 'approval_status': 1, 'approval_settings': 1,

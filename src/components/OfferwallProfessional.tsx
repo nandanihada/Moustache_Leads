@@ -9,6 +9,7 @@ interface Offer {
   reward_amount: number;
   reward_currency: string;
   category: string;
+  categories?: string[];  // Up to 3 categories per offer
   difficulty: string;
   estimated_time: string;
   image_url: string;
@@ -327,9 +328,15 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
     if (selectedCategory !== 'all') {
       const catUpper = selectedCategory.toUpperCase();
       const matchingCategories = categoryMappings[catUpper] || [catUpper];
-      filtered = filtered.filter(offer => 
-        matchingCategories.includes((offer.category || '').toUpperCase())
-      );
+      filtered = filtered.filter(offer => {
+        // Check categories array first (new multi-category system)
+        const cats = (offer as any).categories;
+        if (Array.isArray(cats) && cats.length > 0) {
+          return cats.some((c: string) => matchingCategories.includes(c.toUpperCase()));
+        }
+        // Fallback to old single category
+        return matchingCategories.includes((offer.category || '').toUpperCase());
+      });
     }
 
     if (searchTerm) {

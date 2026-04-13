@@ -10,6 +10,7 @@ interface Offer {
   reward_amount: number;
   reward_currency: string;
   category: string;
+  categories?: string[];  // Up to 3 categories per offer
   status: string;
   estimated_time: string;
   image_url: string;
@@ -292,13 +293,19 @@ const Offerwall: React.FC<OfferwallProps> = ({
       'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
     };
 
-    // Category filter (multi-select)
+    // Category filter (multi-select) - supports new categories array
     if (!selectedCategories.includes('all')) {
       result = result.filter(offer => {
-        const offerCategory = (offer.category || '').toUpperCase();
         return selectedCategories.some(cat => {
           const catUpper = cat.toUpperCase();
           const matchingCategories = categoryMappings[catUpper] || [catUpper];
+          // Check categories array first (new multi-category system)
+          const cats = (offer as any).categories;
+          if (Array.isArray(cats) && cats.length > 0) {
+            return cats.some((c: string) => matchingCategories.includes(c.toUpperCase()));
+          }
+          // Fallback to old single category
+          const offerCategory = (offer.category || '').toUpperCase();
           return matchingCategories.includes(offerCategory);
         });
       });
