@@ -162,85 +162,167 @@ def get_login_chart_data(current_user):
     """Get login chart data: daily breakdown for last 7/14/30 days with hourly heatmap."""
     try:
         days = int(request.args.get('days', 7))
+        # Support custom duration in minutes (30, 60, 120, or custom)
+        duration_minutes = request.args.get('duration_minutes')
+        custom_start = request.args.get('custom_start')
+        custom_end = request.args.get('custom_end')
+        
         from database import db_instance
         col = db_instance.get_collection('login_logs')
         if col is None:
             return jsonify({'error': 'Database connection failed'}), 500
 
         now = datetime.utcnow()
-        start = now - timedelta(days=days)
+        
+        # Determine time range
+        if custom_start and custom_end:
+            try:
+                start = datetime.fromisoformat(custom_start.replace('Z', '+00:00')).replace(tzinfo=None)
+                end_time = datetime.fromisoformat(custom_end.replace('Z', '+00:00')).replace(tzinfo=None)
+                now = end_time
+                days = max(1, (end_time - start).days or 1)
+            except ValueError:
+                start = now - timedelta(days=days)
+        elif duration_minutes:
+            mins = int(duration_minutes)
+            start = now - timedelta(minutes=mins)
+            # For short durations, we'll bucket by smaller intervals
+        else:
+            start = now - timedelta(days=days)
 
-        # 1. Daily breakdown: success vs failed per day
-        daily_pipeline = [
-            {'$match': {'login_time': {'$gte': start, '$lte': now}}},
-            {'$group': {
-                '_id': {
-                    'date': {'$dateToString': {'format': '%Y-%m-%d', 'date': '$login_time'}},
-                    'status': '$status'
-                },
-                'count': {'$sum': 1}
-            }},
-            {'$sort': {'_id.date': 1}}
-        ]
-        daily_raw = list(col.aggregate(daily_pipeline))
-
-        # Build daily map
-        daily_map = {}
-        for d in daily_raw:
-            date = d['_id']['date']
-            status = d['_id'].get('status', 'unknown')
-            if date not in daily_map:
-                daily_map[date] = {'date': date, 'success': 0, 'failed': 0, 'total': 0}
-            if status == 'success':
-                daily_map[date]['success'] = d['count']
+        # 1. Daily breakdown (or interval breakdown for short durations)
+        use_interval = duration_minutes and int(duration_minutes) <= 240
+        
+        if use_interval:
+            mins = int(duration_minutes)
+            # Bucket into intervals: 5min for 30min, 10min for 1hr, 15min for 2hr
+            if mins <= 30:
+                bucket_mins = 5
+            elif mins <= 60:
+                bucket_mins = 10
             else:
-                daily_map[date]['failed'] = d['count']
-            daily_map[date]['total'] += d['count']
+                bucket_mins = 15
+            
+            # Use aggregation with date truncation
+            interval_pipeline = [
+                {'$match': {'login_time': {'$gte': start, '$lte': now}}},
+                {'$group': {
+                    '_id': {
+                        'bucket': {
+                            '$subtract': [
+                                {'$toLong': '$login_time'},
+                                {'$mod': [{'$toLong': '$login_time'}, bucket_mins * 60 * 1000]}
+                            ]
+                        },
+                        'status': '$status'
+                    },
+                    'count': {'$sum': 1}
+                }},
+                {'$sort': {'_id.bucket': 1}}
+            ]
+            interval_raw = list(col.aggregate(interval_pipeline))
+            
+            daily_map = {}
+            for d in interval_raw:
+                ts = d['_id']['bucket']
+                label = datetime.utcfromtimestamp(ts / 1000).strftime('%H:%M')
+                status = d['_id'].get('status', 'unknown')
+                if label not in daily_map:
+                    daily_map[label] = {'date': label, 'success': 0, 'failed': 0, 'total': 0}
+                if status == 'success':
+                    daily_map[label]['success'] = d['count']
+                else:
+                    daily_map[label]['failed'] = d['count']
+                daily_map[label]['total'] += d['count']
+            
+            daily = sorted(daily_map.values(), key=lambda x: x['date'])
+        else:
+            daily_pipeline = [
+                {'$match': {'login_time': {'$gte': start, '$lte': now}}},
+                {'$group': {
+                    '_id': {
+                        'date': {'$dateToString': {'format': '%Y-%m-%d', 'date': '$login_time'}},
+                        'status': '$status'
+                    },
+                    'count': {'$sum': 1}
+                }},
+                {'$sort': {'_id.date': 1}}
+            ]
+            daily_raw = list(col.aggregate(daily_pipeline))
 
-        # Fill missing days
-        daily = []
-        for i in range(days):
-            dt = start + timedelta(days=i)
-            date_str = dt.strftime('%Y-%m-%d')
-            if date_str in daily_map:
-                daily.append(daily_map[date_str])
-            else:
-                daily.append({'date': date_str, 'success': 0, 'failed': 0, 'total': 0})
+            daily_map = {}
+            for d in daily_raw:
+                date = d['_id']['date']
+                status = d['_id'].get('status', 'unknown')
+                if date not in daily_map:
+                    daily_map[date] = {'date': date, 'success': 0, 'failed': 0, 'total': 0}
+                if status == 'success':
+                    daily_map[date]['success'] = d['count']
+                else:
+                    daily_map[date]['failed'] = d['count']
+                daily_map[date]['total'] += d['count']
+
+            daily = []
+            for i in range(days):
+                dt = start + timedelta(days=i)
+                date_str = dt.strftime('%Y-%m-%d')
+                if date_str in daily_map:
+                    daily.append(daily_map[date_str])
+                else:
+                    daily.append({'date': date_str, 'success': 0, 'failed': 0, 'total': 0})
 
         # 2. Hourly heatmap (0-23 hours, Mon-Sun)
         hourly_pipeline = [
             {'$match': {'login_time': {'$gte': start, '$lte': now}}},
             {'$group': {
                 '_id': {
-                    'dow': {'$dayOfWeek': '$login_time'},  # 1=Sun, 7=Sat
+                    'dow': {'$dayOfWeek': '$login_time'},
                     'hour': {'$hour': '$login_time'}
                 },
                 'count': {'$sum': 1}
             }}
         ]
         hourly_raw = list(col.aggregate(hourly_pipeline))
-        heatmap = []
-        for h in hourly_raw:
-            heatmap.append({
-                'day': h['_id']['dow'],
-                'hour': h['_id']['hour'],
-                'count': h['count']
-            })
+        heatmap = [{'day': h['_id']['dow'], 'hour': h['_id']['hour'], 'count': h['count']} for h in hourly_raw]
 
-        # 3. Suspicious IPs: same IP, different accounts
+        # 3. Suspicious IPs: same IP, different accounts — now with user details
         suspicious_pipeline = [
             {'$match': {'login_time': {'$gte': start, '$lte': now}, 'status': 'success'}},
             {'$group': {
                 '_id': '$ip_address',
-                'users': {'$addToSet': '$user_id'},
-                'count': {'$sum': 1}
+                'users': {'$addToSet': {'user_id': '$user_id', 'email': '$email', 'username': '$username'}},
+                'user_ids': {'$addToSet': '$user_id'},
+                'count': {'$sum': 1},
+                'locations': {'$addToSet': {
+                    'lat': '$location.latitude',
+                    'lng': '$location.longitude',
+                    'country': '$location.country',
+                    'city': '$location.city'
+                }}
             }},
-            {'$match': {'$expr': {'$gt': [{'$size': '$users'}, 1]}}},
+            {'$match': {'$expr': {'$gt': [{'$size': '$user_ids'}, 1]}}},
             {'$sort': {'count': -1}},
-            {'$limit': 10}
+            {'$limit': 20}
         ]
         suspicious_raw = list(col.aggregate(suspicious_pipeline))
-        suspicious_ips = [{'ip': s['_id'], 'user_count': len(s['users']), 'login_count': s['count']} for s in suspicious_raw if s['_id']]
+        suspicious_ips = []
+        suspicious_user_ids = set()
+        for s in suspicious_raw:
+            if not s['_id']:
+                continue
+            users_list = []
+            for u in s.get('users', []):
+                if isinstance(u, dict):
+                    users_list.append({'user_id': u.get('user_id', ''), 'email': u.get('email', ''), 'username': u.get('username', '')})
+                    suspicious_user_ids.add(u.get('user_id', ''))
+            loc = s.get('locations', [{}])[0] if s.get('locations') else {}
+            suspicious_ips.append({
+                'ip': s['_id'],
+                'user_count': len(s['user_ids']),
+                'login_count': s['count'],
+                'users': users_list,
+                'location': loc if isinstance(loc, dict) else {}
+            })
 
         # 4. Top countries
         country_pipeline = [
@@ -280,6 +362,7 @@ def get_login_chart_data(current_user):
             'daily': daily,
             'heatmap': heatmap,
             'suspicious_ips': suspicious_ips,
+            'suspicious_user_ids': list(suspicious_user_ids),
             'top_countries': top_countries,
             'devices': devices,
             'browsers': browsers,
@@ -536,26 +619,20 @@ def send_custom_mail(current_user):
     """Send a custom email or schedule it to users"""
     try:
         data = request.get_json()
-        to_emails = data.get('to', []) # List of emails
+        to_emails = data.get('to', [])
         subject = data.get('subject', '')
         body = data.get('body', '')
-        schedule_time = data.get('schedule_time') # ISO format
+        schedule_time = data.get('schedule_time')
         
         if not to_emails or not subject or not body:
             return jsonify({'error': 'to, subject, and body are required'}), 400
             
         if schedule_time:
-            # Schedule it using ScheduledEmail model
             try:
                 from models.scheduled_email import ScheduledEmail
-                from datetime import datetime
-                import pytz
+                from database import db_instance
                 
                 dt = datetime.fromisoformat(schedule_time.replace('Z', '+00:00'))
-                
-                # Insert into scheduled emails
-                # Get DB directly since we might need to insert raw document if ScheduledEmail class doesn't support it directly
-                from database import db_instance
                 db = db_instance.get_db()
                 
                 email_doc = {
@@ -575,7 +652,6 @@ def send_custom_mail(current_user):
                 logger.error(f"Error scheduling email: {str(e)}")
                 return jsonify({'error': 'Failed to schedule email'}), 500
         else:
-            # Send immediately via BCC
             from services.email_service import get_email_service
             from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
@@ -601,6 +677,24 @@ def send_custom_mail(current_user):
                         success_count += len(batch)
                 except Exception as e:
                     logger.error(f"Error sending immediate batch: {str(e)}")
+            
+            # Log mail history
+            try:
+                from database import db_instance as db_inst
+                history_col = db_inst.get_collection('login_logs_mail_history')
+                if history_col is not None:
+                    history_col.insert_one({
+                        'to': to_emails,
+                        'subject': subject,
+                        'body': body[:500],
+                        'status': 'sent' if success_count > 0 else 'failed',
+                        'recipients_count': len(to_emails),
+                        'success_count': success_count,
+                        'sent_by': current_user.get('username', 'admin'),
+                        'sent_at': datetime.utcnow(),
+                    })
+            except Exception as hist_err:
+                logger.warning(f"Failed to log mail history: {hist_err}")
                     
             return jsonify({'message': f'Sent email to {success_count} recipients'}), 200
 
@@ -609,113 +703,275 @@ def send_custom_mail(current_user):
         return jsonify({'error': f'Failed to send email: {str(e)}'}), 500
 
 
-@login_logs_bp.route('/login-logs/chart-data', methods=['GET'])
+@login_logs_bp.route('/offer-views/<user_id>', methods=['GET'])
 @token_required_with_user
 @subadmin_or_admin_required('login-logs')
-def get_chart_data(current_user):
-    """Get login chart data: daily trend, devices, browsers, countries, hourly heatmap."""
+def get_user_offer_views(current_user, user_id):
+    """Get offers viewed/clicked by a user from offer_views collection (primary) + click collections"""
     try:
-        days = int(request.args.get('days', 7))
+        limit = int(request.args.get('limit', 50))
+        username = request.args.get('username', '')
+        email = request.args.get('email', '')
         from database import db_instance
-        col = db_instance.get_collection('login_logs')
-        if col is None:
-            return jsonify({'error': 'Database not connected'}), 500
-
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        query = {'login_time': {'$gte': cutoff}}
-
-        logs = list(col.find(query, {
-            'login_time': 1, 'status': 1, 'user_id': 1, 'ip_address': 1,
-            'location': 1, 'device': 1
-        }))
-
-        # Daily trend
-        daily_map = {}
-        for i in range(days):
-            d = (datetime.utcnow() - timedelta(days=days - 1 - i)).strftime('%Y-%m-%d')
-            daily_map[d] = {'date': d, 'success': 0, 'failed': 0, 'total': 0}
-
-        unique_users = set()
-        unique_ips = set()
-        device_counts = {}
-        browser_counts = {}
-        country_counts = {}
-        hourly = [[0] * 24 for _ in range(7)]  # 7 days x 24 hours
-        suspicious_ips = set()
-        ip_fail_counts = {}
-
-        for log in logs:
-            lt = log.get('login_time')
-            if not lt:
-                continue
-            if isinstance(lt, str):
-                try:
-                    lt = datetime.fromisoformat(lt.replace('Z', ''))
-                except Exception:
-                    continue
-
-            day_key = lt.strftime('%Y-%m-%d')
-            status = log.get('status', 'success')
-            uid = log.get('user_id', '')
-            ip = log.get('ip_address', '')
-
-            if day_key in daily_map:
-                daily_map[day_key]['total'] += 1
-                if status == 'failed':
-                    daily_map[day_key]['failed'] += 1
-                else:
-                    daily_map[day_key]['success'] += 1
-
-            if uid:
-                unique_users.add(uid)
-            if ip:
-                unique_ips.add(ip)
-                if status == 'failed':
-                    ip_fail_counts[ip] = ip_fail_counts.get(ip, 0) + 1
-                    if ip_fail_counts[ip] >= 3:
-                        suspicious_ips.add(ip)
-
-            # Device
-            device = log.get('device', {})
-            dtype = device.get('type', 'Unknown') if isinstance(device, dict) else 'Unknown'
-            device_counts[dtype] = device_counts.get(dtype, 0) + 1
-
-            browser = device.get('browser', 'Unknown') if isinstance(device, dict) else 'Unknown'
-            browser_counts[browser] = browser_counts.get(browser, 0) + 1
-
-            # Country
-            loc = log.get('location', {})
-            country = loc.get('country', 'Unknown') if isinstance(loc, dict) else 'Unknown'
-            country_counts[country] = country_counts.get(country, 0) + 1
-
-            # Hourly heatmap
+        from bson import ObjectId
+        
+        offer_views = []
+        seen_keys = set()
+        
+        # Build flexible user query — match by user_id OR username OR email
+        def build_user_query():
+            conditions = [{'user_id': user_id}]
+            # Also try ObjectId version
             try:
-                dow = lt.weekday()
-                hour = lt.hour
-                hourly[dow][hour] += 1
+                conditions.append({'user_id': ObjectId(user_id)})
             except Exception:
                 pass
-
-        total_success = sum(d['success'] for d in daily_map.values())
-        total_failed = sum(d['failed'] for d in daily_map.values())
-
-        return jsonify({
-            'summary': {
-                'total': total_success + total_failed,
-                'success': total_success,
-                'failed': total_failed,
-                'unique_users': len(unique_users),
-                'unique_ips': len(unique_ips),
-                'suspicious_count': len(suspicious_ips),
-            },
-            'daily': list(daily_map.values()),
-            'devices': sorted([{'device': k, 'count': v} for k, v in device_counts.items()], key=lambda x: -x['count'])[:6],
-            'browsers': sorted([{'browser': k, 'count': v} for k, v in browser_counts.items()], key=lambda x: -x['count'])[:6],
-            'top_countries': sorted([{'country': k, 'count': v} for k, v in country_counts.items()], key=lambda x: -x['count'])[:10],
-            'hourly_heatmap': hourly,
-            'suspicious_ips': [{'ip': ip, 'failed_count': ip_fail_counts.get(ip, 0)} for ip in list(suspicious_ips)[:20]],
-        }), 200
-
+            if username:
+                conditions.append({'username': username})
+            if email:
+                conditions.append({'user_email': email})
+                conditions.append({'email': email})
+            return {'$or': conditions}
+        
+        user_query = build_user_query()
+        
+        # 1. Primary source: offer_views collection
+        ov_col = db_instance.get_collection('offer_views')
+        if ov_col is not None:
+            views = list(ov_col.find(
+                user_query,
+                {'offer_id': 1, 'offer_name': 1, 'timestamp': 1, 'clicked': 1, 'source': 1, 'network': 1, 'ip_address': 1}
+            ).sort('timestamp', -1).limit(limit))
+            for v in views:
+                v['_id'] = str(v['_id'])
+                v['view_type'] = 'clicked' if v.get('clicked') else 'viewed'
+                v['source'] = v.get('source', 'offer_view')
+                key = f"{v.get('offer_id')}_{v.get('timestamp', '')}"
+                seen_keys.add(key)
+                offer_views.append(v)
+        
+        # 2. Also check click collections
+        click_user_query = {'$or': [{'user_id': user_id}]}
+        try:
+            click_user_query['$or'].append({'user_id': ObjectId(user_id)})
+        except Exception:
+            pass
+        
+        for col_name in ('offerwall_clicks', 'offerwall_clicks_detailed', 'clicks'):
+            col = db_instance.get_collection(col_name)
+            if col is None:
+                continue
+            clicks = list(col.find(
+                click_user_query,
+                {'offer_id': 1, 'offer_name': 1, 'timestamp': 1, 'click_time': 1, 'click_id': 1, 'country': 1, 'payout': 1}
+            ).sort('timestamp', -1).limit(limit))
+            for c in clicks:
+                ts = c.get('timestamp') or c.get('click_time')
+                key = f"{c.get('offer_id')}_{ts}"
+                if key not in seen_keys:
+                    c['_id'] = str(c['_id'])
+                    c['view_type'] = 'clicked'
+                    c['source'] = col_name
+                    if not c.get('timestamp') and c.get('click_time'):
+                        c['timestamp'] = c['click_time']
+                    seen_keys.add(key)
+                    offer_views.append(c)
+        
+        # Sort and limit
+        offer_views.sort(key=lambda x: str(x.get('timestamp', '') or ''), reverse=True)
+        offer_views = offer_views[:limit]
+        
+        # Enrich with offer details
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is not None and len(offer_views) > 0:
+            offer_ids = list(set(v.get('offer_id', '') for v in offer_views if v.get('offer_id')))
+            if offer_ids:
+                offers = {o['offer_id']: o for o in offers_col.find(
+                    {'offer_id': {'$in': offer_ids}},
+                    {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'status': 1, 'countries': 1, 'thumbnail': 1}
+                ) if o.get('offer_id')}
+                for v in offer_views:
+                    offer = offers.get(v.get('offer_id', ''), {})
+                    v['offer_details'] = {
+                        'name': offer.get('name', v.get('offer_name', 'Unknown')),
+                        'payout': offer.get('payout', v.get('payout', 0)),
+                        'category': offer.get('category', ''),
+                        'network': offer.get('network', ''),
+                        'status': offer.get('status', ''),
+                        'countries': offer.get('countries', []),
+                        'thumbnail': offer.get('thumbnail', '')
+                    }
+        
+        return jsonify(mongodb_to_json({'views': offer_views, 'total': len(offer_views)})), 200
+        
     except Exception as e:
-        logger.error(f"Error getting chart data: {str(e)}", exc_info=True)
-        return jsonify({'error': f'Failed to get chart data: {str(e)}'}), 500
+        logger.error(f"Error getting offer views: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get offer views: {str(e)}'}), 500
+
+
+@login_logs_bp.route('/inventory-matched-offers/<user_id>', methods=['GET'])
+@token_required_with_user
+@subadmin_or_admin_required('login-logs')
+def get_inventory_matched_offers(current_user, user_id):
+    """Get offers matching what a user searched for — based on their search logs keywords"""
+    try:
+        limit = int(request.args.get('limit', 20))
+        from database import db_instance
+        
+        # Get user's recent search keywords
+        search_col = db_instance.get_collection('search_logs')
+        if search_col is None:
+            return jsonify({'offers': [], 'keywords': []}), 200
+        
+        recent_searches = list(search_col.find(
+            {'user_id': user_id},
+            {'keyword': 1}
+        ).sort('searched_at', -1).limit(20))
+        
+        keywords = list(set(s.get('keyword', '').strip().lower() for s in recent_searches if s.get('keyword', '').strip()))
+        
+        if not keywords:
+            return jsonify({'offers': [], 'keywords': []}), 200
+        
+        # Find active offers matching any of the keywords (name, category, or description)
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'offers': [], 'keywords': keywords}), 200
+        
+        # Build regex OR query for keywords
+        keyword_patterns = [{'name': {'$regex': kw, '$options': 'i'}} for kw in keywords]
+        keyword_patterns += [{'category': {'$regex': kw, '$options': 'i'}} for kw in keywords]
+        keyword_patterns += [{'description': {'$regex': kw, '$options': 'i'}} for kw in keywords]
+        
+        matched_offers = list(offers_col.find(
+            {'$and': [{'status': 'active'}, {'$or': keyword_patterns}]},
+            {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'thumbnail': 1}
+        ).limit(limit))
+        
+        for o in matched_offers:
+            o['_id'] = str(o['_id'])
+        
+        return jsonify(mongodb_to_json({'offers': matched_offers, 'keywords': keywords})), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting inventory matched offers: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@login_logs_bp.route('/mail-history', methods=['GET'])
+@token_required_with_user
+@subadmin_or_admin_required('login-logs')
+def get_mail_history(current_user):
+    """Get history of emails sent from login logs page"""
+    try:
+        limit = int(request.args.get('limit', 50))
+        user_email = request.args.get('user_email', '')
+        
+        from database import db_instance
+        col = db_instance.get_collection('login_logs_mail_history')
+        if col is None:
+            return jsonify({'history': [], 'total': 0}), 200
+        
+        query = {}
+        if user_email:
+            query['to'] = {'$regex': user_email, '$options': 'i'}
+        
+        history = list(col.find(query).sort('sent_at', -1).limit(limit))
+        total = col.count_documents(query)
+        
+        for h in history:
+            h['_id'] = str(h['_id'])
+        
+        return jsonify(mongodb_to_json({'history': history, 'total': total})), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting mail history: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@login_logs_bp.route('/collect-search-logs-mail', methods=['POST'])
+@token_required_with_user
+@subadmin_or_admin_required('login-logs')
+def collect_search_logs_for_mail(current_user):
+    """Collect selected search logs and compose/send email with the data"""
+    try:
+        data = request.get_json()
+        user_email = data.get('user_email', '')
+        user_name = data.get('user_name', '')
+        search_log_ids = data.get('search_log_ids', [])
+        send_now = data.get('send_now', False)
+        
+        if not user_email:
+            return jsonify({'error': 'user_email is required'}), 400
+        
+        if not search_log_ids:
+            return jsonify({'error': 'No search logs selected'}), 400
+        
+        from database import db_instance
+        from bson import ObjectId
+        
+        search_col = db_instance.get_collection('search_logs')
+        if search_col is None:
+            return jsonify({'error': 'Database not connected'}), 500
+        
+        # Fetch the selected search logs
+        obj_ids = []
+        for sid in search_log_ids:
+            try:
+                obj_ids.append(ObjectId(sid))
+            except Exception:
+                pass
+        
+        logs = list(search_col.find({'_id': {'$in': obj_ids}}))
+        
+        if not logs:
+            return jsonify({'error': 'No search logs found'}), 404
+        
+        # Build email body from search logs
+        search_summary = []
+        for log in logs:
+            keyword = log.get('keyword', 'N/A')
+            results = log.get('results_count', 0)
+            status = log.get('inventory_status', 'N/A')
+            picked = log.get('picked_offer', '')
+            searched_at = log.get('searched_at', log.get('created_at', ''))
+            if hasattr(searched_at, 'strftime'):
+                searched_at = searched_at.strftime('%Y-%m-%d %H:%M')
+            search_summary.append(f'• Keyword: "{keyword}" | Results: {results} | Status: {status} | Picked: {picked or "None"} | Time: {searched_at}')
+        
+        body_text = f"Hi {user_name},\n\nHere is a summary of your recent search activity:\n\n" + "\n".join(search_summary) + "\n\nBased on your searches, we have some great offers for you. Check them out!\n\nBest,\nThe Team"
+        subject = f"Your Search Activity Summary - {len(logs)} searches"
+        
+        if send_now:
+            from services.email_service import get_email_service
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            
+            email_service = get_email_service()
+            if not email_service.is_configured:
+                return jsonify({'error': 'Email service not configured'}), 500
+            
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = subject
+            msg['From'] = email_service.from_email
+            msg['To'] = user_email
+            msg.attach(MIMEText(body_text.replace('\n', '<br/>'), 'html'))
+            
+            success = email_service._send_email_smtp(msg)
+            if success:
+                return jsonify({'message': 'Email sent successfully', 'subject': subject, 'body': body_text}), 200
+            else:
+                return jsonify({'error': 'Failed to send email'}), 500
+        else:
+            # Return composed email for preview in mail tab
+            return jsonify({
+                'message': 'Email composed',
+                'subject': subject,
+                'body': body_text,
+                'to': user_email,
+                'search_count': len(logs)
+            }), 200
+        
+    except Exception as e:
+        logger.error(f"Error collecting search logs for mail: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to collect search logs: {str(e)}'}), 500

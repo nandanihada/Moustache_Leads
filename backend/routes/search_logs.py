@@ -535,8 +535,7 @@ def send_inventory_email():
                         <tr>
                             {img_cell}
                             <td style="vertical-align:middle;">
-                                <div style="font-weight:600;font-size:15px;color:#1f2937;margin-bottom:3px;">{name}</div>
-                                <div style="font-size:12px;color:#9ca3af;margin-bottom:6px;">{offer_id}</div>
+                                <div style="font-weight:600;font-size:15px;color:#1f2937;margin-bottom:6px;">{name}</div>
                                 <div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;">${payout:.2f}</div>
                             </td>
                             <td style="width:100px;vertical-align:middle;text-align:right;">
@@ -568,13 +567,10 @@ def send_inventory_email():
             <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;">Hey {username}! We found offers for you 🎯</p>
         </td>
     </tr>
-    <!-- Keyword Banner -->
+    <!-- Intro Text -->
     <tr>
         <td style="padding:25px 30px 5px;">
-            <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;padding:14px 18px;text-align:center;">
-                <span style="font-size:13px;color:#9a3412;font-weight:600;">🔍 Matching your search:</span>
-                <span style="display:inline-block;background:#f97316;color:#fff;font-size:14px;font-weight:700;padding:4px 14px;border-radius:20px;margin-left:8px;">{keyword}</span>
-            </div>
+            <p style="margin:0;font-size:15px;color:#374151;line-height:1.6;">We've handpicked some top-performing offers just for you. Check them out and start earning!</p>
         </td>
     </tr>
     <!-- Custom Message -->
@@ -583,7 +579,7 @@ def send_inventory_email():
     <tr>
         <td style="padding:15px 30px 5px;">
             <h2 style="margin:0 0 5px;font-size:17px;color:#1f2937;font-weight:700;">📦 {len(offers_to_send)} Offers Available</h2>
-            <p style="margin:0 0 15px;font-size:13px;color:#6b7280;">These offers are in our inventory and ready for you to promote.</p>
+            <p style="margin:0 0 15px;font-size:13px;color:#6b7280;">These offers are ready for you to promote. Start earning today!</p>
             <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 {offer_rows_html}
             </table>
@@ -651,7 +647,7 @@ def send_inventory_email():
 @token_required
 def get_related_offers():
     """
-    Get up to 8 related offers for a keyword (the searched offer + 7 nearby).
+    Get up to 20 related offers for a keyword (the searched offer + nearby).
     Used by admin to preview/edit offers before sending inventory email.
     """
     try:
@@ -690,8 +686,8 @@ def get_related_offers():
             }
         ).sort('payout', -1).limit(20))
 
-        # If we have fewer than 8, try to find more by category of the first match
-        if len(matching) < 8 and matching:
+        # If we have fewer than 20, try to find more by category of the first match
+        if len(matching) < 20 and matching:
             category = matching[0].get('vertical') or matching[0].get('category', '')
             if category:
                 existing_ids = {o['offer_id'] for o in matching}
@@ -710,12 +706,12 @@ def get_related_offers():
                         'category': 1, 'vertical': 1, 'countries': 1, 'network': 1,
                         'description': 1, 'currency': 1
                     }
-                ).sort('payout', -1).limit(8 - len(matching)))
+                ).sort('payout', -1).limit(20 - len(matching)))
                 matching.extend(extra)
 
         # Serialize
         result = []
-        for o in matching[:8]:
+        for o in matching[:20]:
             o['_id'] = str(o['_id'])
             result.append(o)
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { MessageCircle, Send, RefreshCw, Mail, MailOpen, Clock, CheckCircle, PenSquare, X, Users, User, Search, XCircle, ArrowLeft, Image, Eye } from 'lucide-react';
+import { MessageCircle, Send, RefreshCw, Mail, MailOpen, Clock, CheckCircle, PenSquare, X, Users, User, Search, XCircle, ArrowLeft, Image, Eye, Trash2, CheckSquare, Square } from 'lucide-react';
 import { supportApi, SupportMessage, SupportCounts } from '@/services/supportApi';
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { getAuthToken } from '@/utils/cookies';
@@ -44,6 +44,12 @@ const AdminSupportInbox: React.FC = () => {
   const [replyImageUrl, setReplyImageUrl] = useState('');
   const [replyUploading, setReplyUploading] = useState(false);
   const replyFileRef = useRef<HTMLInputElement>(null);
+
+  // Multi-select for bulk delete
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [msgSearch, setMsgSearch] = useState('');
 
   const handleImageUpload = async (file: File) => {
     setReplyUploading(true);
@@ -137,6 +143,53 @@ const AdminSupportInbox: React.FC = () => {
     } catch { toast.error('Failed to close'); }
   };
 
+  const handleDeleteMessage = async (msgId: string) => {
+    if (!confirm('Delete this entire conversation for everyone? This cannot be undone.')) return;
+    try {
+      const res = await supportApi.adminDeleteMessage(msgId);
+      if (res.success) {
+        toast.success('Message deleted for everyone');
+        if (selected?._id === msgId) setSelected(null);
+        setMessages(prev => prev.filter(m => m._id !== msgId));
+        setCounts(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+      } else { toast.error(res.error || 'Failed to delete'); }
+    } catch { toast.error('Failed to delete'); }
+  };
+
+  const handleDeleteReply = async (msgId: string, replyId: string) => {
+    if (!confirm('Delete this message for everyone?')) return;
+    try {
+      const res = await supportApi.adminDeleteReply(msgId, replyId);
+      if (res.success) {
+        toast.success('Reply deleted');
+        setSelected(res.message);
+        setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
+      } else { toast.error(res.error || 'Failed to delete'); }
+    } catch { toast.error('Failed to delete reply'); }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedMsgIds.size === 0) return;
+    if (!confirm(`Delete ${selectedMsgIds.size} conversation(s) for everyone? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      const res = await supportApi.adminBulkDeleteMessages(Array.from(selectedMsgIds));
+      if (res.success) {
+        toast.success(`Deleted ${res.deleted_count} message(s)`);
+        setMessages(prev => prev.filter(m => !selectedMsgIds.has(m._id)));
+        if (selected && selectedMsgIds.has(selected._id)) setSelected(null);
+        setSelectedMsgIds(new Set());
+        setSelectMode(false);
+        setCounts(prev => ({ ...prev, total: Math.max(0, prev.total - res.deleted_count) }));
+      } else { toast.error(res.error || 'Failed to delete'); }
+    } catch { toast.error('Failed to delete'); }
+    finally { setDeleting(false); }
+  };
+
+  const toggleMsgSelect = (id: string) => {
+    setSelectedMsgIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  };
+
   const openCompose = async () => {
     setShowCompose(true);
     setBroadcastSubject('');
@@ -208,12 +261,29 @@ const AdminSupportInbox: React.FC = () => {
           <p className="text-muted-foreground text-sm mt-1">View and reply to publisher support messages</p>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={openCompose} className="flex items-center gap-2 text-sm bg-primary text-primary-foreground rounded-lg px-4 py-2 hover:bg-primary/90 transition-colors font-medium">
-            <PenSquare className="w-4 h-4" /> Compose
-          </button>
-          <button onClick={load} className="flex items-center gap-2 text-sm border border-border rounded-lg px-3 py-2 hover:bg-muted transition-colors">
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
+          {selectMode ? (
+            <>
+              <span className="text-sm text-muted-foreground">{selectedMsgIds.size} selected</span>
+              <button onClick={handleBulkDelete} disabled={selectedMsgIds.size === 0 || deleting} className="flex items-center gap-2 text-sm bg-red-600 text-white rounded-lg px-4 py-2 hover:bg-red-700 transition-colors font-medium disabled:opacity-50">
+                <Trash2 className="w-4 h-4" /> {deleting ? 'Deleting...' : 'Delete Selected'}
+              </button>
+              <button onClick={() => { setSelectMode(false); setSelectedMsgIds(new Set()); }} className="flex items-center gap-2 text-sm border border-border rounded-lg px-3 py-2 hover:bg-muted transition-colors">
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setSelectMode(true)} className="flex items-center gap-2 text-sm border border-border rounded-lg px-3 py-2 hover:bg-muted transition-colors" title="Select messages to delete">
+                <CheckSquare className="w-4 h-4" /> Select
+              </button>
+              <button onClick={openCompose} className="flex items-center gap-2 text-sm bg-primary text-primary-foreground rounded-lg px-4 py-2 hover:bg-primary/90 transition-colors font-medium">
+                <PenSquare className="w-4 h-4" /> Compose
+              </button>
+              <button onClick={load} className="flex items-center gap-2 text-sm border border-border rounded-lg px-3 py-2 hover:bg-muted transition-colors">
+                <RefreshCw className="w-4 h-4" /> Refresh
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -259,22 +329,53 @@ const AdminSupportInbox: React.FC = () => {
               </button>
             ))}
           </div>
+          {/* Search bar */}
+          <div className="px-3 py-2 border-b border-border">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search by user or email..."
+                value={msgSearch}
+                onChange={e => setMsgSearch(e.target.value)}
+                className="w-full pl-8 pr-8 py-1.5 text-xs border border-border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              {msgSearch && (
+                <button onClick={() => setMsgSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
           <div className="flex-1 overflow-y-auto divide-y divide-border">
             {loading ? (
               <div className="p-4 text-sm text-muted-foreground text-center">Loading...</div>
             ) : messages.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground text-sm">No messages</div>
             ) : (
-              messages.map(msg => {
+              (() => {
+                const q = msgSearch.toLowerCase().trim();
+                const filtered = q ? messages.filter(m => 
+                  (m.username || '').toLowerCase().includes(q) || 
+                  (m.email || '').toLowerCase().includes(q) ||
+                  (m.subject || '').toLowerCase().includes(q)
+                ) : messages;
+                if (filtered.length === 0) return <div className="p-8 text-center text-muted-foreground text-sm">No matches for "{msgSearch}"</div>;
+                return filtered.map(msg => {
                 const replyCount = msg.replies?.length || 0;
                 return (
-                <button
-                  key={msg._id}
-                  onClick={() => openMessage(msg)}
-                  className={`w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors ${
-                    selected?._id === msg._id ? 'bg-primary/5 border-l-2 border-primary' : ''
-                  }`}
-                >
+                <div key={msg._id} className="flex items-start">
+                  {selectMode && (
+                    <button onClick={(e) => { e.stopPropagation(); toggleMsgSelect(msg._id); }} className="flex-shrink-0 p-3 self-center">
+                      {selectedMsgIds.has(msg._id) ? <CheckSquare className="w-4 h-4 text-primary" /> : <Square className="w-4 h-4 text-muted-foreground" />}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => !selectMode ? openMessage(msg) : toggleMsgSelect(msg._id)}
+                    className={`flex-1 text-left px-4 py-3 hover:bg-muted/50 transition-colors ${
+                      selected?._id === msg._id ? 'bg-primary/5 border-l-2 border-primary' : ''
+                    } ${selectedMsgIds.has(msg._id) ? 'bg-red-50 dark:bg-red-950/20' : ''}`}
+                  >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
@@ -310,8 +411,10 @@ const AdminSupportInbox: React.FC = () => {
                     <StatusBadge status={msg.status} readByAdmin={msg.read_by_admin} />
                   </div>
                 </button>
+                </div>
                 );
-              })
+              });
+              })()
             )}
           </div>
         </div>
@@ -346,6 +449,12 @@ const AdminSupportInbox: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <StatusBadge status={selected.status} readByAdmin={selected.read_by_admin} />
+                    <button
+                      onClick={() => handleDeleteMessage(selected._id)}
+                      className="flex items-center gap-1.5 text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
                     {selected.status !== 'closed' && (
                       <button
                         onClick={handleClose}
@@ -360,27 +469,50 @@ const AdminSupportInbox: React.FC = () => {
 
               {/* Chat thread */}
               <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
-                {/* User's original message — skip for broadcasts since body = first reply */}
+                {/* Original message — render as admin bubble if admin-initiated (reactivation/broadcast) */}
                 {!selected.is_broadcast && (
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold flex-shrink-0">
-                    {(selected.username || 'U')[0].toUpperCase()}
-                  </div>
-                  <div className="flex-1 max-w-[85%]">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-xs font-semibold text-foreground">{selected.username}</p>
-                      <p className="text-xs text-muted-foreground">{fmt(selected.created_at)}</p>
+                  selected.is_admin_initiated || selected.source === 'reactivation' ? (
+                    /* Admin-initiated message — show on right side as admin */
+                    <div className="flex gap-3 justify-end group">
+                      <div className="flex-1 max-w-[85%]">
+                        <div className="flex items-center gap-2 justify-end mb-1">
+                          <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">Admin Initiated</span>
+                          <p className="text-xs text-muted-foreground">{fmt(selected.created_at)}</p>
+                          <p className="text-xs font-semibold text-primary">Admin</p>
+                        </div>
+                        <div className="bg-primary/10 border border-primary/20 rounded-xl rounded-tr-none px-4 py-3">
+                          <p className="text-sm text-foreground whitespace-pre-wrap">{selected.body}</p>
+                          {selected.image_url && (
+                            <a href={`${getApiBaseUrl()}${selected.image_url}`} target="_blank" rel="noopener noreferrer">
+                              <img src={`${getApiBaseUrl()}${selected.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-primary/20" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                      <img src="/logo.png" alt="Admin" className="w-8 h-8 rounded-full object-cover flex-shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                     </div>
-                    <div className="bg-muted/40 rounded-xl rounded-tl-none px-4 py-3">
-                      <p className="text-sm text-foreground whitespace-pre-wrap">{selected.body}</p>
-                      {selected.image_url && (
-                        <a href={`${getApiBaseUrl()}${selected.image_url}`} target="_blank" rel="noopener noreferrer">
-                          <img src={`${getApiBaseUrl()}${selected.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-border" />
-                        </a>
-                      )}
+                  ) : (
+                    /* User-sent message — show on left side */
+                    <div className="flex gap-3">
+                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        {(selected.username || 'U')[0].toUpperCase()}
+                      </div>
+                      <div className="flex-1 max-w-[85%]">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-xs font-semibold text-foreground">{selected.username}</p>
+                          <p className="text-xs text-muted-foreground">{fmt(selected.created_at)}</p>
+                        </div>
+                        <div className="bg-muted/40 rounded-xl rounded-tl-none px-4 py-3">
+                          <p className="text-sm text-foreground whitespace-pre-wrap">{selected.body}</p>
+                          {selected.image_url && (
+                            <a href={`${getApiBaseUrl()}${selected.image_url}`} target="_blank" rel="noopener noreferrer">
+                              <img src={`${getApiBaseUrl()}${selected.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-border" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  )
                 )}
 
                 {/* Replies */}
@@ -388,9 +520,12 @@ const AdminSupportInbox: React.FC = () => {
                   const isAdmin = reply.from === 'admin';
                   const userSeenThis = isAdmin && selected.last_read_by_user_at && new Date(reply.created_at) <= new Date(selected.last_read_by_user_at);
                   return isAdmin ? (
-                    <div key={reply._id} className="flex gap-3 justify-end">
+                    <div key={reply._id} className="flex gap-3 justify-end group">
                       <div className="flex-1 max-w-[85%]">
                         <div className="flex items-center gap-2 justify-end mb-1">
+                          <button onClick={() => handleDeleteReply(selected._id, reply._id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-red-400 hover:text-red-600" title="Delete for everyone">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
                           <p className="text-xs text-muted-foreground">{fmt(reply.created_at)}</p>
                           <p className="text-xs font-semibold text-primary">Admin</p>
                         </div>

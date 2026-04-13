@@ -398,8 +398,37 @@ class LoginLogsService {
     document.body.removeChild(link);
   }
 
-  async getChartData(days: number = 7): Promise<any> {
-    const response = await api.get('/api/admin/login-logs/chart-data', { params: { days } });
+  async getChartData(days: number = 7, options?: { durationMinutes?: number; customStart?: string; customEnd?: string }): Promise<any> {
+    const params: Record<string, string> = { days: days.toString() };
+    if (options?.durationMinutes) params.duration_minutes = options.durationMinutes.toString();
+    if (options?.customStart) params.custom_start = options.customStart;
+    if (options?.customEnd) params.custom_end = options.customEnd;
+    const response = await api.get('/api/admin/login-logs/chart-data', { params });
+    return response.data;
+  }
+
+  async getOfferViews(userId: string, limit: number = 30, username?: string, email?: string): Promise<any> {
+    const params: Record<string, string> = { limit: limit.toString() };
+    if (username) params.username = username;
+    if (email) params.email = email;
+    const response = await api.get(`/api/admin/offer-views/${userId}`, { params });
+    return response.data;
+  }
+
+  async getInventoryMatchedOffers(userId: string): Promise<any> {
+    const response = await api.get(`/api/admin/inventory-matched-offers/${userId}`);
+    return response.data;
+  }
+
+  async getMailHistory(userEmail?: string, limit: number = 50): Promise<any> {
+    const params: Record<string, string> = { limit: limit.toString() };
+    if (userEmail) params.user_email = userEmail;
+    const response = await api.get('/api/admin/mail-history', { params });
+    return response.data;
+  }
+
+  async collectSearchLogsForMail(data: { user_email: string; user_name: string; search_log_ids: string[]; send_now: boolean }): Promise<any> {
+    const response = await api.post('/api/admin/collect-search-logs-mail', data);
     return response.data;
   }
 }

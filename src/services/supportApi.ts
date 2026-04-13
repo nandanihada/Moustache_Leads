@@ -32,6 +32,8 @@ export interface SupportMessage {
   last_read_by_admin_at?: string | null;
   image_url?: string | null;
   is_broadcast?: boolean;
+  is_admin_initiated?: boolean;
+  source?: string;
 }
 
 export interface SupportCounts {
@@ -124,6 +126,31 @@ export const supportApi = {
     const res = await fetch(`${base()}/api/admin/support/messages/${messageId}/close`, {
       method: 'PUT',
       headers: headers(),
+    });
+    return res.json();
+  },
+
+  adminDeleteMessage: async (messageId: string) => {
+    const res = await fetch(`${base()}/api/admin/support/messages/${messageId}`, {
+      method: 'DELETE',
+      headers: headers(),
+    });
+    return res.json();
+  },
+
+  adminDeleteReply: async (messageId: string, replyId: string) => {
+    const res = await fetch(`${base()}/api/admin/support/messages/${messageId}/replies/${replyId}`, {
+      method: 'DELETE',
+      headers: headers(),
+    });
+    return res.json();
+  },
+
+  adminBulkDeleteMessages: async (messageIds: string[]) => {
+    const res = await fetch(`${base()}/api/admin/support/messages/bulk-delete`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ message_ids: messageIds }),
     });
     return res.json();
   },

@@ -49,6 +49,10 @@ def _send_support_notification_email(to_email: str, username: str, is_admin_repl
     def _send():
         try:
             email_service = get_email_service()
+            if not email_service.is_configured:
+                import logging
+                logging.getLogger(__name__).error(f"❌ Email service not configured! Cannot send support notification to {to_email}")
+                return
             frontend_url = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
             if is_admin_reply:
                 subject = "You have received a message from admin"
@@ -502,3 +506,65 @@ def admin_broadcast():
     _log_email_activity('support_broadcast', len(users), request.current_user, note=f"Broadcast: {subject}")
 
     return jsonify({'success': True, 'sent_to': len(result.inserted_ids)})
+
+
+# ── Admin: delete a single message (for everyone) ────────────────────────────
+@support_bp.route('/api/admin/support/messages/<message_id>', methods=['DELETE'])
+@token_required
+@admin_required
+def admin_delete_message(message_id):
+    """Delete a support message entirely — removes it for both admin and user"""
+    try:
+        result = _col().delete_one({'_id': ObjectId(message_id)})
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Message not found'}), 404
+        return jsonify({'success': True, 'message': 'Message deleted for everyone'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Admin: delete a specific reply from a message ─────────────────────────────
+@support_bp.route('/api/admin/support/messages/<message_id>/replies/<reply_id>', methods=['DELETE'])
+@token_required
+@admin_required
+def admin_delete_reply(message_id, reply_id):
+    """Delete a specific reply from a message — removes it for everyone"""
+    try:
+        result = _col().update_one(
+            {'_id': ObjectId(message_id)},
+            {'$pull': {'replies': {'_id': ObjectId(reply_id)}}}
+        )
+        if result.matched_count == 0:
+            return jsonify({'error': 'Message not found'}), 404
+        if result.modified_count == 0:
+            return jsonify({'error': 'Reply not found'}), 404
+        
+        doc = _col().find_one({'_id': ObjectId(message_id)})
+        return jsonify({'success': True, 'message': _serialize(doc)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Admin: bulk delete multiple messages ──────────────────────────────────────
+@support_bp.route('/api/admin/support/messages/bulk-delete', methods=['POST'])
+@token_required
+@admin_required
+def admin_bulk_delete_messages():
+    """Delete multiple support messages at once — removes them for everyone"""
+    try:
+        data = request.get_json() or {}
+        message_ids = data.get('message_ids', [])
+        
+        if not message_ids:
+            return jsonify({'error': 'No message IDs provided'}), 400
+        
+        object_ids = [ObjectId(mid) for mid in message_ids]
+        result = _col().delete_many({'_id': {'$in': object_ids}})
+        
+        return jsonify({
+            'success': True,
+            'deleted_count': result.deleted_count,
+            'message': f'Deleted {result.deleted_count} message(s) for everyone'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

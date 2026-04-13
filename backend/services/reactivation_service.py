@@ -912,12 +912,23 @@ class ReactivationService:
         email_svc = get_email_service()
         results = []
 
+        logger.info(f"📧 send_outreach called: {len(user_ids)} users, channel={channel}, send_time={send_time}, subject='{subject[:50]}', message_len={len(message)}")
+
+        if not email_svc.is_configured:
+            logger.error("❌ Email service not configured! Cannot send reactivation outreach.")
+            return [{'user_id': uid, 'status': 'error', 'error': 'Email service not configured'} for uid in user_ids]
+
         # Collect user data for all recipients
         users_data = []
         for uid_str in user_ids:
             try:
                 user = self.users_col.find_one({'_id': ObjectId(uid_str)})
                 if user:
+                    email = user.get('email', '')
+                    logger.info(f"  → User {uid_str}: username={user.get('username')}, email={email}")
+                    if not email:
+                        results.append({'user_id': uid_str, 'status': 'error', 'error': 'User has no email address'})
+                        continue
                     users_data.append({'uid': uid_str, 'user': user})
                 else:
                     results.append({'user_id': uid_str, 'status': 'error', 'error': 'User not found'})
@@ -1114,14 +1125,23 @@ class ReactivationService:
                     results.append({'user_id': uid_str, 'status': 'error', 'error': 'User not found'})
                     continue
 
+                name = user.get('first_name') or user.get('username', 'there')
+                personalized_note = note.replace('{name}', name) if note else ''
+
                 subject = outreach_subject or f'Reactivation: {issue_type} — {user.get("username", "")}'
+
+                # Clean body: use the note if provided, otherwise a simple auto-generated message
+                if personalized_note.strip():
+                    body = personalized_note
+                else:
+                    body = f'Hi {name}, we noticed you haven\'t been active recently. We have some great offers waiting for you — check them out on your dashboard!'
 
                 ticket = {
                     'user_id': ObjectId(uid_str),
                     'username': user.get('username', ''),
                     'email': user.get('email', ''),
                     'subject': subject,
-                    'body': note if note else f'[Auto-created by Reactivation Engine]\nUser: {user.get("username", "")} ({user.get("email", "")})\nIssue: {issue_type}\nPriority: {priority}\nAssigned to: {assign_to}',
+                    'body': body,
                     'status': 'open',
                     'replies': [],
                     'created_at': datetime.utcnow(),
@@ -1174,28 +1194,21 @@ class ReactivationService:
             )
 
         if support_data:
-            # Build rich ticket body that includes the outreach content
+            # Support ticket gets the outreach message (what user sees) so they can reference the offers
+            # Internal admin note is stored separately
             note = support_data.get('note', '')
-            outreach_msg = outreach_data.get('message', '') if outreach_data else ''
             outreach_subject = outreach_data.get('subject', '') if outreach_data else ''
-            offer_name = outreach_data.get('offer_name', '') if outreach_data else ''
+            outreach_msg = outreach_data.get('message', '') if outreach_data else ''
 
-            # Combine: outreach message first, then internal note
-            body_parts = []
-            if outreach_msg:
-                body_parts.append(outreach_msg)
-            if offer_name:
-                body_parts.append(f'\nOffers included: {offer_name}')
-            if note:
-                body_parts.append(f'\n--- Internal Note ---\n{note}')
-
-            combined_note = '\n'.join(body_parts) if body_parts else note
+            # If there's an outreach message with offers, use it as the ticket body
+            # so the user can see which offers were recommended
+            ticket_body = outreach_msg if outreach_msg.strip() else note
 
             support_results = self.create_support_ticket(
                 user_ids=user_ids,
                 issue_type=support_data.get('issue_type', 'Reactivation'),
                 priority=support_data.get('priority', 'medium'),
-                note=combined_note,
+                note=ticket_body,
                 assign_to=support_data.get('assign_to', 'auto'),
                 admin_id=admin_id,
                 outreach_subject=outreach_subject if outreach_subject else None,

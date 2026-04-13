@@ -99,7 +99,10 @@ def send_outreach():
 
     user_ids = data.get('user_ids', [])
     if not user_ids:
+        logger.error(f"❌ Outreach: user_ids is empty. Full request data keys: {list(data.keys())}")
         return jsonify({'error': 'user_ids required'}), 400
+
+    logger.info(f"📧 Outreach: sending to {len(user_ids)} users, channel={data.get('channel')}, send_time={data.get('send_time')}")
 
     # Parse scheduled_at if provided
     scheduled_at = None
@@ -167,7 +170,8 @@ def execute_sands():
 
     user_ids = data.get('user_ids', [])
     if not user_ids:
-        return jsonify({'error': 'user_ids required'}), 400
+        logging.error(f"❌ S+S: user_ids is empty. Full request data keys: {list(data.keys())}")
+        return jsonify({'error': 'user_ids required', 'received_keys': list(data.keys())}), 400
 
     admin_id = str(request.current_user.get('_id', ''))
 

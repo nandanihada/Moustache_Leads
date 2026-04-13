@@ -48,15 +48,19 @@ class EmailService:
     
     def _send_email_smtp(self, msg) -> bool:
         """
-        Send email using Hostinger SMTP.
-        Tries STARTTLS on port 587 first (works on more hosting platforms),
+        Send email using SMTP.
+        Tries STARTTLS on port 587 first (works on Gmail, Hostinger, Render),
         then falls back to SSL on port 465.
         """
+        if not self.is_configured:
+            logger.error("❌ SMTP not configured — cannot send email")
+            return False
+
         ctx = ssl.create_default_context()
         
-        # Try port 587 with STARTTLS first (works on more hosting platforms like Render)
+        # Try port 587 with STARTTLS first
         try:
-            logger.info(f"📧 Trying SMTP STARTTLS on port 587...")
+            logger.info(f"📧 Trying SMTP STARTTLS on {self.smtp_host}:587...")
             with smtplib.SMTP(self.smtp_host, 587, timeout=30) as server:
                 server.starttls(context=ctx)
                 server.login(self.smtp_user, self.smtp_pass)
@@ -68,7 +72,7 @@ class EmailService:
             
             # Fallback to port 465 with SSL
             try:
-                logger.info(f"📧 Trying SMTP SSL on port 465...")
+                logger.info(f"📧 Trying SMTP SSL on {self.smtp_host}:465...")
                 with smtplib.SMTP_SSL(self.smtp_host, 465, context=ctx, timeout=30) as server:
                     server.login(self.smtp_user, self.smtp_pass)
                     server.send_message(msg)
@@ -81,6 +85,14 @@ class EmailService:
     def _send_email(self, to_email: str, subject: str, html_content: str) -> bool:
         """Send email using SMTP - creates connection, sends, closes immediately"""
         try:
+            if not self.is_configured:
+                logger.error(f"❌ Email service not configured! Cannot send to {to_email}")
+                return False
+
+            if not to_email:
+                logger.error(f"❌ No recipient email provided")
+                return False
+
             # Create message
             msg = MIMEMultipart('alternative')
             msg['Subject'] = subject
@@ -106,7 +118,7 @@ class EmailService:
                 return False
             
         except Exception as e:
-            logger.error(f"❌ Failed to send email to {to_email}: {str(e)}")
+            logger.error(f"❌ Failed to send email to {to_email}: {str(e)}", exc_info=True)
             return False
     
     def _create_offer_update_email_html(self, offer_data: Dict, update_type: str = 'promo_code') -> str:

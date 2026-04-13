@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   fetchInactiveUsers, fetchReactivationStats, fetchUserProfile,
@@ -147,9 +147,16 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
   const [priority, setPriority] = useState('medium');
   const [note, setNote] = useState('');
   const [assignTo, setAssignTo] = useState('auto');
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>(users.map(u => u._id));
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [showOfferDropdown, setShowOfferDropdown] = useState(false);
-  const [openPicker, setOpenPicker] = useState<string | null>(null); // which quick-pick dropdown is open
+  const [openPicker, setOpenPicker] = useState<string | null>(null);
+
+  // Auto-select all users when modal opens or users change
+  useEffect(() => {
+    if (open && users.length > 0) {
+      setSelectedUserIds(users.map(u => u._id));
+    }
+  }, [open, users]); // which quick-pick dropdown is open
 
   // Sync prefilled offer when modal opens with prefilledOffer
   if (open && prefilledOffer && offerName !== prefilledOffer.name) {
