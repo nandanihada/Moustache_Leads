@@ -18,7 +18,7 @@ ALLOWED_IMAGE_EXT = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
 
 
-def _log_email_activity(source: str, recipient_count: int, admin_user: dict = None, note: str = '') -> None:
+def _log_email_activity(source: str, recipient_count: int, admin_user: dict = None, note: str = '', recipient_email: str = '') -> None:
     """Insert a record into email_activity_logs so it appears in the Email Activity tab."""
     try:
         col = db_instance.get_collection('email_activity_logs')
@@ -31,6 +31,7 @@ def _log_email_activity(source: str, recipient_count: int, admin_user: dict = No
             'offer_names': [note] if note else [],
             'offer_count': 0,
             'recipient_type': 'specific_users' if source == 'support_reply' else 'all_users',
+            'recipient_email': recipient_email,
             'recipient_count': recipient_count,
             'batch_count': 1,
             'offers_per_email': 0,
@@ -375,7 +376,7 @@ def admin_reply(message_id):
     username = doc.get('username', 'there')
     if user_email:
         _send_support_notification_email(user_email, username)
-        _log_email_activity('support_reply', 1, request.current_user, note=f"Reply to {username}")
+        _log_email_activity('support_reply', 1, request.current_user, note=f"Reply to {username}", recipient_email=user_email)
 
     return jsonify({'success': True, 'message': _serialize(doc)})
 

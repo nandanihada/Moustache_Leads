@@ -29,7 +29,10 @@ interface EmailLog {
 const AdminEmailActivityLogs: React.FC = () => {
   const [logs, setLogs] = useState<EmailLog[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sourceFilter, setSourceFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('source') || '';
+  });
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -73,6 +76,7 @@ const AdminEmailActivityLogs: React.FC = () => {
       case 'support_reply': return <Badge variant="outline" className="text-orange-600 border-orange-600">Support Reply</Badge>;
       case 'support_broadcast': return <Badge variant="outline" className="text-pink-600 border-pink-600">Support Broadcast</Badge>;
       case 'search_logs': return <Badge variant="outline" className="text-indigo-600 border-indigo-600">Search Logs</Badge>;
+      case 'search_logs_inventory': return <Badge variant="outline" className="text-teal-600 border-teal-600">Search Inventory</Badge>;
       default: return <Badge variant="outline">{source}</Badge>;
     }
   };
@@ -114,6 +118,7 @@ const AdminEmailActivityLogs: React.FC = () => {
             <SelectItem value="support_reply">Support Reply</SelectItem>
             <SelectItem value="support_broadcast">Support Broadcast</SelectItem>
             <SelectItem value="search_logs">Search Logs</SelectItem>
+            <SelectItem value="search_logs_inventory">Search Inventory</SelectItem>
           </SelectContent>
         </Select>
         <span className="text-sm text-muted-foreground">{total} log(s)</span>
@@ -138,15 +143,19 @@ const AdminEmailActivityLogs: React.FC = () => {
                     <TableHead>Date</TableHead>
                     <TableHead>Action</TableHead>
                     <TableHead>Source</TableHead>
+                    <TableHead>Sent To</TableHead>
+                    <TableHead>Details</TableHead>
                     <TableHead>Offers</TableHead>
-                    <TableHead>Recipients</TableHead>
-                    <TableHead>Batches</TableHead>
                     <TableHead>Admin</TableHead>
                     <TableHead>Scheduled For</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {logs.map((log) => (
+                  {logs.map((log) => {
+                    const recipientEmail = (log as any).recipient_email || '';
+                    const keyword = (log as any).keyword || '';
+                    const note = log.offer_names?.length === 1 && log.offer_count === 0 ? log.offer_names[0] : '';
+                    return (
                     <TableRow key={log._id}>
                       <TableCell className="text-sm whitespace-nowrap">{formatDate(log.created_at)}</TableCell>
                       <TableCell>
@@ -158,26 +167,37 @@ const AdminEmailActivityLogs: React.FC = () => {
                       <TableCell>{getSourceLabel(log.source)}</TableCell>
                       <TableCell>
                         <div>
-                          <span className="font-medium">{log.offer_count}</span>
-                          <div className="text-xs text-muted-foreground max-w-[200px] truncate" title={log.offer_names?.join(', ')}>
-                            {log.offer_names?.slice(0, 3).join(', ')}
-                            {(log.offer_names?.length || 0) > 3 && ` +${log.offer_names.length - 3} more`}
-                          </div>
+                          <span className="font-medium">{log.recipient_count}</span>
+                          <div className="text-xs text-muted-foreground">{getRecipientLabel(log.recipient_type)}</div>
+                          {recipientEmail && <div className="text-xs text-blue-600 font-medium truncate max-w-[160px]" title={recipientEmail}>📧 {recipientEmail}</div>}
+                          {note && <div className="text-xs text-foreground font-medium">{note}</div>}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs space-y-0.5">
+                          {keyword && <div className="text-indigo-600">🔍 Keyword: "{keyword}"</div>}
+                          {log.batch_count > 1 && <div className="text-muted-foreground">{log.batch_count} batches</div>}
+                          {(log as any).offers_per_email > 0 && <div className="text-muted-foreground">{(log as any).offers_per_email} per email</div>}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div>
-                          <span className="font-medium">{log.recipient_count}</span>
-                          <div className="text-xs text-muted-foreground">{getRecipientLabel(log.recipient_type)}</div>
+                          <span className="font-medium">{log.offer_count}</span>
+                          {log.offer_count > 0 && (
+                            <div className="text-xs text-muted-foreground max-w-[200px] truncate" title={log.offer_names?.join(', ')}>
+                              {log.offer_names?.slice(0, 3).join(', ')}
+                              {(log.offer_names?.length || 0) > 3 && ` +${log.offer_names.length - 3} more`}
+                            </div>
+                          )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm">{log.batch_count}</TableCell>
                       <TableCell className="text-sm">{log.admin_username}</TableCell>
                       <TableCell className="text-sm">
                         {log.scheduled_time ? formatDate(log.scheduled_time) : '—'}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
 

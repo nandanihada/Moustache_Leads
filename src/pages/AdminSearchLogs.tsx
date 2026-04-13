@@ -250,6 +250,10 @@ const AdminSearchLogsContent: React.FC = () => {
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          <Button variant="outline" onClick={() => window.open('/admin/email-activity-logs?source=search_logs_inventory', '_blank')}>
+            <Eye className="h-4 w-4 mr-2" />
+            Sent History
+          </Button>
         </div>
       </div>
 
