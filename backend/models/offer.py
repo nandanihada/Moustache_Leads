@@ -40,7 +40,9 @@ CATEGORY_KEYWORDS = {
     'HEALTH': [
         'health', 'medical', 'healthcare', 'doctor', 'hospital', 'clinic', 'fitness',
         'wellness', 'diagnosis', 'symptoms', 'medicine', 'pharmacy', 'lab test',
-        'telemedicine', 'mental health', 'diet', 'weight loss', 'yoga'
+        'telemedicine', 'mental health', 'diet', 'weight loss', 'yoga',
+        'nutrition', 'workout', 'exercise', 'gym', 'supplement',
+        'vitamin', 'skincare', 'beauty', 'self care'
     ],
     'SURVEY': [
         'survey', 'poll', 'questionnaire', 'feedback', 'opinion',
@@ -83,7 +85,10 @@ CATEGORY_KEYWORDS = {
         'money transfer', 'fintech', 'neobank',
         'debit card', 'credit card', 'savings account',
         'mutual fund', 'portfolio', 'financial planning',
-        'retirement', '401k', 'pension', 'financial'
+        'retirement', '401k', 'pension', 'financial',
+        'cashback', 'cash back', 'payment', 'wallet',
+        'money app', 'cash app', 'venmo', 'paypal', 'zelle',
+        'creditcard', 'budgeting'
     ],
     'DATING': [
         'dating', 'dating app', 'dating site', 'matchmaking',
@@ -104,14 +109,19 @@ CATEGORY_KEYWORDS = {
         'mobile app', 'android app', 'ios app',
         'app store', 'play store', 'google play', 'apple store',
         'install now', 'download now', 'get it now', 'free download',
-        'browser extension', 'install app'
+        'browser extension', 'install app',
+        'sign up', 'signup', 'register', 'create account',
+        'download free', 'get started'
     ],
     'GAMES_INSTALL': [
         'game', 'games', 'gaming', 'play game',
         'online game', 'mobile game', 'pc game',
         'download game', 'install game',
         'play now', 'start game', 'multiplayer',
-        'level up', 'in-game rewards'
+        'level up', 'in-game rewards',
+        'mobilegame', 'casino', 'slots', 'puzzle',
+        'solitaire', 'mahjong', 'poker', 'bingo',
+        'arcade', 'rpg', 'strategy game', 'card game'
     ]
 }
 
@@ -233,9 +243,38 @@ def detect_categories_from_text(name, description=''):
                     found.append(category)
                     break
     
-    # If nothing found, return OTHER
+    # ==================== PASS 3: Smart fallback for offers that would be OTHER ====================
+    # If no verticals found yet, try broader tag-based matching on the full combined text
     if not found:
-        return ['OTHER']
+        combined = name_lower + ' ' + desc_lower
+        normalized = combined.replace('_', ' ').replace(',', ' ').replace('-', ' ')
+        
+        # Map common description tags to verticals
+        tag_mappings = {
+            'GAMES_INSTALL': ['mobilegame', 'multireward', 'casino', 'slots', 'puzzle', 'solitaire', 'arcade', 'rpg'],
+            'FINANCE': ['creditcard', 'cashback', 'payment', 'fintech', 'banking', 'crypto', 'wallet'],
+            'INSTALLS': ['app', 'ecommerce', 'shopping', 'delivery', 'food', 'streaming', 
+                         'entertainment', 'music', 'video', 'social', 'utility', 'lifestyle',
+                         'travel', 'navigation', 'weather', 'news', 'photo', 'camera'],
+            'SWEEPSTAKES': ['reward', 'rewards', 'prize', 'giveaway', 'lucky'],
+            'HEALTH': ['fitness', 'wellness', 'nutrition', 'workout', 'beauty', 'skincare'],
+            'EDUCATION': ['learning', 'language', 'course', 'tutorial'],
+            'SURVEY': ['opinion', 'feedback', 'questionnaire', 'poll'],
+        }
+        
+        for category, tags in tag_mappings.items():
+            if len(found) >= MAX_CATEGORIES:
+                break
+            if category in found:
+                continue
+            for tag in tags:
+                if tag in normalized.split():
+                    found.append(category)
+                    break
+    
+    # If still nothing found, return INSTALLS as default (most offers are app-based)
+    if not found:
+        return ['INSTALLS']
     
     return found
 

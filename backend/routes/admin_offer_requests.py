@@ -37,22 +37,78 @@ def _parse_ist_to_utc(scheduled_at):
         return datetime.utcnow()
 
 
-def _build_email_html(body_text, frontend_url=None):
-    """Build a branded HTML email with logo and unsubscribe link."""
+def _build_email_html(body_text, frontend_url=None, offers=None):
+    """Build a branded HTML email with logo and unsubscribe link.
+    If offers list is provided, renders them in a professional table format."""
     import os
     if not frontend_url:
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
+
+    # Build offers table if offers are provided
+    offers_table = ''
+    if offers and len(offers) > 0:
+        rows = ''
+        for o in offers:
+            name = o.get('name', 'Unknown Offer')
+            offer_id = o.get('offer_id', '')
+            payout = o.get('payout', 0)
+            currency = o.get('currency', 'USD')
+            category = o.get('category', o.get('vertical', ''))
+            countries = o.get('countries', o.get('allowed_countries', []))
+            country_str = ', '.join(countries[:3]) if countries else 'Global'
+            if len(countries) > 3:
+                country_str += f' +{len(countries) - 3}'
+            preview_url = o.get('preview_url', '')
+            image_url = o.get('image_url', o.get('thumbnail_url', ''))
+            network = o.get('network', '')
+
+            img_cell = f'<img src="{image_url}" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;" onerror="this.style.display=\'none\'" />' if image_url else '<div style="width:36px;height:36px;border-radius:6px;background:#e5e7eb;"></div>'
+
+            preview_link = f'<a href="{preview_url}" style="color:#6366f1;text-decoration:none;font-size:12px;" target="_blank">Preview</a>' if preview_url else ''
+
+            rows += f'''<tr style="border-bottom:1px solid #f0f0f0;">
+<td style="padding:10px 8px;font-size:11px;color:#9ca3af;vertical-align:middle;white-space:nowrap;">{offer_id}</td>
+<td style="padding:10px 4px;vertical-align:middle;">{img_cell}</td>
+<td style="padding:10px 8px;vertical-align:middle;">
+<div style="font-size:13px;color:#111;font-weight:500;">{name}</div>
+<div style="font-size:11px;color:#9ca3af;">{network}</div>
+</td>
+<td style="padding:10px 8px;font-size:14px;color:#059669;font-weight:600;vertical-align:middle;white-space:nowrap;">${payout:.2f}</td>
+<td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{country_str}</td>
+<td style="padding:10px 8px;vertical-align:middle;"><span style="display:inline-block;padding:2px 8px;background:#f3f4f6;border-radius:4px;font-size:11px;color:#374151;">{category}</span></td>
+<td style="padding:10px 8px;vertical-align:middle;">{preview_link}</td>
+</tr>'''
+
+        offers_table = f'''
+<table style="width:100%;border-collapse:collapse;margin:16px 0;">
+<thead>
+<tr style="border-bottom:2px solid #e5e7eb;">
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">ID</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Offer</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Payout</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Countries</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Category</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>
+</tr>
+</thead>
+<tbody>{rows}</tbody>
+</table>'''
+
+    body_html = body_text.replace(chr(10), '<br>') if isinstance(body_text, str) else body_text
+
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
-<div style="max-width:600px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+<div style="max-width:700px;margin:0 auto;background:#fff;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
 <div style="text-align:center;margin-bottom:24px;">
 <img src="{frontend_url}/logo.png" alt="Moustache Leads" style="height:40px;" onerror="this.style.display='none'" />
 <h1 style="margin:8px 0 0;font-size:20px;color:#111;">Moustache Leads</h1>
 </div>
-<div style="font-size:15px;color:#333;line-height:1.6;">{body_text.replace(chr(10), '<br>') if isinstance(body_text, str) else body_text}</div>
+<div style="font-size:15px;color:#333;line-height:1.6;">{body_html}</div>
+{offers_table}
 <div style="text-align:center;margin-top:24px;">
-<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">View Offers</a>
+<a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Login to View All Details</a>
 </div>
 <p style="font-size:11px;color:#999;margin-top:32px;text-align:center;">
 <a href="{frontend_url}/dashboard/settings" style="color:#999;">Unsubscribe</a> from these notifications
@@ -488,7 +544,7 @@ Moustache Leads"""
                     email_service = get_email_service()
                     body = build_body('Publisher')
                     html_body = body.replace('\n', '<br>')
-                    html_content = _build_email_html(body)
+                    html_content = _build_email_html(body, offers=offers)
                     
                     logging.info(f"📧 Sending BCC email to {len(all_emails)} recipients")
                     
@@ -1397,35 +1453,120 @@ def check_inactive_offers():
 @token_required
 @subadmin_or_admin_required('offer-access-requests')
 def get_tab_counts():
-    """Get counts for all tabs (for badges)"""
+    """Get counts for all tabs with time-based breakdowns (today, this week, total)"""
     try:
+        from datetime import datetime as dt, timedelta
         requests_col = db_instance.get_collection('affiliate_requests')
         collections_col = db_instance.get_collection('offer_collections')
+        offers_col = db_instance.get_collection('offers')
 
-        approved = requests_col.count_documents({'status': 'approved'})
-        rejected = requests_col.count_documents({'status': 'rejected'})
-        # all_requests = only pending (review items appear in In Review tab)
-        all_requests = requests_col.count_documents({'status': 'pending'})
-        # in_review = only explicitly marked as 'review'
-        in_review = requests_col.count_documents({'status': 'review'})
+        now = dt.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=today_start.weekday())  # Monday
+
+        # Helper to get count with time breakdowns
+        def count_with_breakdown(query_base, date_field='requested_at'):
+            total = requests_col.count_documents(query_base)
+            today = requests_col.count_documents({**query_base, date_field: {'$gte': today_start}})
+            week = requests_col.count_documents({**query_base, date_field: {'$gte': week_start}})
+            return {'total': total, 'today': today, 'week': week}
+
+        all_requests = count_with_breakdown({'status': 'pending'})
+        approved = count_with_breakdown({'status': 'approved'})
+        rejected = count_with_breakdown({'status': 'rejected'})
+        in_review = count_with_breakdown({'status': 'review'})
 
         dp_count = 0
+        dp_today = 0
+        dp_week = 0
         af_count = 0
+        af_today = 0
+        af_week = 0
         if collections_col is not None:
             dp_count = collections_col.count_documents({'collection_type': 'direct_partner'})
+            dp_today = collections_col.count_documents({'collection_type': 'direct_partner', 'created_at': {'$gte': today_start}})
+            dp_week = collections_col.count_documents({'collection_type': 'direct_partner', 'created_at': {'$gte': week_start}})
             af_count = collections_col.count_documents({'collection_type': 'affiliate'})
+            af_today = collections_col.count_documents({'collection_type': 'affiliate', 'created_at': {'$gte': today_start}})
+            af_week = collections_col.count_documents({'collection_type': 'affiliate', 'created_at': {'$gte': week_start}})
 
-        # most_requested = distinct offer_ids in affiliate_requests
-        most_requested = len(requests_col.distinct('offer_id'))
+        # Most requested — count distinct offer_ids with time breakdowns
+        most_requested_total = len(requests_col.distinct('offer_id'))
+        most_requested_today = len(requests_col.distinct('offer_id', {'requested_at': {'$gte': today_start}}))
+        most_requested_week = len(requests_col.distinct('offer_id', {'requested_at': {'$gte': week_start}}))
+
+        # Recently added/edited/deleted offers (last 7 days)
+        recent_cutoff = now - timedelta(days=7)
+        recently_added = []
+        recently_edited = []
+        recently_deleted = []
+
+        if offers_col is not None:
+            # Recently added (created in last 7 days)
+            added_docs = list(offers_col.find(
+                {'created_at': {'$gte': recent_cutoff}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                {'offer_id': 1, 'name': 1, 'created_at': 1, 'network': 1}
+            ).sort('created_at', -1).limit(5))
+            recently_added = [{'offer_id': d.get('offer_id'), 'name': d.get('name', ''), 'network': d.get('network', ''), 'at': d.get('created_at').isoformat() + 'Z' if d.get('created_at') else None} for d in added_docs]
+
+            # Recently edited — use admin_activity_log for accurate edit tracking
+            activity_col = db_instance.get_collection('admin_activity_logs')
+            if activity_col is not None:
+                edit_logs = list(activity_col.find(
+                    {'action': {'$in': ['offer_updated', 'offer_edited', 'update_offer', 'inline_update_offer']}, 'created_at': {'$gte': recent_cutoff}},
+                    {'details': 1, 'created_at': 1, 'affected_items': 1}
+                ).sort('created_at', -1).limit(20))
+                seen_edited = set()
+                for log in edit_logs:
+                    oid = None
+                    name = ''
+                    network = ''
+                    # Try to get offer info from log
+                    details = log.get('details', {})
+                    if isinstance(details, dict):
+                        oid = details.get('offer_id', '')
+                        name = details.get('offer_name', details.get('name', ''))
+                    items = log.get('affected_items', [])
+                    if isinstance(items, list) and items:
+                        item = items[0] if isinstance(items[0], dict) else {}
+                        oid = oid or item.get('offer_id', '')
+                        name = name or item.get('name', '')
+                        network = item.get('network', '')
+                    if oid and oid not in seen_edited:
+                        seen_edited.add(oid)
+                        recently_edited.append({'offer_id': oid, 'name': name, 'network': network, 'at': log.get('created_at').isoformat() + 'Z' if log.get('created_at') else None})
+                    if len(recently_edited) >= 5:
+                        break
+
+            # Recently deleted
+            deleted_docs = list(offers_col.find(
+                {'deleted': True, 'updated_at': {'$gte': recent_cutoff}},
+                {'offer_id': 1, 'name': 1, 'updated_at': 1, 'network': 1}
+            ).sort('updated_at', -1).limit(5))
+            recently_deleted = [{'offer_id': d.get('offer_id'), 'name': d.get('name', ''), 'network': d.get('network', ''), 'at': d.get('updated_at').isoformat() + 'Z' if d.get('updated_at') else None} for d in deleted_docs]
+
+        # Count totals for recently sections
+        added_today = offers_col.count_documents({'created_at': {'$gte': today_start}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}) if offers_col is not None else 0
+        # Edited today — count from activity logs
+        edited_today = 0
+        if activity_col is not None:
+            edited_today = activity_col.count_documents({'action': {'$in': ['offer_updated', 'offer_edited', 'update_offer', 'inline_update_offer']}, 'created_at': {'$gte': today_start}})
+        deleted_today = offers_col.count_documents({'deleted': True, 'updated_at': {'$gte': today_start}}) if offers_col is not None else 0
 
         return jsonify({
             'all_requests': all_requests,
             'approved': approved,
             'rejected': rejected,
             'in_review': in_review,
-            'direct_partner': dp_count,
-            'affiliate': af_count,
-            'most_requested': most_requested,
+            'direct_partner': {'total': dp_count, 'today': dp_today, 'week': dp_week},
+            'affiliate': {'total': af_count, 'today': af_today, 'week': af_week},
+            'most_requested': {'total': most_requested_total, 'today': most_requested_today, 'week': most_requested_week},
+            'recently_added': recently_added,
+            'recently_edited': recently_edited,
+            'recently_deleted': recently_deleted,
+            'added_today': added_today,
+            'edited_today': edited_today,
+            'deleted_today': deleted_today,
         })
     except Exception as e:
         logging.error(f"Tab counts error: {e}", exc_info=True)
@@ -1825,12 +1966,11 @@ def push_mail():
         logging.info(f"📧 Push mail: {len(all_users)} users, {len(recipients)} with email, send_type={send_type}")
 
         subject = message_template.get('subject', '🚀 Hot Offers You Should Check Out!')
-        offer_lines = '\n'.join([f"• {o.get('name', '')} — ${o.get('payout', 0)}" for o in offers])
-        body_text = message_template.get('body', f"Check out these offers:\n\n{offer_lines}")
+        body_text = message_template.get('body', "We've found some great offers that match what you're looking for.\n\nTo get started, log in to your publisher dashboard and apply for any of the offers below. Our team is happy to help you set up.\n\nBest regards,\nPublisher Support Team\nMoustache Leads")
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
-        html_body = _build_email_html(body_text, frontend_url)
+        html_body = _build_email_html(body_text, frontend_url, offers=offers)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -2038,7 +2178,7 @@ def schedule_send():
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
-        html_body = _build_email_html(message_body, frontend_url)
+        html_body = _build_email_html(message_body, frontend_url, offers=offers)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -2311,10 +2451,9 @@ def push_mail_v2():
 
             # Build body from all offers
             if not message_body:
-                offer_lines = '\n'.join([f"ID: {o.get('offer_id', '')}\nName: {o.get('name', '')}" for o in offers])
                 import calendar as cal_mod
                 day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                message_body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n{offer_lines}"
+                message_body = f"Happy {day_name}!\n\nWe have some great offers for you to push traffic on. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nPublisher Support Team\nMoustache Leads"
 
             for u in resolved_users:
                 try:
@@ -2345,7 +2484,7 @@ def push_mail_v2():
             # If scheduled support, also schedule the email
             if scheduled_at:
                 sched_col = db_instance.get_collection('scheduled_emails')
-                html_body = _build_email_html(message_body, frontend_url)
+                html_body = _build_email_html(message_body, frontend_url, offers=offers)
                 sched_col.insert_one({
                     'subject': subject, 'body': html_body, 'recipients': emails,
                     'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
@@ -2383,7 +2522,7 @@ def push_mail_v2():
                         body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${o.get('payout', 0)}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url)
+                    html_body = _build_email_html(body, frontend_url, offers=[o])
                     base_dt = _parse_ist_to_utc(scheduled_at)
                     offset_dt = base_dt + timedelta(minutes=interval_minutes * idx)
                     sched_col.insert_one({
@@ -2407,9 +2546,8 @@ def push_mail_v2():
                 if not message_body:
                     import calendar as cal_mod
                     day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                    offer_lines = '\n'.join([f"ID: {o.get('offer_id', '')}\nName: {o.get('name', '')}" for o in offers])
-                    message_body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n{offer_lines}"
-                html_body = _build_email_html(message_body, frontend_url)
+                    message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nPublisher Support Team\nMoustache Leads"
+                html_body = _build_email_html(message_body, frontend_url, offers=offers)
                 result = sched_col.insert_one({
                     'subject': subject, 'body': html_body, 'recipients': emails,
                     'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
@@ -2458,7 +2596,7 @@ def push_mail_v2():
                         body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${o.get('payout', 0)}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url)
+                    html_body = _build_email_html(body, frontend_url, offers=[o])
                     # Send in BCC batches
                     for i in range(0, len(emails), 50):
                         batch = emails[i:i + 50]
@@ -2494,9 +2632,8 @@ def push_mail_v2():
             if not message_body:
                 import calendar as cal_mod
                 day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                offer_lines = '\n'.join([f"ID: {o.get('offer_id', '')}\nName: {o.get('name', '')}" for o in offers])
-                message_body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n{offer_lines}"
-            html_body = _build_email_html(message_body, frontend_url)
+                message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nPublisher Support Team\nMoustache Leads"
+            html_body = _build_email_html(message_body, frontend_url, offers=offers)
 
             if history_col is not None:
                 history_col.insert_one({
@@ -2532,4 +2669,144 @@ def push_mail_v2():
 
     except Exception as e:
         logging.error(f"Push mail v2 error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/charts-data', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_charts_data():
+    """Return REAL data for all offer access request charts. No estimates."""
+    try:
+        from datetime import datetime as dt, timedelta
+        from bson import ObjectId
+        requests_col = db_instance.get_collection('affiliate_requests')
+        offers_col = db_instance.get_collection('offers')
+        history_col = db_instance.get_collection('offer_send_history')
+        push_history_col = db_instance.get_collection('push_mail_history')
+        clicks_col = db_instance.get_collection('clicks')
+
+        now = dt.utcnow()
+        days_30_ago = now - timedelta(days=30)
+
+        # ── Chart 1: Email Campaign Funnel (REAL DATA ONLY) ──
+        # We combine offer_send_history + push_mail_history for "sent"
+        # For "clicked" we only count clicks from users who received the email, after send time
+        funnel = {'sent': 0, 'clicked': 0, 'applied': 0, 'approved': 0}
+
+        # Collect all campaign data: {offer_ids, recipient_user_ids, sent_at}
+        campaigns = []
+
+        # From offer_send_history (regular sends) — no user IDs available, so we can only count sent
+        if history_col is not None:
+            for doc in history_col.find({'created_at': {'$gte': days_30_ago}}):
+                funnel['sent'] += doc.get('recipient_count', 0)
+                # No recipient_ids stored, so we can't track clicks per user
+                campaigns.append({
+                    'offer_ids': doc.get('offer_ids', []),
+                    'recipient_ids': [],  # Not available
+                    'sent_at': doc.get('created_at', now),
+                })
+
+        # From push_mail_history (push mails) — HAS recipient_ids
+        if push_history_col is not None:
+            for doc in push_history_col.find({'created_at': {'$gte': days_30_ago}}):
+                funnel['sent'] += doc.get('recipient_count', 0)
+                campaigns.append({
+                    'offer_ids': doc.get('offer_ids', []),
+                    'recipient_ids': doc.get('recipient_ids', []),
+                    'sent_at': doc.get('created_at', now),
+                })
+
+        # Count clicks ONLY from recipients who received the email, AFTER send time
+        if clicks_col is not None:
+            for camp in campaigns:
+                if not camp['offer_ids']:
+                    continue
+                click_query = {
+                    'offer_id': {'$in': camp['offer_ids']},
+                    'timestamp': {'$gte': camp['sent_at']},
+                }
+                # If we have recipient_ids, filter clicks to only those users
+                if camp['recipient_ids']:
+                    click_query['user_id'] = {'$in': camp['recipient_ids']}
+                    funnel['clicked'] += clicks_col.count_documents(click_query)
+                # If no recipient_ids (regular send), we skip — can't verify
+
+        # Applied & Approved: count requests for campaign offer_ids, from campaign recipients, after send
+        all_campaign_offer_ids = set()
+        all_campaign_user_ids = set()
+        earliest_send = now
+        for camp in campaigns:
+            all_campaign_offer_ids.update(camp['offer_ids'])
+            all_campaign_user_ids.update(camp['recipient_ids'])
+            if camp['sent_at'] < earliest_send:
+                earliest_send = camp['sent_at']
+
+        if all_campaign_offer_ids:
+            applied_query = {
+                'offer_id': {'$in': list(all_campaign_offer_ids)},
+                'requested_at': {'$gte': earliest_send},
+            }
+            # If we have user IDs, filter to only those users
+            if all_campaign_user_ids:
+                applied_query['user_id'] = {'$in': list(all_campaign_user_ids)}
+
+            funnel['applied'] = requests_col.count_documents(applied_query)
+            funnel['approved'] = requests_col.count_documents({**applied_query, 'status': 'approved'})
+
+        # ── Chart 2: Request Trend (30 days) — VERIFIED: direct count from affiliate_requests ──
+        trend = []
+        pipeline = [
+            {'$match': {'requested_at': {'$gte': days_30_ago}}},
+            {'$group': {
+                '_id': {'$dateToString': {'format': '%Y-%m-%d', 'date': '$requested_at'}},
+                'count': {'$sum': 1},
+            }},
+            {'$sort': {'_id': 1}},
+        ]
+        trend_raw = {d['_id']: d['count'] for d in requests_col.aggregate(pipeline)}
+        for i in range(30):
+            day = (now - timedelta(days=29 - i)).strftime('%Y-%m-%d')
+            trend.append({'date': day, 'requests': trend_raw.get(day, 0)})
+
+        # ── Chart 5: Approval Rate by Network — VERIFIED: direct from affiliate_requests + offers ──
+        network_stats = []
+        pipeline = [
+            {'$group': {
+                '_id': '$offer_id',
+                'total': {'$sum': 1},
+                'approved': {'$sum': {'$cond': [{'$eq': ['$status', 'approved']}, 1, 0]}},
+                'rejected': {'$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}},
+                'pending': {'$sum': {'$cond': [{'$in': ['$status', ['pending', 'review']]}, 1, 0]}},
+            }},
+        ]
+        offer_stats = {d['_id']: d for d in requests_col.aggregate(pipeline)}
+
+        if offer_stats and offers_col is not None:
+            offer_ids_list = list(offer_stats.keys())
+            offer_docs = {d['offer_id']: d.get('network', 'Unknown') for d in offers_col.find(
+                {'offer_id': {'$in': offer_ids_list}}, {'offer_id': 1, 'network': 1}
+            )}
+
+            network_agg = {}
+            for oid, stats in offer_stats.items():
+                net = offer_docs.get(oid, 'Unknown') or 'Unknown'
+                if net not in network_agg:
+                    network_agg[net] = {'network': net, 'approved': 0, 'rejected': 0, 'pending': 0, 'total': 0}
+                network_agg[net]['approved'] += stats['approved']
+                network_agg[net]['rejected'] += stats['rejected']
+                network_agg[net]['pending'] += stats['pending']
+                network_agg[net]['total'] += stats['total']
+
+            network_stats = sorted(network_agg.values(), key=lambda x: x['total'], reverse=True)[:10]
+
+        from utils.json_serializer import serialize_for_json
+        return jsonify(serialize_for_json({
+            'funnel': funnel,
+            'trend': trend,
+            'network_stats': network_stats,
+        }))
+    except Exception as e:
+        logging.error(f"Charts data error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500

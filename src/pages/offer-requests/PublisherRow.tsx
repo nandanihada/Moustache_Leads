@@ -42,6 +42,8 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [loadingEdit, setLoadingEdit] = useState<string | null>(null);
   const [healthPopup, setHealthPopup] = useState<{ offerId: string; name: string; health: any } | null>(null);
   const [loadingHealth, setLoadingHealth] = useState<string | null>(null);
+  const [selectedReqOffer, setSelectedReqOffer] = useState<string | null>(null);
+  const [selectedRelated, setSelectedRelated] = useState<Set<string>>(new Set());
   const token = localStorage.getItem('token');
   const risk = rsk(pub.risk_level);
 
@@ -231,134 +233,115 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                       </Badge>
                     )}
                   </h4>
-                  {/* Icon Legend */}
-                  <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground bg-muted/40 rounded-md px-3 py-1.5">
-                    <span className="font-medium text-foreground/70">Legend:</span>
-                    <span className="flex items-center gap-1"><MousePointerClick className="w-3 h-3 text-blue-500" />Total Clicks</span>
-                    <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-emerald-600" />Approved</span>
-                    <span className="flex items-center gap-1"><XCircle className="w-3 h-3 text-red-500" />Rejected</span>
-                    <span className="flex items-center gap-1"><AlertTriangle className="w-3 h-3 text-amber-500" />Pending</span>
-                    <span className="flex items-center gap-1"><AlertCircle className="w-3 h-3 text-red-500" />Health Issues</span>
-                    <span className="flex items-center gap-1"><CheckCircle className="w-3 h-3 text-emerald-500" />Healthy</span>
-                  </div>
-                  {/* Bulk action bar for selected requests */}
-                  {selectedReqs.size > 0 && (
-                    <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 rounded-lg px-3 py-2">
-                      <Badge className="bg-blue-100 text-blue-700 text-[10px]">{selectedReqs.size} selected</Badge>
-                      <Button size="sm" className="h-6 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => bulkRequestAction('approve')} disabled={bulkActing}>
-                        {bulkActing ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1 text-amber-600 border-amber-300" onClick={() => bulkRequestAction('review')} disabled={bulkActing}>
-                        <AlertTriangle className="w-3 h-3" />Review
-                      </Button>
-                      <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1 text-red-600 border-red-300" onClick={() => bulkRequestAction('reject')} disabled={bulkActing}>
-                        <XCircle className="w-3 h-3" />Reject
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-gray-500" onClick={() => setSelectedReqs(new Set())}>Clear</Button>
-                    </div>
-                  )}
-                  {pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(req => (
-                    <div key={req.request_id} className={`rounded-lg border px-3 py-2.5 text-xs space-y-2 ${
-                      req.status === 'review'
-                        ? 'border-blue-200 bg-blue-50 dark:bg-blue-950/20'
-                        : 'border-amber-200 bg-amber-50 dark:bg-amber-950/20'
-                    }`}>
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          className="rounded border-gray-300 shrink-0 cursor-pointer w-4 h-4"
-                          checked={selectedReqs.has(req.request_id)}
-                          onChange={() => toggleReqSelect(req.request_id)}
-                          onClick={e => e.stopPropagation()}
-                        />
-                        {req.status === 'review' ? (
-                          <Eye className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        ) : (
-                          <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium truncate">{req.offer_name}</p>
-                            {req.status === 'review' && (
-                              <Badge className="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700 border-blue-200">
-                                In Review
-                              </Badge>
-                            )}
-                            {(req.request_count || 0) > 1 && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">
-                                {req.request_count}x requested
-                              </Badge>
-                            )}
-                            {req.offer_health && req.offer_health.status === 'unhealthy' && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-600 border-red-200">
-                                <AlertCircle className="w-2.5 h-2.5 mr-0.5" />{req.offer_health.failures.length} issues
-                              </Badge>
-                            )}
-                            {req.offer_health && req.offer_health.status === 'healthy' && (
-                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-200">
-                                <CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy
-                              </Badge>
-                            )}
+
+                  {/* Requested Offer Dropdown */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Requested Offer</label>
+                    <select
+                      className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                      value={selectedReqOffer || ''}
+                      onChange={e => {
+                        const val = e.target.value || null;
+                        setSelectedReqOffer(val);
+                        setSelectedRelated(new Set());
+                        if (val) {
+                          const req = pub.requests.find(r => r.offer_id === val);
+                          if (req) {
+                            setLoadingInv(true);
+                            fetch(`${API_BASE_URL}/api/admin/offer-access-requests/inventory-matches?offer_name=${encodeURIComponent(req.offer_name)}&user_id=${pub.user_id}&limit=12`, {
+                              headers: { Authorization: `Bearer ${token}` },
+                            }).then(r => { if (!r.ok) throw new Error(); return r.json(); })
+                              .then(d => setInventory(d.matches || []))
+                              .catch(() => {})
+                              .finally(() => setLoadingInv(false));
+                          }
+                        }
+                      }}
+                    >
+                      <option value="">Select an offer to view details & actions...</option>
+                      {pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(req => (
+                        <option key={req.request_id} value={req.offer_id}>
+                          {req.offer_name} · {req.offer_network} · ${req.offer_payout.toFixed(2)}
+                          {req.offer_health?.status === 'unhealthy' ? ' · ⚠️ issues' : ''}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Selected offer detail card */}
+                    {selectedReqOffer && (() => {
+                      const selReq = pub.requests.find(r => r.offer_id === selectedReqOffer);
+                      if (!selReq) return null;
+                      return (
+                        <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 p-3 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="font-semibold text-sm truncate">{selReq.offer_name}</p>
+                                {selReq.status === 'review' && <Badge className="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700">In Review</Badge>}
+                                {selReq.offer_health?.status === 'unhealthy' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-600 border-red-200"><AlertCircle className="w-2.5 h-2.5 mr-0.5" />{selReq.offer_health.failures.length} issues</Badge>}
+                                {selReq.offer_health?.status === 'healthy' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-200"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{selReq.offer_network} · {(selReq.offer_countries || []).join(', ') || 'Global'}</p>
+                            </div>
+                            <p className="text-lg font-bold shrink-0">${selReq.offer_payout.toFixed(2)}</p>
                           </div>
-                          <p className="text-muted-foreground">{req.offer_network} · ${req.offer_payout.toFixed(2)} · {fd(req.requested_at)}</p>
-                        </div>
-                        {/* Offer-level stats */}
-                        {req.offer_stats && (
-                          <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground shrink-0">
-                            {(req.offer_stats.total_clicks || 0) > 0 && (
-                              <span className="flex items-center gap-0.5"><MousePointerClick className="w-3 h-3" />{(req.offer_stats.total_clicks || 0).toLocaleString()}</span>
-                            )}
-                            <span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle className="w-3 h-3" />{req.offer_stats.approved_count || 0}</span>
-                            <span className="flex items-center gap-0.5 text-red-500"><XCircle className="w-3 h-3" />{req.offer_stats.rejected_count || 0}</span>
-                            <span className="flex items-center gap-0.5 text-amber-500"><AlertTriangle className="w-3 h-3" />{req.offer_stats.pending_count || 0}</span>
+                          {selReq.offer_stats && (<div className="flex items-center gap-4 text-[10px] text-muted-foreground"><span className="flex items-center gap-0.5"><MousePointerClick className="w-3 h-3 text-blue-500" />Clicks {(selReq.offer_stats.total_clicks || 0).toLocaleString()}</span><span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle className="w-3 h-3" />Approved {selReq.offer_stats.approved_count || 0}</span><span className="flex items-center gap-0.5 text-red-500"><XCircle className="w-3 h-3" />Rejected {selReq.offer_stats.rejected_count || 0}</span><span className="flex items-center gap-0.5 text-amber-500"><AlertTriangle className="w-3 h-3" />Pending {selReq.offer_stats.pending_count || 0}</span></div>)}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1" onClick={() => navigator.clipboard.writeText(selReq.offer_name).then(() => toast.success('Copied'))}>Copy name</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: selReq.offer_id, request_id: selReq.request_id, collection_type: 'direct_partner' }) }); toast.success('Added to DP'); } catch { toast.error('Failed'); } }}>DP</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-violet-600 border-violet-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: selReq.offer_id, request_id: selReq.request_id, collection_type: 'affiliate' }) }); toast.success('Added to AF'); } catch { toast.error('Failed'); } }}>AF</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => handleEditOffer(selReq.offer_id)} disabled={loadingEdit === selReq.offer_id}>{loadingEdit === selReq.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}Edit</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-amber-600 border-amber-300" onClick={() => markForReview(selReq.request_id)}><AlertTriangle className="w-3 h-3" />Review</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200" onClick={() => rejectReq(selReq.request_id)} disabled={rejecting === selReq.request_id}>{rejecting === selReq.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject</Button>
+                            <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => approveReq(selReq.request_id)} disabled={approving === selReq.request_id}>{approving === selReq.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => onSendOffers(pub, [{_id: '', offer_id: selReq.offer_id, name: selReq.offer_name, network: selReq.offer_network, payout: selReq.offer_payout, match_strength: ''}])}><Send className="w-3 h-3" />Suggest ↗</Button>
                           </div>
-                        )}
-                        {req.message && <span className="text-muted-foreground italic truncate max-w-[150px]">"{req.message}"</span>}
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-200 hover:bg-blue-50"
-                            onClick={async () => {
-                              try {
-                                const r = await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: req.offer_id, request_id: req.request_id, collection_type: 'direct_partner' }) });
-                                const d = await r.json(); toast.success(d.already_exists ? 'Already in DP' : 'Added to Direct Partner');
-                              } catch { toast.error('Failed'); }
-                            }}>DP</Button>
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-violet-600 border-violet-200 hover:bg-violet-50"
-                            onClick={async () => {
-                              try {
-                                const r = await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: req.offer_id, request_id: req.request_id, collection_type: 'affiliate' }) });
-                                const d = await r.json(); toast.success(d.already_exists ? 'Already in AF' : 'Added to Affiliate');
-                              } catch { toast.error('Failed'); }
-                            }}>AF</Button>
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-300 hover:bg-blue-50"
-                            onClick={() => handleEditOffer(req.offer_id)} disabled={loadingEdit === req.offer_id}>
-                            {loadingEdit === req.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}Edit
-                          </Button>
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-amber-600 border-amber-300 hover:bg-amber-100"
-                            onClick={() => markForReview(req.request_id)}>
-                            <AlertTriangle className="w-3 h-3" />Review
-                          </Button>
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200 hover:bg-red-50"
-                            onClick={() => rejectReq(req.request_id)} disabled={rejecting === req.request_id}>
-                            {rejecting === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject
-                          </Button>
-                          <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                            onClick={() => approveReq(req.request_id)} disabled={approving === req.request_id}>
-                            {approving === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve
-                          </Button>
+                          {selReq.offer_health?.failures && selReq.offer_health.failures.length > 0 && (<div className="flex flex-wrap gap-1.5">{selReq.offer_health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400" />{f.criterion.replace('_', ' ')}</span>))}</div>)}
                         </div>
+                      );
+                    })()}
+
+                    {/* Related offers with multi-select */}
+                    {selectedReqOffer && (loadingInv ? (
+                      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" />Loading related offers...</div>
+                    ) : inventory.filter(inv => inv.offer_id !== selectedReqOffer).length > 0 && (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Related Offers</p>
+                          {selectedRelated.size > 0 && (<Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onSendOffers(pub, inventory.filter(inv => selectedRelated.has(inv.offer_id)))}><Send className="w-2.5 h-2.5" />Send {selectedRelated.size} selected in mail</Button>)}
+                        </div>
+                        {inventory.filter(inv => inv.offer_id !== selectedReqOffer).slice(0, 8).map(inv => (
+                          <div key={inv.offer_id} className={`rounded-lg border px-3 py-2 text-xs space-y-1.5 ${selectedRelated.has(inv.offer_id) ? 'border-blue-300 bg-blue-50/50' : 'border-gray-200 bg-gray-50 dark:bg-gray-900/30'}`}>
+                            <div className="flex items-center gap-2">
+                              <input type="checkbox" className="rounded border-gray-300 w-3.5 h-3.5 cursor-pointer shrink-0" checked={selectedRelated.has(inv.offer_id)} onChange={() => setSelectedRelated(prev => { const n = new Set(prev); n.has(inv.offer_id) ? n.delete(inv.offer_id) : n.add(inv.offer_id); return n; })} />
+                              <div className="flex-1 min-w-0"><p className="font-medium text-foreground/80 truncate">{inv.name}</p><p className="text-[10px] text-muted-foreground">{inv.network} · ${inv.payout.toFixed(2)} · {inv.match_strength}</p></div>
+                              {inv.request_status && <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">{inv.request_status}</Badge>}
+                            </div>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5" onClick={() => navigator.clipboard.writeText(inv.name).then(() => toast.success('Copied'))}>Copy name</Button>
+                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5" onClick={() => { if ((inv as any).target_url) window.open((inv as any).target_url, '_blank'); else toast.info('No target URL'); }}>Open</Button>
+                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600 border-blue-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: inv.offer_id, collection_type: 'direct_partner' }) }); toast.success('Added to DP'); } catch { toast.error('Failed'); } }}>DP</Button>
+                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-violet-600 border-violet-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: inv.offer_id, collection_type: 'affiliate' }) }); toast.success('Added to AF'); } catch { toast.error('Failed'); } }}>AF</Button>
+                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => handleEditOffer(inv.offer_id)} disabled={loadingEdit === inv.offer_id}>{loadingEdit === inv.offer_id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Edit className="w-2.5 h-2.5" />}Edit</Button>
+                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => onSendOffers(pub, [inv])}><Send className="w-2.5 h-2.5" />Suggest ↗</Button>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                      {/* Health issues detail (if unhealthy) */}
-                      {req.offer_health && req.offer_health.failures && req.offer_health.failures.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 pl-6">
-                          {req.offer_health.failures.map(f => (
-                            <span key={f.criterion} className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5">
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-400" />{f.criterion.replace('_', ' ')}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                  {/* Bulk actions for all pending requests */}
+                  <div className="flex items-center gap-2 pt-2 border-t">
+                    <Button size="sm" className="h-7 px-3 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={bulkApprove} disabled={bulkApproving}>
+                      {bulkApproving ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve All ({pub.requests.filter(r => r.status === 'pending' || r.status === 'review').length})
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 px-3 text-[10px] gap-1 text-amber-600 border-amber-300" onClick={() => bulkRequestAction('review')} disabled={bulkActing}>
+                      <AlertTriangle className="w-3 h-3" />Mark All for Review
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 px-3 text-[10px] gap-1 text-red-600 border-red-300" onClick={() => bulkRequestAction('reject')} disabled={bulkActing}>
+                      <XCircle className="w-3 h-3" />Reject All
+                    </Button>
+                  </div>
                 </div>
               )}
 
@@ -404,140 +387,6 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                   <span className="text-xs text-emerald-600 dark:text-emerald-500">· Fraud score {pub.fraud_score} · Postback {pub.postback_status}</span>
                 </div>
               )}
-
-              {/* Inventory matches */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <Package className="w-3.5 h-3.5" />Inventory Matches
-                  </h4>
-                  {selectedInv.size > 0 && (
-                    <Button size="sm" className="h-7 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                      onClick={() => onSendOffers(pub, inventory.filter(i => selectedInv.has(i.offer_id)))}>
-                      <Send className="w-3 h-3" />Send {selectedInv.size} Selected
-                    </Button>
-                  )}
-                </div>
-                {loadingInv ? (
-                  <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
-                ) : inventory.length === 0 ? (
-                  <p className="text-xs text-muted-foreground py-2">No matching offers found</p>
-                ) : (
-                  <div className="overflow-x-auto rounded-lg border">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="px-3 py-2 w-8">
-                            <Checkbox
-                              checked={inventory.length > 0 && selectedInv.size === inventory.length}
-                              onCheckedChange={() => {
-                                if (selectedInv.size === inventory.length) setSelectedInv(new Set());
-                                else setSelectedInv(new Set(inventory.map(i => i.offer_id)));
-                              }}
-                            />
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium">#</th>
-                          <th className="px-3 py-2 text-left font-medium">Offer</th>
-                          <th className="px-3 py-2 text-left font-medium">Status</th>
-                          <th className="px-3 py-2 text-left font-medium">Match</th>
-                          <th className="px-3 py-2 text-left font-medium">Network</th>
-                          <th className="px-3 py-2 text-right font-medium">Payout</th>
-                          <th className="px-3 py-2 text-left font-medium">Keywords</th>
-                          <th className="px-3 py-2 text-center font-medium min-w-[160px]">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {inventory.map((inv, i) => (
-                          <tr key={inv._id} className={`hover:bg-muted/30 transition-colors ${selectedInv.has(inv.offer_id) ? 'bg-emerald-50 dark:bg-emerald-950/20' : ''}`}>
-                            <td className="px-3 py-2">
-                              <Checkbox
-                                checked={selectedInv.has(inv.offer_id)}
-                                onCheckedChange={() => setSelectedInv(prev => { const n = new Set(prev); n.has(inv.offer_id) ? n.delete(inv.offer_id) : n.add(inv.offer_id); return n; })}
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-muted-foreground">{i + 1}</td>
-                            <td className="px-3 py-2 font-medium max-w-[180px] truncate">{inv.name}</td>
-                            <td className="px-3 py-2">
-                              {inv.request_status ? (
-                                <Badge variant={inv.request_status === 'approved' ? 'default' : inv.request_status === 'pending' ? 'secondary' : 'outline'} className="text-[10px]">
-                                  {inv.request_status}
-                                </Badge>
-                              ) : <span className="text-muted-foreground">—</span>}
-                            </td>
-                            <td className="px-3 py-2">
-                              <Badge variant={inv.match_strength === 'Strong' ? 'default' : 'secondary'}
-                                className={`text-[10px] ${inv.match_strength === 'Strong' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' : ''}`}>
-                                {inv.match_strength}
-                              </Badge>
-                            </td>
-                            <td className="px-3 py-2 text-muted-foreground">{inv.network}</td>
-                            <td className="px-3 py-2 text-right font-mono">${inv.payout.toFixed(2)}</td>
-                            <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">{inv.keywords || '—'}</td>
-                            <td className="px-3 py-2 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
-                                  onClick={() => handleEditOffer(inv.offer_id)} disabled={loadingEdit === inv.offer_id}>
-                                  {loadingEdit === inv.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}
-                                </Button>
-                                <div className="relative">
-                                  <Button size="sm" variant="ghost" className={`h-6 px-2 text-[10px] gap-1 ${healthPopup?.offerId === inv.offer_id ? 'bg-muted' : 'text-emerald-600'}`}
-                                    disabled={loadingHealth === inv.offer_id}
-                                    onClick={() => {
-                                      if (healthPopup?.offerId === inv.offer_id) { setHealthPopup(null); return; }
-                                      setLoadingHealth(inv.offer_id);
-                                      fetch(`${API_BASE_URL}/api/admin/offer-health/${inv.offer_id}`, { headers: { Authorization: `Bearer ${token}` } })
-                                        .then(r => r.json()).then(d => {
-                                          setHealthPopup({ offerId: inv.offer_id, name: inv.name, health: d.health || { status: 'unknown', failures: [] } });
-                                        }).catch(() => toast.error('Failed to check health'))
-                                        .finally(() => setLoadingHealth(null));
-                                    }}>
-                                    {loadingHealth === inv.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Shield className="w-3 h-3" />}
-                                  </Button>
-                                  {healthPopup?.offerId === inv.offer_id && (
-                                    <div className="absolute right-0 top-7 z-50 w-64 rounded-lg border bg-popover p-3 shadow-lg text-xs space-y-2">
-                                      <div className="flex items-center justify-between">
-                                        <span className="font-semibold truncate max-w-[160px]">{healthPopup.name}</span>
-                                        <Badge variant={healthPopup.health.status === 'healthy' ? 'default' : 'destructive'} className="text-[10px] px-1.5 py-0">
-                                          {healthPopup.health.status}
-                                        </Badge>
-                                      </div>
-                                      {healthPopup.health.failures && healthPopup.health.failures.length > 0 ? (
-                                        <div className="space-y-1.5">
-                                          {healthPopup.health.failures.map((f: any, idx: number) => (
-                                            <div key={idx} className="flex items-start gap-1.5 text-red-600">
-                                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 mt-1 shrink-0" />
-                                              <div>
-                                                <span className="font-medium">{(f.criterion || '').replace(/_/g, ' ')}</span>
-                                                {f.detail && <p className="text-muted-foreground">{f.detail}</p>}
-                                                {f.description && <p className="text-muted-foreground">{f.description}</p>}
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <p className="text-emerald-600">No issues detected</p>
-                                      )}
-                                      <Button size="sm" variant="ghost" className="h-5 px-1 text-[10px] w-full" onClick={() => setHealthPopup(null)}>Close</Button>
-                                    </div>
-                                  )}
-                                </div>
-                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
-                                  onClick={() => onSendOffers(pub, [inv])}>
-                                  <Send className="w-3 h-3" />Send
-                                </Button>
-                                <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1"
-                                  onClick={() => onSendOffers(pub, [inv])}>
-                                  <Calendar className="w-3 h-3" />Schedule
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
 
               {/* Stats cards */}
               {loadingStats ? (

@@ -38,14 +38,17 @@ def get_available_offers():
         status = request.args.get('status', 'active')
         search = request.args.get('search', '')
         
-        # Build query for active offers - SIMPLIFIED: Only check status
+        # Build query for offers visible to publishers
+        # Show ONLY: active (admin set), running, rotating
         offers_collection = db_instance.get_collection('offers')
         
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
         
+        visible_statuses = ['active', 'running', 'rotating']
+        
         query = {
-            'status': status,
+            'status': {'$in': visible_statuses},
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
         }
         
@@ -59,7 +62,7 @@ def get_available_offers():
             ]
             
             query = {
-                'status': status,
+                'status': {'$in': visible_statuses},
                 '$and': [
                     {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
                     {'$or': search_conditions}

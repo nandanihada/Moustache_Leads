@@ -39,6 +39,7 @@ import {
   Timer,
   Zap,
   FileSpreadsheet,
+  Check,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -137,7 +138,7 @@ const AdminOffers = () => {
   const [editBatchSize, setEditBatchSize] = useState<string>('1000');
   const [editWindowMinutes, setEditWindowMinutes] = useState<string>('420');
   const [rotationCountdown, setRotationCountdown] = useState<string>('');
-
+  const [editSelectedNetworks, setEditSelectedNetworks] = useState<string[]>([]);
   // Running offers state
   const [runningOffers, setRunningOffers] = useState<RunningOffer[]>([]);
   const [runningLoading, setRunningLoading] = useState(false);
@@ -1633,6 +1634,7 @@ const AdminOffers = () => {
       setRotationStatus(status);
       setEditBatchSize(String(status.batch_size));
       setEditWindowMinutes(String(status.window_minutes));
+      setEditSelectedNetworks(status.selected_networks || []);
     } catch {
       toast({ title: 'Error', description: 'Failed to load rotation status', variant: 'destructive' });
     } finally {
@@ -1661,6 +1663,7 @@ const AdminOffers = () => {
       const result = await adminOfferApi.updateRotationConfig({
         batch_size: parseInt(editBatchSize) || 1000,
         window_minutes: parseInt(editWindowMinutes) || 420,
+        selected_networks: editSelectedNetworks,
       });
       setRotationStatus(result);
       toast({ title: 'Success', description: 'Rotation config updated' });
@@ -1694,6 +1697,19 @@ const AdminOffers = () => {
       const result = await adminOfferApi.resetRotation();
       setRotationStatus(result);
       toast({ title: 'Success', description: 'Rotation reset' });
+    } catch (err) {
+      toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
+    } finally {
+      setRotationActionLoading(false);
+    }
+  };
+
+  const handleCleanupOrphans = async () => {
+    setRotationActionLoading(true);
+    try {
+      const result = await adminOfferApi.cleanupRotationOrphans();
+      setRotationStatus(result);
+      toast({ title: 'Success', description: result.message });
     } catch (err) {
       toast({ title: 'Error', description: err instanceof Error ? err.message : 'Failed', variant: 'destructive' });
     } finally {
@@ -3241,10 +3257,69 @@ const AdminOffers = () => {
                       <p className="text-xs text-muted-foreground">How long each batch stays active before rotating (e.g. 420 = 7 hours, 2 = 2 min for testing)</p>
                     </div>
                   </div>
+
+                  {/* Network Selection */}
+                  <div className="space-y-2 pt-2 border-t">
+                    <Label className="flex items-center gap-2">
+                      <Globe className="h-4 w-4" /> Network Filter
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      Select which networks' offers should participate in rotation. If none selected, all networks rotate according to system rules.
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {networks.length > 0 ? networks.map((network) => {
+                        const isSelected = editSelectedNetworks.includes(network);
+                        return (
+                          <Badge
+                            key={network}
+                            variant={isSelected ? 'default' : 'outline'}
+                            className={`cursor-pointer text-xs px-3 py-1.5 transition-colors ${isSelected ? 'bg-blue-600 hover:bg-blue-700' : 'hover:bg-accent'}`}
+                            onClick={() => {
+                              setEditSelectedNetworks(prev =>
+                                prev.includes(network)
+                                  ? prev.filter(n => n !== network)
+                                  : [...prev, network]
+                              );
+                            }}
+                          >
+                            {isSelected && <Check className="h-3 w-3 mr-1" />}
+                            {network}
+                          </Badge>
+                        );
+                      }) : (
+                        <p className="text-xs text-muted-foreground italic">No networks found. Networks will appear once offers are imported.</p>
+                      )}
+                    </div>
+                    {editSelectedNetworks.length > 0 && (
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge variant="secondary" className="text-xs">
+                          {editSelectedNetworks.length} network{editSelectedNetworks.length > 1 ? 's' : ''} selected
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs text-muted-foreground"
+                          onClick={() => setEditSelectedNetworks([])}
+                        >
+                          Clear all
+                        </Button>
+                      </div>
+                    )}
+                    {rotationStatus && rotationStatus.selected_networks.length > 0 && (
+                      <p className="text-xs text-blue-600">
+                        Filtered pool: {rotationStatus.filtered_inactive_count.toLocaleString()} inactive offers from selected networks (total pool: {rotationStatus.inactive_pool_count.toLocaleString()})
+                      </p>
+                    )}
+                  </div>
+
                   <div className="flex items-center gap-2">
                     <Button size="sm" onClick={handleRotationConfigSave} disabled={rotationActionLoading}>
                       {rotationActionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Zap className="h-4 w-4 mr-1" />}
                       Save Config
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleCleanupOrphans} disabled={rotationActionLoading} className="text-orange-600 border-orange-300 hover:bg-orange-50">
+                      {rotationActionLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                      Cleanup Orphans
                     </Button>
                     <Button size="sm" variant="destructive" onClick={handleResetRotation} disabled={rotationActionLoading}>
                       <RotateCcw className="h-4 w-4 mr-1" /> Reset All
@@ -3311,11 +3386,14 @@ const AdminOffers = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="text-sm text-muted-foreground space-y-1.5">
-                    <p>1. The system picks <span className="font-medium text-foreground">{rotationStatus.batch_size}</span> inactive offers and activates them for <span className="font-medium text-foreground">{rotationStatus.window_minutes} minutes</span>.</p>
-                    <p>2. Before activating, it deduplicates: if multiple offers share the same name + country, only the highest-payout one is included.</p>
+                    <p>1. The system picks <span className="font-medium text-foreground">{rotationStatus.batch_size}</span> inactive offers{rotationStatus.selected_networks.length > 0 ? <span> from <span className="font-medium text-blue-600">{rotationStatus.selected_networks.join(', ')}</span></span> : ''} and activates them for <span className="font-medium text-foreground">{rotationStatus.window_minutes} minutes</span>.</p>
+                    <p>2. Before activating, it deduplicates: if multiple offers share the same name + country, only the <span className="font-medium text-green-600">best offer</span> is included (scored by highest payout, most clicks, most conversions, and most requests).</p>
                     <p>3. If an offer gets clicked during its window, it's promoted to <span className="font-medium text-green-600">"running"</span> and stays active permanently.</p>
                     <p>4. When the window expires, the previous batch is deactivated — except running offers, which are skipped.</p>
-                    <p>5. The next batch of {rotationStatus.batch_size} rotates in, and the cycle continues through the entire inactive pool.</p>
+                    <p>5. The next batch of {rotationStatus.batch_size} rotates in, and the cycle continues through the {rotationStatus.selected_networks.length > 0 ? 'filtered' : 'entire'} inactive pool.</p>
+                    {rotationStatus.selected_networks.length > 0 && (
+                      <p>6. <span className="font-medium text-blue-600">Network filter active:</span> Only offers from selected networks participate. Offers from other networks follow normal system rules and are not touched by rotation.</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>

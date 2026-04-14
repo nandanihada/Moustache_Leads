@@ -11,6 +11,7 @@ import {
   Search, Users, AlertTriangle, AlertCircle, Sparkles, RefreshCw,
   Mail, MessageSquare, CheckCircle2, Inbox,
   ThumbsUp, ThumbsDown, Eye, Briefcase, UserCheck, TrendingUp,
+  ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -18,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import PublisherRow from '@/pages/offer-requests/PublisherRow';
 import SendOffersModal from '@/pages/offer-requests/SendOffersModal';
 import BulkMessageModal from '@/pages/offer-requests/BulkMessageModal';
+import RequestCharts from '@/pages/offer-requests/RequestCharts';
 import TabContent from '@/pages/offer-requests/TabContent';
 
 // ─── Exported Types ──────────────────────────────────────────────────────────
@@ -147,6 +149,12 @@ function AdminOfferAccessRequests() {
   const [tabCounts, setTabCounts] = useState<Record<TabId, number>>({
     all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, history: 0,
   });
+  const [tabBreakdowns, setTabBreakdowns] = useState<Record<string, { total: number; today: number; week: number }>>({});
+  const [recentlyAdded, setRecentlyAdded] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
+  const [recentlyEdited, setRecentlyEdited] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
+  const [recentlyDeleted, setRecentlyDeleted] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
+  const [recentCounts, setRecentCounts] = useState({ added: 0, edited: 0, deleted: 0 });
+  const [recentExpanded, setRecentExpanded] = useState(false);
 
   // ── In Review tab state (existing publisher-profile view) ──
   const [profiles, setProfiles] = useState<PProf[]>([]);
@@ -168,16 +176,33 @@ function AdminOfferAccessRequests() {
     fetch(`${API_BASE_URL}/api/admin/offer-access-requests/tab-counts`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.json()).then(d => {
+      // Parse counts - handle both old format (number) and new format ({total, today, week})
+      const getTotal = (v: any) => typeof v === 'number' ? v : (v?.total || 0);
+      const getBreakdown = (v: any) => typeof v === 'number' ? { total: v, today: 0, week: 0 } : { total: v?.total || 0, today: v?.today || 0, week: v?.week || 0 };
+
       setTabCounts({
-        all_requests: d.all_requests || 0,
-        in_review: d.in_review || 0,
-        approved: d.approved || 0,
-        rejected: d.rejected || 0,
-        direct_partner: d.direct_partner || 0,
-        affiliate: d.affiliate || 0,
-        most_requested: d.most_requested || 0,
+        all_requests: getTotal(d.all_requests),
+        in_review: getTotal(d.in_review),
+        approved: getTotal(d.approved),
+        rejected: getTotal(d.rejected),
+        direct_partner: getTotal(d.direct_partner),
+        affiliate: getTotal(d.affiliate),
+        most_requested: getTotal(d.most_requested),
         history: 0,
       });
+      setTabBreakdowns({
+        all_requests: getBreakdown(d.all_requests),
+        approved: getBreakdown(d.approved),
+        rejected: getBreakdown(d.rejected),
+        in_review: getBreakdown(d.in_review),
+        direct_partner: getBreakdown(d.direct_partner),
+        affiliate: getBreakdown(d.affiliate),
+        most_requested: getBreakdown(d.most_requested),
+      });
+      setRecentlyAdded(d.recently_added || []);
+      setRecentlyEdited(d.recently_edited || []);
+      setRecentlyDeleted(d.recently_deleted || []);
+      setRecentCounts({ added: d.added_today || 0, edited: d.edited_today || 0, deleted: d.deleted_today || 0 });
     }).catch(() => {});
   }, [token, activeTab]);
 
@@ -239,21 +264,86 @@ function AdminOfferAccessRequests() {
         )}
       </div>
 
+      {/* Analytics Charts */}
+      <RequestCharts />
+
       {/* Tab System */}
       <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
-          {visibleTabs.map(t => (
-            <TabsTrigger key={t.id} value={t.id} className="gap-1.5 text-xs data-[state=active]:bg-background">
-              <t.icon className="h-3.5 w-3.5" />
-              {t.label}
-              {tabCounts[t.id] > 0 && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1 min-w-[20px] justify-center">
-                  {tabCounts[t.id]}
-                </Badge>
+          {visibleTabs.map(t => {
+            const bd = tabBreakdowns[t.id];
+            return (
+            <TabsTrigger key={t.id} value={t.id} className="gap-1.5 text-xs data-[state=active]:bg-background flex-col items-start py-1.5 px-3">
+              <div className="flex items-center gap-1.5">
+                <t.icon className="h-3.5 w-3.5" />
+                {t.label}
+                {tabCounts[t.id] > 0 && (
+                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0 ml-1 min-w-[20px] justify-center">
+                    {tabCounts[t.id]}
+                  </Badge>
+                )}
+              </div>
+              {bd && bd.total > 0 && (
+                <div className="text-[9px] text-muted-foreground font-normal">
+                  {bd.today > 0 && <span className="text-green-600">today {bd.today}</span>}
+                  {bd.today > 0 && bd.week > 0 && <span> · </span>}
+                  {bd.week > 0 && <span>week {bd.week}</span>}
+                  {(bd.today > 0 || bd.week > 0) && <span> · </span>}
+                  <span>total {bd.total}</span>
+                </div>
               )}
             </TabsTrigger>
-          ))}
+            );
+          })}
         </TabsList>
+
+        {/* Recently Added/Edited/Deleted Section */}
+        {(recentlyAdded.length > 0 || recentlyEdited.length > 0 || recentlyDeleted.length > 0) && (
+          <div className="mt-3">
+            <button
+              onClick={() => setRecentExpanded(!recentExpanded)}
+              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+            >
+              {recentExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              <span className="flex items-center gap-4">
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" /> Recently added <span className="text-green-600 font-semibold">{recentCounts.added} today</span></span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500 inline-block" /> Recently edited <span className="text-amber-600 font-semibold">{recentCounts.edited} today</span></span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" /> Recently deleted <span className="text-red-600 font-semibold">{recentCounts.deleted} today</span></span>
+              </span>
+            </button>
+            {recentExpanded && (
+              <div className="grid grid-cols-3 gap-4 mt-2 p-3 bg-muted/30 rounded-lg border">
+                <div>
+                  <div className="text-xs font-medium text-green-700 mb-1.5 flex items-center gap-1"><Plus className="h-3 w-3" /> Recently Added</div>
+                  {recentlyAdded.length > 0 ? recentlyAdded.map((o, i) => (
+                    <div key={i} className="flex justify-between text-xs py-0.5">
+                      <span className="truncate max-w-[200px]">{o.name}</span>
+                      <span className="text-muted-foreground ml-2 shrink-0">{o.at ? new Date(o.at).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}</span>
+                    </div>
+                  )) : <div className="text-xs text-muted-foreground">None recently</div>}
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-amber-700 mb-1.5 flex items-center gap-1"><Edit className="h-3 w-3" /> Recently Edited</div>
+                  {recentlyEdited.length > 0 ? recentlyEdited.map((o, i) => (
+                    <div key={i} className="flex justify-between text-xs py-0.5">
+                      <span className="truncate max-w-[200px]">{o.name}</span>
+                      <span className="text-muted-foreground ml-2 shrink-0">{o.at ? new Date(o.at).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}</span>
+                    </div>
+                  )) : <div className="text-xs text-muted-foreground">None recently</div>}
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-red-700 mb-1.5 flex items-center gap-1"><Trash2 className="h-3 w-3" /> Recently Deleted</div>
+                  {recentlyDeleted.length > 0 ? recentlyDeleted.map((o, i) => (
+                    <div key={i} className="flex justify-between text-xs py-0.5">
+                      <span className="truncate max-w-[200px]">{o.name}</span>
+                      <span className="text-muted-foreground ml-2 shrink-0">{o.at ? new Date(o.at).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}</span>
+                    </div>
+                  )) : <div className="text-xs text-muted-foreground">None recently</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── All Requests Tab: Existing publisher-profile view ── */}
         <TabsContent value="all_requests">

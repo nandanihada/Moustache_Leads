@@ -48,6 +48,7 @@ class OfferRotationService:
                 'batch_activated_at': None,
                 'total_rotations': 0,
                 'last_rotation_at': None,
+                'selected_networks': [],  # empty = all networks (system rules)
                 'created_at': datetime.utcnow(),
                 'updated_at': datetime.utcnow(),
             }
@@ -57,6 +58,10 @@ class OfferRotationService:
             wm = state.get('window_hours', self.DEFAULT_WINDOW_HOURS) * 60
             self.rotation_col.update_one({'_id': 'rotation_config'}, {'$set': {'window_minutes': wm}})
             state['window_minutes'] = wm
+        # Migrate old docs without selected_networks
+        if 'selected_networks' not in state:
+            self.rotation_col.update_one({'_id': 'rotation_config'}, {'$set': {'selected_networks': []}})
+            state['selected_networks'] = []
         return state
 
     def _save_state(self, update_fields: dict):
@@ -67,25 +72,43 @@ class OfferRotationService:
         )
 
     # --------------------------------------------------------- deduplication
+    def _calculate_best_score(self, doc):
+        """
+        Calculate a composite 'best offer' score for deduplication ranking.
+        Factors (weighted):
+          - Highest payout (40%)
+          - Most clicked (25%)
+          - Most approved/conversions (20%)
+          - Most requested (15%)
+        All values are normalized per-group, so we use raw values and let
+        the comparison pick the highest composite.
+        """
+        payout = float(doc.get('payout', 0) or 0)
+        clicks = int(doc.get('clicks', 0) or doc.get('hits', 0) or 0)
+        conversions = int(doc.get('conversions', 0) or 0)
+        requests_count = int(doc.get('request_count', 0) or doc.get('requests', 0) or 0)
+        return (payout * 0.40) + (clicks * 0.25) + (conversions * 0.20) + (requests_count * 0.15)
+
     def _deduplicate_candidates(self, candidates):
         """
         Given a list of offer docs, group by (name_lower, first_country).
-        Keep only the one with the highest payout per group.
+        Keep only the BEST offer per group using composite scoring:
+        highest payout, most clicked, most approved, most requested.
         Returns list of offer_id strings.
         """
-        groups = {}  # (name, country) -> best offer doc
+        groups = {}  # (name, country) -> (best_score, best_doc)
         for doc in candidates:
             name_key = (doc.get('name') or '').strip().lower()
             countries = doc.get('allowed_countries') or doc.get('countries') or []
             country_key = countries[0].upper() if countries else '__global__'
             group_key = (name_key, country_key)
 
-            payout = float(doc.get('payout', 0) or 0)
+            score = self._calculate_best_score(doc)
             existing = groups.get(group_key)
-            if not existing or payout > float(existing.get('payout', 0) or 0):
-                groups[group_key] = doc
+            if not existing or score > existing[0]:
+                groups[group_key] = (score, doc)
 
-        return [doc['offer_id'] for doc in groups.values()]
+        return [item[1]['offer_id'] for item in groups.values()]
 
     # --------------------------------------------------- click promotion
     def promote_to_running(self, offer_id: str):
@@ -117,6 +140,7 @@ class OfferRotationService:
         window_minutes = state.get('window_minutes', self.DEFAULT_WINDOW_MINUTES)
         batch_activated_at = state.get('batch_activated_at')
         running_ids = set(state.get('running_offer_ids', []))
+        selected_networks = state.get('selected_networks', [])
 
         # Check if current window is still active
         if batch_activated_at:
@@ -129,6 +153,7 @@ class OfferRotationService:
         batch_index = state.get('batch_index', 0)
 
         # 1. Deactivate previous batch (skip running offers)
+        #    Also deactivate any orphaned rotation-activated offers not in the new batch
         if previous_batch:
             ids_to_deactivate = [oid for oid in previous_batch if oid not in running_ids]
             if ids_to_deactivate:
@@ -145,6 +170,30 @@ class OfferRotationService:
                 )
                 logger.info(f"🔄 Deactivated {result.modified_count} offers from previous batch (skipped {len(previous_batch) - len(ids_to_deactivate)} running)")
 
+        # 1b. Cleanup: deactivate any orphaned rotation-activated offers
+        #     These are offers that were activated by rotation in past cycles
+        #     but are no longer tracked in current/previous batch state
+        orphan_query = {
+            'status': 'active',
+            'rotation_activated_at': {'$exists': True},
+            'rotation_running': {'$ne': True},
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+        }
+        # Exclude offers in the current running list
+        if running_ids:
+            orphan_query['offer_id'] = {'$nin': list(running_ids)}
+        orphan_result = self.offers_col.update_many(
+            orphan_query,
+            {'$set': {
+                'status': 'inactive',
+                'rotation_deactivated_at': datetime.utcnow(),
+                'rotation_orphan_cleanup': True,
+                'updated_at': datetime.utcnow(),
+            }}
+        )
+        if orphan_result.modified_count > 0:
+            logger.info(f"🧹 Cleaned up {orphan_result.modified_count} orphaned rotation-activated offers")
+
         # 2. Get all inactive, non-deleted, non-running candidates
         query = {
             'status': 'inactive',
@@ -152,6 +201,15 @@ class OfferRotationService:
             'rotation_running': {'$ne': True},
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
         }
+        # If admin selected specific networks, only rotate those networks' offers
+        if selected_networks:
+            # Case-insensitive network matching
+            network_regex = [{'network': {'$regex': f'^{n}$', '$options': 'i'}} for n in selected_networks]
+            query['$and'] = [{'$or': network_regex}]
+            # Move the deleted check into $and to avoid $or conflict
+            del query['$or']
+            query['$and'].append({'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]})
+
         total_inactive = self.offers_col.count_documents(query)
 
         if total_inactive == 0:
@@ -305,6 +363,22 @@ class OfferRotationService:
             '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
         })
 
+        selected_networks = state.get('selected_networks', [])
+
+        # If networks are selected, also count filtered inactive pool
+        filtered_inactive_count = inactive_count
+        if selected_networks:
+            network_regex = [{'network': {'$regex': f'^{n}$', '$options': 'i'}} for n in selected_networks]
+            filtered_inactive_count = self.offers_col.count_documents({
+                'status': 'inactive',
+                'is_active': True,
+                'rotation_running': {'$ne': True},
+                '$and': [
+                    {'$or': network_regex},
+                    {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                ],
+            })
+
         return {
             'enabled': state.get('enabled', False),
             'batch_size': state.get('batch_size', self.DEFAULT_BATCH_SIZE),
@@ -320,14 +394,19 @@ class OfferRotationService:
             'time_remaining_seconds': time_remaining,
             'next_rotation_at': next_rotation_at,
             'inactive_pool_count': inactive_count,
+            'filtered_inactive_count': filtered_inactive_count,
+            'selected_networks': selected_networks,
         }
 
-    def update_config(self, batch_size=None, window_minutes=None):
+    def update_config(self, batch_size=None, window_minutes=None, selected_networks=None):
         updates = {}
         if batch_size is not None:
             updates['batch_size'] = int(batch_size)
         if window_minutes is not None:
             updates['window_minutes'] = max(1, int(window_minutes))
+        if selected_networks is not None:
+            # Ensure it's a list of strings; empty list = all networks
+            updates['selected_networks'] = [str(n).strip() for n in selected_networks if str(n).strip()]
         if updates:
             self._save_state(updates)
         return self.get_status()
@@ -356,7 +435,7 @@ class OfferRotationService:
         return self.get_status()
 
     def reset(self):
-        """Reset all rotation state. Deactivates current batch (except running)."""
+        """Reset all rotation state. Deactivates current batch and all orphaned rotation offers (except running)."""
         state = self._get_state()
         running_ids = set(state.get('running_offer_ids', []))
         current = state.get('current_batch_ids', [])
@@ -368,6 +447,27 @@ class OfferRotationService:
                 {'offer_id': {'$in': ids_to_deactivate}, 'rotation_running': {'$ne': True}},
                 {'$set': {'status': 'inactive', 'updated_at': datetime.utcnow()}}
             )
+
+        # Also deactivate ALL orphaned rotation-activated offers
+        orphan_query = {
+            'status': 'active',
+            'rotation_activated_at': {'$exists': True},
+            'rotation_running': {'$ne': True},
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+        }
+        if running_ids:
+            orphan_query['offer_id'] = {'$nin': list(running_ids)}
+        orphan_result = self.offers_col.update_many(
+            orphan_query,
+            {'$set': {
+                'status': 'inactive',
+                'rotation_deactivated_at': datetime.utcnow(),
+                'rotation_orphan_cleanup': True,
+                'updated_at': datetime.utcnow(),
+            }}
+        )
+        if orphan_result.modified_count > 0:
+            logger.info(f"🧹 Reset cleanup: deactivated {orphan_result.modified_count} orphaned rotation offers")
 
         self._save_state({
             'enabled': False,

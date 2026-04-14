@@ -336,6 +336,8 @@ export interface RotationStatus {
   time_remaining_seconds: number | null;
   next_rotation_at: string | null;
   inactive_pool_count: number;
+  filtered_inactive_count: number;
+  selected_networks: string[];
 }
 
 class AdminOfferApi {
@@ -796,7 +798,7 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
-  async updateRotationConfig(config: { batch_size?: number; window_minutes?: number }): Promise<RotationStatus & { message: string }> {
+  async updateRotationConfig(config: { batch_size?: number; window_minutes?: number; selected_networks?: string[] }): Promise<RotationStatus & { message: string }> {
     const response = await fetch(`${API_BASE_URL}/offers/rotation/config`, {
       method: 'PUT',
       headers: this.getAuthHeaders(),
@@ -815,6 +817,14 @@ class AdminOfferApi {
 
   async resetRotation(): Promise<RotationStatus & { message: string }> {
     const response = await fetch(`${API_BASE_URL}/offers/rotation/reset`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async cleanupRotationOrphans(): Promise<RotationStatus & { message: string; cleaned: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/rotation/cleanup-orphans`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
     });

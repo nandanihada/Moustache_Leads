@@ -2616,6 +2616,25 @@ def bulk_upload_offers():
         elif not send_email:
             logging.info("📧 Email notifications skipped (send_email=false)")
         
+        # Log admin activity for bulk upload
+        if created_offer_ids:
+            try:
+                log_admin_activity(
+                    action='bulk_upload',
+                    category='offer',
+                    admin_user=user,
+                    details={
+                        'total_uploaded': len(valid_rows) if 'valid_rows' in dir() else 0,
+                        'created': len(created_offer_ids),
+                        'skipped': response_data.get('skipped_count', 0),
+                        'errors': response_data.get('error_count', 0),
+                        'offer_ids': created_offer_ids[:10],
+                    },
+                    request_obj=request
+                )
+            except Exception as log_err:
+                logging.warning(f"Activity log error (non-critical): {log_err}")
+        
         return jsonify(response_data), 201 if created_offer_ids else 200
         
     except Exception as e:
@@ -2968,6 +2987,27 @@ def import_api_offers():
         }
         
         logging.info(f"✅ API Import complete: {result['stats']['created']} imported in {result['stats']['elapsed_seconds']}s")
+        
+        # Log admin activity for API import
+        if result['stats']['created'] > 0:
+            try:
+                log_admin_activity(
+                    action='api_import',
+                    category='offer',
+                    admin_user=current_user,
+                    details={
+                        'network_id': network_id,
+                        'network_type': network_type,
+                        'total_fetched': len(offers),
+                        'imported': result['stats']['created'],
+                        'skipped': result['stats']['skipped'],
+                        'errors': result['stats']['errors'],
+                        'offer_ids': result['created_ids'][:10],
+                    },
+                    request_obj=request
+                )
+            except Exception as log_err:
+                logging.warning(f"Activity log error (non-critical): {log_err}")
         
         # Send batch email notification if enabled and offers were created
         send_email = options.get('send_email', False)
@@ -3796,7 +3836,7 @@ def disable_rotation():
 @token_required
 @admin_required
 def update_rotation_config():
-    """Update rotation batch_size and/or window_hours."""
+    """Update rotation batch_size, window_hours, and/or selected_networks."""
     try:
         data = request.get_json() or {}
         from services.offer_rotation_service import get_rotation_service
@@ -3804,6 +3844,7 @@ def update_rotation_config():
         status = service.update_config(
             batch_size=data.get('batch_size'),
             window_minutes=data.get('window_minutes'),
+            selected_networks=data.get('selected_networks'),
         )
         from utils.json_serializer import serialize_for_json
         return jsonify({'message': 'Config updated', **serialize_for_json(status)}), 200
@@ -3843,4 +3884,74 @@ def reset_rotation():
         return jsonify({'message': 'Rotation reset', **serialize_for_json(status)}), 200
     except Exception as e:
         logging.error(f"Reset rotation error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/rotation/cleanup-orphans', methods=['POST'])
+@token_required
+@admin_required
+def cleanup_rotation_orphans():
+    """Deactivate all active offers that are NOT running and NOT in the current rotation batch.
+    This fixes orphaned offers left active from previous rotation cycles."""
+    try:
+        from services.offer_rotation_service import get_rotation_service
+        service = get_rotation_service()
+        state = service._get_state()
+
+        running_ids = list(set(state.get('running_offer_ids', [])))
+        current_batch_ids = state.get('current_batch_ids', [])
+
+        # Also get ALL offers with rotation_running: True from DB (safety net)
+        offers_col = service.offers_col
+        db_running_docs = offers_col.find(
+            {'rotation_running': True, 'status': 'active'},
+            {'offer_id': 1}
+        )
+        db_running_ids = [d['offer_id'] for d in db_running_docs]
+
+        # Combine: these are the only offers that SHOULD be active
+        keep_active_ids = list(set(running_ids + current_batch_ids + db_running_ids))
+
+        # Find all active, non-deleted, non-running offers NOT in the keep list
+        cleanup_query = {
+            'status': 'active',
+            'rotation_running': {'$ne': True},
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+        }
+        if keep_active_ids:
+            cleanup_query['offer_id'] = {'$nin': keep_active_ids}
+
+        # Count before cleanup
+        orphan_count = offers_col.count_documents(cleanup_query)
+
+        if orphan_count == 0:
+            from utils.json_serializer import serialize_for_json
+            return jsonify({
+                'message': 'No orphaned offers found — all active offers are accounted for',
+                'cleaned': 0,
+                **serialize_for_json(service.get_status()),
+            }), 200
+
+        # Deactivate orphans
+        from datetime import datetime
+        result = offers_col.update_many(
+            cleanup_query,
+            {'$set': {
+                'status': 'inactive',
+                'rotation_orphan_cleanup': True,
+                'rotation_deactivated_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+            }}
+        )
+
+        logging.info(f"🧹 Rotation orphan cleanup: deactivated {result.modified_count} orphaned active offers (kept {len(keep_active_ids)} running/batch)")
+
+        from utils.json_serializer import serialize_for_json
+        return jsonify({
+            'message': f'Cleaned up {result.modified_count} orphaned active offers (kept {len(db_running_ids)} running + {len(current_batch_ids)} batch)',
+            'cleaned': result.modified_count,
+            **serialize_for_json(service.get_status()),
+        }), 200
+    except Exception as e:
+        logging.error(f"Rotation orphan cleanup error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
