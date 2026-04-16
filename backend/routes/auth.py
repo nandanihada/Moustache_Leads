@@ -1245,6 +1245,151 @@ def bulk_reject_users():
         return jsonify({'error': f'Bulk reject failed: {str(e)}'}), 500
 
 
+@auth_bp.route('/admin/users/<user_id>/delete', methods=['DELETE'])
+@token_required
+def delete_user(user_id):
+    """Delete a user and all their associated data (admin only)"""
+    try:
+        admin = request.current_user
+        if admin.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from bson import ObjectId
+        try:
+            uid = ObjectId(user_id)
+        except:
+            return jsonify({'error': 'Invalid user ID'}), 400
+
+        users_col = db_instance.get_collection('users')
+        if users_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        user = users_col.find_one({'_id': uid})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        username = user.get('username', '')
+        deleted_data = {'username': username, 'collections_cleaned': []}
+
+        # Delete from users
+        users_col.delete_one({'_id': uid})
+        deleted_data['collections_cleaned'].append('users')
+
+        # Clean up related data
+        cleanup_collections = {
+            'clicks': {'user_id': user_id},
+            'conversions': {'user_id': user_id},
+            'forwarded_postbacks': {'publisher_id': user_id},
+            'points_transactions': {'user_id': user_id},
+            'placements': {'created_by': user_id},
+            'offerwall_clicks': {'user_id': user_id},
+            'offerwall_clicks_detailed': {'user_id': user_id},
+        }
+
+        for col_name, query in cleanup_collections.items():
+            try:
+                col = db_instance.get_collection(col_name)
+                if col is not None:
+                    # Also try matching by username
+                    q = {'$or': [query, {'username': username}]} if username else query
+                    result = col.delete_many(q)
+                    if result.deleted_count > 0:
+                        deleted_data['collections_cleaned'].append(f'{col_name}({result.deleted_count})')
+            except Exception:
+                pass
+
+        logging.info(f"Admin {admin.get('username')} deleted user {username} ({user_id})")
+
+        return jsonify({
+            'success': True,
+            'message': f'User {username} deleted successfully',
+            'deleted_data': deleted_data
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Delete user error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@auth_bp.route('/admin/users/<user_id>/stats', methods=['GET'])
+@token_required
+def get_user_stats(user_id):
+    """Get performance stats for a specific user (admin only)"""
+    try:
+        admin = request.current_user
+        if admin.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from bson import ObjectId
+        users_col = db_instance.get_collection('users')
+        clicks_col = db_instance.get_collection('clicks')
+        fwd_col = db_instance.get_collection('forwarded_postbacks')
+        pts_col = db_instance.get_collection('points_transactions')
+
+        if users_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        try:
+            user = users_col.find_one({'_id': ObjectId(user_id)})
+        except:
+            user = users_col.find_one({'username': user_id})
+
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        username = user.get('username', '')
+        uid_str = str(user['_id'])
+
+        # Clicks
+        total_clicks = 0
+        if clicks_col is not None:
+            total_clicks = clicks_col.count_documents({'$or': [{'user_id': uid_str}, {'username': username}]})
+
+        # Conversions (from forwarded_postbacks)
+        total_conversions = 0
+        total_revenue = 0
+        if fwd_col is not None:
+            conv_pipeline = [
+                {'$match': {'$or': [{'publisher_id': uid_str}, {'publisher_name': username}], 'source': {'$nin': ['fallback_fake']}}},
+                {'$group': {'_id': None, 'count': {'$sum': 1}, 'revenue': {'$sum': '$points'}}}
+            ]
+            result = list(fwd_col.aggregate(conv_pipeline))
+            if result:
+                total_conversions = result[0].get('count', 0)
+                total_revenue = result[0].get('revenue', 0)
+
+        # Points balance
+        total_points = user.get('total_points', 0) or 0
+
+        # Points transactions count
+        pts_count = 0
+        if pts_col is not None:
+            pts_count = pts_col.count_documents({'$or': [{'user_id': uid_str}, {'username': username}]})
+
+        # Calculate derived metrics
+        cr = round((total_conversions / total_clicks * 100), 2) if total_clicks > 0 else 0
+        epc = round(total_revenue / total_clicks, 4) if total_clicks > 0 else 0
+        avg_payout = round(total_revenue / total_conversions, 2) if total_conversions > 0 else 0
+
+        return jsonify({
+            'success': True,
+            'stats': {
+                'clicks': total_clicks,
+                'conversions': total_conversions,
+                'revenue': round(total_revenue, 2),
+                'points_balance': total_points,
+                'points_transactions': pts_count,
+                'cr': cr,
+                'epc': epc,
+                'avg_payout': avg_payout,
+            }
+        }), 200
+
+    except Exception as e:
+        logging.error(f"User stats error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @auth_bp.route('/admin/auto-approve-check', methods=['POST'])
 @token_required
 def run_auto_approval():

@@ -505,6 +505,10 @@ def receive_postback(unique_key):
                         '{transaction_id}': get_param_value('transaction_id') or '',
                         '{user_id}': user_id_from_click or '', '{affiliate_id}': user_id_from_click or '',
                         '{username}': actual_username or '',
+                        '{sub_id1}': click.get('sub_id1', '') if click else '',
+                        '{sub_id2}': click.get('sub_id2', '') if click else '',
+                        '{sub_id3}': click.get('sub_id3', '') if click else '',
+                        '{user_ip}': click.get('ip_address', '') if click else '',
                     }
                     forward_url = owner_postback_url
                     for macro, value in macros.items():

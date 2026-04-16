@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,16 @@ interface User {
   terms_accepted_at?: string;
   newsletter_consent?: boolean;
   newsletter_consent_at?: string;
+  total_points?: number;
+  stats?: {
+    clicks: number;
+    conversions: number;
+    revenue: number;
+    points_balance: number;
+    cr: number;
+    epc: number;
+    avg_payout: number;
+  };
 }
 
 interface UserCounts {
@@ -66,6 +76,11 @@ const Users = () => {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [userStats, setUserStats] = useState<Record<string, User['stats']>>({});
+  const [statsLoading, setStatsLoading] = useState<string | null>(null);
   const { toast } = useToast();
 
   const fetchUsers = async (status?: string) => {
@@ -201,6 +216,54 @@ const Users = () => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setBulkLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setActionLoading(deleteTarget._id);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/users/${deleteTarget._id}/delete`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to delete user');
+      toast({ title: "User Deleted", description: data.message || `User ${deleteTarget.username} deleted.` });
+      setDeleteDialogOpen(false);
+      setDeleteTarget(null);
+      setExpandedUserId(null);
+      fetchUsers(activeTab === 'all' ? undefined : activeTab);
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const fetchUserStats = async (userId: string) => {
+    if (userStats[userId]) return; // Already loaded
+    setStatsLoading(userId);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE_URL}/api/auth/admin/users/${userId}/stats`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUserStats(prev => ({ ...prev, [userId]: data.stats }));
+      }
+    } catch { /* silent */ }
+    finally { setStatsLoading(null); }
+  };
+
+  const toggleExpand = (userId: string) => {
+    if (expandedUserId === userId) {
+      setExpandedUserId(null);
+    } else {
+      setExpandedUserId(userId);
+      fetchUserStats(userId);
     }
   };
 
@@ -398,12 +461,17 @@ const Users = () => {
                       <TableHead className="whitespace-nowrap">Email Verified</TableHead>
                       <TableHead className="whitespace-nowrap">Consent</TableHead>
                       <TableHead className="whitespace-nowrap">Join Date</TableHead>
+                      <TableHead className="whitespace-nowrap">Clicks</TableHead>
+                      <TableHead className="whitespace-nowrap">Conv</TableHead>
+                      <TableHead className="whitespace-nowrap">Revenue</TableHead>
+                      <TableHead className="whitespace-nowrap">Points</TableHead>
                       <TableHead className="whitespace-nowrap">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredUsers.map((user) => (
-                      <TableRow key={user._id} className={selectedIds.has(user._id) ? "bg-blue-50" : ""}>
+                      <React.Fragment key={user._id}>
+                      <TableRow className={`${selectedIds.has(user._id) ? "bg-blue-50" : ""} cursor-pointer hover:bg-muted/50`} onClick={() => toggleExpand(user._id)}>
                         {pendingInView.length > 0 && (
                           <TableCell>
                             {user.account_status === 'pending_approval' && (
@@ -464,8 +532,12 @@ const Users = () => {
                           </div>
                         </TableCell>
                         <TableCell className="text-sm">{formatDate(user.created_at)}</TableCell>
+                        <TableCell className="text-sm font-mono">{userStats[user._id]?.clicks ?? '—'}</TableCell>
+                        <TableCell className="text-sm font-mono">{userStats[user._id]?.conversions ?? '—'}</TableCell>
+                        <TableCell className="text-sm font-mono text-green-600">{userStats[user._id] ? `$${userStats[user._id]!.revenue.toFixed(2)}` : '—'}</TableCell>
+                        <TableCell className="text-sm font-mono">{user.total_points ?? userStats[user._id]?.points_balance ?? '—'}</TableCell>
                         <TableCell>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2" onClick={e => e.stopPropagation()}>
                             {user.account_status === "pending_approval" && (
                               <>
                                 <Button size="sm" variant="outline" className="text-green-600 hover:text-green-700 hover:bg-green-50" onClick={() => handleApprove(user._id)} disabled={actionLoading === user._id}>
@@ -479,9 +551,55 @@ const Users = () => {
                             )}
                             {user.account_status === "approved" && <Badge variant="outline" className="text-green-600">Active</Badge>}
                             {user.account_status === "rejected" && <Badge variant="outline" className="text-red-600">Rejected</Badge>}
+                            <Button size="sm" variant="ghost" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => { setDeleteTarget(user); setDeleteDialogOpen(true); }}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
+                      {expandedUserId === user._id && (
+                        <TableRow>
+                          <TableCell colSpan={pendingInView.length > 0 ? 12 : 11} className="bg-muted/30 p-4">
+                            {statsLoading === user._id ? (
+                              <div className="flex items-center justify-center py-4"><Loader2 className="h-5 w-5 animate-spin" /> <span className="ml-2 text-sm">Loading stats...</span></div>
+                            ) : userStats[user._id] ? (
+                              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                                <div className="bg-background rounded-lg border p-3">
+                                  <div className="text-xs text-muted-foreground">Total Clicks</div>
+                                  <div className="text-xl font-bold">{userStats[user._id]!.clicks.toLocaleString()}</div>
+                                </div>
+                                <div className="bg-background rounded-lg border p-3">
+                                  <div className="text-xs text-muted-foreground">Conversions</div>
+                                  <div className="text-xl font-bold">{userStats[user._id]!.conversions.toLocaleString()}</div>
+                                </div>
+                                <div className="bg-background rounded-lg border p-3">
+                                  <div className="text-xs text-muted-foreground">Revenue</div>
+                                  <div className="text-xl font-bold text-green-600">${userStats[user._id]!.revenue.toFixed(2)}</div>
+                                </div>
+                                <div className="bg-background rounded-lg border p-3">
+                                  <div className="text-xs text-muted-foreground">CR%</div>
+                                  <div className="text-xl font-bold">{userStats[user._id]!.cr}%</div>
+                                </div>
+                                <div className="bg-background rounded-lg border p-3">
+                                  <div className="text-xs text-muted-foreground">EPC</div>
+                                  <div className="text-xl font-bold">${userStats[user._id]!.epc.toFixed(4)}</div>
+                                </div>
+                                <div className="bg-background rounded-lg border p-3">
+                                  <div className="text-xs text-muted-foreground">Avg Payout</div>
+                                  <div className="text-xl font-bold">${userStats[user._id]!.avg_payout.toFixed(2)}</div>
+                                </div>
+                                <div className="bg-background rounded-lg border p-3">
+                                  <div className="text-xs text-muted-foreground">Points Balance</div>
+                                  <div className="text-xl font-bold text-blue-600">{userStats[user._id]!.points_balance}</div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="text-center text-muted-foreground py-4">No stats available</div>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </React.Fragment>
                     ))}
                   </TableBody>
                 </Table>
@@ -533,6 +651,25 @@ const Users = () => {
             <Button variant="destructive" onClick={handleBulkReject} disabled={bulkLoading}>
               {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Reject {selectedIds.size} Users
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete User Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User Permanently</DialogTitle>
+            <DialogDescription>
+              This will permanently delete <span className="font-semibold">{deleteTarget?.username}</span> and ALL their data (clicks, conversions, points, placements). This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={actionLoading === deleteTarget?._id}>
+              {actionLoading === deleteTarget?._id ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Delete Permanently
             </Button>
           </DialogFooter>
         </DialogContent>

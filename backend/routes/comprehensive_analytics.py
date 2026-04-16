@@ -2249,3 +2249,235 @@ def get_action_log():
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# AFFILIATE INTELLIGENCE ENDPOINTS
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/admin/intelligence/affiliate-detail/<user_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def affiliate_detail(user_id):
+    """Get detailed affiliate data with per-offer click breakdowns"""
+    try:
+        clicks_col = db_instance.get_collection('clicks')
+        offers_col = db_instance.get_collection('offers')
+        users_col = db_instance.get_collection('users')
+        if clicks_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        from bson import ObjectId as BsonOid
+
+        # Get user info
+        user = None
+        if users_col is not None:
+            try:
+                user = users_col.find_one({'_id': BsonOid(user_id)})
+            except:
+                user = users_col.find_one({'username': user_id})
+
+        # Get clicks grouped by offer
+        pipeline = [
+            {'$match': {'$or': [{'user_id': user_id}, {'username': user.get('username', '') if user else ''}]}},
+            {'$group': {
+                '_id': '$offer_id',
+                'clicks': {'$sum': 1},
+                'clean': {'$sum': {'$cond': [{'$eq': ['$fraud_classification', 'genuine']}, 1, 0]}},
+                'bot': {'$sum': {'$cond': [{'$in': ['$fraud_classification', ['fraud', 'suspicious']]}, 1, 0]}},
+                'conversions': {'$sum': {'$cond': [{'$eq': ['$postback_received', True]}, 1, 0]}},
+                'revenue': {'$sum': {'$ifNull': ['$postback_revenue', 0]}},
+                'last_click': {'$max': '$timestamp'},
+            }},
+            {'$sort': {'clicks': -1}},
+            {'$limit': 50}
+        ]
+        offer_stats = list(clicks_col.aggregate(pipeline))
+
+        # Enrich with offer names
+        offer_ids = [s['_id'] for s in offer_stats if s['_id']]
+        offers_map = {}
+        if offers_col is not None and offer_ids:
+            for o in offers_col.find({'offer_id': {'$in': offer_ids}}, {'offer_id': 1, 'name': 1, 'category': 1, 'payout': 1}):
+                offers_map[o['offer_id']] = o
+
+        offers_data = []
+        for s in offer_stats:
+            oid = s['_id'] or 'Unknown'
+            o = offers_map.get(oid, {})
+            offers_data.append({
+                'offer_id': oid,
+                'offer_name': o.get('name', oid),
+                'category': o.get('category', ''),
+                'payout': o.get('payout', 0),
+                'clicks': s['clicks'],
+                'clean': s['clean'],
+                'bot': s['bot'],
+                'conversions': s['conversions'],
+                'revenue': round(s['revenue'], 2),
+                'last_click': s['last_click'].isoformat() + 'Z' if s.get('last_click') else '',
+            })
+
+        # Get recent individual clicks (last 50)
+        recent_clicks = []
+        for c in clicks_col.find(
+            {'$or': [{'user_id': user_id}, {'username': user.get('username', '') if user else ''}]},
+            {'click_id': 1, 'offer_id': 1, 'timestamp': 1, 'country': 1, 'fraud_classification': 1,
+             'fraud_score': 1, 'postback_received': 1, 'postback_revenue': 1, 'device_type': 1}
+        ).sort('timestamp', -1).limit(50):
+            recent_clicks.append({
+                'click_id': c.get('click_id', ''),
+                'offer_id': c.get('offer_id', ''),
+                'timestamp': c['timestamp'].isoformat() + 'Z' if c.get('timestamp') else '',
+                'country': c.get('country', ''),
+                'type': c.get('fraud_classification', 'unknown'),
+                'fraud_score': c.get('fraud_score', 0),
+                'converted': c.get('postback_received', False),
+                'revenue': c.get('postback_revenue', 0),
+                'device': c.get('device_type', ''),
+            })
+
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user_id,
+                'username': user.get('username', '') if user else user_id,
+                'email': user.get('email', '') if user else '',
+                'name': user.get('first_name', '') if user else '',
+            },
+            'offers': offers_data,
+            'recent_clicks': recent_clicks,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Affiliate detail error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/intelligence/block-offer', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def block_offer_for_affiliate():
+    """Block an offer for a specific affiliate"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        offer_id = data.get('offer_id')
+        reason = data.get('reason', 'Blocked by admin')
+
+        if not user_id or not offer_id:
+            return jsonify({'error': 'user_id and offer_id required'}), 400
+
+        blocked_col = db_instance.get_collection('blocked_affiliate_offers')
+        if blocked_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        blocked_col.update_one(
+            {'user_id': user_id, 'offer_id': offer_id},
+            {'$set': {
+                'user_id': user_id, 'offer_id': offer_id,
+                'blocked_by': str(request.current_user.get('_id', '')),
+                'reason': reason, 'blocked_at': datetime.utcnow(), 'active': True
+            }},
+            upsert=True
+        )
+
+        return jsonify({'success': True, 'message': f'Offer {offer_id} blocked for user {user_id}'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/intelligence/unblock-offer', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def unblock_offer_for_affiliate():
+    """Unblock an offer for a specific affiliate"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        offer_id = data.get('offer_id')
+
+        blocked_col = db_instance.get_collection('blocked_affiliate_offers')
+        if blocked_col is not None:
+            blocked_col.update_one(
+                {'user_id': user_id, 'offer_id': offer_id},
+                {'$set': {'active': False, 'unblocked_at': datetime.utcnow()}}
+            )
+
+        return jsonify({'success': True, 'message': f'Offer {offer_id} unblocked for user {user_id}'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/intelligence/suggest-offers/<user_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def suggest_offers_for_affiliate(user_id):
+    """Suggest top 5 offers for an affiliate based on their traffic profile"""
+    try:
+        clicks_col = db_instance.get_collection('clicks')
+        offers_col = db_instance.get_collection('offers')
+        if clicks_col is None or offers_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        # Get affiliate's top countries and categories
+        geo_pipeline = [
+            {'$match': {'user_id': user_id}},
+            {'$group': {'_id': '$country', 'count': {'$sum': 1}}},
+            {'$sort': {'count': -1}}, {'$limit': 5}
+        ]
+        top_geos = [r['_id'] for r in clicks_col.aggregate(geo_pipeline) if r['_id']]
+
+        # Get offers they already run
+        existing = [r['_id'] for r in clicks_col.aggregate([
+            {'$match': {'user_id': user_id}},
+            {'$group': {'_id': '$offer_id'}}
+        ])]
+
+        # Find matching offers
+        query = {'status': 'active', 'offer_id': {'$nin': existing}}
+        if top_geos:
+            query['$or'] = [{'countries': {'$in': top_geos}}, {'countries': {'$exists': False}}, {'countries': []}]
+
+        suggestions = list(offers_col.find(query, {
+            'offer_id': 1, 'name': 1, 'category': 1, 'payout': 1, 'countries': 1
+        }).sort('payout', -1).limit(5))
+
+        result = []
+        for o in suggestions:
+            result.append({
+                'offer_id': o.get('offer_id', ''),
+                'name': o.get('name', ''),
+                'category': o.get('category', ''),
+                'payout': o.get('payout', 0),
+                'geo': ', '.join((o.get('countries') or [])[:3]) or 'Global',
+            })
+
+        return jsonify({'success': True, 'suggestions': result}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/intelligence/send-email', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def send_affiliate_email():
+    """Send email to an affiliate (warning or recommendation)"""
+    try:
+        data = request.get_json()
+        to_email = data.get('email')
+        subject = data.get('subject', '')
+        body = data.get('body', '')
+
+        if not to_email or not subject or not body:
+            return jsonify({'error': 'email, subject, and body required'}), 400
+
+        try:
+            from services.email_service import send_email
+            send_email(to_email, subject, body)
+            return jsonify({'success': True, 'message': f'Email sent to {to_email}'}), 200
+        except Exception as email_err:
+            return jsonify({'success': False, 'error': f'Email failed: {str(email_err)}'}), 500
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

@@ -631,6 +631,9 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                     <option value="{user_ip}">user_ip — User IP address</option>
                     <option value="{affiliate_id}">affiliate_id — Affiliate ID</option>
                     <option value="{transaction_id}">transaction_id — Transaction ID</option>
+                    <option value="{sub_id1}">sub_id1 — Sub ID 1</option>
+                    <option value="{sub_id2}">sub_id2 — Sub ID 2</option>
+                    <option value="{sub_id3}">sub_id3 — Sub ID 3</option>
                   </select>
                   <button
                     type="button"
@@ -695,6 +698,9 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                     { macro: '{offer_name}', desc: 'Name of the completed offer' },
                     { macro: '{status}', desc: 'Always "approved" on conversion' },
                     { macro: '{user_ip}', desc: 'IP address of the user' },
+                    { macro: '{sub_id1}', desc: 'Sub ID 1 (custom tracking)' },
+                    { macro: '{sub_id2}', desc: 'Sub ID 2 (custom tracking)' },
+                    { macro: '{sub_id3}', desc: 'Sub ID 3 (custom tracking)' },
                   ].map((m, i) => (
                     <div key={i} className="flex items-center gap-1.5 bg-gray-50 rounded px-2 py-1">
                       <code className="text-violet-700 font-mono text-[11px]">{m.macro}</code>

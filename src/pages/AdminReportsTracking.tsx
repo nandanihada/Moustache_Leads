@@ -17,6 +17,7 @@ import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { adminReportsApi, AdminPerformanceRow, AdminConversion, AdminClick, AdminPerformanceFilters, ChartDataPoint, FilterOptions } from '@/services/adminReportsApi';
 import { EventFunnel } from '@/components/reports/EventFunnel';
 import { AffiliateComparison } from '@/components/reports/AffiliateComparison';
+import { AffiliateIntelligence } from '@/components/reports/AffiliateIntelligence';
 import { GeoAnalytics } from '@/components/reports/GeoAnalytics';
 import { AdminActionsLog } from '@/components/reports/AdminActionsLog';
 import { actionsApi } from '@/services/trafficIntelligenceApi';
@@ -727,7 +728,7 @@ function ClickTrackingTab() {
 }
 
 function AdminReportsTrackingContent() {
-  const [activeTab, setActiveTab] = useState<'performance' | 'conversion' | 'clicks' | 'funnel' | 'affiliates' | 'geo' | 'actions'>('performance');
+  const [activeTab, setActiveTab] = useState<'performance' | 'conversion' | 'clicks' | 'funnel' | 'affiliates' | 'geo' | 'actions' | 'intelligence'>('performance');
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -741,8 +742,9 @@ function AdminReportsTrackingContent() {
         <button onClick={() => setActiveTab('affiliates')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'affiliates' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Shield className="h-4 w-4" />Affiliates</button>
         <button onClick={() => setActiveTab('geo')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'geo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="h-4 w-4" />Geo</button>
         <button onClick={() => setActiveTab('actions')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'actions' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Eye className="h-4 w-4" />Admin Actions</button>
+        <button onClick={() => setActiveTab('intelligence')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'intelligence' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Shield className="h-4 w-4" />Intelligence</button>
       </div>
-      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : activeTab === 'funnel' ? <EventFunnel /> : activeTab === 'affiliates' ? <AffiliateComparison /> : activeTab === 'geo' ? <GeoAnalytics /> : activeTab === 'actions' ? <AdminActionsLog /> : <ClickTrackingTab />}
+      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : activeTab === 'funnel' ? <EventFunnel /> : activeTab === 'affiliates' ? <AffiliateComparison /> : activeTab === 'geo' ? <GeoAnalytics /> : activeTab === 'actions' ? <AdminActionsLog /> : activeTab === 'intelligence' ? <AffiliateIntelligence /> : <ClickTrackingTab />}
     </div>
   );
 }
