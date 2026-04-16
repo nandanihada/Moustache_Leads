@@ -127,6 +127,8 @@ def track_offer_click(offer_id):
             return jsonify({'error': 'Offer not available'}), 404
         
         target_url = offer.get('target_url')
+        if target_url:
+            target_url = target_url.strip().replace('\n', '').replace('\r', '')
         if not target_url:
             logger.error(f"❌ No target URL for offer: {offer_id}")
             return jsonify({'error': 'Invalid offer configuration'}), 400
@@ -135,9 +137,25 @@ def track_offer_click(offer_id):
         click_id = generate_click_id()
         
         # 🔄 MACRO REPLACEMENT: Replace {user_id}, {click_id}, etc. in target URL
+        # Look up actual username from user_id (which may be an ObjectId)
+        actual_username = user_id or ''
+        if user_id:
+            try:
+                users_col = db_instance.get_collection('users')
+                if users_col is not None:
+                    from bson import ObjectId as BsonOid
+                    try:
+                        u = users_col.find_one({'_id': BsonOid(user_id)}, {'username': 1})
+                    except:
+                        u = users_col.find_one({'username': user_id}, {'username': 1})
+                    if u and u.get('username'):
+                        actual_username = u['username']
+            except:
+                pass
+
         macro_context = {
             'user_id': user_id or '',
-            'username': user_id or '',  # Use user_id as username fallback
+            'username': actual_username,
             'click_id': click_id,
             'session_id': sub1 or '',  # Use sub1 as session_id
             'placement_id': sub1 or '',  # Use sub1 as placement_id
@@ -337,15 +355,11 @@ def track_offer_click(offer_id):
         
         logger.info(f"↗️  Redirecting to: {redirect_url}")
         
-        # Use tracking wrapper page to record time spent
-        # Use request host for beacon URL so it works in both local dev and production
-        beacon_url = request.host_url.rstrip('/') + '/track/beacon'
-        return render_template_string(
-            TRACKING_REDIRECT_TEMPLATE,
-            click_id=click_id,
-            target_url=redirect_url,
-            beacon_url=beacon_url
-        )
+        # Strip any whitespace/newlines from URL (can come from DB copy-paste)
+        redirect_url = redirect_url.strip().replace('\n', '').replace('\r', '')
+        
+        # Direct 302 redirect — simple and reliable
+        return redirect(redirect_url, code=302)
             
     except Exception as e:
         logger.error(f"❌ Error in track_offer_click: {str(e)}", exc_info=True)
