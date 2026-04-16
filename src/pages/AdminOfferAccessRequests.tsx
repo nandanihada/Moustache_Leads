@@ -93,6 +93,7 @@ export interface Inv {
   match_strength: string;
   keywords?: string;
   request_status?: string;
+  health?: { status: string; failures: { criterion: string; detail?: string }[] };
 }
 
 // ─── Exported Helpers ────────────────────────────────────────────────────────

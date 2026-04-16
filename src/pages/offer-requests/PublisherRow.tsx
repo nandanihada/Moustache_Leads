@@ -314,7 +314,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                           <div key={inv.offer_id} className={`rounded-lg border px-3 py-2 text-xs space-y-1.5 ${selectedRelated.has(inv.offer_id) ? 'border-blue-300 bg-blue-50/50' : 'border-gray-200 bg-gray-50 dark:bg-gray-900/30'}`}>
                             <div className="flex items-center gap-2">
                               <input type="checkbox" className="rounded border-gray-300 w-3.5 h-3.5 cursor-pointer shrink-0" checked={selectedRelated.has(inv.offer_id)} onChange={() => setSelectedRelated(prev => { const n = new Set(prev); n.has(inv.offer_id) ? n.delete(inv.offer_id) : n.add(inv.offer_id); return n; })} />
-                              <div className="flex-1 min-w-0"><p className="font-medium text-foreground/80 truncate">{inv.name}</p><p className="text-[10px] text-muted-foreground">{inv.network} · ${inv.payout.toFixed(2)} · {inv.match_strength}</p></div>
+                              <div className="flex-1 min-w-0"><div className="flex items-center gap-1.5"><p className="font-medium text-foreground/80 truncate">{inv.name}</p>{inv.health?.status === 'unhealthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-red-50 text-red-600 border-red-200 shrink-0"><AlertCircle className="w-2.5 h-2.5 mr-0.5" />{inv.health.failures.length} issues</Badge>}{inv.health?.status === 'healthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-emerald-50 text-emerald-600 border-emerald-200 shrink-0"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}</div><p className="text-[10px] text-muted-foreground">{inv.network} · ${inv.payout.toFixed(2)} · {inv.match_strength}</p></div>
                               {inv.request_status && <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">{inv.request_status}</Badge>}
                             </div>
                             <div className="flex items-center gap-1 flex-wrap">
@@ -325,6 +325,15 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                               <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => handleEditOffer(inv.offer_id)} disabled={loadingEdit === inv.offer_id}>{loadingEdit === inv.offer_id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Edit className="w-2.5 h-2.5" />}Edit</Button>
                               <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => onSendOffers(pub, [inv])}><Send className="w-2.5 h-2.5" />Suggest ↗</Button>
                             </div>
+                            {inv.health?.failures && inv.health.failures.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {inv.health.failures.map(f => (
+                                  <span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5">
+                                    <span className="w-1 h-1 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}{f.detail ? `: ${f.detail}` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

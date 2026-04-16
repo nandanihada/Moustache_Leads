@@ -113,6 +113,7 @@ const adminMenuStructure = [
       { title: "Partners", url: "/admin/partners", icon: Handshake, tab: "partners" },
       { title: "Postback", url: "/admin/postback", icon: Inbox, tab: "postback" },
       { title: "Test Postback", url: "/admin/test-postback", icon: Zap, tab: "test-postback" },
+      { title: "Postback Pipeline", url: "/admin/postback-pipeline", icon: Zap, tab: "postback" },
     ]
   },
   {

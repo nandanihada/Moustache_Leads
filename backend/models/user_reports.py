@@ -649,12 +649,13 @@ class UserReports:
             
             # Build query - Filter by publisher_id unless admin
             # Only show REAL conversions — exclude flagged fakes
+            # Include success, failed, and no_url (user has no postback URL but conversion is real)
             query = {
                 'timestamp': {  # forwarded_postbacks uses 'timestamp'
                     '$gte': start_date,
                     '$lte': end_date
                 },
-                'forward_status': 'success',  # Only successful forwards
+                'forward_status': {'$in': ['success', 'failed', 'no_url']},  # All real conversions
                 'source': {'$nin': ['fallback_fake']}  # Exclude flagged fakes
             }
             

@@ -8,12 +8,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Download, RefreshCw, Search, Eye, FileText, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, BarChart3, Globe, Wifi, Shield, ChevronDown, ChevronRight, MousePointerClick, ChevronsUpDown, Check } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { DatePresets } from '@/components/reports/DatePresets';
 import { ColumnSelector, ColumnDefinition } from '@/components/reports/ColumnSelector';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { adminReportsApi, AdminPerformanceRow, AdminConversion, AdminClick, AdminPerformanceFilters, ChartDataPoint, FilterOptions } from '@/services/adminReportsApi';
+import { EventFunnel } from '@/components/reports/EventFunnel';
+import { AffiliateComparison } from '@/components/reports/AffiliateComparison';
+import { GeoAnalytics } from '@/components/reports/GeoAnalytics';
+import { AdminActionsLog } from '@/components/reports/AdminActionsLog';
+import { actionsApi } from '@/services/trafficIntelligenceApi';
 
 const PERF_COLUMNS: ColumnDefinition[] = [
   { id: 'date', label: 'Date', defaultVisible: true, alwaysVisible: true },
@@ -106,20 +112,28 @@ const CLICK_COLUMNS: ColumnDefinition[] = [
   { id: 'device_type', label: 'Device', defaultVisible: true },
   { id: 'browser', label: 'Browser', defaultVisible: true },
   { id: 'os', label: 'OS', defaultVisible: false },
-  { id: 'ip_address', label: 'IP Address', defaultVisible: false },
+  { id: 'ip_address', label: 'End User IP', defaultVisible: true },
   { id: 'referer', label: 'Referrer', defaultVisible: false },
   { id: 'postback_url', label: 'Postback Link', defaultVisible: false },
   { id: 'target_url', label: 'Target URL', defaultVisible: false },
   { id: 'converted', label: 'Converted', defaultVisible: false },
   { id: 'user_agent', label: 'User Agent', defaultVisible: false },
-  { id: 'sub_id1', label: 'Sub ID 1', defaultVisible: false },
-  { id: 'sub_id2', label: 'Sub ID 2', defaultVisible: false },
+  { id: 'sub_id1', label: 'Placement / Source', defaultVisible: true },
+  { id: 'sub_id2', label: 'End User / Sub2', defaultVisible: false },
   { id: 'sub_id3', label: 'Sub ID 3', defaultVisible: false },
   { id: 'sub_id4', label: 'Sub ID 4', defaultVisible: false },
   { id: 'sub_id5', label: 'Sub ID 5', defaultVisible: false },
   { id: 'when_clicked', label: 'When Clicked', defaultVisible: false },
   { id: 'time_spent', label: 'Time Spent', defaultVisible: false },
   { id: 'when_closed', label: 'When Closed', defaultVisible: false },
+  // Phase 1.3: Postback mapping columns
+  { id: 'postback_status', label: 'Postback Status', defaultVisible: true },
+  { id: 'event_type', label: 'Event Type', defaultVisible: false },
+  { id: 'event_revenue', label: 'Event Revenue', defaultVisible: false },
+  { id: 'event_status', label: 'Event Status', defaultVisible: false },
+  { id: 'fraud_score', label: 'Fraud Score', defaultVisible: false },
+  { id: 'fraud_class', label: 'Fraud Class', defaultVisible: false },
+  { id: 'actions', label: 'Actions', defaultVisible: true, alwaysVisible: true },
 ];
 
 function SortableHeader({ label, field, sortField, sortOrder, onSort }: { label: string; field: string; sortField: string; sortOrder: 'asc' | 'desc'; onSort: (f: string) => void }) {
@@ -529,11 +543,20 @@ function ClickTrackingTab() {
   const [sortField, setSortField] = useState('time');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
-    const saved = localStorage.getItem('admin_click_cols_v2');
-    if (saved) try { return JSON.parse(saved); } catch { /* */ }
+    const saved = localStorage.getItem('admin_click_cols_v3');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        // Always ensure alwaysVisible columns are visible
+        CLICK_COLUMNS.forEach(col => { if (col.alwaysVisible) parsed[col.id] = true; });
+        // Ensure new columns that don't exist in saved state get their defaults
+        CLICK_COLUMNS.forEach(col => { if (!(col.id in parsed)) parsed[col.id] = col.defaultVisible; });
+        return parsed;
+      } catch { /* */ }
+    }
     return CLICK_COLUMNS.reduce((acc, col) => { acc[col.id] = col.defaultVisible; return acc; }, {} as Record<string, boolean>);
   });
-  useEffect(() => { localStorage.setItem('admin_click_cols_v2', JSON.stringify(visibleColumns)); }, [visibleColumns]);
+  useEffect(() => { localStorage.setItem('admin_click_cols_v3', JSON.stringify(visibleColumns)); }, [visibleColumns]);
   useEffect(() => { adminReportsApi.getFilterOptions().then(res => { if (res.success) setFilterOptions(res as any); }).catch(() => {}); }, []);
   const fetchData = useCallback(async (page = 1) => {
     setLoading(true);
@@ -602,6 +625,56 @@ function ClickTrackingTab() {
         return <span className="text-xs font-medium">{ts}</span>;
       }
       case 'when_closed': return click.when_closed || <span className="text-muted-foreground text-xs">—</span>;
+      // Phase 1.3: Postback mapping columns
+      case 'postback_status': {
+        const received = (click as any).postback_received;
+        if (received) return <Badge className="bg-green-100 text-green-800 text-xs">✅ Received</Badge>;
+        if (click.converted) return <Badge className="bg-yellow-100 text-yellow-800 text-xs">⏳ Converted</Badge>;
+        return <Badge variant="outline" className="text-xs text-muted-foreground">❌ No Postback</Badge>;
+      }
+      case 'event_type': {
+        const et = (click as any).postback_event_type;
+        if (!et) return <span className="text-muted-foreground text-xs">—</span>;
+        const colors: Record<string, string> = { install: 'bg-blue-100 text-blue-800', signup: 'bg-purple-100 text-purple-800', ftd: 'bg-emerald-100 text-emerald-800', purchase: 'bg-green-100 text-green-800' };
+        return <Badge className={`${colors[et] || 'bg-gray-100 text-gray-800'} text-xs`}>{et}</Badge>;
+      }
+      case 'event_revenue': {
+        const rev = (click as any).postback_revenue;
+        return rev ? <span className="text-xs font-medium text-green-600">${Number(rev).toFixed(2)}</span> : <span className="text-muted-foreground text-xs">—</span>;
+      }
+      case 'event_status': {
+        const es = (click as any).event_status;
+        if (es === 'full_conversion') return <Badge className="bg-green-100 text-green-800 text-xs">Full</Badge>;
+        if (es === 'partial_event') return <Badge className="bg-yellow-100 text-yellow-800 text-xs">Partial</Badge>;
+        return <span className="text-muted-foreground text-xs">No Event</span>;
+      }
+      case 'fraud_score': {
+        const fs = (click as any).fraud_score || 0;
+        const color = fs >= 70 ? 'text-red-600' : fs >= 30 ? 'text-yellow-600' : 'text-green-600';
+        return <span className={`text-xs font-bold ${color}`}>{fs}</span>;
+      }
+      case 'fraud_class': {
+        const fc = (click as any).fraud_classification || 'genuine';
+        const colors: Record<string, string> = { genuine: 'bg-green-100 text-green-800', suspicious: 'bg-yellow-100 text-yellow-800', fraud: 'bg-red-100 text-red-800' };
+        return <Badge className={`${colors[fc] || 'bg-gray-100 text-gray-800'} text-xs`}>{fc}</Badge>;
+      }
+      case 'actions': return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={e => e.stopPropagation()}>⋯</Button></DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48" onClick={e => e.stopPropagation()}>
+            <DropdownMenuItem onClick={() => { actionsApi.blockUser(click.user_id || '').then(() => toast.success('User blocked')).catch(() => toast.error('Failed to block user')); }}>🚫 Block User</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { actionsApi.pauseOffer(click.offer_id || '').then(() => toast.success('Offer paused')).catch(() => toast.error('Failed to pause offer')); }}>⏸️ Pause Offer</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { const p = prompt('New payout amount:'); if (p) actionsApi.changePayout(click.offer_id || '', parseFloat(p)).then(() => toast.success('Payout changed')).catch(() => toast.error('Failed')); }}>💰 Change Payout (All)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { const p = prompt('New payout for this user:'); if (p) actionsApi.changePayout(click.offer_id || '', parseFloat(p), click.user_id).then(() => toast.success('User payout set')).catch(() => toast.error('Failed')); }}>👤 Change Payout (User)</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { actionsApi.sendWarning(click.user_id || '').then(() => toast.success('Warning sent')).catch(() => toast.error('Failed')); }}>⚠️ Send Warning</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { actionsApi.requestProof(click.user_id || '', click.offer_id).then(() => toast.success('Proof requested')).catch(() => toast.error('Failed')); }}>📸 Request Proof</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { if (click.ip_address) { import('@/services/trafficIntelligenceApi').then(m => m.fraudApi.blockIp(click.ip_address || '')).then(() => toast.success('IP blocked')).catch(() => toast.error('Failed')); } }}>🔒 Block IP</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
       default: return (click as any)[col.id] ?? '-';
     }
   };
@@ -620,18 +693,29 @@ function ClickTrackingTab() {
           {filterOptions && filterOptions.categories && filterOptions.categories.length > 0 && (<div><label className="text-xs font-medium">Category</label><Select value={filters.category || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, category: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Categories</SelectItem>, ...filterOptions.categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.networks && filterOptions.networks.length > 0 && (<div><label className="text-xs font-medium">Network</label><Select value={filters.network || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, network: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Networks</SelectItem>, ...filterOptions.networks.map(n => <SelectItem key={n} value={n}>{n}</SelectItem>)]}</SelectContent></Select></div>)}
           <div><label className="text-xs font-medium">Device</label><Select value={filters.device_type || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, device_type: v === 'all' ? undefined : v }))}><SelectTrigger className="w-32"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="desktop">Desktop</SelectItem><SelectItem value="mobile">Mobile</SelectItem><SelectItem value="tablet">Tablet</SelectItem></SelectContent></Select></div>
+          <div><label className="text-xs font-medium">Postback</label><Select value={filters.postback_status || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, postback_status: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All Clicks</SelectItem><SelectItem value="received">✅ Postback Yes</SelectItem><SelectItem value="no_postback">❌ No Postback</SelectItem></SelectContent></Select></div>
+          <div><label className="text-xs font-medium">Event</label><Select value={filters.event_status || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, event_status: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All Events</SelectItem><SelectItem value="no_event">No Event</SelectItem><SelectItem value="partial_event">Partial (Install/Signup)</SelectItem><SelectItem value="full_conversion">Full (FTD/Purchase)</SelectItem></SelectContent></Select></div>
+          <div><label className="text-xs font-medium">Fraud</label><Select value={filters.fraud_classification || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, fraud_classification: v === 'all' ? undefined : v }))}><SelectTrigger className="w-32"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="genuine">🟢 Genuine</SelectItem><SelectItem value="suspicious">🟡 Suspicious</SelectItem><SelectItem value="fraud">🔴 Fraud</SelectItem></SelectContent></Select></div>
           <div><label className="text-xs font-medium">Per Page</label><Select value={String(perPage)} onValueChange={v => setPerPage(Number(v))}><SelectTrigger className="w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="20">20</SelectItem><SelectItem value="50">50</SelectItem><SelectItem value="100">100</SelectItem><SelectItem value="200">200</SelectItem></SelectContent></Select></div>
           <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-8 w-56" /></div>
           <ColumnSelector columns={CLICK_COLUMNS} visibleColumns={visibleColumns} onColumnChange={(id, v) => setVisibleColumns(prev => ({ ...prev, [id]: v }))} onSelectAll={() => setVisibleColumns(CLICK_COLUMNS.reduce((a, c) => ({ ...a, [c.id]: true }), {}))} onClearAll={() => setVisibleColumns(CLICK_COLUMNS.reduce((a, c) => ({ ...a, [c.id]: c.alwaysVisible || false }), {}))} />
           <Button size="sm" onClick={() => fetchData()}><RefreshCw className="h-4 w-4 mr-1" />Refresh</Button>
         </div>
       </Card>
+      {/* Color Legend */}
+      <div className="flex items-center gap-4 px-1 text-xs">
+        <span className="text-muted-foreground font-medium">Row Colors:</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-white dark:bg-zinc-900 border" />Genuine (0-29)</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-yellow-100 dark:bg-yellow-950/40 border border-yellow-200" />Suspicious (30-69)</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-100 dark:bg-red-950/40 border border-red-200" />Fraud (70+)</span>
+        <span className="text-muted-foreground ml-2">| Use the Fraud filter above to isolate each type</span>
+      </div>
       <Card>
         <div className="overflow-x-auto">
           {loading ? <div className="text-center py-12 text-muted-foreground">Loading...</div> : filteredClicks.length === 0 ? <div className="text-center py-12 text-muted-foreground">No clicks found.</div> : (
             <Table>
               <TableHeader><TableRow>{CLICK_COLUMNS.filter(c => visibleColumns[c.id]).map(col => <SortableHeader key={col.id} label={col.label} field={col.id} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />)}</TableRow></TableHeader>
-              <TableBody>{filteredClicks.map((click, i) => (<TableRow key={click._id || i} className="cursor-pointer hover:bg-muted/50" onClick={() => { setSelectedClick(click); setShowDetail(true); }}>{CLICK_COLUMNS.filter(c => visibleColumns[c.id]).map(col => <TableCell key={col.id}>{renderCell(col, click)}</TableCell>)}</TableRow>))}</TableBody>
+              <TableBody>{filteredClicks.map((click, i) => { const fc = (click as any).fraud_classification || 'genuine'; const rowColor = fc === 'fraud' ? 'bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/30' : fc === 'suspicious' ? 'bg-yellow-50 dark:bg-yellow-950/20 hover:bg-yellow-100 dark:hover:bg-yellow-950/30' : 'hover:bg-muted/50'; return (<TableRow key={click._id || i} className={`cursor-pointer ${rowColor}`} onClick={() => { setSelectedClick(click); setShowDetail(true); }}>{CLICK_COLUMNS.filter(c => visibleColumns[c.id]).map(col => <TableCell key={col.id}>{renderCell(col, click)}</TableCell>)}</TableRow>); })}</TableBody>
             </Table>
           )}
         </div>
@@ -643,18 +727,22 @@ function ClickTrackingTab() {
 }
 
 function AdminReportsTrackingContent() {
-  const [activeTab, setActiveTab] = useState<'performance' | 'conversion' | 'clicks'>('performance');
+  const [activeTab, setActiveTab] = useState<'performance' | 'conversion' | 'clicks' | 'funnel' | 'affiliates' | 'geo' | 'actions'>('performance');
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div><h1 className="text-3xl font-bold tracking-tight">Reports</h1><p className="text-muted-foreground">Performance, conversion, and click tracking reports across all publishers</p></div>
+        <div><h1 className="text-3xl font-bold tracking-tight">Reports</h1><p className="text-muted-foreground">Traffic intelligence — performance, clicks, funnel, affiliates, and geo analytics</p></div>
       </div>
-      <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit">
-        <button onClick={() => setActiveTab('performance')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'performance' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><TrendingUp className="h-4 w-4" />Performance Report</button>
-        <button onClick={() => setActiveTab('conversion')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'conversion' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><FileText className="h-4 w-4" />Conversion Report</button>
+      <div className="flex gap-1 bg-muted p-1 rounded-lg w-fit flex-wrap">
+        <button onClick={() => setActiveTab('performance')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'performance' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><TrendingUp className="h-4 w-4" />Performance</button>
+        <button onClick={() => setActiveTab('conversion')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'conversion' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><FileText className="h-4 w-4" />Conversions</button>
         <button onClick={() => setActiveTab('clicks')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'clicks' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><MousePointerClick className="h-4 w-4" />Click Tracking</button>
+        <button onClick={() => setActiveTab('funnel')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'funnel' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><BarChart3 className="h-4 w-4" />Event Funnel</button>
+        <button onClick={() => setActiveTab('affiliates')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'affiliates' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Shield className="h-4 w-4" />Affiliates</button>
+        <button onClick={() => setActiveTab('geo')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'geo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="h-4 w-4" />Geo</button>
+        <button onClick={() => setActiveTab('actions')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'actions' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Eye className="h-4 w-4" />Admin Actions</button>
       </div>
-      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : <ClickTrackingTab />}
+      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : activeTab === 'funnel' ? <EventFunnel /> : activeTab === 'affiliates' ? <AffiliateComparison /> : activeTab === 'geo' ? <GeoAnalytics /> : activeTab === 'actions' ? <AdminActionsLog /> : <ClickTrackingTab />}
     </div>
   );
 }

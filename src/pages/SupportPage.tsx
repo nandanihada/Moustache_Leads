@@ -288,8 +288,8 @@ const SupportPage: React.FC = () => {
               {/* Chat thread */}
               <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
                 <div className="space-y-4 max-w-2xl mx-auto">
-                  {/* User's original message (skip for broadcasts) */}
-                  {!selected.is_broadcast && (
+                  {/* User's original message (skip for broadcasts and empty admin-initiated messages) */}
+                  {!selected.is_broadcast && (selected.body || selected.image_url) && (
                     <div className="flex gap-3 justify-end">
                       <div className="max-w-[80%]">
                         <div className="flex items-center gap-1.5 justify-end mb-1">
@@ -303,7 +303,7 @@ const SupportPage: React.FC = () => {
                           </p>
                         </div>
                         <div className="bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5">
-                          <p className="text-sm whitespace-pre-wrap">{selected.body}</p>
+                          {selected.body && <p className="text-sm whitespace-pre-wrap">{selected.body}</p>}
                           {selected.image_url && (
                             <a href={`${getApiBaseUrl()}${selected.image_url}`} target="_blank" rel="noopener noreferrer">
                               <img src={`${getApiBaseUrl()}${selected.image_url}`} alt="Attachment" className="mt-2 max-w-[240px] rounded-lg border border-white/20" />

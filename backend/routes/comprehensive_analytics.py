@@ -1747,7 +1747,11 @@ def affiliate_comparison():
                 try: match['timestamp']['$gte'] = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
                 except: pass
             if end_str:
-                try: match['timestamp']['$lte'] = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                try:
+                    end_dt = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                    if len(end_str) == 10:  # date-only, include full day
+                        end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+                    match['timestamp']['$lte'] = end_dt
                 except: pass
             if not match['timestamp']:
                 del match['timestamp']

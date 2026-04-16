@@ -24,26 +24,33 @@ def process_single_postback(postback):
         postbacks_collection = db_instance.get_collection('received_postbacks')
         
         post_data = postback.get('post_data', {})
+        query_params = postback.get('query_params', {})
+        
+        # Merge: query_params first, post_data overrides (upward partners may send in either)
+        merged_data = {}
+        merged_data.update(query_params)
+        merged_data.update(post_data)
         
         # Extract data
-        transaction_id = post_data.get('transaction_id')
-        payout = float(post_data.get('payout', 0))
-        status = 'approved' if post_data.get('status') == 'pass' else 'pending'
-        survey_id = post_data.get('survey_id')
-        session_id = post_data.get('session_id')
+        transaction_id = merged_data.get('transaction_id')
+        payout = float(merged_data.get('payout', 0))
+        status = 'approved' if merged_data.get('status') == 'pass' else 'pending'
+        survey_id = merged_data.get('survey_id')
+        session_id = merged_data.get('session_id')
         
-        # Check if already processed
-        existing = conversions_collection.find_one({'transaction_id': transaction_id})
-        if existing:
-            logger.info(f"Conversion already exists for {transaction_id}")
-            postbacks_collection.update_one(
-                {'_id': postback['_id']},
-                {'$set': {'status': 'processed', 'conversion_id': existing['conversion_id']}}
-            )
-            return True, existing['conversion_id']
+        # Check if already processed — only if transaction_id is not empty
+        if transaction_id:
+            existing = conversions_collection.find_one({'transaction_id': transaction_id})
+            if existing:
+                logger.info(f"Conversion already exists for {transaction_id}")
+                postbacks_collection.update_one(
+                    {'_id': postback['_id']},
+                    {'$set': {'status': 'processed', 'conversion_id': existing['conversion_id']}}
+                )
+                return True, existing['conversion_id']
         
         # Try to find matching click by click_id ONLY — no fallback
-        click_id_from_pb = post_data.get('click_id') or post_data.get('aff_sub')
+        click_id_from_pb = merged_data.get('click_id') or merged_data.get('aff_sub')
         click = None
         
         if click_id_from_pb:
@@ -74,7 +81,7 @@ def process_single_postback(postback):
             'affiliate_id': click.get('affiliate_id'),
             'status': status,
             'payout': payout,
-            'currency': post_data.get('currency', 'USD'),
+            'currency': merged_data.get('currency', 'USD'),
             'country': click.get('country') or postback.get('country') or 'Unknown',
             'country_code': click.get('country_code') or postback.get('country_code', ''),
             'city': click.get('city') or postback.get('city', ''),
@@ -89,14 +96,14 @@ def process_single_postback(postback):
             # Survey data
             'survey_id': survey_id,
             'session_id': session_id,
-            'survey_responses': post_data.get('responses', {}),
-            'responses_count': post_data.get('responses_count'),
-            'completion_time': post_data.get('completion_time'),
-            'username': post_data.get('username'),
+            'survey_responses': merged_data.get('responses', {}),
+            'responses_count': merged_data.get('responses_count'),
+            'completion_time': merged_data.get('completion_time'),
+            'username': merged_data.get('username'),
             
             # All postback data
-            'raw_postback': post_data,
-            'custom_data': post_data,
+            'raw_postback': merged_data,
+            'custom_data': merged_data,
             'postback_id': str(postback['_id']),
             'partner_id': postback.get('partner_id'),
             'partner_name': postback.get('partner_name'),
@@ -119,7 +126,7 @@ def process_single_postback(postback):
         # Mark click as converted
         clicks_collection.update_one(
             {'click_id': click['click_id']},
-            {'$set': {'converted': True}}
+            {'$set': {'converted': True, 'postback_received': True, 'postback_revenue': payout}}
         )
         
         # === PHASE 1.2: Record funnel event + update click postback fields ===
@@ -128,9 +135,9 @@ def process_single_postback(postback):
             
             # Try to determine event type from postback data
             raw_event_type = (
-                post_data.get('event_type') or post_data.get('goal') or
-                post_data.get('event') or post_data.get('action') or
-                post_data.get('conversion_type') or ''
+                merged_data.get('event_type') or merged_data.get('goal') or
+                merged_data.get('event') or merged_data.get('action') or
+                merged_data.get('conversion_type') or ''
             )
             
             record_funnel_event(

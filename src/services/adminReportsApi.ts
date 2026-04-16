@@ -68,6 +68,14 @@ export interface AdminClick {
   time_spent?: string;
   when_closed?: string;
   time_spent_seconds?: number;
+  // Phase 1.1/1.3: Enhanced tracking fields
+  campaign_id?: string;
+  fraud_score?: number;
+  fraud_classification?: string;
+  event_status?: string;
+  postback_received?: boolean;
+  postback_event_type?: string;
+  postback_revenue?: number;
 }
 
 export interface AdminPerformanceRow {

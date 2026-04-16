@@ -389,15 +389,15 @@ def receive_postback(unique_key):
         else:
             logger.info("🚨 FORWARDING POSTBACK TO SPECIFIC USER — verified conversion exists 🚨")
             try:
-                # Re-read POST body data (upward partners send actual values here)
+                # Re-read POST body data
                 fwd_post_data = {}
                 try:
                     if request.is_json:
                         fwd_post_data = request.get_json() or {}
                     elif request.form:
                         fwd_post_data = request.form.to_dict()
-                except Exception as json_error:
-                    logger.warning(f"⚠️ Could not parse POST body: {json_error}")
+                except Exception:
+                    pass
 
                 def get_param_value(key):
                     if key in fwd_post_data:
@@ -411,298 +411,204 @@ def receive_postback(unique_key):
 
                 click_id = get_param_value('click_id')
                 offer_id = get_param_value('offer_id') or get_param_value('survey_id')
+                upward_payout = get_param_value('payout') or get_param_value('amount') or 0
 
-                logger.info(f"📋 Postback parameters: click_id={click_id}, offer_id={offer_id}")
-
+                # Find the click (already matched by processor, find it again for context)
                 click = None
-                matched_offer_id = None
-                matched_payout = 0
+                clicks_collection = get_collection('clicks')
+                if click_id and clicks_collection is not None:
+                    click = clicks_collection.find_one({'click_id': click_id})
 
-                # Try to find click by click_id first
-                if click_id:
-                    clicks_collection = get_collection('clicks')
-                    if clicks_collection is not None:
-                        click = clicks_collection.find_one({'click_id': click_id})
-                        if click:
-                            logger.info(f"✅ Found click by click_id")
+                # Get user/placement info from click
+                placement_id = click.get('placement_id', '') if click else ''
+                user_id_from_click = (click.get('user_id') or click.get('username') or '') if click else ''
+                actual_username = get_username_from_user_id(user_id_from_click) if user_id_from_click else get_param_value('username') or 'Unknown'
 
-                # Fallback: survey_id from postback matches campaign_id in offers
-                if not click:
-                    logger.warning("⚠️ No click_id match — Using survey_id to find offer via campaign_id")
-                    survey_id = offer_id
-                    offers_collection = get_collection('offers')
-                    if offers_collection is not None:
-                        offer_record = offers_collection.find_one({'campaign_id': survey_id})
-                        if offer_record:
-                            internal_offer_id = offer_record.get('offer_id')
-                            payout = offer_record.get('payout', 0)
-                            matched_offer_id = internal_offer_id
-                            matched_payout = payout
-                            logger.info(f"✅ Found offer: campaign_id={survey_id} → offer_id={internal_offer_id} (payout: {payout})")
+                # Get placement and owner info
+                placement_title = 'Unknown'
+                owner_username = actual_username
+                owner_postback_url = None
+                publisher_id = ''
+                owner_user = None
 
-                            one_hour_ago = datetime.utcnow() - timedelta(hours=1)
-                            clicks_collection = get_collection('clicks')
-                            if clicks_collection is not None:
-                                click = clicks_collection.find_one(
-                                    {'offer_id': internal_offer_id, 'timestamp': {'$gte': one_hour_ago}},
-                                    sort=[('timestamp', -1)]
-                                )
-                                if click:
-                                    logger.info(f"✅ Found click in 'clicks' collection")
-                                else:
-                                    offerwall_clicks = get_collection('offerwall_clicks_detailed')
-                                    if offerwall_clicks is not None:
-                                        click = offerwall_clicks.find_one(
-                                            {'offer_id': internal_offer_id, 'timestamp': {'$gte': one_hour_ago}},
-                                            sort=[('timestamp', -1)]
-                                        )
-                                        if click:
-                                            logger.info(f"✅ Found click in 'offerwall_clicks_detailed'")
+                if placement_id and placement_id != 'default':
+                    placements_collection = get_collection('placements')
+                    if placements_collection is not None:
+                        try:
+                            placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
+                        except:
+                            placement = placements_collection.find_one({'_id': placement_id})
+                        if placement:
+                            placement_title = placement.get('offerwallTitle', 'Unknown')
+                            placement_owner = placement.get('created_by') or placement.get('user_id')
+                            users_collection = get_collection('users')
+                            if users_collection is not None and placement_owner:
+                                try:
+                                    owner_user = users_collection.find_one({'_id': ObjectId(placement_owner)})
+                                except:
+                                    owner_user = users_collection.find_one({'username': placement_owner})
+                                if owner_user:
+                                    owner_username = owner_user.get('username', actual_username)
+                                    owner_postback_url = owner_user.get('postback_url')
+                                    publisher_id = str(owner_user.get('_id', ''))
 
-                            if not click:
-                                logger.error(f"❌ No click found for offer_id: {internal_offer_id}")
-                        else:
-                            logger.error(f"❌ No offer found with campaign_id: {survey_id}")
+                # Fallback: if placement lookup didn't find the user, look up directly from click's user_id
+                if owner_user is None and user_id_from_click:
+                    users_collection = get_collection('users')
+                    if users_collection is not None:
+                        try:
+                            owner_user = users_collection.find_one({'_id': ObjectId(user_id_from_click)})
+                        except:
+                            owner_user = users_collection.find_one({'username': user_id_from_click})
+                        if owner_user:
+                            owner_username = owner_user.get('username', actual_username)
+                            owner_postback_url = owner_user.get('postback_url')
+                            publisher_id = str(owner_user.get('_id', ''))
+                            logger.info(f"✅ Found user directly from click user_id: {owner_username}")
 
-                if not click:
-                    logger.warning("⚠️ No click found — cannot forward postback")
+                # Calculate points
+                matched_offer_id = click.get('offer_id') if click else offer_id
+                offers_col = get_collection('offers')
+                offer_for_calc = offers_col.find_one({'offer_id': matched_offer_id}) if offers_col is not None and matched_offer_id else None
+
+                if offer_for_calc and upward_payout:
+                    revenue_calc = calculate_downward_payout(upward_payout, offer_for_calc)
+                    total_points = revenue_calc['downward_payout']
+                elif offer_for_calc:
+                    total_points = float(offer_for_calc.get('payout', 0))
                 else:
-                    placement_id = click.get('placement_id') or click.get('sub_id1')
-                    user_id_from_click = click.get('user_id') or click.get('username') or click.get('sub2')
-                    logger.info(f"✅ Processing click — placement_id: {placement_id}, user: {user_id_from_click}")
+                    total_points = float(upward_payout) if upward_payout else 0
 
-                    if not placement_id:
-                        logger.warning("⚠️ No placement_id in click record")
-                    else:
-                        placements_collection = get_collection('placements')
-                        if placements_collection is not None:
-                            try:
-                                placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
-                            except:
-                                placement = placements_collection.find_one({'_id': placement_id})
+                # Check user promo bonus
+                if user_id_from_click and matched_offer_id:
+                    try:
+                        user_bonus = calculate_offer_points_with_bonus(matched_offer_id, user_id_from_click)
+                        if user_bonus.get('has_bonus') and user_bonus.get('bonus_points', 0) > 0:
+                            total_points += user_bonus['bonus_points']
+                    except:
+                        pass
 
-                            if not placement:
-                                logger.warning(f"⚠️ Placement not found: {placement_id}")
-                            else:
-                                placement_owner = placement.get('created_by') or placement.get('user_id')
-                                placement_title = placement.get('offerwallTitle', 'Unknown')
+                logger.info(f"💰 Conversion: user={actual_username}, offer={offer_id}, points={total_points}")
 
-                                users_collection = get_collection('users')
-                                if users_collection is not None:
-                                    owner_user = None
-                                    try:
-                                        owner_user = users_collection.find_one({'_id': ObjectId(placement_owner)})
-                                    except:
-                                        owner_user = users_collection.find_one({'username': placement_owner})
+                # === ALWAYS CREATE FORWARDED_POSTBACKS RECORD (for conversion report) ===
+                forwarded_postbacks_col = get_collection('forwarded_postbacks')
+                forward_status = 'pending'
+                forward_url = ''
+                response_code = 0
 
-                                    if not owner_user:
-                                        logger.warning(f"⚠️ Owner user not found: {placement_owner}")
-                                    else:
-                                        owner_username = owner_user.get('username')
-                                        owner_postback_url = owner_user.get('postback_url')
+                # Try to forward if user has a postback URL
+                if owner_postback_url:
+                    macros = {
+                        '{click_id}': click_id or '', '{status}': 'approved',
+                        '{payout}': str(total_points), '{points}': str(total_points),
+                        '{offer_id}': offer_id or '', '{conversion_id}': conversion_id_result or '',
+                        '{transaction_id}': get_param_value('transaction_id') or '',
+                        '{user_id}': user_id_from_click or '', '{affiliate_id}': user_id_from_click or '',
+                        '{username}': actual_username or '',
+                    }
+                    forward_url = owner_postback_url
+                    for macro, value in macros.items():
+                        forward_url = forward_url.replace(macro, str(value))
 
-                                        if not owner_postback_url:
-                                            logger.warning(f"⚠️ Owner {owner_username} has no postback_url configured")
-                                        else:
-                                            # Calculate payout
-                                            upward_payout = get_param_value('payout') or get_param_value('amount') or 0
+                    import requests as req_lib
+                    try:
+                        resp = req_lib.get(forward_url, timeout=10)
+                        response_code = resp.status_code
+                        forward_status = 'success' if resp.status_code == 200 else 'failed'
+                        logger.info(f"📤 Forwarded to {owner_username}: status={resp.status_code}")
+                    except Exception as send_err:
+                        forward_status = 'failed'
+                        logger.error(f"❌ Forward failed: {send_err}")
+                else:
+                    forward_status = 'no_url'
+                    logger.info(f"📝 No postback URL for {owner_username} — recording conversion without forwarding")
 
-                                            offer_for_calc = None
-                                            if matched_offer_id:
-                                                offers_col = get_collection('offers')
-                                                if offers_col:
-                                                    offer_for_calc = offers_col.find_one({'offer_id': matched_offer_id})
+                # Create the forwarded_postbacks record (ALWAYS — this is what shows in conversion report)
+                if forwarded_postbacks_col is not None:
+                    # Get offer name for display
+                    offer_name = 'Unknown Offer'
+                    if offer_for_calc:
+                        offer_name = offer_for_calc.get('name', 'Unknown Offer')
+                    elif offers_col is not None and (offer_id or matched_offer_id):
+                        o = offers_col.find_one({'offer_id': offer_id or matched_offer_id})
+                        if o:
+                            offer_name = o.get('name', 'Unknown Offer')
 
-                                            if offer_for_calc:
-                                                revenue_calc = calculate_downward_payout(upward_payout, offer_for_calc)
-                                                final_payout = revenue_calc['downward_payout']
-                                                logger.info(f"💰 Revenue share: {upward_payout} → {final_payout} ({revenue_calc['calculation_method']})")
+                    # Get end-user info from postback params (person who completed the offer)
+                    end_user_username = get_param_value('username') or actual_username
+                    end_user_id = get_param_value('user_id') or user_id_from_click
 
-                                                try:
-                                                    from services.payout_calculation_logger import payout_logger
-                                                    payout_logger.log_calculation({
-                                                        'offer_id': matched_offer_id,
-                                                        'upward_payout': upward_payout,
-                                                        'revenue_share_percent': revenue_calc['revenue_share_percent'],
-                                                        'downward_payout': final_payout,
-                                                        'is_percentage': revenue_calc['is_percentage'],
-                                                        'calculation_method': revenue_calc['calculation_method'],
-                                                        'click_id': click_id,
-                                                        'user_id': user_id_from_click,
-                                                        'publisher_id': str(owner_user.get('_id')),
-                                                        'rounding_applied': True,
-                                                        'metadata': {'placement_id': placement_id, 'placement_title': placement_title}
-                                                    })
-                                                except Exception as log_error:
-                                                    logger.warning(f"⚠️ Could not log payout calculation: {log_error}")
+                    fwd_record = {
+                        'timestamp': datetime.utcnow(),
+                        'original_postback_id': result.inserted_id,
+                        'received_postback_id': str(result.inserted_id),
+                        'publisher_id': publisher_id,
+                        'publisher_name': owner_username,
+                        'username': end_user_username,
+                        'end_user_id': end_user_id,
+                        'points': total_points,
+                        'forward_url': forward_url,
+                        'forward_status': forward_status,
+                        'response_code': response_code,
+                        'original_params': params,
+                        'placement_id': placement_id,
+                        'placement_title': placement_title,
+                        'offer_id': offer_id or matched_offer_id or 'unknown',
+                        'offer_name': offer_name,
+                        'click_id': click_id or 'unknown',
+                        'source': 'verified_postback',
+                        'conversion_id': conversion_id_result,
+                        'transaction_id': get_param_value('transaction_id') or '',
+                        'country': click.get('country', '') if click else '',
+                        'device_type': click.get('device_type', '') if click else '',
+                        'ip_address': click.get('ip_address', '') if click else '',
+                    }
+                    forwarded_postbacks_col.insert_one(fwd_record)
+                    logger.info(f"📝 Created forwarded_postbacks record (status={forward_status})")
 
-                                                points_calc = {
-                                                    'base_points': final_payout,
-                                                    'has_bonus': False, 'bonus_percentage': 0,
-                                                    'bonus_points': 0, 'promo_code': None,
-                                                    'total_points': final_payout,
-                                                    'is_percentage': revenue_calc['is_percentage'],
-                                                    'revenue_share_percent': revenue_calc['revenue_share_percent']
-                                                }
+                # Award points regardless of forward status (publisher earned the conversion)
+                if total_points > 0 and actual_username != 'Unknown':
+                    try:
+                        users_col = get_collection('users')
+                        if users_col is not None:
+                            # Ensure total_points field exists (initialize if None)
+                            users_col.update_one(
+                                {'username': actual_username, 'total_points': None},
+                                {'$set': {'total_points': 0}}
+                            )
+                            users_col.update_one(
+                                {'username': actual_username},
+                                {'$inc': {'total_points': total_points}, '$set': {'updated_at': datetime.utcnow()}},
+                                upsert=False
+                            )
+                            logger.info(f"💰 Updated points: {actual_username} +{total_points}")
 
-                                                if user_id_from_click:
-                                                    try:
-                                                        user_bonus = calculate_offer_points_with_bonus(matched_offer_id, user_id_from_click)
-                                                        if user_bonus.get('has_bonus') and user_bonus.get('bonus_points', 0) > 0:
-                                                            points_calc['has_bonus'] = True
-                                                            points_calc['bonus_percentage'] = user_bonus['bonus_percentage']
-                                                            points_calc['bonus_points'] = user_bonus['bonus_points']
-                                                            points_calc['promo_code'] = user_bonus['promo_code']
-                                                            points_calc['total_points'] = final_payout + user_bonus['bonus_points']
-                                                    except Exception as bonus_err:
-                                                        logger.warning(f"⚠️ Error checking user promo bonus: {bonus_err}")
-                                            elif matched_payout > 0:
-                                                points_calc = {
-                                                    'base_points': matched_payout,
-                                                    'has_bonus': False, 'bonus_percentage': 0,
-                                                    'bonus_points': 0, 'promo_code': None,
-                                                    'total_points': matched_payout
-                                                }
-                                                if user_id_from_click and matched_offer_id:
-                                                    try:
-                                                        user_bonus = calculate_offer_points_with_bonus(matched_offer_id, user_id_from_click)
-                                                        if user_bonus.get('has_bonus') and user_bonus.get('bonus_points', 0) > 0:
-                                                            points_calc['has_bonus'] = True
-                                                            points_calc['bonus_percentage'] = user_bonus['bonus_percentage']
-                                                            points_calc['bonus_points'] = user_bonus['bonus_points']
-                                                            points_calc['promo_code'] = user_bonus['promo_code']
-                                                            points_calc['total_points'] = matched_payout + user_bonus['bonus_points']
-                                                    except Exception as bonus_err:
-                                                        logger.warning(f"⚠️ Error checking user promo bonus: {bonus_err}")
-                                            else:
-                                                points_calc = calculate_offer_points_with_bonus(offer_id, user_id_from_click)
+                        pts_col = get_collection('points_transactions')
+                        if pts_col is not None:
+                            pts_col.insert_one({
+                                'username': actual_username, 'user_id': user_id_from_click,
+                                'points': total_points, 'type': 'offer_completion',
+                                'offer_id': offer_id or matched_offer_id, 'click_id': click_id,
+                                'conversion_id': conversion_id_result,
+                                'received_postback_id': str(result.inserted_id),
+                                'timestamp': datetime.utcnow(), 'status': 'completed',
+                                'source': 'verified_postback',
+                            })
 
-                                            actual_username = get_username_from_user_id(user_id_from_click) if user_id_from_click else 'Unknown'
+                        # Referral P2 commission
+                        try:
+                            from models.referral import Referral
+                            ref_model = Referral()
+                            users_col2 = get_collection('users')
+                            if users_col2 is not None:
+                                pub_user = users_col2.find_one({'username': actual_username})
+                                if pub_user and pub_user.get('referred_by'):
+                                    ref_model.update_p2_revenue(str(pub_user['_id']), total_points)
+                        except:
+                            pass
+                    except Exception as pts_err:
+                        logger.error(f"❌ Error updating points: {pts_err}")
 
-                                            logger.info(f"💰 Offer: {offer_id}, User: {actual_username}, Points: {points_calc['total_points']}")
-
-                                            # Replace macros with actual values
-                                            final_url = owner_postback_url
-                                            macros = {
-                                                '{click_id}': click_id or '',
-                                                '{status}': 'approved',
-                                                '{payout}': str(points_calc['total_points']),
-                                                '{points}': str(points_calc['total_points']),
-                                                '{offer_id}': offer_id or '',
-                                                '{conversion_id}': get_param_value('conversion_id') or '',
-                                                '{transaction_id}': get_param_value('transaction_id') or '',
-                                                '{user_id}': user_id_from_click or '',
-                                                '{affiliate_id}': user_id_from_click or '',
-                                                '{username}': actual_username or '',
-                                            }
-
-                                            for macro, value in macros.items():
-                                                final_url = final_url.replace(macro, str(value))
-
-                                            logger.info(f"📤 Final URL: {final_url}")
-
-                                            # Send the postback
-                                            import requests
-                                            try:
-                                                response = requests.get(final_url, timeout=10)
-                                                logger.info(f"✅ Sent to {owner_username}! Status: {response.status_code}")
-
-                                                # Log to forwarded_postbacks collection
-                                                forwarded_postbacks = get_collection('forwarded_postbacks')
-                                                if forwarded_postbacks is not None:
-                                                    forwarded_log = {
-                                                        'timestamp': datetime.utcnow(),
-                                                        'original_postback_id': result.inserted_id,
-                                                        'received_postback_id': str(result.inserted_id),
-                                                        'publisher_id': str(owner_user.get('_id')),
-                                                        'publisher_name': owner_username,
-                                                        'username': actual_username,
-                                                        'points': points_calc['total_points'],
-                                                        'forward_url': final_url,
-                                                        'forward_status': 'success' if response.status_code == 200 else 'failed',
-                                                        'response_code': response.status_code,
-                                                        'response_body': response.text[:500],
-                                                        'original_params': params,
-                                                        'enriched_params': macros,
-                                                        'placement_id': placement_id,
-                                                        'placement_title': placement_title,
-                                                        'offer_id': offer_id or 'unknown',
-                                                        'click_id': click_id or 'unknown',
-                                                        'source': 'verified_postback',
-                                                        'conversion_id': conversion_id_result,
-                                                    }
-                                                    forwarded_postbacks.insert_one(forwarded_log)
-                                                    logger.info(f"📝 Logged to forwarded_postbacks collection")
-
-                                                # Update user points ONLY if forward was successful
-                                                if response.status_code == 200 and user_id_from_click and points_calc['total_points'] > 0:
-                                                    try:
-                                                        users_collection.update_one(
-                                                            {'username': actual_username},
-                                                            {
-                                                                '$inc': {'total_points': points_calc['total_points']},
-                                                                '$set': {'updated_at': datetime.utcnow()}
-                                                            },
-                                                            upsert=False
-                                                        )
-                                                        logger.info(f"💰 Updated user points: {actual_username} +{points_calc['total_points']}")
-
-                                                        # Create points transaction record
-                                                        points_transactions = get_collection('points_transactions')
-                                                        if points_transactions is not None:
-                                                            points_transactions.insert_one({
-                                                                'username': actual_username,
-                                                                'user_id': user_id_from_click,
-                                                                'points': points_calc['total_points'],
-                                                                'type': 'offer_completion',
-                                                                'offer_id': offer_id,
-                                                                'click_id': click_id,
-                                                                'conversion_id': conversion_id_result,
-                                                                'received_postback_id': str(result.inserted_id),
-                                                                'timestamp': datetime.utcnow(),
-                                                                'status': 'completed',
-                                                                'source': 'verified_postback',
-                                                            })
-
-                                                        # 🔗 REFERRAL P2 COMMISSION TRACKING
-                                                        try:
-                                                            from models.referral import Referral
-                                                            ref_model = Referral()
-                                                            publisher_user = users_collection.find_one({'username': actual_username})
-                                                            if publisher_user and publisher_user.get('referred_by'):
-                                                                p2_result = ref_model.update_p2_revenue(
-                                                                    str(publisher_user['_id']),
-                                                                    points_calc['total_points']
-                                                                )
-                                                                if p2_result and p2_result.get('commission', 0) > 0:
-                                                                    logger.info(f"🔗 Referral P2 commission: ${p2_result['commission']} for referrer of {actual_username}")
-                                                        except Exception as ref_error:
-                                                            logger.error(f"⚠️ Referral P2 tracking error: {ref_error}")
-                                                    except Exception as points_error:
-                                                        logger.error(f"❌ Error updating user points: {points_error}")
-                                            except Exception as send_error:
-                                                logger.error(f"❌ Error sending postback: {send_error}")
-                                                forwarded_postbacks = get_collection('forwarded_postbacks')
-                                                if forwarded_postbacks is not None:
-                                                    forwarded_postbacks.insert_one({
-                                                        'timestamp': datetime.utcnow(),
-                                                        'original_postback_id': result.inserted_id,
-                                                        'received_postback_id': str(result.inserted_id),
-                                                        'publisher_id': str(owner_user.get('_id')),
-                                                        'publisher_name': owner_username,
-                                                        'username': actual_username,
-                                                        'points': points_calc['total_points'],
-                                                        'forward_url': final_url,
-                                                        'forward_status': 'failed',
-                                                        'error_message': str(send_error),
-                                                        'original_params': params,
-                                                        'placement_id': placement_id,
-                                                        'placement_title': placement_title,
-                                                        'offer_id': offer_id or 'unknown',
-                                                        'click_id': click_id or 'unknown',
-                                                        'source': 'verified_postback',
-                                                        'conversion_id': conversion_id_result,
-                                                    })
             except Exception as forward_error:
                 logger.error(f"❌ Error in forwarding logic: {forward_error}")
                 import traceback
@@ -1126,6 +1032,7 @@ def get_pipeline_stats():
         legacy_forwarded = forwarded.count_documents({'timestamp': {'$gte': since}, 'source': {'$exists': False}}) if forwarded is not None else 0
 
         total_points_tx = points_tx.count_documents({'timestamp': {'$gte': since}, 'type': 'offer_completion'}) if points_tx is not None else 0
+        verified_points_tx = points_tx.count_documents({'timestamp': {'$gte': since}, 'type': 'offer_completion', 'source': 'verified_postback'}) if points_tx is not None else 0
         fake_points_tx = points_tx.count_documents({'source': 'fallback_fake', 'type': 'offer_completion'}) if points_tx is not None else 0
 
         # Recent received postbacks (last 20)
@@ -1166,6 +1073,7 @@ def get_pipeline_stats():
                 },
                 'points': {
                     'total_transactions': total_points_tx,
+                    'verified_transactions': verified_points_tx,
                     'fake_flagged': fake_points_tx
                 }
             },
