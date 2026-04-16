@@ -621,7 +621,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                       onChange('postbackUri', qs ? `${base}?${qs}` : base);
                     }}
                   >
-                    <option value="{click_id}">click_id — Transaction ID</option>
+                    <option value="{click_id}">click_id — Unique Click ID</option>
                     <option value="{username}">username — User who completed</option>
                     <option value="{points}">points — Reward amount</option>
                     <option value="{payout}">payout — Payout in USD</option>
@@ -690,7 +690,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                 <p className="font-medium text-violet-800 mt-2">Available Macros:</p>
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
-                    { macro: '{click_id}', desc: 'Unique click/transaction ID' },
+                    { macro: '{click_id}', desc: 'Unique Click ID for this conversion' },
                     { macro: '{username}', desc: 'User who completed the offer' },
                     { macro: '{points}', desc: 'Calculated reward (in your currency)' },
                     { macro: '{payout}', desc: 'Payout amount in USD' },
@@ -698,15 +698,18 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                     { macro: '{offer_name}', desc: 'Name of the completed offer' },
                     { macro: '{status}', desc: 'Always "approved" on conversion' },
                     { macro: '{user_ip}', desc: 'IP address of the user' },
-                    { macro: '{sub_id1}', desc: 'Sub ID 1 (custom tracking)' },
-                    { macro: '{sub_id2}', desc: 'Sub ID 2 (custom tracking)' },
-                    { macro: '{sub_id3}', desc: 'Sub ID 3 (custom tracking)' },
+                    { macro: '{sub_id1}', desc: 'Sub ID 1 — custom tracking tag' },
+                    { macro: '{sub_id2}', desc: 'Sub ID 2 — custom tracking tag' },
+                    { macro: '{sub_id3}', desc: 'Sub ID 3 — custom tracking tag' },
                   ].map((m, i) => (
                     <div key={i} className="flex items-center gap-1.5 bg-gray-50 rounded px-2 py-1">
                       <code className="text-violet-700 font-mono text-[11px]">{m.macro}</code>
                       <span className="text-gray-400 text-[10px]">{m.desc}</span>
                     </div>
                   ))}
+                </div>
+                <div className="mt-2 p-2 bg-blue-50 rounded-md text-[10px] text-blue-700 leading-relaxed">
+                  💡 <span className="font-semibold">Tip:</span> You can map any parameter name to any data value. For example, if your system expects <code className="bg-white px-1 rounded font-mono">subid</code>, you can map it to <code className="bg-white px-1 rounded font-mono">{'{username}'}</code>, <code className="bg-white px-1 rounded font-mono">{'{click_id}'}</code>, or any other value. Just type your parameter name on the left side and select the data you want on the right.
                 </div>
                 <p className="font-medium text-violet-800 mt-2">Example:</p>
                 <code className="block bg-gray-50 p-2 rounded text-[11px] break-all">
