@@ -71,7 +71,6 @@ def _build_email_html(body_text, frontend_url=None, offers=None):
 <td style="padding:10px 4px;vertical-align:middle;">{img_cell}</td>
 <td style="padding:10px 8px;vertical-align:middle;">
 <div style="font-size:13px;color:#111;font-weight:500;">{name}</div>
-<div style="font-size:11px;color:#9ca3af;">{network}</div>
 </td>
 <td style="padding:10px 8px;font-size:14px;color:#059669;font-weight:600;vertical-align:middle;white-space:nowrap;">${payout:.2f}</td>
 <td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{country_str}</td>
@@ -397,22 +396,30 @@ def get_inventory_matches():
                 user_requests[req.get('offer_id')] = req.get('status')
         
         # Calculate match strength based on keyword matches
+        # Also run health checks on matched offers
+        from services.health_check_service import HealthCheckService
+        health_service = HealthCheckService()
+        health_results = health_service.evaluate_offers_batch(similar_offers)
+
         results = []
         for offer in similar_offers:
             offer_name_lower = offer.get('name', '').lower()
             match_count = sum(1 for kw in keywords if kw in offer_name_lower)
             match_strength = 'Strong' if match_count >= 2 else 'Good'
+            oid = offer.get('offer_id', '')
+            health = health_results.get(oid, {'status': 'unknown', 'failures': []})
             
             results.append({
                 '_id': str(offer['_id']),
-                'offer_id': offer.get('offer_id'),
+                'offer_id': oid,
                 'name': offer.get('name'),
                 'payout': offer.get('payout', 0),
                 'network': offer.get('network', ''),
                 'category': offer.get('category', ''),
                 'keywords': ', '.join(keywords[:3]),
                 'match_strength': match_strength,
-                'request_status': user_requests.get(offer.get('offer_id')),  # None, 'pending', 'approved', 'rejected'
+                'request_status': user_requests.get(oid),
+                'health': health,
             })
         
         # Sort by match strength (Strong first) then by payout

@@ -42,20 +42,25 @@ def process_single_postback(postback):
             )
             return True, existing['conversion_id']
         
-        # Try to find matching click
+        # Try to find matching click by click_id ONLY — no fallback
         click_id_from_pb = post_data.get('click_id') or post_data.get('aff_sub')
         click = None
         
         if click_id_from_pb:
             click = clicks_collection.find_one({'click_id': click_id_from_pb})
         
-        # Fallback: get most recent click
+        # NO FALLBACK — if no click_id matches, log as unmatched and stop
         if not click:
-            click = clicks_collection.find_one({}, sort=[('click_time', -1)])
-        
-        if not click:
-            logger.warning(f"No click found for postback {transaction_id}")
-            return False, "No click found"
+            logger.warning(f"⚠️ UNMATCHED postback {transaction_id} — no click found for click_id={click_id_from_pb}")
+            postbacks_collection.update_one(
+                {'_id': postback['_id']},
+                {'$set': {
+                    'status': 'unmatched',
+                    'unmatched_reason': f'No click found for click_id={click_id_from_pb}',
+                    'unmatched_at': datetime.utcnow()
+                }}
+            )
+            return False, "No matching click found — postback logged as unmatched"
         
         # Create conversion
         conversion_id = f"CONV-{secrets.token_hex(6).upper()}"
@@ -95,6 +100,11 @@ def process_single_postback(postback):
             'postback_id': str(postback['_id']),
             'partner_id': postback.get('partner_id'),
             'partner_name': postback.get('partner_name'),
+            
+            # Data integrity fields
+            'source': 'postback',  # Real postback conversion
+            'verified': True,  # Click was matched by click_id
+            'matched_by': 'click_id',
         }
         
         # Insert conversion
@@ -111,6 +121,36 @@ def process_single_postback(postback):
             {'click_id': click['click_id']},
             {'$set': {'converted': True}}
         )
+        
+        # === PHASE 1.2: Record funnel event + update click postback fields ===
+        try:
+            from services.event_funnel_service import record_funnel_event
+            
+            # Try to determine event type from postback data
+            raw_event_type = (
+                post_data.get('event_type') or post_data.get('goal') or
+                post_data.get('event') or post_data.get('action') or
+                post_data.get('conversion_type') or ''
+            )
+            
+            record_funnel_event(
+                click_id=click.get('click_id', ''),
+                offer_id=click.get('offer_id', ''),
+                user_id=click.get('user_id', ''),
+                event_type_raw=raw_event_type,
+                revenue=payout,
+                source='postback',
+                campaign_id=click.get('campaign_id', ''),
+                metadata={
+                    'conversion_id': conversion_id,
+                    'transaction_id': transaction_id,
+                    'partner_id': postback.get('partner_id', ''),
+                    'partner_name': postback.get('partner_name', ''),
+                }
+            )
+        except Exception as funnel_err:
+            # Non-critical — don't break existing conversion flow
+            logger.warning(f"⚠️ Funnel event recording failed (non-critical): {funnel_err}")
         
         logger.info(f"✅ Created conversion: {conversion_id} from postback {transaction_id}")
         return True, conversion_id

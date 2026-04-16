@@ -1218,6 +1218,18 @@ def track_dashboard_click():
             fraud_status = 'suspicious'
             fraud_score = 30
         
+        # Look up offer details for enrichment
+        offer_details = {}
+        try:
+            offers_col = db_instance.get_collection('offers')
+            if offers_col:
+                offer_details = offers_col.find_one({'offer_id': offer_id}, {
+                    'campaign_id': 1, 'network': 1, 'category': 1, 'vertical': 1,
+                    'payout': 1, 'currency': 1
+                }) or {}
+        except Exception:
+            pass
+        
         # Create click record
         click_record = {
             'click_id': click_id,
@@ -1244,6 +1256,17 @@ def track_dashboard_click():
                 'fast_click': False,
                 'bot_like': False,
             },
+            # === PHASE 1.1: Enhanced click tracking fields ===
+            'campaign_id': offer_details.get('campaign_id', ''),
+            'offer_network': offer_details.get('network', ''),
+            'offer_category': offer_details.get('category', '') or offer_details.get('vertical', ''),
+            'offer_payout': offer_details.get('payout', 0),
+            'offer_currency': offer_details.get('currency', 'USD') or 'USD',
+            'fraud_classification': 'genuine' if fraud_score < 30 else ('suspicious' if fraud_score < 70 else 'fraud'),
+            'event_status': 'no_event',
+            'postback_received': False,
+            'postback_event_type': '',
+            'postback_revenue': 0,
         }
         
         # Insert into dashboard_clicks collection
@@ -1482,4 +1505,743 @@ def update_fraud_signal(signal_id):
         
     except Exception as e:
         logger.error(f"❌ Error updating fraud signal: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PHASE 1.2: EVENT FUNNEL TRACKING ENDPOINTS
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/admin/funnel/events', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def get_funnel_events():
+    """Get funnel events with optional filters"""
+    try:
+        from services.event_funnel_service import get_funnel_events as _get_events
+
+        filters = {}
+        for key in ('click_id', 'offer_id', 'user_id', 'event_type', 'campaign_id'):
+            val = request.args.get(key)
+            if val:
+                filters[key] = val
+
+        limit = min(int(request.args.get('limit', 100)), 500)
+        skip = int(request.args.get('skip', 0))
+
+        events = _get_events(filters=filters, limit=limit, skip=skip)
+
+        return jsonify({
+            'success': True,
+            'total': len(events),
+            'limit': limit,
+            'skip': skip,
+            'data': events,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error getting funnel events: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/funnel/summary', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def get_funnel_summary():
+    """
+    Get funnel summary: clicks → installs → signups → ftds → purchases
+    with counts and conversion rates at each stage.
+    """
+    try:
+        from services.event_funnel_service import get_funnel_summary as _get_summary
+
+        filters = {}
+        for key in ('offer_id', 'user_id', 'campaign_id'):
+            val = request.args.get(key)
+            if val:
+                filters[key] = val
+
+        # Date range
+        start_date_str = request.args.get('start_date')
+        end_date_str = request.args.get('end_date')
+        if start_date_str:
+            try:
+                filters['start_date'] = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        if end_date_str:
+            try:
+                filters['end_date'] = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+
+        summary = _get_summary(filters=filters)
+
+        return jsonify({
+            'success': True,
+            'data': summary,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error getting funnel summary: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/funnel/record', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def manual_record_funnel_event():
+    """
+    Manually record a funnel event (for events not coming through postbacks).
+    Useful for manual data entry or external API integrations.
+    """
+    try:
+        from services.event_funnel_service import record_funnel_event
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        click_id = data.get('click_id', '')
+        offer_id = data.get('offer_id', '')
+        user_id = data.get('user_id', '')
+        event_type = data.get('event_type', '')
+        revenue = data.get('revenue', 0)
+        campaign_id = data.get('campaign_id', '')
+
+        if not event_type:
+            return jsonify({'error': 'event_type is required (install/signup/ftd/purchase)'}), 400
+
+        event_id, error = record_funnel_event(
+            click_id=click_id,
+            offer_id=offer_id,
+            user_id=user_id,
+            event_type_raw=event_type,
+            revenue=revenue,
+            source='manual',
+            campaign_id=campaign_id,
+            metadata=data.get('metadata', {}),
+        )
+
+        if error:
+            return jsonify({'error': error}), 500
+
+        return jsonify({
+            'success': True,
+            'event_id': event_id,
+        }), 201
+
+    except Exception as e:
+        logger.error(f"❌ Error recording manual funnel event: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PHASE 2.6: IP BLOCKING ENDPOINTS
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/admin/fraud/blocked-ips', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def get_blocked_ips_list():
+    """Get list of blocked IPs"""
+    try:
+        from services.fraud_scoring_service import get_blocked_ips
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        ips, total = get_blocked_ips(page, per_page)
+        return jsonify({'success': True, 'data': ips, 'total': total, 'page': page, 'per_page': per_page}), 200
+    except Exception as e:
+        logger.error(f"❌ Error getting blocked IPs: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/fraud/block-ip', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def block_ip_endpoint():
+    """Block an IP address"""
+    try:
+        from services.fraud_scoring_service import block_ip
+        data = request.get_json()
+        ip = data.get('ip_address')
+        reason = data.get('reason', 'manual_admin')
+        if not ip:
+            return jsonify({'error': 'ip_address is required'}), 400
+        admin_name = request.current_user.get('username', 'admin')
+        success = block_ip(ip, reason=reason, blocked_by=admin_name)
+        return jsonify({'success': success}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/fraud/unblock-ip', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def unblock_ip_endpoint():
+    """Unblock an IP address"""
+    try:
+        from services.fraud_scoring_service import unblock_ip
+        data = request.get_json()
+        ip = data.get('ip_address')
+        if not ip:
+            return jsonify({'error': 'ip_address is required'}), 400
+        success = unblock_ip(ip)
+        return jsonify({'success': success}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PHASE 2.7: USER SEGMENTATION ENDPOINTS
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/admin/fraud/user-segment/<user_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def get_user_segment(user_id):
+    """Get fraud segment for a specific user"""
+    try:
+        from services.fraud_scoring_service import calculate_user_segment
+        result = calculate_user_segment(user_id)
+        return jsonify({'success': True, 'data': result}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/fraud/user-segment/<user_id>/refresh', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def refresh_user_segment(user_id):
+    """Recalculate and save fraud segment for a user"""
+    try:
+        from services.fraud_scoring_service import update_user_segment
+        result = update_user_segment(user_id)
+        return jsonify({'success': True, 'data': result}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PHASE 4.11: AFFILIATE COMPARISON ENDPOINT
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/admin/intelligence/affiliate-comparison', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def affiliate_comparison():
+    """Get all affiliates ranked by clicks, conversions, CR%, revenue, fraud score"""
+    try:
+        clicks_col = db_instance.get_collection('clicks')
+        users_col = db_instance.get_collection('users')
+        if clicks_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        # Date range
+        start_str = request.args.get('start_date')
+        end_str = request.args.get('end_date')
+        match = {}
+        if start_str or end_str:
+            match['timestamp'] = {}
+            if start_str:
+                try: match['timestamp']['$gte'] = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                except: pass
+            if end_str:
+                try: match['timestamp']['$lte'] = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                except: pass
+            if not match['timestamp']:
+                del match['timestamp']
+
+        limit = min(int(request.args.get('limit', 50)), 200)
+        sort_by = request.args.get('sort_by', 'clicks')  # clicks, conversions, cr, revenue, fraud_pct
+
+        pipeline = [
+            {'$match': match} if match else {'$match': {}},
+            {'$group': {
+                '_id': '$user_id',
+                'clicks': {'$sum': 1},
+                'conversions': {'$sum': {'$cond': [{'$eq': ['$postback_received', True]}, 1, 0]}},
+                'fraud_clicks': {'$sum': {'$cond': [{'$eq': ['$fraud_classification', 'fraud']}, 1, 0]}},
+                'suspicious_clicks': {'$sum': {'$cond': [{'$eq': ['$fraud_classification', 'suspicious']}, 1, 0]}},
+                'genuine_clicks': {'$sum': {'$cond': [{'$eq': ['$fraud_classification', 'genuine']}, 1, 0]}},
+                'total_revenue': {'$sum': {'$ifNull': ['$postback_revenue', 0]}},
+                'avg_fraud_score': {'$avg': {'$ifNull': ['$fraud_score', 0]}},
+            }},
+            {'$addFields': {
+                'cr': {'$cond': [{'$gt': ['$clicks', 0]}, {'$multiply': [{'$divide': ['$conversions', '$clicks']}, 100]}, 0]},
+                'fraud_pct': {'$cond': [{'$gt': ['$clicks', 0]}, {'$multiply': [{'$divide': [{'$add': ['$fraud_clicks', '$suspicious_clicks']}, '$clicks']}, 100]}, 0]},
+            }},
+            {'$sort': {sort_by: -1}},
+            {'$limit': limit},
+        ]
+
+        results = list(clicks_col.aggregate(pipeline))
+
+        # Enrich with user info — try username, then _id, then name
+        user_ids = [r['_id'] for r in results if r['_id']]
+        users_map = {}
+        if users_col is not None and user_ids:
+            # Try by username first
+            for u in users_col.find({'username': {'$in': user_ids}}, {'username': 1, 'name': 1, 'email': 1, 'fraud_segment': 1, 'first_name': 1}):
+                users_map[u['username']] = u
+            # For unmatched, try by _id (ObjectId)
+            unmatched = [uid for uid in user_ids if uid not in users_map]
+            if unmatched:
+                from bson import ObjectId as BsonOid
+                valid_oids = []
+                for uid in unmatched:
+                    try:
+                        valid_oids.append(BsonOid(uid))
+                    except Exception:
+                        pass
+                if valid_oids:
+                    for u in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1, 'name': 1, 'email': 1, 'fraud_segment': 1, 'first_name': 1}):
+                        users_map[str(u['_id'])] = u
+            # For still unmatched, try by name
+            still_unmatched = [uid for uid in user_ids if uid not in users_map]
+            if still_unmatched:
+                for u in users_col.find({'name': {'$in': still_unmatched}}, {'username': 1, 'name': 1, 'email': 1, 'fraud_segment': 1, 'first_name': 1}):
+                    users_map[u.get('name', '')] = u
+
+        affiliates = []
+        for r in results:
+            uid = r['_id'] or 'Unknown'
+            user_info = users_map.get(uid, {})
+            display_name = user_info.get('first_name', '') or user_info.get('name', '') or user_info.get('username', '')
+            if not display_name or display_name == uid:
+                display_name = user_info.get('email', '').split('@')[0] if user_info.get('email') else uid[:12]
+            affiliates.append({
+                'user_id': uid,
+                'name': display_name,
+                'email': user_info.get('email', ''),
+                'segment': user_info.get('fraud_segment', 'AVERAGE'),
+                'clicks': r['clicks'],
+                'conversions': r['conversions'],
+                'genuine_clicks': r.get('genuine_clicks', 0),
+                'suspicious_clicks': r.get('suspicious_clicks', 0),
+                'fraud_clicks': r.get('fraud_clicks', 0),
+                'cr': round(r.get('cr', 0), 2),
+                'fraud_pct': round(r.get('fraud_pct', 0), 2),
+                'avg_fraud_score': round(r.get('avg_fraud_score', 0), 1),
+                'total_revenue': round(r.get('total_revenue', 0), 2),
+            })
+
+        return jsonify({'success': True, 'data': affiliates}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error in affiliate comparison: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PHASE 4.14: GEO ANALYTICS ENDPOINT
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/admin/intelligence/geo-analytics', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def geo_analytics():
+    """Get clicks and conversions broken down by country"""
+    try:
+        clicks_col = db_instance.get_collection('clicks')
+        if clicks_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        # Date range
+        match = {}
+        start_str = request.args.get('start_date')
+        end_str = request.args.get('end_date')
+        if start_str or end_str:
+            match['timestamp'] = {}
+            if start_str:
+                try: match['timestamp']['$gte'] = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                except: pass
+            if end_str:
+                try: match['timestamp']['$lte'] = datetime.fromisoformat(end_str.replace('Z', '+00:00'))
+                except: pass
+            if not match['timestamp']:
+                del match['timestamp']
+
+        limit = min(int(request.args.get('limit', 30)), 100)
+
+        pipeline = [
+            {'$match': match} if match else {'$match': {}},
+            {'$group': {
+                '_id': '$country',
+                'clicks': {'$sum': 1},
+                'conversions': {'$sum': {'$cond': [{'$eq': ['$postback_received', True]}, 1, 0]}},
+                'revenue': {'$sum': {'$ifNull': ['$postback_revenue', 0]}},
+                'fraud_clicks': {'$sum': {'$cond': [{'$in': ['$fraud_classification', ['fraud', 'suspicious']]}, 1, 0]}},
+            }},
+            {'$addFields': {
+                'cr': {'$cond': [{'$gt': ['$clicks', 0]}, {'$round': [{'$multiply': [{'$divide': ['$conversions', '$clicks']}, 100]}, 2]}, 0]},
+            }},
+            {'$sort': {'clicks': -1}},
+            {'$limit': limit},
+        ]
+
+        results = list(clicks_col.aggregate(pipeline))
+
+        countries = []
+        for r in results:
+            countries.append({
+                'country': r['_id'] or 'Unknown',
+                'clicks': r['clicks'],
+                'conversions': r['conversions'],
+                'cr': r.get('cr', 0),
+                'revenue': round(r.get('revenue', 0), 2),
+                'fraud_clicks': r.get('fraud_clicks', 0),
+            })
+
+        return jsonify({'success': True, 'data': countries}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error in geo analytics: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# PHASE 5.15: ADMIN ACTION ENDPOINTS (from click tracking)
+# ============================================================================
+
+def _log_tracking_action(action_type, admin_user, details):
+    """Log every admin action taken from click tracking to tracking_action_logs collection"""
+    try:
+        logs_col = db_instance.get_collection('tracking_action_logs')
+        if logs_col is not None:
+            logs_col.insert_one({
+                'action_type': action_type,
+                'admin_id': str(admin_user.get('_id', '')),
+                'admin_username': admin_user.get('username', 'admin'),
+                'details': details,
+                'timestamp': datetime.utcnow(),
+            })
+    except Exception:
+        pass
+
+@comprehensive_analytics_bp.route('/api/admin/actions/block-user', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def action_block_user():
+    """Block a user/affiliate from the click tracking dashboard"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        reason = data.get('reason', 'Blocked from click tracking dashboard')
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+
+        blocked_col = db_instance.get_collection('blocked_users')
+        if blocked_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        blocked_col.update_one(
+            {'user_id': user_id},
+            {'$set': {
+                'user_id': user_id,
+                'active': True,
+                'reason': reason,
+                'blocked_by': request.current_user.get('username', 'admin'),
+                'blocked_at': datetime.utcnow(),
+            }},
+            upsert=True
+        )
+        _log_tracking_action('block_user', request.current_user, {'user_id': user_id, 'reason': reason})
+        return jsonify({'success': True, 'message': f'User {user_id} blocked'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/actions/pause-offer', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def action_pause_offer():
+    """Pause an offer directly from click tracking"""
+    try:
+        data = request.get_json()
+        offer_id = data.get('offer_id')
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        result = offers_col.update_one(
+            {'offer_id': offer_id},
+            {'$set': {'status': 'paused', 'updated_at': datetime.utcnow()}}
+        )
+        if result.matched_count == 0:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        _log_tracking_action('pause_offer', request.current_user, {'offer_id': offer_id})
+        return jsonify({'success': True, 'message': f'Offer {offer_id} paused'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/actions/change-payout', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def action_change_payout():
+    """Change offer payout from click tracking — for all users or specific user"""
+    try:
+        data = request.get_json()
+        offer_id = data.get('offer_id')
+        new_payout = data.get('payout')
+        target_user = data.get('user_id')  # Optional — if set, per-user override
+
+        if not offer_id or new_payout is None:
+            return jsonify({'error': 'offer_id and payout are required'}), 400
+
+        new_payout = float(new_payout)
+
+        if target_user:
+            # Per-user payout override — store in user_payout_overrides collection
+            overrides_col = db_instance.get_collection('user_payout_overrides')
+            if overrides_col is None:
+                return jsonify({'error': 'Database not available'}), 503
+            overrides_col.update_one(
+                {'user_id': target_user, 'offer_id': offer_id},
+                {'$set': {
+                    'user_id': target_user,
+                    'offer_id': offer_id,
+                    'payout': new_payout,
+                    'set_by': request.current_user.get('username', 'admin'),
+                    'updated_at': datetime.utcnow(),
+                }},
+                upsert=True
+            )
+            _log_tracking_action('change_payout_user', request.current_user, {'offer_id': offer_id, 'user_id': target_user, 'new_payout': new_payout})
+            return jsonify({'success': True, 'message': f'Payout for user {target_user} on {offer_id} set to {new_payout}'}), 200
+        else:
+            # Global payout change
+            offers_col = db_instance.get_collection('offers')
+            if offers_col is None:
+                return jsonify({'error': 'Database not available'}), 503
+            result = offers_col.update_one(
+                {'offer_id': offer_id},
+                {'$set': {'payout': new_payout, 'updated_at': datetime.utcnow()}}
+            )
+            if result.matched_count == 0:
+                return jsonify({'error': 'Offer not found'}), 404
+            _log_tracking_action('change_payout_global', request.current_user, {'offer_id': offer_id, 'new_payout': new_payout})
+            return jsonify({'success': True, 'message': f'Offer {offer_id} payout changed to {new_payout}'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/actions/send-warning', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def action_send_warning():
+    """Send a warning message to a user via support system"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        message = data.get('message', 'You have received a warning regarding suspicious click activity on your account.')
+        subject = data.get('subject', 'Warning: Suspicious Activity Detected')
+
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+
+        # Find user
+        users_col = db_instance.get_collection('users')
+        if users_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        from bson import ObjectId as BsonOid
+        user = None
+        try:
+            user = users_col.find_one({'_id': BsonOid(user_id)})
+        except Exception:
+            user = users_col.find_one({'username': user_id})
+
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        # Create support message (warning) — admin-initiated, no body (avoids duplicate)
+        support_col = db_instance.get_collection('support_messages')
+        if support_col is not None:
+            support_col.insert_one({
+                'user_id': user['_id'],
+                'username': user.get('username', ''),
+                'email': user.get('email', ''),
+                'subject': subject,
+                'body': '',
+                'status': 'replied',
+                'replies': [{
+                    '_id': BsonOid(),
+                    'text': message,
+                    'from': 'admin',
+                    'created_at': datetime.utcnow(),
+                }],
+                'created_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+                'read_by_admin': True,
+                'read_by_user': False,
+                'is_warning': True,
+                'warning_type': 'suspicious_clicks',
+            })
+
+        # Log action
+        _log_tracking_action('send_warning', request.current_user, {
+            'target_user': user.get('username', user_id),
+            'subject': subject,
+        })
+
+        return jsonify({'success': True, 'message': f'Warning sent to {user.get("username", user_id)}'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/actions/request-proof', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def action_request_proof():
+    """Request placement proof from a user via support message"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        offer_id = data.get('offer_id', '')
+
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+
+        users_col = db_instance.get_collection('users')
+        if users_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        from bson import ObjectId as BsonOid
+        user = None
+        try:
+            user = users_col.find_one({'_id': BsonOid(user_id)})
+        except Exception:
+            user = users_col.find_one({'username': user_id})
+
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        message = f'Please share your placement proof for offer {offer_id}. We need to verify your traffic source to continue running this offer.' if offer_id else 'Please share your placement proof. We need to verify your traffic sources.'
+
+        support_col = db_instance.get_collection('support_messages')
+        if support_col is not None:
+            support_col.insert_one({
+                'user_id': user['_id'],
+                'username': user.get('username', ''),
+                'email': user.get('email', ''),
+                'subject': 'Placement Proof Required',
+                'body': '',
+                'status': 'replied',
+                'replies': [{
+                    '_id': BsonOid(),
+                    'text': message,
+                    'from': 'admin',
+                    'created_at': datetime.utcnow(),
+                }],
+                'created_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+                'read_by_admin': True,
+                'read_by_user': False,
+                'is_proof_request': True,
+                'related_offer_id': offer_id,
+            })
+
+        # Log action
+        _log_tracking_action('request_proof', request.current_user, {
+            'target_user': user.get('username', user_id),
+            'offer_id': offer_id,
+        })
+
+        return jsonify({'success': True, 'message': f'Proof request sent to {user.get("username", user_id)}'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# UNBLOCK USER + ACTION LOG
+# ============================================================================
+
+@comprehensive_analytics_bp.route('/api/admin/actions/unblock-user', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def action_unblock_user():
+    """Unblock a previously blocked user"""
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        if not user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+
+        blocked_col = db_instance.get_collection('blocked_users')
+        if blocked_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        blocked_col.update_one(
+            {'user_id': user_id},
+            {'$set': {'active': False, 'unblocked_at': datetime.utcnow(), 'unblocked_by': request.current_user.get('username', 'admin')}}
+        )
+        _log_tracking_action('unblock_user', request.current_user, {'user_id': user_id})
+        return jsonify({'success': True, 'message': f'User {user_id} unblocked'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/actions/blocked-users', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def get_blocked_users():
+    """Get list of blocked users"""
+    try:
+        blocked_col = db_instance.get_collection('blocked_users')
+        if blocked_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        skip = (page - 1) * per_page
+
+        query = {'active': True}
+        total = blocked_col.count_documents(query)
+        users = list(blocked_col.find(query).sort('blocked_at', -1).skip(skip).limit(per_page))
+        for u in users:
+            u['_id'] = str(u['_id'])
+
+        return jsonify({'success': True, 'data': users, 'total': total}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@comprehensive_analytics_bp.route('/api/admin/actions/log', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('tracking')
+def get_action_log():
+    """Get all admin actions taken from click tracking — the audit trail"""
+    try:
+        logs_col = db_instance.get_collection('tracking_action_logs')
+        if logs_col is None:
+            return jsonify({'error': 'Database not available'}), 503
+
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        action_type = request.args.get('action_type')
+        skip = (page - 1) * per_page
+
+        query = {}
+        if action_type:
+            query['action_type'] = action_type
+
+        total = logs_col.count_documents(query)
+        logs = list(logs_col.find(query).sort('timestamp', -1).skip(skip).limit(per_page))
+        for log in logs:
+            log['_id'] = str(log['_id'])
+
+        return jsonify({
+            'success': True,
+            'data': logs,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+        }), 200
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

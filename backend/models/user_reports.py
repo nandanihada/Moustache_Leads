@@ -648,12 +648,14 @@ class UserReports:
             is_admin = user and user.get('role') == 'admin'
             
             # Build query - Filter by publisher_id unless admin
+            # Only show REAL conversions — exclude flagged fakes
             query = {
                 'timestamp': {  # forwarded_postbacks uses 'timestamp'
                     '$gte': start_date,
                     '$lte': end_date
                 },
-                'forward_status': 'success'  # Only successful forwards
+                'forward_status': 'success',  # Only successful forwards
+                'source': {'$nin': ['fallback_fake']}  # Exclude flagged fakes
             }
             
             # Filter by publisher_id if not admin

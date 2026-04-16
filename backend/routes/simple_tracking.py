@@ -179,7 +179,20 @@ def track_offer_click(offer_id):
             'converted': False,
             'country': 'Unknown',
             'device_type': 'unknown',
-            'browser': 'unknown'
+            'browser': 'unknown',
+            # === PHASE 1.1: Enhanced click tracking fields ===
+            'campaign_id': offer.get('campaign_id', ''),       # Campaign grouping
+            'network': offer.get('network', ''),               # Upward network name
+            'category': offer.get('category', '') or offer.get('vertical', ''),  # Offer vertical
+            'payout': offer.get('payout', 0),                  # Offer payout at click time
+            'currency': offer.get('currency', 'USD') or 'USD', # Currency
+            'os': 'unknown',                                   # OS detection (set below)
+            'fraud_score': 0,                                  # Fraud score (0-100, set by fraud service later)
+            'fraud_classification': 'genuine',                 # genuine / suspicious / fraud
+            'event_status': 'no_event',                        # no_event / partial_event / full_conversion
+            'postback_received': False,                        # Whether postback came back for this click
+            'postback_event_type': '',                         # install / signup / ftd / purchase
+            'postback_revenue': 0,                             # Revenue from postback
         }
         
         # Enrich with device detection from user agent
@@ -200,6 +213,18 @@ def track_offer_click(offer_id):
         elif 'edg' in ua_lower:
             click_data['browser'] = 'Edge'
         
+        # OS detection from user agent
+        if 'windows' in ua_lower:
+            click_data['os'] = 'Windows'
+        elif 'mac' in ua_lower and 'iphone' not in ua_lower and 'ipad' not in ua_lower:
+            click_data['os'] = 'macOS'
+        elif 'android' in ua_lower:
+            click_data['os'] = 'Android'
+        elif 'iphone' in ua_lower or 'ipad' in ua_lower:
+            click_data['os'] = 'iOS'
+        elif 'linux' in ua_lower:
+            click_data['os'] = 'Linux'
+        
         # Enrich with geo data from IP
         try:
             from services.ipinfo_service import get_ipinfo_service
@@ -217,6 +242,35 @@ def track_offer_click(offer_id):
         clicks_collection = db_instance.get_collection('clicks')
         if clicks_collection is not None:
             try:
+                # === PHASE 2.4: Calculate fraud score before saving ===
+                try:
+                    from services.fraud_scoring_service import enrich_click_with_fraud_score, is_ip_blocked, auto_block_high_velocity_ip
+                    
+                    # Check if IP is blocked
+                    if is_ip_blocked(ip_address):
+                        logger.warning(f"🚫 Blocked IP attempted click: {ip_address}")
+                        return jsonify({'error': 'Access denied'}), 403
+                    
+                    # Check if user is blocked
+                    if user_id:
+                        blocked_users_col = db_instance.get_collection('blocked_users')
+                        if blocked_users_col is not None:
+                            blocked_user = blocked_users_col.find_one({'user_id': user_id, 'active': True})
+                            if blocked_user:
+                                logger.warning(f"🚫 Blocked user attempted click: {user_id}")
+                                return jsonify({'error': 'Access denied'}), 403
+                    
+                    # Calculate fraud score and update click_data in place
+                    enrich_click_with_fraud_score(click_data)
+                    logger.info(f"🔍 Fraud score: {click_data.get('fraud_score', 0)} ({click_data.get('fraud_classification', 'genuine')})")
+                    
+                    # Auto-block IP if high velocity detected
+                    if 'high_velocity_ip' in click_data.get('fraud_signals', []):
+                        auto_block_high_velocity_ip(ip_address)
+                except Exception as fraud_err:
+                    # Non-critical — don't break click tracking if fraud scoring fails
+                    logger.warning(f"⚠️ Fraud scoring failed (non-critical): {fraud_err}")
+                
                 clicks_collection.insert_one(click_data)
                 logger.info(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
                 

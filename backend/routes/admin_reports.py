@@ -216,7 +216,7 @@ def admin_conversion_report():
         offers_cache = {}
         if conv_offer_ids:
             offers_col = db_instance.get_collection('offers')
-            if offers_col:
+            if offers_col is not None:
                 for o in offers_col.find({'offer_id': {'$in': list(conv_offer_ids)}},
                                          {'offer_id': 1, 'postback_url': 1, 'network': 1, 'category': 1}):
                     offers_cache[o['offer_id']] = o
@@ -427,6 +427,37 @@ def admin_clicks_report():
             query['region'] = region_filter
         if device_filter:
             query['device_type'] = device_filter
+
+        # Phase 1.3: Postback status and event status filters
+        # Use $and to combine multiple $or conditions safely
+        extra_conditions = []
+        
+        postback_filter = request.args.get('postback_status')
+        if postback_filter == 'received':
+            query['postback_received'] = True
+        elif postback_filter == 'no_postback':
+            query['postback_received'] = {'$ne': True}
+        
+        event_status_filter = request.args.get('event_status')
+        if event_status_filter and event_status_filter != 'all':
+            if event_status_filter == 'no_event':
+                extra_conditions.append({'$or': [{'event_status': 'no_event'}, {'event_status': {'$exists': False}}]})
+            else:
+                query['event_status'] = event_status_filter
+
+        fraud_class_filter = request.args.get('fraud_classification')
+        if fraud_class_filter and fraud_class_filter != 'all':
+            if fraud_class_filter == 'genuine':
+                extra_conditions.append({'$or': [{'fraud_classification': 'genuine'}, {'fraud_classification': {'$exists': False}}]})
+            else:
+                query['fraud_classification'] = fraud_class_filter
+        
+        # Merge extra conditions into query using $and
+        if extra_conditions:
+            if '$and' in query:
+                query['$and'].extend(extra_conditions)
+            else:
+                query['$and'] = extra_conditions
 
         # If category or network filter, get matching offer_ids first
         if category_filter or network_filter:
