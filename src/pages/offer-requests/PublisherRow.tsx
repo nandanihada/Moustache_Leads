@@ -179,6 +179,14 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
             <span className="font-semibold text-sm truncate">{pub.username}</span>
             {risk.lb && <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${risk.bd}`}>{risk.lb}</Badge>}
             <Badge variant="outline" className="text-[10px] px-1.5 py-0">{pub.account_status}</Badge>
+            {(pub.mail_sent_today || 0) > 0 && (
+              <Badge className="text-[10px] px-1.5 py-0 bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300 border-orange-200">
+                ✉ {pub.mail_sent_today} sent today
+              </Badge>
+            )}
+            {(pub.mail_total_sent || 0) > 0 && !(pub.mail_sent_today || 0) && (
+              <span className="text-[10px] text-muted-foreground">{pub.mail_total_sent} mail(s)</span>
+            )}
           </div>
           <p className="text-xs text-muted-foreground truncate">{pub.email}</p>
         </div>

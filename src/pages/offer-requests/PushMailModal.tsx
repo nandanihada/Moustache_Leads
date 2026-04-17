@@ -160,35 +160,17 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
     const day = getDayName();
 
     if (sendMode === 'one_by_one') {
-      // One-by-one: show offer name, amount ($payout), category — NO network, NO "(X offers will be sent one by one)"
-      const firstId = offerIds[0];
-      const o = offerDetails[firstId] || {};
-      const name = o.name || offerNames[firstId] || firstId;
-      const payout = o.payout || 0;
-      const cat = o.category || 'N/A';
+      // One-by-one: just greeting + call to action — offers shown in table by backend
       var parts: string[] = [];
       parts.push('Happy ' + day + '!');
       parts.push('');
       parts.push('Please push more traffic on this offer.');
       parts.push('');
       parts.push('Thanks and have a great weekend.');
-      parts.push('');
-      parts.push('\u{1F4CB} ' + name);
-      parts.push('\u{1F4B0} Amount: $' + payout);
-      if (cat && cat !== 'N/A') parts.push('\u{1F4C2} Category: ' + cat);
       setMessageBody(parts.join('\n'));
     } else {
-      // All-in-one: show each offer as "• [name] — $[payout]" (name AND payout)
-      var lines: string[] = [];
-      for (var i = 0; i < offerIds.length; i++) {
-        var id = offerIds[i];
-        var det = offerDetails[id];
-        var oName = (det && det.name) ? det.name : (offerNames[id] || id);
-        var oPayout = (det && det.payout) ? det.payout : 0;
-        lines.push('\u2022 ' + oName + ' \u2014 $' + oPayout);
-      }
-      var offerBlock = lines.join('\n');
-      var body = 'Happy ' + day + '!\n\nPlease push more traffic on these offers.\n\nThanks and have a great weekend.\n\n' + offerBlock;
+      // All-in-one: greeting only — offers shown in table by backend
+      var body = 'Happy ' + day + '!\n\nPlease push more traffic on these offers.\n\nThanks and have a great weekend.';
       setMessageBody(body);
     }
   }, [offerNames, offerDetails, offerIds, sendMode]);

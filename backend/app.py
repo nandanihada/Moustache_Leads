@@ -88,6 +88,7 @@ referrals_bp = safe_import_blueprint('routes.referrals', 'referrals_bp')
 user_payments_bp = safe_import_blueprint('routes.user_payments', 'user_payments_bp')
 admin_payments_bp = safe_import_blueprint('routes.admin_payments', 'admin_payments_bp')
 admin_campaigns_bp = safe_import_blueprint('routes.admin_campaigns', 'admin_campaigns_bp')
+survey_gateway_bp = safe_import_blueprint('routes.survey_gateway', 'survey_gateway_bp')
 
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
@@ -167,6 +168,7 @@ blueprints = [
     (user_payments_bp, '/api/payments'),
     (admin_payments_bp, '/api/admin/payments'),
     (admin_campaigns_bp, ''),
+    (survey_gateway_bp, ''),
 ]
 
 def create_app():

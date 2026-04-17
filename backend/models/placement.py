@@ -422,10 +422,10 @@ class Placement:
             return None, "Database connection not available"
         
         try:
-            # Check if placement exists and is pending
+            # Check if placement exists and is pending or in review
             placement = self.collection.find_one({
                 '_id': ObjectId(placement_id),
-                'approvalStatus': 'PENDING_APPROVAL'
+                'approvalStatus': {'$in': ['PENDING_APPROVAL', 'IN_REVIEW']}
             })
             
             if not placement:
@@ -463,10 +463,10 @@ class Placement:
             return None, "Database connection not available"
         
         try:
-            # Check if placement exists and is pending
+            # Check if placement exists and is pending or in review
             placement = self.collection.find_one({
                 '_id': ObjectId(placement_id),
-                'approvalStatus': 'PENDING_APPROVAL'
+                'approvalStatus': {'$in': ['PENDING_APPROVAL', 'IN_REVIEW']}
             })
             
             if not placement:

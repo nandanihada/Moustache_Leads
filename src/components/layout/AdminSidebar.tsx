@@ -24,7 +24,8 @@ import {
   Search,
   ClipboardList,
   RefreshCw,
-  CreditCard
+  CreditCard,
+  ShieldCheck
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -103,6 +104,7 @@ const adminMenuStructure = [
       { title: "Activity Logs", url: "/admin/activity-logs", icon: ClipboardList, tab: "activity-logs" },
       { title: "Login Logs", url: "/admin/login-logs", icon: LogIn, tab: "login-logs" },
       { title: "Active Users", url: "/admin/active-users", icon: UserCog, tab: "active-users" },
+      { title: "Survey Gateway", url: "/admin/survey-gateway", icon: ShieldCheck, tab: "survey-gateway" },
     ]
   },
   {

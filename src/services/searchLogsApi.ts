@@ -52,6 +52,7 @@ export interface SearchLogsFilters {
   inventory_status?: string;
   date_from?: string;
   date_to?: string;
+  sent_today?: string;
 }
 
 export interface RelatedOffer {

@@ -37,9 +37,10 @@ def _parse_ist_to_utc(scheduled_at):
         return datetime.utcnow()
 
 
-def _build_email_html(body_text, frontend_url=None, offers=None):
+def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='publisher'):
     """Build a branded HTML email with logo and unsubscribe link.
-    If offers list is provided, renders them in a professional table format."""
+    If offers list is provided, renders them in a professional table format.
+    payout_type: 'publisher' (80% of admin) or 'admin' (full amount)"""
     import os
     if not frontend_url:
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
@@ -51,20 +52,17 @@ def _build_email_html(body_text, frontend_url=None, offers=None):
         for o in offers:
             name = o.get('name', 'Unknown Offer')
             offer_id = o.get('offer_id', '')
-            payout = o.get('payout', 0)
-            currency = o.get('currency', 'USD')
+            raw_payout = float(o.get('payout', 0) or 0)
+            # Show publisher payout (80%) unless admin explicitly chose admin payout
+            payout = round(raw_payout * 0.8, 2) if payout_type == 'publisher' else raw_payout
             category = o.get('category', o.get('vertical', ''))
             countries = o.get('countries', o.get('allowed_countries', []))
             country_str = ', '.join(countries[:3]) if countries else 'Global'
             if len(countries) > 3:
                 country_str += f' +{len(countries) - 3}'
-            preview_url = o.get('preview_url', '')
             image_url = o.get('image_url', o.get('thumbnail_url', ''))
-            network = o.get('network', '')
 
             img_cell = f'<img src="{image_url}" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;" onerror="this.style.display=\'none\'" />' if image_url else '<div style="width:36px;height:36px;border-radius:6px;background:#e5e7eb;"></div>'
-
-            preview_link = f'<a href="{preview_url}" style="color:#6366f1;text-decoration:none;font-size:12px;" target="_blank">Preview</a>' if preview_url else ''
 
             rows += f'''<tr style="border-bottom:1px solid #f0f0f0;">
 <td style="padding:10px 8px;font-size:11px;color:#9ca3af;vertical-align:middle;white-space:nowrap;">{offer_id}</td>
@@ -75,7 +73,6 @@ def _build_email_html(body_text, frontend_url=None, offers=None):
 <td style="padding:10px 8px;font-size:14px;color:#059669;font-weight:600;vertical-align:middle;white-space:nowrap;">${payout:.2f}</td>
 <td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{country_str}</td>
 <td style="padding:10px 8px;vertical-align:middle;"><span style="display:inline-block;padding:2px 8px;background:#f3f4f6;border-radius:4px;font-size:11px;color:#374151;">{category}</span></td>
-<td style="padding:10px 8px;vertical-align:middle;">{preview_link}</td>
 </tr>'''
 
         offers_table = f'''
@@ -88,7 +85,6 @@ def _build_email_html(body_text, frontend_url=None, offers=None):
 <th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Payout</th>
 <th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Countries</th>
 <th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Category</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>
 </tr>
 </thead>
 <tbody>{rows}</tbody>
@@ -314,6 +310,40 @@ def get_publisher_profiles_with_requests():
         
         publisher_profiles.sort(key=lambda x: -x['pending_count'])
         
+        # Enrich with mail_sent_today for each publisher
+        try:
+            email_logs_col = db_instance.get_collection('email_activity_logs')
+            if email_logs_col is not None:
+                today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                for profile in publisher_profiles:
+                    uid = profile.get('user_id', '')
+                    if not uid:
+                        profile['mail_sent_today'] = 0
+                        profile['mail_total_sent'] = 0
+                        profile['mail_last_sent'] = None
+                        continue
+                    try:
+                        today_count = email_logs_col.count_documents({
+                            'created_at': {'$gte': today_start},
+                            '$or': [{'user_id': uid}, {'recipient_user_ids': uid}]
+                        })
+                        total_count = email_logs_col.count_documents({
+                            '$or': [{'user_id': uid}, {'recipient_user_ids': uid}]
+                        })
+                        last_doc = email_logs_col.find_one(
+                            {'$or': [{'user_id': uid}, {'recipient_user_ids': uid}]},
+                            sort=[('created_at', -1)]
+                        )
+                        profile['mail_sent_today'] = today_count
+                        profile['mail_total_sent'] = total_count
+                        profile['mail_last_sent'] = last_doc['created_at'].isoformat() + 'Z' if last_doc and last_doc.get('created_at') else None
+                    except Exception:
+                        profile['mail_sent_today'] = 0
+                        profile['mail_total_sent'] = 0
+                        profile['mail_last_sent'] = None
+        except Exception as mail_err:
+            logging.warning(f"Failed to enrich mail stats for offer requests: {mail_err}")
+        
         total = len(publisher_profiles)
         start_idx = (page - 1) * per_page
         paginated_profiles = publisher_profiles[start_idx:start_idx + per_page]
@@ -500,7 +530,7 @@ def send_offers_to_publisher():
 
         # Get offers
         offers = list(offers_collection.find({'offer_id': {'$in': offer_ids}}))
-        offer_list = [{'name': o.get('name'), 'payout': o.get('payout', 0), 'network': o.get('network', ''), 'offer_id': o.get('offer_id')} for o in offers]
+        offer_list = [{'name': o.get('name'), 'payout': round(float(o.get('payout', 0) or 0) * 0.8, 2), 'offer_id': o.get('offer_id')} for o in offers]
 
         if not offer_list and not message_body:
             return jsonify({'error': 'No valid offers found and no message body provided'}), 400
@@ -516,7 +546,6 @@ def send_offers_to_publisher():
                 pass
 
         results = {'sent': 0, 'failed': 0, 'errors': []}
-        offer_lines = [f"• {o['name']} — ${o['payout']}" for o in offer_list]
 
         # Build email subject
         email_subject = subject or ('Recommended Offers for You - Moustache Leads' if template_type == 'recommend' else 'Your Offer Access Update - Moustache Leads')
@@ -526,11 +555,7 @@ def send_offers_to_publisher():
                 return message_body
             return f"""Hi {username},
 
-We've found the following offers that match what you're looking for:
-
-{chr(10).join(offer_lines)}
-
-{custom_message or 'To get started, log in to your publisher dashboard and apply for any of the above offers. Our team is happy to help you set up.'}
+{custom_message or 'We have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.'}
 
 Best regards,
 Publisher Support Team
@@ -551,7 +576,7 @@ Moustache Leads"""
                     email_service = get_email_service()
                     body = build_body('Publisher')
                     html_body = body.replace('\n', '<br>')
-                    html_content = _build_email_html(body, offers=offers)
+                    html_content = _build_email_html(body, offers=offers, payout_type='publisher')
                     
                     logging.info(f"📧 Sending BCC email to {len(all_emails)} recipients")
                     
@@ -2178,9 +2203,9 @@ def schedule_send():
         if not message_body:
             if send_frequency == 'single' and len(offers) == 1:
                 o = offers[0]
-                message_body = f"Offer: {o.get('name', '')}\nPayout: ${o.get('payout', 0)}\nNetwork: {o.get('network', '')}"
+                message_body = f"Offer: {o.get('name', '')}\nPayout: ${round(float(o.get('payout', 0) or 0) * 0.8, 2)}"
             else:
-                lines = [f"• {o.get('name', '')} — ${o.get('payout', 0)}" for o in offers]
+                lines = [f"• {o.get('name', '')} — ${round(float(o.get('payout', 0) or 0) * 0.8, 2)}" for o in offers]
                 message_body = '\n'.join(lines)
 
         import os
@@ -2526,10 +2551,11 @@ def push_mail_v2():
                     if not message_body:
                         import calendar as cal_mod
                         day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                        body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${o.get('payout', 0)}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
+                        pub_payout = round(float(o.get('payout', 0) or 0) * 0.8, 2)
+                        body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${pub_payout}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url, offers=[o])
+                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type='publisher')
                     base_dt = _parse_ist_to_utc(scheduled_at)
                     offset_dt = base_dt + timedelta(minutes=interval_minutes * idx)
                     sched_col.insert_one({
@@ -2600,10 +2626,11 @@ def push_mail_v2():
                     if not message_body:
                         import calendar as cal_mod
                         day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                        body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${o.get('payout', 0)}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
+                        pub_payout = round(float(o.get('payout', 0) or 0) * 0.8, 2)
+                        body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${pub_payout}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url, offers=[o])
+                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type='publisher')
                     # Send in BCC batches
                     for i in range(0, len(emails), 50):
                         batch = emails[i:i + 50]

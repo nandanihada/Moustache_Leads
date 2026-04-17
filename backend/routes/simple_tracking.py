@@ -358,6 +358,22 @@ def track_offer_click(offer_id):
         # Strip any whitespace/newlines from URL (can come from DB copy-paste)
         redirect_url = redirect_url.strip().replace('\n', '').replace('\r', '')
         
+        # 🛡️ SURVEY GATEWAY: Check if this offer has a survey assigned
+        try:
+            from models.survey import Survey
+            survey_model = Survey()
+            survey = survey_model.get_survey_for_offer(offer)
+            if survey:
+                # Store the target URL on the click record so the survey can redirect after
+                clicks_collection.update_one(
+                    {'click_id': click_id},
+                    {'$set': {'target_url': redirect_url, 'survey_id': str(survey.get('_id', ''))}}
+                )
+                logger.info(f"🛡️ Survey gateway active for offer {offer_id}, redirecting to survey")
+                return redirect(f'/survey/{click_id}', code=302)
+        except Exception as survey_err:
+            logger.warning(f"⚠️ Survey gateway check failed (non-critical): {survey_err}")
+        
         # Direct 302 redirect — simple and reliable
         return redirect(redirect_url, code=302)
             

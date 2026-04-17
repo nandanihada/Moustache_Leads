@@ -39,6 +39,7 @@ const AdminSearchLogsContent: React.FC = () => {
   const [dateTo, setDateTo] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [sentTodayFilter, setSentTodayFilter] = useState('');
 
   // Selection & Email
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -126,6 +127,7 @@ const AdminSearchLogsContent: React.FC = () => {
         inventory_status: inventoryFilter === 'all' ? '' : inventoryFilter,
         date_from: dateFrom,
         date_to: dateTo,
+        sent_today: sentTodayFilter === 'all' ? '' : sentTodayFilter,
       };
       const res = await searchLogsApi.getLogs(filters);
       setLogs(res.logs);
@@ -136,7 +138,7 @@ const AdminSearchLogsContent: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [keywordFilter, userFilter, noResultFilter, inventoryFilter, dateFrom, dateTo]);
+  }, [keywordFilter, userFilter, noResultFilter, inventoryFilter, dateFrom, dateTo, sentTodayFilter]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
@@ -250,7 +252,7 @@ const AdminSearchLogsContent: React.FC = () => {
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button variant="outline" onClick={() => window.open('/admin/email-activity-logs?source=search_logs_inventory', '_blank')}>
+          <Button variant="outline" onClick={() => window.open('/admin/email-activity?source=search_logs_inventory', '_blank')}>
             <Eye className="h-4 w-4 mr-2" />
             Sent History
           </Button>
@@ -306,7 +308,7 @@ const AdminSearchLogsContent: React.FC = () => {
         </CardHeader>
         {showFilters && (
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3">
               <Input placeholder="Search keyword..." value={keywordFilter} onChange={e => setKeywordFilter(e.target.value)} />
               <Input placeholder="User / Username..." value={userFilter} onChange={e => setUserFilter(e.target.value)} />
               <Select value={noResultFilter} onValueChange={setNoResultFilter}>
@@ -328,11 +330,19 @@ const AdminSearchLogsContent: React.FC = () => {
               </Select>
               <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} placeholder="From date" />
               <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} placeholder="To date" />
+              <Select value={sentTodayFilter} onValueChange={setSentTodayFilter}>
+                <SelectTrigger><SelectValue placeholder="Mail sent today?" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All (Mail filter)</SelectItem>
+                  <SelectItem value="yes">Sent Today</SelectItem>
+                  <SelectItem value="no">Not Sent Today</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex gap-2 mt-3">
               <Button size="sm" onClick={() => fetchLogs(1)}>Apply Filters</Button>
               <Button size="sm" variant="outline" onClick={() => {
-                setKeywordFilter(''); setUserFilter(''); setNoResultFilter(''); setInventoryFilter(''); setDateFrom(''); setDateTo('');
+                setKeywordFilter(''); setUserFilter(''); setNoResultFilter(''); setInventoryFilter(''); setDateFrom(''); setDateTo(''); setSentTodayFilter('');
               }}>Clear</Button>
             </div>
           </CardContent>
@@ -391,7 +401,19 @@ const AdminSearchLogsContent: React.FC = () => {
                           aria-label={`Select ${log.username}`}
                         />
                       </TableCell>
-                      <TableCell className="font-medium">{log.username || log.user_id}</TableCell>
+                      <TableCell className="font-medium">
+                        <div>{log.username || log.user_id}</div>
+                        {(log as any).mail_sent_today > 0 && (
+                          <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-semibold text-orange-700 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-300 px-1.5 py-0.5 rounded-full">
+                            <Mail className="h-2.5 w-2.5" />{(log as any).mail_sent_today} sent today
+                          </span>
+                        )}
+                        {(log as any).mail_total_sent > 0 && (log as any).mail_sent_today === 0 && (
+                          <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] text-muted-foreground">
+                            {(log as any).mail_total_sent} mail(s) total
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <span className="font-mono text-sm bg-muted px-2 py-1 rounded">{log.keyword}</span>
                       </TableCell>
@@ -602,7 +624,22 @@ const AdminSearchLogsContent: React.FC = () => {
                   No related offers found for this keyword.
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
+                <>
+                  {/* Missing image warning */}
+                  {editingOffers.filter(o => o.selected && !o.image_url).length > 0 && (
+                    <div className="flex items-start gap-2 p-3 mb-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <span className="text-amber-600 mt-0.5 flex-shrink-0">⚠️</span>
+                      <div className="text-sm">
+                        <p className="font-medium text-amber-800 dark:text-amber-200">
+                          {editingOffers.filter(o => o.selected && !o.image_url).length} offer(s) have no image
+                        </p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                          You can paste an image URL below for each offer, or they will show a placeholder in the email.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-1">
                   {editingOffers.map((offer, idx) => (
                     <div key={offer.offer_id} className={`border rounded-lg p-3 ${offer.selected ? 'border-orange-300 bg-orange-50/50 dark:bg-orange-950/30' : 'border-gray-200 opacity-60'}`}>
                       <div className="flex items-start gap-3">
@@ -637,18 +674,23 @@ const AdminSearchLogsContent: React.FC = () => {
                             />
                           </div>
                         </div>
-                        {offer.image_url && (
+                        {offer.image_url ? (
                           <img
                             src={offer.image_url}
                             alt=""
                             className="w-12 h-12 rounded object-cover border"
                             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
+                        ) : (
+                          <div className="w-12 h-12 rounded border-2 border-dashed border-amber-300 bg-amber-50 flex items-center justify-center text-amber-500 text-xs font-medium">
+                            No img
+                          </div>
                         )}
                       </div>
                     </div>
                   ))}
                 </div>
+                </>
               )}
             </div>
           </div>

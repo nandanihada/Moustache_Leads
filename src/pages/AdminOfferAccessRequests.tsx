@@ -75,6 +75,9 @@ export interface PProf {
   pending_count: number;
   latest_offer_name: string;
   latest_offer_id: string;
+  mail_sent_today?: number;
+  mail_total_sent?: number;
+  mail_last_sent?: string | null;
 }
 
 export interface PSt {

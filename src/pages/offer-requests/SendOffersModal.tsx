@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Loader2, Mail, MessageSquare, Bell, Send } from 'lucide-react';
+import { Loader2, Mail, MessageSquare, Bell, Send, AlertTriangle } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import type { PProf, Inv } from '@/pages/AdminOfferAccessRequests';
 
@@ -48,23 +48,12 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
 
-  // Auto-generate message body when selection changes
+  // Auto-generate message body — NO offer lines here (offers rendered in table by backend)
   useEffect(() => {
     if (!publisher) return;
-    const sel = offers.filter(o => selected.has(o.offer_id));
-    const offerLines = sel.map((o, i) => `${i + 1}. ${o.name} — $${o.payout.toFixed(2)}`).join('\n');
-    const body = `Hi ${publisher.first_name || publisher.username},
-
-We've found the following offers that match what you're looking for:
-
-${offerLines}
-
-${customMsg || 'To get started, log in to your publisher dashboard and apply for any of the above offers. Our team is happy to help you set up.'}
-
-Best regards,
-Publisher Support Team
-Moustache Leads`;
-    setMessageBody(body);
+    const name = publisher.first_name || publisher.username;
+    const note = customMsg || 'We have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.';
+    setMessageBody('Hi ' + name + ',\n\n' + note + '\n\nBest regards,\nPublisher Support Team\nMoustache Leads');
   }, [selected, offers, publisher, customMsg]);
 
   const handleSend = async () => {
@@ -89,6 +78,9 @@ Moustache Leads`;
     { key: 'notification', icon: <Bell className="w-3.5 h-3.5" />, label: '+ In-app notification' },
   ];
 
+  // Check for offers without images
+  const offersWithoutImage = offers.filter(o => selected.has(o.offer_id) && !o.image_url && !o.thumbnail_url);
+
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
       <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
@@ -103,6 +95,19 @@ Moustache Leads`;
           <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="space-y-4">
+            {/* Missing image warning */}
+            {offersWithoutImage.length > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="text-sm">
+                  <p className="font-medium text-amber-800 dark:text-amber-200">{offersWithoutImage.length} offer(s) have no image</p>
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                    {offersWithoutImage.map(o => o.name).join(', ')}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Offer list */}
             <div className="space-y-1.5 max-h-48 overflow-y-auto border rounded-lg p-2">
               {offers.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No matching offers found</p>}
@@ -111,7 +116,7 @@ Moustache Leads`;
                   <Checkbox checked={selected.has(o.offer_id)} onCheckedChange={() => toggle(o.offer_id)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{o.name}</p>
-                    <p className="text-xs text-muted-foreground">{o.network} · ${o.payout.toFixed(2)}</p>
+                    <p className="text-xs text-muted-foreground">${o.payout.toFixed(2)}{!o.image_url && !o.thumbnail_url ? ' · ⚠️ No image' : ''}</p>
                   </div>
                   <Badge variant={o.match_strength === 'Strong' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
                     {o.match_strength}
@@ -135,9 +140,9 @@ Moustache Leads`;
 
             {/* Editable message body */}
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Message (editable)</Label>
+              <Label className="text-xs font-medium text-muted-foreground">Message (editable — offers will be shown in a table below this)</Label>
               <Textarea value={messageBody} onChange={e => setMessageBody(e.target.value)}
-                rows={10} className="text-sm font-mono resize-y" />
+                rows={6} className="text-sm resize-y" />
             </div>
 
             {/* Custom note */}

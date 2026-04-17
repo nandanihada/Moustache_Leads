@@ -376,7 +376,7 @@ export default function AdminActivityLogs() {
                     <td className="px-3 py-2.5">
                       <span className="inline-flex items-center gap-1 text-xs text-muted-foreground capitalize">
                         <Tag className="h-3 w-3" />
-                        {log.category.replace("_", " ")}
+                        {(log.category || "").replace("_", " ")}
                       </span>
                     </td>
                     <td className="px-3 py-2.5">

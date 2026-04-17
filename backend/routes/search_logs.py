@@ -122,6 +122,7 @@ def get_search_logs():
         inventory_filter = request.args.get('inventory_status', '')  # 'available', 'in_inventory_not_active', 'not_in_inventory'
         date_from = request.args.get('date_from', '')
         date_to = request.args.get('date_to', '')
+        sent_today_filter = request.args.get('sent_today', '')  # 'yes' or 'no'
 
         collection = db_instance.get_collection('search_logs')
         if collection is None:
@@ -155,6 +156,25 @@ def get_search_logs():
             if date_query:
                 query['searched_at'] = date_query
 
+        # Filter by sent_today: find user_ids who received email today
+        if sent_today_filter in ('yes', 'no'):
+            try:
+                email_logs_col = db_instance.get_collection('email_activity_logs')
+                if email_logs_col is not None:
+                    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                    sent_user_ids = set()
+                    for doc in email_logs_col.find({'created_at': {'$gte': today_start}}, {'recipient_user_ids': 1, 'user_id': 1}):
+                        if doc.get('recipient_user_ids'):
+                            sent_user_ids.update(doc['recipient_user_ids'])
+                        if doc.get('user_id'):
+                            sent_user_ids.add(doc['user_id'])
+                    if sent_today_filter == 'yes':
+                        query['user_id'] = {'$in': list(sent_user_ids)} if sent_user_ids else {'$in': []}
+                    else:
+                        query['user_id'] = {'$nin': list(sent_user_ids)}
+            except Exception as e:
+                logger.warning(f"sent_today filter failed: {e}")
+
         total = collection.count_documents(query)
         logger.info(f"Search logs query: {query}, total: {total}")
         logs = list(
@@ -169,6 +189,43 @@ def get_search_logs():
             log['_id'] = str(log['_id'])
             if isinstance(log.get('searched_at'), datetime):
                 log['searched_at'] = log['searched_at'].isoformat() + 'Z'
+
+        # Enrich with mail_sent_today for each user
+        try:
+            email_logs_col = db_instance.get_collection('email_activity_logs')
+            if email_logs_col is not None:
+                today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                user_ids_in_page = list(set(l.get('user_id', '') for l in logs if l.get('user_id')))
+                if user_ids_in_page:
+                    # Simple count: find all email logs mentioning these user_ids
+                    for log in logs:
+                        uid = log.get('user_id', '')
+                        if not uid:
+                            log['mail_sent_today'] = 0
+                            log['mail_total_sent'] = 0
+                            log['mail_last_sent'] = None
+                            continue
+                        try:
+                            today_count = email_logs_col.count_documents({
+                                'created_at': {'$gte': today_start},
+                                '$or': [{'user_id': uid}, {'recipient_user_ids': uid}]
+                            })
+                            total_count = email_logs_col.count_documents({
+                                '$or': [{'user_id': uid}, {'recipient_user_ids': uid}]
+                            })
+                            last_doc = email_logs_col.find_one(
+                                {'$or': [{'user_id': uid}, {'recipient_user_ids': uid}]},
+                                sort=[('created_at', -1)]
+                            )
+                            log['mail_sent_today'] = today_count
+                            log['mail_total_sent'] = total_count
+                            log['mail_last_sent'] = last_doc['created_at'].isoformat() + 'Z' if last_doc and last_doc.get('created_at') else None
+                        except Exception:
+                            log['mail_sent_today'] = 0
+                            log['mail_total_sent'] = 0
+                            log['mail_last_sent'] = None
+        except Exception as mail_err:
+            logger.warning(f"Failed to enrich mail stats: {mail_err}")
 
         # Aggregate stats
         stats = {
@@ -510,41 +567,42 @@ def send_inventory_email():
         frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
         subject = custom_subject or f'🔥 Offers matching "{keyword}" are available for you!'
 
-        # Build offer rows HTML - single column, clean card layout
+        # Build offer rows HTML - tabular format matching the screenshot layout
         offer_rows_html = ''
         for idx, offer in enumerate(offers_to_send[:8]):
             img = offer.get('image_url', '')
             name = offer.get('name', 'Offer')
-            payout = offer.get('payout', 0)
+            raw_payout = float(offer.get('payout', 0) or 0)
+            payout = round(raw_payout * 0.8, 2)  # Publisher payout (80%)
             offer_id = offer.get('offer_id', '')
+            category = offer.get('category', offer.get('vertical', ''))
+            countries = offer.get('countries', offer.get('allowed_countries', []))
+            country_str = ', '.join(countries[:3]) if countries else 'Global'
+            if len(countries) > 3:
+                country_str += f' +{len(countries) - 3}'
 
-            img_cell = f'''<td style="width:80px;vertical-align:middle;padding-right:15px;">
-                <img src="{img}" alt="" style="width:70px;height:70px;object-fit:cover;border-radius:10px;display:block;" />
-            </td>''' if img else f'''<td style="width:80px;vertical-align:middle;padding-right:15px;">
-                <div style="width:70px;height:70px;background:linear-gradient(135deg,#f97316,#ea580c);border-radius:10px;display:flex;align-items:center;justify-content:center;">
-                    <span style="font-size:28px;">📋</span>
-                </div>
-            </td>'''
+            img_cell = f'<img src="{img}" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;" onerror="this.style.display=\'none\'" />' if img else '<div style="width:36px;height:36px;border-radius:6px;background:#e5e7eb;"></div>'
 
-            border_top = 'border-top:1px solid #f3f4f6;' if idx > 0 else ''
+            offer_rows_html += f'''<tr style="border-bottom:1px solid #f0f0f0;">
+<td style="padding:10px 8px;font-size:11px;color:#9ca3af;vertical-align:middle;white-space:nowrap;">{offer_id}</td>
+<td style="padding:10px 4px;vertical-align:middle;">{img_cell}</td>
+<td style="padding:10px 8px;vertical-align:middle;"><div style="font-size:13px;color:#111;font-weight:500;">{name}</div></td>
+<td style="padding:10px 8px;font-size:14px;color:#059669;font-weight:600;vertical-align:middle;white-space:nowrap;">${payout:.2f}</td>
+<td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{country_str}</td>
+<td style="padding:10px 8px;vertical-align:middle;"><span style="display:inline-block;padding:2px 8px;background:#f3f4f6;border-radius:4px;font-size:11px;color:#374151;">{category}</span></td>
+</tr>'''
 
-            offer_rows_html += f'''
-            <tr>
-                <td style="padding:16px 0;{border_top}">
-                    <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                        <tr>
-                            {img_cell}
-                            <td style="vertical-align:middle;">
-                                <div style="font-weight:600;font-size:15px;color:#1f2937;margin-bottom:6px;">{name}</div>
-                                <div style="display:inline-block;background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;">${payout:.2f}</div>
-                            </td>
-                            <td style="width:100px;vertical-align:middle;text-align:right;">
-                                <a href="{frontend_url}/publisher/signin" style="display:inline-block;background:#f97316;color:#ffffff;padding:10px 18px;border-radius:8px;text-decoration:none;font-size:12px;font-weight:700;letter-spacing:0.3px;">View →</a>
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>'''
+        offers_table = f'''<table style="width:100%;border-collapse:collapse;margin:16px 0;">
+<thead><tr style="border-bottom:2px solid #e5e7eb;">
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">ID</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Offer</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Payout</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Countries</th>
+<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Category</th>
+</tr></thead>
+<tbody>{offer_rows_html}</tbody>
+</table>'''
 
         message_section = ''
         if custom_message:
@@ -558,8 +616,7 @@ def send_inventory_email():
 <body style="margin:0;padding:0;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background-color:#f8fafc;">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;padding:30px 0;">
 <tr><td align="center">
-<table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-    <!-- Header with Logo -->
+<table width="700" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
     <tr>
         <td style="background:linear-gradient(135deg,#f97316 0%,#ea580c 50%,#dc2626 100%);padding:35px 30px;text-align:center;">
             <img src="https://moustacheleads.com/logo.png" alt="MoustacheLeads" style="height:50px;margin-bottom:12px;display:inline-block;" />
@@ -567,39 +624,22 @@ def send_inventory_email():
             <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;">Hey {username}! We found offers for you 🎯</p>
         </td>
     </tr>
-    <!-- Intro Text -->
-    <tr>
-        <td style="padding:25px 30px 5px;">
-            <p style="margin:0;font-size:15px;color:#374151;line-height:1.6;">We've handpicked some top-performing offers just for you. Check them out and start earning!</p>
-        </td>
-    </tr>
-    <!-- Custom Message -->
     {message_section}
-    <!-- Offers List -->
     <tr>
-        <td style="padding:15px 30px 5px;">
-            <h2 style="margin:0 0 5px;font-size:17px;color:#1f2937;font-weight:700;">📦 {len(offers_to_send)} Offers Available</h2>
-            <p style="margin:0 0 15px;font-size:13px;color:#6b7280;">These offers are ready for you to promote. Start earning today!</p>
-            <table width="100%" cellpadding="0" cellspacing="0" border="0">
-                {offer_rows_html}
-            </table>
+        <td style="padding:20px 30px 5px;">
+            {offers_table}
         </td>
     </tr>
-    <!-- CTA Button -->
     <tr>
         <td style="padding:20px 30px 30px;text-align:center;">
             <a href="{frontend_url}/publisher/signin" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;padding:16px 50px;text-decoration:none;border-radius:50px;font-weight:800;font-size:15px;letter-spacing:0.5px;box-shadow:0 4px 15px rgba(249,115,22,0.4);">BROWSE ALL OFFERS →</a>
         </td>
     </tr>
-    <!-- Divider -->
     <tr><td style="padding:0 30px;"><div style="border-top:1px solid #e5e7eb;"></div></td></tr>
-    <!-- Footer -->
     <tr>
         <td style="padding:25px 30px;text-align:center;">
             <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">Thanks for being part of the MoustacheLeads network!</p>
-            <p style="margin:0 0 15px;color:#1f2937;font-size:14px;font-weight:600;">Keep pushing! 🚀</p>
             <p style="margin:0;color:#9ca3af;font-size:11px;">© {datetime.utcnow().year} MoustacheLeads. All rights reserved.</p>
-            <p style="margin:5px 0 0;color:#9ca3af;font-size:11px;">You received this because you're a registered publisher on MoustacheLeads.</p>
         </td>
     </tr>
 </table>

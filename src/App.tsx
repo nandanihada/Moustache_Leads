@@ -62,6 +62,7 @@ import AdminActivityLogs from "./pages/AdminActivityLogs";
 import AdminReportsTracking from "./pages/AdminReportsTracking";
 import AdminReactivation from "./pages/AdminReactivation";
 import AdminReferrals from "./pages/AdminReferrals";
+import AdminSurveyGateway from "./pages/AdminSurveyGateway";
 import Referrals from "./pages/Referrals";
 import AdminPayments from "./pages/AdminPayments";
 import Invoice from "./pages/Invoice";
@@ -189,6 +190,7 @@ const App = () => (
                 <Route path="reactivation" element={<AdminReactivation />} />
                 <Route path="referrals" element={<AdminReferrals />} />
                 <Route path="payments" element={<AdminPayments />} />
+                <Route path="survey-gateway" element={<AdminSurveyGateway />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}
