@@ -814,7 +814,7 @@ def generate_multi_offer_email_html(template, offers, partner_name, custom_messa
             <div style="display:flex;gap:20px;">
             <div>
             <span style="color:#888;font-size:11px;text-transform:uppercase;">Payout</span>
-            <p style="color:#22c55e;font-size:20px;font-weight:800;margin:2px 0 0 0;">${offer.get('payout', 0):.2f}</p>
+            <p style="color:#22c55e;font-size:20px;font-weight:800;margin:2px 0 0 0;">${round(float(offer.get('payout', 0) or 0) * 0.8, 2):.2f}</p>
             </div>
             <div style="margin-left:20px;">
             <span style="color:#888;font-size:11px;text-transform:uppercase;">{template['highlight_label']}</span>

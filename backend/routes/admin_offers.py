@@ -3955,3 +3955,123 @@ def cleanup_rotation_orphans():
     except Exception as e:
         logging.error(f"Rotation orphan cleanup error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ==================== RECOMMENDED OFFERS (GRANTS) ====================
+
+@admin_offers_bp.route('/offers/recommended', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_recommended_offers():
+    """Get all offers that have been recommended/granted to users.
+    Groups by offer_id, shows which users have grants, click status, expiry, etc."""
+    try:
+        from models.offer_grant import OfferGrant
+        from bson import ObjectId
+
+        grant_model = OfferGrant()
+        if grant_model.collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 25))
+        status_filter = request.args.get('status', '')  # 'active', 'expired', 'clicked', ''
+
+        # Get all grants grouped by offer_id
+        pipeline = [
+            {'$sort': {'granted_at': -1}},
+        ]
+        if status_filter == 'active':
+            pipeline.insert(0, {'$match': {'is_active': True, 'clicked': False, 'expires_at': {'$gt': datetime.utcnow()}}})
+        elif status_filter == 'expired':
+            pipeline.insert(0, {'$match': {'$or': [{'is_active': False}, {'expires_at': {'$lte': datetime.utcnow()}, 'clicked': False}]}})
+        elif status_filter == 'clicked':
+            pipeline.insert(0, {'$match': {'clicked': True}})
+
+        pipeline.extend([
+            {'$group': {
+                '_id': '$offer_id',
+                'total_grants': {'$sum': 1},
+                'active_grants': {'$sum': {'$cond': [{'$and': [{'$eq': ['$is_active', True]}, {'$or': [{'$eq': ['$clicked', True]}, {'$gt': ['$expires_at', datetime.utcnow()]}]}]}, 1, 0]}},
+                'clicked_count': {'$sum': {'$cond': ['$clicked', 1, 0]}},
+                'expired_count': {'$sum': {'$cond': [{'$and': [{'$eq': ['$is_active', False]}]}, 1, 0]}},
+                'first_granted': {'$min': '$granted_at'},
+                'last_granted': {'$max': '$granted_at'},
+                'grants': {'$push': {
+                    'user_id': '$user_id',
+                    'granted_at': '$granted_at',
+                    'expires_at': '$expires_at',
+                    'clicked': '$clicked',
+                    'click_date': '$click_date',
+                    'source': '$source',
+                    'granted_by': '$granted_by',
+                    'is_active': '$is_active',
+                }},
+            }},
+            {'$sort': {'last_granted': -1}},
+        ])
+
+        all_results = list(grant_model.collection.aggregate(pipeline))
+        total = len(all_results)
+        paginated = all_results[(page - 1) * per_page: page * per_page]
+
+        # Enrich with offer details and user names
+        offers_col = db_instance.get_collection('offers')
+        users_col = db_instance.get_collection('users')
+
+        enriched = []
+        for item in paginated:
+            offer_id = item['_id']
+            offer = offers_col.find_one({'offer_id': offer_id}, {
+                'offer_id': 1, 'name': 1, 'payout': 1, 'status': 1, 'network': 1,
+                'category': 1, 'vertical': 1, 'image_url': 1, 'countries': 1,
+                'hits': 1, 'created_at': 1,
+            }) if offers_col is not None else None
+
+            # Enrich grant user names
+            for g in item.get('grants', []):
+                uid = g.get('user_id', '')
+                if uid and users_col is not None:
+                    try:
+                        u = users_col.find_one({'_id': ObjectId(uid)}, {'username': 1, 'email': 1})
+                        g['username'] = u.get('username', '') if u else ''
+                        g['email'] = u.get('email', '') if u else ''
+                    except Exception:
+                        g['username'] = uid
+                        g['email'] = ''
+                # Convert datetimes to IST strings
+                for dt_field in ['granted_at', 'expires_at', 'click_date']:
+                    if g.get(dt_field) and isinstance(g[dt_field], datetime):
+                        g[dt_field] = g[dt_field].isoformat() + 'Z'
+
+            enriched.append({
+                'offer_id': offer_id,
+                'offer_name': offer.get('name', 'Unknown') if offer else 'Unknown',
+                'offer_payout': offer.get('payout', 0) if offer else 0,
+                'offer_status': offer.get('status', '') if offer else '',
+                'offer_network': offer.get('network', '') if offer else '',
+                'offer_category': (offer.get('category') or offer.get('vertical', '')) if offer else '',
+                'offer_image': offer.get('image_url', '') if offer else '',
+                'offer_countries': offer.get('countries', []) if offer else [],
+                'offer_clicks': offer.get('hits', 0) if offer else 0,
+                'total_grants': item['total_grants'],
+                'active_grants': item['active_grants'],
+                'clicked_count': item['clicked_count'],
+                'expired_count': item['expired_count'],
+                'first_granted': item['first_granted'].isoformat() + 'Z' if item.get('first_granted') else None,
+                'last_granted': item['last_granted'].isoformat() + 'Z' if item.get('last_granted') else None,
+                'grants': item.get('grants', []),
+            })
+
+        return jsonify({
+            'success': True,
+            'offers': enriched,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'pages': max(1, (total + per_page - 1) // per_page),
+        })
+
+    except Exception as e:
+        logging.error(f"Get recommended offers error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

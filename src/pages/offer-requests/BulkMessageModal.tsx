@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Loader2, Mail, MessageSquare, X, Plus } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import type { PProf } from '@/pages/AdminOfferAccessRequests';
 
 interface Props {
@@ -24,6 +25,7 @@ export default function BulkMessageModal({ open, onClose, publishers, defaultMod
   const [customEmails, setCustomEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const token = localStorage.getItem('token');
 
   const addEmail = () => {
@@ -54,6 +56,10 @@ export default function BulkMessageModal({ open, onClose, publishers, defaultMod
           message_body: message,
           subject: subject,
           custom_message: '',
+          template_style: emailSettings.templateStyle,
+          visible_fields: emailSettings.visibleFields,
+          default_image: emailSettings.defaultImage,
+          payout_type: emailSettings.payoutType,
         }),
       });
       const d = await res.json();
@@ -114,6 +120,8 @@ export default function BulkMessageModal({ open, onClose, publishers, defaultMod
               </div>
             </div>
           )}
+
+          <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
 
           {/* Subject (email only) */}
           {mode === 'email' && (

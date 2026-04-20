@@ -123,7 +123,8 @@ export const offerInsightsApi = {
     offers: InsightOffer | InsightOffer[],
     partnerIds: string[],
     customMessage: string = '',
-    scheduledAt?: string
+    scheduledAt?: string,
+    emailSettings?: { template_style?: string; visible_fields?: string[]; default_image?: string; payout_type?: string }
   ) {
     const offersArray = Array.isArray(offers) ? offers : [offers];
     const response = await fetch(`${API_BASE_URL}/api/admin/insights/send-email`, {
@@ -134,7 +135,8 @@ export const offerInsightsApi = {
         offers: offersArray,
         partner_ids: partnerIds,
         custom_message: customMessage,
-        scheduled_at: scheduledAt
+        scheduled_at: scheduledAt,
+        ...(emailSettings || {}),
       })
     });
     if (!response.ok) throw new Error('Failed to send emails');

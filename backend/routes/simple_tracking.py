@@ -292,6 +292,14 @@ def track_offer_click(offer_id):
                 clicks_collection.insert_one(click_data)
                 logger.info(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
                 
+                # Mark offer grant as clicked (if this user has a grant for this offer)
+                try:
+                    from models.offer_grant import OfferGrant
+                    if user_id:
+                        OfferGrant().mark_clicked(str(user_id), offer_id)
+                except Exception:
+                    pass
+                
                 # Update last_click_date on the offer (rolling 30-day inactivity window)
                 try:
                     offers_collection.update_one(

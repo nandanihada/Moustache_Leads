@@ -34,6 +34,7 @@ import {
   Mail, Send, Eye, Users, Search, RefreshCw, Clock, Settings2, Layers, Timer
 } from 'lucide-react';
 import { offerInsightsApi, Partner } from '@/services/offerInsightsApi';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 interface InsightEmailCampaignProps {
   open: boolean;
@@ -61,6 +62,7 @@ const InsightEmailCampaign = ({
   // Email fields
   const [subject, setSubject] = useState(defaultSubject);
   const [content, setContent] = useState(defaultContent);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
 
   // Batch config
   const [numBatches, setNumBatches] = useState(1);
@@ -199,6 +201,10 @@ const InsightEmailCampaign = ({
         source_card: sourceCard,
         offer_ids: offerIds,
         offer_names: offerNames,
+        template_style: emailSettings.templateStyle,
+        visible_fields: emailSettings.visibleFields,
+        default_image: emailSettings.defaultImage,
+        payout_type: emailSettings.payoutType,
       });
 
       if (res.scheduled) {
@@ -250,6 +256,9 @@ const InsightEmailCampaign = ({
                 rows={6}
               />
             </div>
+
+            {/* Email Template Settings */}
+            <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
 
             {/* Batch & Schedule Row */}
             <div className="grid grid-cols-3 gap-4">

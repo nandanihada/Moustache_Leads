@@ -154,6 +154,10 @@ export const searchLogsApi = {
     offers: Array<{ offer_id: string; name: string; image_url?: string; target_url?: string; payout: number }>;
     subject?: string;
     message?: string;
+    template_style?: string;
+    visible_fields?: string[];
+    default_image?: string;
+    payout_type?: string;
   }): Promise<{ success: boolean; message: string }> {
     const res = await fetch(`${API}/api/admin/search-logs/send-inventory-email`, {
       method: 'POST',

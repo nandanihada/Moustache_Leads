@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+﻿import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { Loader2, Calendar, Send, MessageSquare, Plus, X, Search, Users, ChevronDown, ChevronUp } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { adminOfferApi } from '@/services/adminOfferApi';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 interface OfferDetail {
   offer_id: string;
@@ -37,13 +38,14 @@ interface SendScheduleModalProps {
 
 export default function SendScheduleModal({ open, onClose, offerIds, defaultMode, sourceTab, onSuccess }: SendScheduleModalProps) {
   const [mode, setMode] = useState<'schedule' | 'send_now' | 'support'>(defaultMode);
-  const [subject, setSubject] = useState('🚀 Hot Offers You Should Check Out!');
+  const [subject, setSubject] = useState('ðŸš€ Hot Offers You Should Check Out!');
   const [messageBody, setMessageBody] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
   const [sendFrequency, setSendFrequency] = useState<'single' | 'multiple'>(offerIds.length === 1 ? 'single' : 'multiple');
   const [customEmails, setCustomEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const [offers, setOffers] = useState<OfferDetail[]>([]);
   const token = localStorage.getItem('token');
 
@@ -91,23 +93,9 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
   // Auto-generate message based on sendFrequency
   useEffect(() => {
     if (offers.length === 0 || offers[0].name === offers[0].offer_id) return;
-    if (sendFrequency === 'single') {
-      const o = offers[0];
-      setMessageBody([
-        'Hi,', '', 'We have a great offer for you:', '',
-        `📋 ${o.name}`, `💰 Amount: $${o.payout.toFixed(2)}`,
-        `📂 Category: ${o.category || 'N/A'}`, `🚦 Traffic Source: ${o.traffic_source || 'All'}`,
-        `🔍 Preview: ${o.preview_link || 'Not available'}`, '',
-        o.description || 'Check out this offer on your dashboard.', '',
-        'Log in to your dashboard to get started.', '', 'Best regards,', 'Moustache Leads Team',
-      ].join('\n'));
-    } else {
-      const lines = offers.map(o => `• ${o.name} — $${o.payout.toFixed(2)}`).join('\n');
-      setMessageBody([
-        'Hi,', '', 'Check out these offers:', '', lines, '',
-        'Log in to your dashboard to get started.', '', 'Best regards,', 'Moustache Leads Team',
-      ].join('\n'));
-    }
+    setMessageBody([
+      'Hi,', '', 'Check out these offers below.', '', 'Best regards,', 'Moustache Leads Team',
+    ].join('\n'));
   }, [offers, sendFrequency]);
 
   const filteredPubs = useMemo(() => {
@@ -153,6 +141,10 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
             offer_ids: offerIds, send_type: 'support',
             source_tab: sourceTab, message_template: { subject, body: messageBody },
             recipient_ids: recipientIds,
+            template_style: emailSettings.templateStyle,
+            visible_fields: emailSettings.visibleFields,
+            default_image: emailSettings.defaultImage,
+            payout_type: emailSettings.payoutType,
           }),
         });
         const d = await res.json(); if (!res.ok) throw new Error(d.error);
@@ -165,6 +157,10 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
             offer_ids: offerIds, recipient_ids: recipientIds, custom_emails: finalCustomEmails,
             scheduled_at: scheduledAt || undefined, send_type: mode,
             send_frequency: sendFrequency, message_body: messageBody, subject, source_tab: sourceTab,
+            template_style: emailSettings.templateStyle,
+            visible_fields: emailSettings.visibleFields,
+            default_image: emailSettings.defaultImage,
+            payout_type: emailSettings.payoutType,
           }),
         });
         const d = await res.json(); if (!res.ok) throw new Error(d.error);
@@ -244,10 +240,11 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
             {customEmails.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{customEmails.map(e => (<Badge key={e} variant="outline" className="text-xs gap-1">{e}<button onClick={() => setCustomEmails(prev => prev.filter(x => x !== e))} className="hover:text-destructive"><X className="w-3 h-3" /></button></Badge>))}</div>}
           </div>
           <div><Label className="text-xs">Subject</Label><Input value={subject} onChange={e => setSubject(e.target.value)} className="mt-1" /></div>
+          <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
           <div><Label className="text-xs">Message Preview</Label><Textarea value={messageBody} onChange={e => setMessageBody(e.target.value)} rows={10} className="mt-1 text-sm font-mono resize-y" /></div>
         </div>
         <DialogFooter className="flex items-center justify-between sm:justify-between">
-          <span className="text-xs text-muted-foreground">{offerIds.length} offer{offerIds.length !== 1 ? 's' : ''}{selectedPublishers.size > 0 && ` · ${selectedPublishers.size} publisher${selectedPublishers.size !== 1 ? 's' : ''}`}</span>
+          <span className="text-xs text-muted-foreground">{offerIds.length} offer{offerIds.length !== 1 ? 's' : ''}{selectedPublishers.size > 0 && ` Â· ${selectedPublishers.size} publisher${selectedPublishers.size !== 1 ? 's' : ''}`}</span>
           <Button onClick={handleSend} disabled={sending} className="gap-1.5">
             {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : mode === 'schedule' ? <Calendar className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
             {mode === 'schedule' ? 'Schedule' : mode === 'support' ? 'Send Support' : 'Send Now'}

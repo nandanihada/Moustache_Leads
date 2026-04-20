@@ -135,7 +135,11 @@ export default function OfferCard({ item, tab, isSelected, onToggleSelect, onCol
           {/* Row 1: Name + badges */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-sm truncate max-w-[280px]">{item.offer_name}</span>
-            {item.offer_network && <Badge variant="outline" className="text-[10px] px-1.5 py-0">{item.offer_network}</Badge>}
+            {item.offer_status === 'active' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">🟢 Active</Badge>}
+            {item.offer_status === 'inactive' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-gray-50 text-gray-600 border-gray-200">⚫ Inactive</Badge>}
+            {item.offer_status === 'running' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200">🏃 Running</Badge>}
+            {item.offer_status === 'paused' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-yellow-50 text-yellow-700 border-yellow-200">⏸ Paused</Badge>}
+            {item.offer_status === 'hidden' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">👁 Hidden</Badge>}
             {isHealthy && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-200"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}
             {isUnhealthy && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-600 border-red-200"><AlertCircle className="w-2.5 h-2.5 mr-0.5" />{health!.failures.length} issues</Badge>}
             {(item.request_count || 0) > 1 && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-purple-50 text-purple-700 border-purple-200">{item.request_count}x</Badge>}

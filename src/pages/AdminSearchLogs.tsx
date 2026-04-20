@@ -22,6 +22,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer } from '@/services/searchLogsApi';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 const AdminSearchLogsContent: React.FC = () => {
   const { toast } = useToast();
@@ -59,6 +60,8 @@ const AdminSearchLogsContent: React.FC = () => {
   const [inventoryMessage, setInventoryMessage] = useState('');
   const [inventorySending, setInventorySending] = useState(false);
   const [editingOffers, setEditingOffers] = useState<Array<{ offer_id: string; name: string; image_url: string; target_url: string; payout: number; selected: boolean }>>([]);
+  const [inventoryEmailSettings, setInventoryEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
+  const [generalEmailSettings, setGeneralEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
 
   const openInventoryEmail = async (log: SearchLog) => {
     setInventoryEmailLog(log);
@@ -101,6 +104,10 @@ const AdminSearchLogsContent: React.FC = () => {
         offers: selected.map(o => ({ offer_id: o.offer_id, name: o.name, image_url: o.image_url, target_url: o.target_url, payout: o.payout })),
         subject: inventorySubject,
         message: inventoryMessage,
+        template_style: inventoryEmailSettings.templateStyle,
+        visible_fields: inventoryEmailSettings.visibleFields,
+        default_image: inventoryEmailSettings.defaultImage,
+        payout_type: inventoryEmailSettings.payoutType,
       });
       toast({ title: 'Sent', description: res.message });
       setInventoryEmailOpen(false);
@@ -178,8 +185,8 @@ const AdminSearchLogsContent: React.FC = () => {
     setSending(true);
     try {
       const data: any = sendToAll
-        ? { subject: emailSubject, message: emailMessage, send_to_all: true }
-        : { user_ids: Array.from(selectedIds), subject: emailSubject, message: emailMessage };
+        ? { subject: emailSubject, message: emailMessage, send_to_all: true, template_style: generalEmailSettings.templateStyle, visible_fields: generalEmailSettings.visibleFields, default_image: generalEmailSettings.defaultImage, payout_type: generalEmailSettings.payoutType }
+        : { user_ids: Array.from(selectedIds), subject: emailSubject, message: emailMessage, template_style: generalEmailSettings.templateStyle, visible_fields: generalEmailSettings.visibleFields, default_image: generalEmailSettings.defaultImage, payout_type: generalEmailSettings.payoutType };
       if (parsedCustom.length > 0) data.custom_emails = parsedCustom;
       const res = await searchLogsApi.sendEmail(data);
       toast({ title: 'Emails Sent', description: `${res.sent} sent, ${res.failed} failed` });
@@ -545,6 +552,7 @@ const AdminSearchLogsContent: React.FC = () => {
                 rows={6}
               />
             </div>
+            <EmailSettingsPanel settings={generalEmailSettings} onChange={setGeneralEmailSettings} compact />
             <div>
               <label className="text-sm font-medium mb-1 block">Custom Emails (optional)</label>
               <Textarea
@@ -614,6 +622,11 @@ const AdminSearchLogsContent: React.FC = () => {
                 </Button>
               </div>
 
+              {/* Email template settings */}
+              <div className="mb-3">
+                <EmailSettingsPanel settings={inventoryEmailSettings} onChange={setInventoryEmailSettings} compact />
+              </div>
+
               {relatedLoading ? (
                 <div className="text-center py-6">
                   <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
@@ -652,6 +665,11 @@ const AdminSearchLogsContent: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-mono text-muted-foreground">{offer.offer_id}</span>
                             <Badge variant="outline" className="text-xs">${offer.payout.toFixed(2)}</Badge>
+                            {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.visibility === 'active' && <span className="text-[9px] px-1 py-0 rounded-full bg-green-100 text-green-700">🟢 Active</span>}
+                            {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.visibility === 'running' && <span className="text-[9px] px-1 py-0 rounded-full bg-emerald-100 text-emerald-700">🏃 Running</span>}
+                            {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.visibility === 'rotating' && <span className="text-[9px] px-1 py-0 rounded-full bg-blue-100 text-blue-700">🔄 Rotating</span>}
+                            {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.visibility === 'inactive' && <span className="text-[9px] px-1 py-0 rounded-full bg-gray-100 text-gray-600">⚫ Inactive</span>}
+                            {((relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.grant_count || 0) > 0 && <span className="text-[9px] px-1 py-0 rounded-full bg-orange-100 text-orange-700">🎯 {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.grant_count}</span>}
                           </div>
                           <Input
                             value={offer.name}

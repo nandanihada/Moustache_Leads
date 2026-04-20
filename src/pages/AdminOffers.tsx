@@ -40,6 +40,7 @@ import {
   Zap,
   FileSpreadsheet,
   Check,
+  Gift,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -65,6 +66,7 @@ import { OfferDetailsModal } from '@/components/OfferDetailsModal';
 import { BulkOfferUpload } from '@/components/BulkOfferUpload';
 import { ApiImportModal } from '@/components/ApiImportModal';
 import { adminOfferApi, Offer, RunningOffer, RotationStatus } from '@/services/adminOfferApi';
+import { API_BASE_URL } from '@/services/apiConfig';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -84,7 +86,7 @@ const AdminOffers = () => {
   const [recycleBinSearchTerm, setRecycleBinSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [activeTab, setActiveTab] = useState('offers');
-  const [offersSubView, setOffersSubView] = useState<'all' | 'running' | 'rotating'>('all');
+  const [offersSubView, setOffersSubView] = useState<'all' | 'running' | 'rotating' | 'recommended'>('all');
   const [addOfferModalOpen, setAddOfferModalOpen] = useState(false);
   const [editOfferModalOpen, setEditOfferModalOpen] = useState(false);
   const [linkMaskingModalOpen, setLinkMaskingModalOpen] = useState(false);
@@ -180,6 +182,14 @@ const AdminOffers = () => {
   const [rotatingLoading, setRotatingLoading] = useState(false);
   const [rotatingPagination, setRotatingPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
   const [selectedRotatingOffers, setSelectedRotatingOffers] = useState<Set<string>>(new Set());
+
+  // Recommended offers state
+  const [recommendedOffers, setRecommendedOffers] = useState<any[]>([]);
+  const [recommendedLoading, setRecommendedLoading] = useState(false);
+  const [recommendedTotal, setRecommendedTotal] = useState(0);
+  const [recommendedPage, setRecommendedPage] = useState(1);
+  const [expandedRecommended, setExpandedRecommended] = useState<string | null>(null);
+
   // Category definitions for multi-select filter
   const CATEGORIES = [
     { id: 'all', name: 'All', icon: '🎯' },
@@ -471,6 +481,25 @@ const AdminOffers = () => {
       toast({ title: "Error", description: "Failed to load rotating offers", variant: "destructive" });
     } finally {
       setRotatingLoading(false);
+    }
+  };
+
+  const fetchRecommendedOffers = async (page = 1) => {
+    setRecommendedLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE_URL}/api/admin/offers/recommended?page=${page}&per_page=25`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRecommendedOffers(data.offers || []);
+        setRecommendedTotal(data.total || 0);
+      }
+    } catch {
+      toast({ title: "Error", description: "Failed to load recommended offers", variant: "destructive" });
+    } finally {
+      setRecommendedLoading(false);
     }
   };
 
@@ -1600,6 +1629,13 @@ const AdminOffers = () => {
     }
   }, [offersSubView, rotatingPagination.page, rotatingPagination.per_page]);
 
+  // Fetch recommended offers when sub-view changes
+  useEffect(() => {
+    if (offersSubView === 'recommended') {
+      fetchRecommendedOffers(recommendedPage);
+    }
+  }, [offersSubView]);
+
   // Pre-fetch running offers count for the dropdown
   useEffect(() => {
     const fetchRunningCount = async () => {
@@ -1921,7 +1957,7 @@ const AdminOffers = () => {
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="offers" className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
-              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : `Active Offers (${pagination.total})`}
+              {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : offersSubView === 'rotating' ? `Rotating Offers (${rotatingPagination.total})` : offersSubView === 'recommended' ? `Recommended (${recommendedTotal})` : `Active Offers (${pagination.total})`}
             </TabsTrigger>
             <TabsTrigger value="recycle-bin" className="flex items-center gap-2">
               <Trash2 className="h-4 w-4" />
@@ -1937,7 +1973,7 @@ const AdminOffers = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="flex items-center gap-1.5 h-9">
                   <Activity className="h-4 w-4" />
-                  {offersSubView === 'all' ? 'All Offers' : offersSubView === 'running' ? 'Running Offers' : 'Rotating Offers'}
+                  {offersSubView === 'all' ? 'All Offers' : offersSubView === 'running' ? 'Running Offers' : offersSubView === 'rotating' ? 'Rotating Offers' : 'Recommended'}
                   <ChevronDown className="h-3.5 w-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1953,6 +1989,10 @@ const AdminOffers = () => {
                 <DropdownMenuItem onClick={() => { setOffersSubView('rotating'); fetchRotatingOffers(1); }} className={offersSubView === 'rotating' ? 'bg-accent' : ''}>
                   <RotateCcw className="h-4 w-4 mr-2 text-blue-500" />
                   Rotating Offers ({rotatingPagination.total})
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setOffersSubView('recommended'); fetchRecommendedOffers(1); }} className={offersSubView === 'recommended' ? 'bg-accent' : ''}>
+                  <Gift className="h-4 w-4 mr-2 text-orange-500" />
+                  Recommended ({recommendedTotal})
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -2403,6 +2443,122 @@ const AdminOffers = () => {
                   <Button size="sm" variant="outline" disabled={rotatingPagination.page <= 1} onClick={() => setRotatingPagination(p => ({ ...p, page: p.page - 1 }))}>Previous</Button>
                   <Button size="sm" variant="outline" disabled={rotatingPagination.page >= rotatingPagination.pages} onClick={() => setRotatingPagination(p => ({ ...p, page: p.page + 1 }))}>Next</Button>
                 </div>
+              </div>
+            )}
+          </div>
+          ) : offersSubView === 'recommended' ? (
+          /* Recommended Offers Sub-View */
+          <div className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Gift className="h-5 w-5 text-orange-500" />
+                  Recommended Offers ({recommendedTotal})
+                </CardTitle>
+                <CardDescription>Offers recommended to specific users. These are visible only to the granted users even if globally inactive.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {recommendedLoading ? (
+                  <div className="text-center py-12"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Loading...</div>
+                ) : recommendedOffers.length === 0 ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <Gift className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                    <p>No recommended offers yet. Send offers from Offer Access Requests or Search Logs to create grants.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {recommendedOffers.map((item: any) => (
+                      <div key={item.offer_id} className="border rounded-lg overflow-hidden">
+                        <div className="flex items-center gap-4 p-4 cursor-pointer hover:bg-muted/50" onClick={() => setExpandedRecommended(expandedRecommended === item.offer_id ? null : item.offer_id)}>
+                          {item.offer_image && <img src={item.offer_image} alt="" className="w-10 h-10 rounded object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm truncate">{item.offer_name}</span>
+                              <Badge variant="outline" className="text-[10px]">{item.offer_id}</Badge>
+                              <Badge className={item.offer_status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}>{item.offer_status}</Badge>
+                            </div>
+                            <div className="flex gap-3 text-xs text-muted-foreground mt-1">
+                              <span>${item.offer_payout?.toFixed(2)}</span>
+                              <span>{item.offer_category}</span>
+                              <span>{item.offer_clicks || 0} clicks</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3 text-sm">
+                            <div className="text-center">
+                              <div className="text-lg font-bold text-orange-500">{item.active_grants}</div>
+                              <div className="text-[10px] text-muted-foreground">Active</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-lg font-bold text-green-500">{item.clicked_count}</div>
+                              <div className="text-[10px] text-muted-foreground">Clicked</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-lg font-bold text-gray-400">{item.expired_count}</div>
+                              <div className="text-[10px] text-muted-foreground">Expired</div>
+                            </div>
+                            <ChevronDown className={`h-4 w-4 transition-transform ${expandedRecommended === item.offer_id ? 'rotate-180' : ''}`} />
+                          </div>
+                        </div>
+                        {expandedRecommended === item.offer_id && (
+                          <div className="border-t bg-muted/20 p-4">
+                            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Granted Users ({item.grants?.length || 0})</h4>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b">
+                                    <th className="text-left py-2 px-3">User</th>
+                                    <th className="text-left py-2 px-3">Email</th>
+                                    <th className="text-left py-2 px-3">Source</th>
+                                    <th className="text-left py-2 px-3">Granted By</th>
+                                    <th className="text-left py-2 px-3">Granted At (IST)</th>
+                                    <th className="text-left py-2 px-3">Expires At (IST)</th>
+                                    <th className="text-left py-2 px-3">Clicked</th>
+                                    <th className="text-left py-2 px-3">Click Date (IST)</th>
+                                    <th className="text-left py-2 px-3">Status</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(item.grants || []).map((g: any, i: number) => {
+                                    const toIST = (d: string | null) => {
+                                      if (!d) return '—';
+                                      try { return new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return d; }
+                                    };
+                                    const isExpired = !g.clicked && g.expires_at && new Date(g.expires_at) < new Date();
+                                    return (
+                                      <tr key={i} className="border-b last:border-0 hover:bg-muted/30">
+                                        <td className="py-2 px-3 font-medium">{g.username || g.user_id}</td>
+                                        <td className="py-2 px-3 text-muted-foreground">{g.email || '—'}</td>
+                                        <td className="py-2 px-3"><Badge variant="outline" className="text-[10px]">{g.source}</Badge></td>
+                                        <td className="py-2 px-3">{g.granted_by || '—'}</td>
+                                        <td className="py-2 px-3">{toIST(g.granted_at)}</td>
+                                        <td className="py-2 px-3">{toIST(g.expires_at)}</td>
+                                        <td className="py-2 px-3">{g.clicked ? <span className="text-green-600 font-bold">✓ Yes</span> : <span className="text-muted-foreground">No</span>}</td>
+                                        <td className="py-2 px-3">{g.clicked ? toIST(g.click_date) : '—'}</td>
+                                        <td className="py-2 px-3">
+                                          {g.clicked ? <Badge className="bg-green-100 text-green-700 text-[10px]">Permanent</Badge> :
+                                           isExpired ? <Badge className="bg-red-100 text-red-700 text-[10px]">Expired</Badge> :
+                                           g.is_active ? <Badge className="bg-orange-100 text-orange-700 text-[10px]">Active</Badge> :
+                                           <Badge className="bg-gray-100 text-gray-600 text-[10px]">Inactive</Badge>}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            {recommendedTotal > 25 && (
+              <div className="flex justify-center gap-2">
+                <Button size="sm" variant="outline" disabled={recommendedPage <= 1} onClick={() => { setRecommendedPage(p => p - 1); fetchRecommendedOffers(recommendedPage - 1); }}>Prev</Button>
+                <span className="text-sm text-muted-foreground py-1.5">Page {recommendedPage}</span>
+                <Button size="sm" variant="outline" disabled={recommendedPage >= Math.ceil(recommendedTotal / 25)} onClick={() => { setRecommendedPage(p => p + 1); fetchRecommendedOffers(recommendedPage + 1); }}>Next</Button>
               </div>
             )}
           </div>

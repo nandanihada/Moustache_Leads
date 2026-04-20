@@ -143,6 +143,10 @@ export async function sendOutreach(data: {
   subject?: string;
   send_time: string;
   scheduled_at?: string;
+  template_style?: string;
+  visible_fields?: string[];
+  default_image?: string;
+  payout_type?: string;
 }) {
   const res = await fetch(`${BASE()}/outreach`, {
     method: 'POST',
@@ -177,6 +181,10 @@ export async function executeSandS(data: {
     subject?: string;
     send_time: string;
     scheduled_at?: string;
+    template_style?: string;
+    visible_fields?: string[];
+    default_image?: string;
+    payout_type?: string;
   };
   support?: {
     issue_type: string;

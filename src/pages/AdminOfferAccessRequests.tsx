@@ -97,6 +97,14 @@ export interface Inv {
   keywords?: string;
   request_status?: string;
   health?: { status: string; failures: { criterion: string; detail?: string }[] };
+  status?: string;
+  visibility?: 'active' | 'inactive' | 'running' | 'rotating';
+  is_rotation_running?: boolean;
+  is_in_rotation?: boolean;
+  grant_count?: number;
+  image_url?: string;
+  thumbnail_url?: string;
+  countries?: string[];
 }
 
 // ─── Exported Helpers ────────────────────────────────────────────────────────

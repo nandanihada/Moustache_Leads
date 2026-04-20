@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { Loader2, Mail, MessageSquare, Bell, Send, AlertTriangle } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import type { PProf, Inv } from '@/pages/AdminOfferAccessRequests';
 
 interface SendOffersModalProps {
@@ -25,6 +26,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
   const [messageBody, setMessageBody] = useState('');
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -63,7 +65,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
       const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/send-offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ user_id: publisher.user_id, offer_ids: Array.from(selected), send_via: sendVia, custom_message: customMsg, message_body: messageBody }),
+        body: JSON.stringify({ user_id: publisher.user_id, offer_ids: Array.from(selected), send_via: sendVia, custom_message: customMsg, message_body: messageBody, template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType }),
       });
       if (!res.ok) throw new Error();
       toast.success(`Sent ${selected.size} offer(s) via ${sendVia}`);
@@ -79,7 +81,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
   ];
 
   // Check for offers without images
-  const offersWithoutImage = offers.filter(o => selected.has(o.offer_id) && !o.image_url && !o.thumbnail_url);
+  const offersWithoutImage = offers.filter(o => selected.has(o.offer_id) && !(o as any).image_url && !(o as any).thumbnail_url);
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
@@ -116,7 +118,15 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
                   <Checkbox checked={selected.has(o.offer_id)} onCheckedChange={() => toggle(o.offer_id)} />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{o.name}</p>
-                    <p className="text-xs text-muted-foreground">${o.payout.toFixed(2)}{!o.image_url && !o.thumbnail_url ? ' · ⚠️ No image' : ''}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs text-muted-foreground">${o.payout.toFixed(2)}</span>
+                      {(o as any).visibility === 'active' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-green-100 text-green-700 font-medium">🟢 Active for all</span>}
+                      {(o as any).visibility === 'running' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-emerald-100 text-emerald-700 font-medium">🏃 Running</span>}
+                      {(o as any).visibility === 'rotating' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-100 text-blue-700 font-medium">🔄 In Rotation</span>}
+                      {(o as any).visibility === 'inactive' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-gray-100 text-gray-600 font-medium">⚫ Inactive</span>}
+                      {(o as any).grant_count > 0 && <span className="text-[10px] px-1.5 py-0 rounded-full bg-orange-100 text-orange-700 font-medium">🎯 Granted to {(o as any).grant_count}</span>}
+                      {!(o as any).image_url && !(o as any).thumbnail_url ? <span className="text-[10px] text-amber-500">⚠️ No image</span> : null}
+                    </div>
                   </div>
                   <Badge variant={o.match_strength === 'Strong' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
                     {o.match_strength}
@@ -144,6 +154,9 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
               <Textarea value={messageBody} onChange={e => setMessageBody(e.target.value)}
                 rows={6} className="text-sm resize-y" />
             </div>
+
+            {/* Email template settings */}
+            <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
 
             {/* Custom note */}
             <div className="space-y-1.5">

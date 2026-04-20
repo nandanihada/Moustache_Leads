@@ -37,58 +37,32 @@ def _parse_ist_to_utc(scheduled_at):
         return datetime.utcnow()
 
 
-def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='publisher'):
+def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='publisher', template_style='table', visible_fields=None, default_image=''):
     """Build a branded HTML email with logo and unsubscribe link.
-    If offers list is provided, renders them in a professional table format.
-    payout_type: 'publisher' (80% of admin) or 'admin' (full amount)"""
+    If offers list is provided, renders them using the shared template builder.
+    payout_type: 'publisher' (80% of admin) or 'admin' (full amount)
+    template_style: 'table' or 'card'
+    visible_fields: list of fields to show (name, payout, countries, category, image, offer_id, preview_url)
+    default_image: URL to use for offers without images"""
     import os
     if not frontend_url:
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
 
-    # Build offers table if offers are provided
-    offers_table = ''
+    # If offers provided, use the shared template builder
     if offers and len(offers) > 0:
-        rows = ''
-        for o in offers:
-            name = o.get('name', 'Unknown Offer')
-            offer_id = o.get('offer_id', '')
-            raw_payout = float(o.get('payout', 0) or 0)
-            # Show publisher payout (80%) unless admin explicitly chose admin payout
-            payout = round(raw_payout * 0.8, 2) if payout_type == 'publisher' else raw_payout
-            category = o.get('category', o.get('vertical', ''))
-            countries = o.get('countries', o.get('allowed_countries', []))
-            country_str = ', '.join(countries[:3]) if countries else 'Global'
-            if len(countries) > 3:
-                country_str += f' +{len(countries) - 3}'
-            image_url = o.get('image_url', o.get('thumbnail_url', ''))
+        from utils.email_template_builder import build_offer_email_html
+        return build_offer_email_html(
+            offers=offers,
+            recipient_name='Publisher',
+            custom_message=body_text if isinstance(body_text, str) else '',
+            template_style=template_style,
+            visible_fields=visible_fields,
+            payout_type=payout_type,
+            default_image=default_image,
+        )
 
-            img_cell = f'<img src="{image_url}" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;" onerror="this.style.display=\'none\'" />' if image_url else '<div style="width:36px;height:36px;border-radius:6px;background:#e5e7eb;"></div>'
-
-            rows += f'''<tr style="border-bottom:1px solid #f0f0f0;">
-<td style="padding:10px 8px;font-size:11px;color:#9ca3af;vertical-align:middle;white-space:nowrap;">{offer_id}</td>
-<td style="padding:10px 4px;vertical-align:middle;">{img_cell}</td>
-<td style="padding:10px 8px;vertical-align:middle;">
-<div style="font-size:13px;color:#111;font-weight:500;">{name}</div>
-</td>
-<td style="padding:10px 8px;font-size:14px;color:#059669;font-weight:600;vertical-align:middle;white-space:nowrap;">${payout:.2f}</td>
-<td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{country_str}</td>
-<td style="padding:10px 8px;vertical-align:middle;"><span style="display:inline-block;padding:2px 8px;background:#f3f4f6;border-radius:4px;font-size:11px;color:#374151;">{category}</span></td>
-</tr>'''
-
-        offers_table = f'''
-<table style="width:100%;border-collapse:collapse;margin:16px 0;">
-<thead>
-<tr style="border-bottom:2px solid #e5e7eb;">
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">ID</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Offer</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Payout</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Countries</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Category</th>
-</tr>
-</thead>
-<tbody>{rows}</tbody>
-</table>'''
+    # Fallback: no offers, just body text
+    body_html = body_text.replace(chr(10), '<br>') if isinstance(body_text, str) else body_text
 
     body_html = body_text.replace(chr(10), '<br>') if isinstance(body_text, str) else body_text
 
@@ -431,6 +405,33 @@ def get_inventory_matches():
         health_service = HealthCheckService()
         health_results = health_service.evaluate_offers_batch(similar_offers)
 
+        # Get grant counts for these offers
+        grant_counts = {}
+        try:
+            from models.offer_grant import OfferGrant
+            grant_model = OfferGrant()
+            if grant_model.collection is not None:
+                grant_pipeline = [
+                    {'$match': {'offer_id': {'$in': [o.get('offer_id', '') for o in similar_offers]}, 'is_active': True}},
+                    {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}}
+                ]
+                for g in grant_model.collection.aggregate(grant_pipeline):
+                    grant_counts[g['_id']] = g['count']
+        except Exception:
+            pass
+
+        # Get rotation state
+        rotation_running_ids = set()
+        rotation_batch_ids = set()
+        try:
+            from services.offer_rotation_service import get_rotation_service
+            rot_svc = get_rotation_service()
+            rot_state = rot_svc._get_state()
+            rotation_running_ids = set(rot_state.get('running_offer_ids', []))
+            rotation_batch_ids = set(rot_state.get('current_batch_ids', []))
+        except Exception:
+            pass
+
         results = []
         for offer in similar_offers:
             offer_name_lower = offer.get('name', '').lower()
@@ -439,6 +440,19 @@ def get_inventory_matches():
             oid = offer.get('offer_id', '')
             health = health_results.get(oid, {'status': 'unknown', 'failures': []})
             
+            # Determine visibility status
+            offer_status = offer.get('status', 'inactive')
+            is_rotation_running = oid in rotation_running_ids
+            is_in_rotation_batch = oid in rotation_batch_ids
+            
+            visibility = 'inactive'
+            if offer_status == 'active':
+                visibility = 'active'
+            elif is_rotation_running:
+                visibility = 'running'
+            elif is_in_rotation_batch:
+                visibility = 'rotating'
+            
             results.append({
                 '_id': str(offer['_id']),
                 'offer_id': oid,
@@ -446,10 +460,18 @@ def get_inventory_matches():
                 'payout': offer.get('payout', 0),
                 'network': offer.get('network', ''),
                 'category': offer.get('category', ''),
+                'image_url': offer.get('image_url', ''),
+                'thumbnail_url': offer.get('thumbnail_url', ''),
+                'countries': offer.get('countries', offer.get('allowed_countries', [])),
                 'keywords': ', '.join(keywords[:3]),
                 'match_strength': match_strength,
                 'request_status': user_requests.get(oid),
                 'health': health,
+                'status': offer_status,
+                'visibility': visibility,
+                'is_rotation_running': is_rotation_running,
+                'is_in_rotation': is_in_rotation_batch,
+                'grant_count': grant_counts.get(oid, 0),
             })
         
         # Sort by match strength (Strong first) then by payout
@@ -521,6 +543,10 @@ def send_offers_to_publisher():
         message_body = data.get('message_body', '')  # Full editable message body
         subject = data.get('subject', '')
         template_type = data.get('template_type', 'recommend')  # recommend or approval
+        template_style = data.get('template_style', 'table')  # 'table' or 'card'
+        visible_fields = data.get('visible_fields')  # list of field names or None for defaults
+        default_image = data.get('default_image', '')  # URL for offers without images
+        payout_type = data.get('payout_type', 'publisher')  # 'publisher' or 'admin'
 
         if (not user_ids and not custom_emails) or (not offer_ids and not message_body):
             return jsonify({'error': 'At least one recipient and either offer_ids or message_body are required'}), 400
@@ -576,7 +602,7 @@ Moustache Leads"""
                     email_service = get_email_service()
                     body = build_body('Publisher')
                     html_body = body.replace('\n', '<br>')
-                    html_content = _build_email_html(body, offers=offers, payout_type='publisher')
+                    html_content = _build_email_html(body, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
                     
                     logging.info(f"📧 Sending BCC email to {len(all_emails)} recipients")
                     
@@ -651,6 +677,18 @@ Moustache Leads"""
                 except Exception as e:
                     results['failed'] += 1
                     results['errors'].append(f"{str(user.get('username', ''))}: {str(e)}")
+
+        # Create offer grants for the recipients so they can see inactive offers
+        try:
+            from models.offer_grant import OfferGrant
+            grant_model = OfferGrant()
+            admin_username = request.current_user.get('username', 'admin')
+            for u in users:
+                uid = str(u.get('_id', ''))
+                if uid and offer_ids:
+                    grant_model.grant_offers_to_user(uid, offer_ids, source='offer_access_request', granted_by=admin_username)
+        except Exception as grant_err:
+            logging.warning(f"Failed to create offer grants: {grant_err}")
 
         return jsonify({
             'success': results['sent'] > 0,
@@ -1971,6 +2009,10 @@ def push_mail():
         scheduled_at = data.get('scheduled_at')
         message_template = data.get('message_template', {})
         recipient_ids = data.get('recipient_ids', [])  # Optional: filter to specific users
+        template_style = data.get('template_style', 'table')
+        visible_fields = data.get('visible_fields')
+        default_image = data.get('default_image', '')
+        payout_type = data.get('payout_type', 'publisher')
         admin_user = request.current_user
 
         if not offer_ids:
@@ -2555,7 +2597,7 @@ def push_mail_v2():
                         body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${pub_payout}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type='publisher')
+                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
                     base_dt = _parse_ist_to_utc(scheduled_at)
                     offset_dt = base_dt + timedelta(minutes=interval_minutes * idx)
                     sched_col.insert_one({
@@ -2630,7 +2672,7 @@ def push_mail_v2():
                         body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${pub_payout}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type='publisher')
+                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
                     # Send in BCC batches
                     for i in range(0, len(emails), 50):
                         batch = emails[i:i + 50]

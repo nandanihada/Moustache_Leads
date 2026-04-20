@@ -541,6 +541,10 @@ def send_inventory_email():
         offers_to_send = data.get('offers', [])  # list of {offer_id, name, image_url, target_url, payout}
         custom_subject = data.get('subject', '')
         custom_message = data.get('message', '')
+        template_style = data.get('template_style', 'table')
+        visible_fields = data.get('visible_fields')
+        default_image = data.get('default_image', '')
+        payout_type = data.get('payout_type', 'publisher')
 
         if not user_id:
             return jsonify({'error': 'user_id is required'}), 400
@@ -567,84 +571,17 @@ def send_inventory_email():
         frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
         subject = custom_subject or f'🔥 Offers matching "{keyword}" are available for you!'
 
-        # Build offer rows HTML - tabular format matching the screenshot layout
-        offer_rows_html = ''
-        for idx, offer in enumerate(offers_to_send[:8]):
-            img = offer.get('image_url', '')
-            name = offer.get('name', 'Offer')
-            raw_payout = float(offer.get('payout', 0) or 0)
-            payout = round(raw_payout * 0.8, 2)  # Publisher payout (80%)
-            offer_id = offer.get('offer_id', '')
-            category = offer.get('category', offer.get('vertical', ''))
-            countries = offer.get('countries', offer.get('allowed_countries', []))
-            country_str = ', '.join(countries[:3]) if countries else 'Global'
-            if len(countries) > 3:
-                country_str += f' +{len(countries) - 3}'
-
-            img_cell = f'<img src="{img}" alt="" style="width:36px;height:36px;border-radius:6px;object-fit:cover;" onerror="this.style.display=\'none\'" />' if img else '<div style="width:36px;height:36px;border-radius:6px;background:#e5e7eb;"></div>'
-
-            offer_rows_html += f'''<tr style="border-bottom:1px solid #f0f0f0;">
-<td style="padding:10px 8px;font-size:11px;color:#9ca3af;vertical-align:middle;white-space:nowrap;">{offer_id}</td>
-<td style="padding:10px 4px;vertical-align:middle;">{img_cell}</td>
-<td style="padding:10px 8px;vertical-align:middle;"><div style="font-size:13px;color:#111;font-weight:500;">{name}</div></td>
-<td style="padding:10px 8px;font-size:14px;color:#059669;font-weight:600;vertical-align:middle;white-space:nowrap;">${payout:.2f}</td>
-<td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{country_str}</td>
-<td style="padding:10px 8px;vertical-align:middle;"><span style="display:inline-block;padding:2px 8px;background:#f3f4f6;border-radius:4px;font-size:11px;color:#374151;">{category}</span></td>
-</tr>'''
-
-        offers_table = f'''<table style="width:100%;border-collapse:collapse;margin:16px 0;">
-<thead><tr style="border-bottom:2px solid #e5e7eb;">
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">ID</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Offer</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Payout</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Countries</th>
-<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Category</th>
-</tr></thead>
-<tbody>{offer_rows_html}</tbody>
-</table>'''
-
-        message_section = ''
-        if custom_message:
-            message_section = f'''<tr><td style="padding:0 30px 20px;">
-                <div style="font-size:15px;color:#374151;line-height:1.7;background:#fff7ed;border-left:4px solid #f97316;padding:15px 18px;border-radius:0 8px 8px 0;white-space:pre-wrap;">{custom_message}</div>
-            </td></tr>'''
-
-        html_content = f"""<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
-<body style="margin:0;padding:0;font-family:'Segoe UI',Arial,Helvetica,sans-serif;background-color:#f8fafc;">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;padding:30px 0;">
-<tr><td align="center">
-<table width="700" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-    <tr>
-        <td style="background:linear-gradient(135deg,#f97316 0%,#ea580c 50%,#dc2626 100%);padding:35px 30px;text-align:center;">
-            <img src="https://moustacheleads.com/logo.png" alt="MoustacheLeads" style="height:50px;margin-bottom:12px;display:inline-block;" />
-            <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.5px;">MoustacheLeads</h1>
-            <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;">Hey {username}! We found offers for you 🎯</p>
-        </td>
-    </tr>
-    {message_section}
-    <tr>
-        <td style="padding:20px 30px 5px;">
-            {offers_table}
-        </td>
-    </tr>
-    <tr>
-        <td style="padding:20px 30px 30px;text-align:center;">
-            <a href="{frontend_url}/publisher/signin" style="display:inline-block;background:linear-gradient(135deg,#f97316,#ea580c);color:#ffffff;padding:16px 50px;text-decoration:none;border-radius:50px;font-weight:800;font-size:15px;letter-spacing:0.5px;box-shadow:0 4px 15px rgba(249,115,22,0.4);">BROWSE ALL OFFERS →</a>
-        </td>
-    </tr>
-    <tr><td style="padding:0 30px;"><div style="border-top:1px solid #e5e7eb;"></div></td></tr>
-    <tr>
-        <td style="padding:25px 30px;text-align:center;">
-            <p style="margin:0 0 8px;color:#6b7280;font-size:13px;">Thanks for being part of the MoustacheLeads network!</p>
-            <p style="margin:0;color:#9ca3af;font-size:11px;">© {datetime.utcnow().year} MoustacheLeads. All rights reserved.</p>
-        </td>
-    </tr>
-</table>
-</td></tr></table>
-</body></html>"""
+        # Use shared email template builder
+        from utils.email_template_builder import build_offer_email_html
+        html_content = build_offer_email_html(
+            offers=offers_to_send,
+            recipient_name=username,
+            custom_message=custom_message,
+            template_style=template_style,
+            visible_fields=visible_fields,
+            payout_type=payout_type,
+            default_image=default_image,
+        )
 
         # Send email
         from services.email_service import EmailService
@@ -674,6 +611,15 @@ def send_inventory_email():
             logger.error(f"Email activity log error: {log_err}")
 
         if success:
+            # Create offer grants so the user can see these (possibly inactive) offers
+            try:
+                from models.offer_grant import OfferGrant
+                grant_model = OfferGrant()
+                offer_ids_to_grant = [o.get('offer_id', '') for o in offers_to_send if o.get('offer_id')]
+                if offer_ids_to_grant and user_id:
+                    grant_model.grant_offers_to_user(str(user_id), offer_ids_to_grant, source='search_logs', granted_by=user.get('username', 'admin'))
+            except Exception as grant_err:
+                logger.warning(f"Failed to create offer grants: {grant_err}")
             return jsonify({'success': True, 'message': f'Email sent to {recipient_email} with {len(offers_to_send)} offers'}), 200
         else:
             return jsonify({'error': 'Failed to send email'}), 500
@@ -749,10 +695,48 @@ def get_related_offers():
                 ).sort('payout', -1).limit(20 - len(matching)))
                 matching.extend(extra)
 
+        # Get grant counts and rotation state for badges
+        offer_ids_list = [o.get('offer_id', '') for o in matching[:20]]
+        grant_counts = {}
+        try:
+            from models.offer_grant import OfferGrant
+            grant_model = OfferGrant()
+            if grant_model.collection is not None:
+                for g in grant_model.collection.aggregate([
+                    {'$match': {'offer_id': {'$in': offer_ids_list}, 'is_active': True}},
+                    {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}}
+                ]):
+                    grant_counts[g['_id']] = g['count']
+        except Exception:
+            pass
+
+        rotation_running_ids = set()
+        rotation_batch_ids = set()
+        try:
+            from services.offer_rotation_service import get_rotation_service
+            rot_state = get_rotation_service()._get_state()
+            rotation_running_ids = set(rot_state.get('running_offer_ids', []))
+            rotation_batch_ids = set(rot_state.get('current_batch_ids', []))
+        except Exception:
+            pass
+
         # Serialize
         result = []
         for o in matching[:20]:
             o['_id'] = str(o['_id'])
+            oid = o.get('offer_id', '')
+            offer_status = o.get('status', 'inactive')
+            visibility = 'inactive'
+            if offer_status == 'active':
+                visibility = 'active'
+            elif oid in rotation_running_ids:
+                visibility = 'running'
+            elif oid in rotation_batch_ids:
+                visibility = 'rotating'
+            o['visibility'] = visibility
+            o['is_rotation_running'] = oid in rotation_running_ids
+            o['is_in_rotation'] = oid in rotation_batch_ids
+            o['grant_count'] = grant_counts.get(oid, 0)
             result.append(o)
 
         return jsonify({'success': True, 'offers': result, 'total': len(result)}), 200

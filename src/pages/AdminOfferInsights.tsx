@@ -56,6 +56,7 @@ import {
   EmailHistoryItem
 } from '@/services/offerInsightsApi';
 import InsightEmailCampaign from '@/components/InsightEmailCampaign';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 // Default placeholder image as data URI to avoid external image loading issues
 const PLACEHOLDER_IMAGE = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIGZpbGw9IiNFNUU3RUIiLz48cGF0aCBkPSJNMjUgMjVIMzVWMzVIMjVWMjVaIiBmaWxsPSIjOUI5QkEzIi8+PHBhdGggZD0iTTIwIDQwTDI3LjUgMzJMMzIuNSAzN0wzNy41IDMwTDQ1IDQwSDIwWiIgZmlsbD0iIzlCOUJBMyIvPjwvc3ZnPg==';
@@ -155,6 +156,7 @@ const AdminOfferInsights = () => {
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [sending, setSending] = useState(false);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
 
   // Offer View Logs state
   const [viewLogs, setViewLogs] = useState<OfferViewLog[]>([]);
@@ -398,7 +400,13 @@ const AdminOfferInsights = () => {
         offersToSend,
         Array.from(selectedPartners),
         customMessage,
-        scheduleEnabled ? new Date(`${scheduleDate}T${scheduleTime}`).toISOString() : undefined
+        scheduleEnabled ? new Date(`${scheduleDate}T${scheduleTime}`).toISOString() : undefined,
+        {
+          template_style: emailSettings.templateStyle,
+          visible_fields: emailSettings.visibleFields,
+          default_image: emailSettings.defaultImage,
+          payout_type: emailSettings.payoutType,
+        }
       );
       
       if (scheduleEnabled) {
@@ -1147,6 +1155,9 @@ const AdminOfferInsights = () => {
                 </div>
               </div>
             )}
+
+            {/* Email Template Settings */}
+            <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
 
             {/* Custom Message */}
             <div className="space-y-2">

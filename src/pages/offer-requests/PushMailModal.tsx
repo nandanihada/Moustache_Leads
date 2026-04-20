@@ -14,6 +14,7 @@ import {
   Users, ChevronDown, ChevronUp, AlertTriangle,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 interface PushMailModalProps {
   open: boolean;
@@ -53,6 +54,7 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
   const [messageBody, setMessageBody] = useState('');
   const [customEmails, setCustomEmails] = useState<string[]>([]);
   const [emailInput, setEmailInput] = useState('');
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const [sending, setSending] = useState(false);
 
   // Publisher selector
@@ -256,6 +258,10 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
         subject: subject,
         message_body: messageBody,
         source_tab: sourceTab,
+        template_style: emailSettings.templateStyle,
+        visible_fields: emailSettings.visibleFields,
+        default_image: emailSettings.defaultImage,
+        payout_type: emailSettings.payoutType,
       };
 
       if (sendType === 'schedule') {
@@ -546,6 +552,9 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
                 className="mt-1"
               />
             </div>
+
+            {/* Email Template Settings */}
+            <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
 
             {/* Message Body */}
             <div>

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import { AdminPageGuard } from '@/components/AdminPageGuard';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function daysAgoText(days: number) {
@@ -150,6 +151,7 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [showOfferDropdown, setShowOfferDropdown] = useState(false);
   const [openPicker, setOpenPicker] = useState<string | null>(null);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
 
   // Auto-select all users when modal opens or users change
   useEffect(() => {
@@ -214,7 +216,7 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
   const outreachMutation = useMutation({
     mutationFn: () => executeSandS({
       user_ids: selectedUserIds,
-      outreach: { offer_id: offerId, offer_name: offerName, channel, message, subject, send_time: sendTime, scheduled_at: getScheduledAtUTC() },
+      outreach: { offer_id: offerId, offer_name: offerName, channel, message, subject, send_time: sendTime, scheduled_at: getScheduledAtUTC(), template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType },
       support: { issue_type: issueType, priority, note, assign_to: assignTo },
     }),
     onSuccess: () => { toast.success('S+S action completed'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
@@ -222,13 +224,13 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
   });
 
   const outreachOnlyMutation = useMutation({
-    mutationFn: () => sendOutreach({ user_ids: selectedUserIds, offer_id: offerId, offer_name: offerName, channel, message, subject, send_time: sendTime, scheduled_at: getScheduledAtUTC() }),
+    mutationFn: () => sendOutreach({ user_ids: selectedUserIds, offer_id: offerId, offer_name: offerName, channel, message, subject, send_time: sendTime, scheduled_at: getScheduledAtUTC(), template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType }),
     onSuccess: () => { toast.success('Outreach sent'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
     onError: () => toast.error('Failed to send outreach'),
   });
 
   const sendEmailNowMutation = useMutation({
-    mutationFn: () => sendOutreach({ user_ids: selectedUserIds, offer_id: offerId, offer_name: offerName, channel: 'email', message, subject, send_time: 'now' }),
+    mutationFn: () => sendOutreach({ user_ids: selectedUserIds, offer_id: offerId, offer_name: offerName, channel: 'email', message, subject, send_time: 'now', template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType }),
     onSuccess: () => { toast.success('Email sent now!'); queryClient.invalidateQueries({ queryKey: ['reactivation'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-profile'] }); queryClient.invalidateQueries({ queryKey: ['reactivation-outreach-history'] }); onClose(); },
     onError: () => toast.error('Failed to send email'),
   });
@@ -380,6 +382,9 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
             )}
 
             {/* Message */}
+            <div>
+              <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
+            </div>
             <div>
               <label className="text-xs text-muted-foreground uppercase tracking-wider">Message</label>
               <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3}

@@ -47,10 +47,36 @@ def get_available_offers():
         
         visible_statuses = ['active', 'running', 'rotating']
         
+        # Get user-specific offer grants (inactive offers made visible to this user by admin)
+        granted_offer_ids = []
+        try:
+            from models.offer_grant import OfferGrant
+            grant_model = OfferGrant()
+            granted_offer_ids = grant_model.get_granted_offer_ids(str(user_id))
+        except Exception as grant_err:
+            logger.warning(f"Failed to fetch offer grants: {grant_err}")
+        
         query = {
-            'status': {'$in': visible_statuses},
-            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+            '$or': [
+                # Normal: globally active/running/rotating offers
+                {
+                    'status': {'$in': visible_statuses},
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                },
+                # Granted: inactive offers specifically granted to this user
+                *([{
+                    'offer_id': {'$in': granted_offer_ids},
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                }] if granted_offer_ids else [])
+            ]
         }
+        
+        # Simplify if no grants
+        if not granted_offer_ids:
+            query = {
+                'status': {'$in': visible_statuses},
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+            }
         
         # Add search if provided
         if search:
@@ -61,13 +87,25 @@ def get_available_offers():
                 {'categories': {'$regex': search, '$options': 'i'}}
             ]
             
-            query = {
-                'status': {'$in': visible_statuses},
-                '$and': [
-                    {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
-                    {'$or': search_conditions}
-                ]
-            }
+            if granted_offer_ids:
+                query = {
+                    '$and': [
+                        {'$or': search_conditions},
+                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        {'$or': [
+                            {'status': {'$in': visible_statuses}},
+                            {'offer_id': {'$in': granted_offer_ids}},
+                        ]}
+                    ]
+                }
+            else:
+                query = {
+                    'status': {'$in': visible_statuses},
+                    '$and': [
+                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        {'$or': search_conditions}
+                    ]
+                }
         
         # Get total count
         total = offers_collection.count_documents(query)
