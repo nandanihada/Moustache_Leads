@@ -17,12 +17,14 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   RefreshCw, Search, Mail, Send, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, XCircle, Package, Filter, ChevronDown, ChevronUp, BarChart3,
-  Eye, MousePointer, Link, FileText,
+  Eye, MousePointer, Link, FileText, User,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer } from '@/services/searchLogsApi';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 
 const AdminSearchLogsContent: React.FC = () => {
   const { toast } = useToast();
@@ -70,7 +72,7 @@ const AdminSearchLogsContent: React.FC = () => {
     setInventoryEmailOpen(true);
     setRelatedLoading(true);
     try {
-      const res = await searchLogsApi.getRelatedOffers(log.keyword);
+      const res = await searchLogsApi.getRelatedOffers(log.keyword, log.user_id);
       const mapped = (res.offers || []).map(o => ({
         offer_id: o.offer_id,
         name: o.name,
@@ -581,13 +583,21 @@ const AdminSearchLogsContent: React.FC = () => {
 
       {/* Inventory Email Dialog - Send related offers to user */}
       <Dialog open={inventoryEmailOpen} onOpenChange={setInventoryEmailOpen}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5 text-orange-500" />
               Send Inventory Offers to {inventoryEmailLog?.username}
             </DialogTitle>
           </DialogHeader>
+
+          <Tabs defaultValue="compose" className="w-full">
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="compose" className="text-xs gap-1.5"><Send className="h-3 w-3" />Compose Email</TabsTrigger>
+              <TabsTrigger value="intelligence" className="text-xs gap-1.5"><User className="h-3 w-3" />Publisher Intelligence</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="compose" className="mt-3">
           <div className="space-y-4">
             <div className="p-3 bg-orange-50 dark:bg-orange-950 rounded-lg text-sm">
               <p className="font-medium text-orange-800 dark:text-orange-200">
@@ -665,6 +675,7 @@ const AdminSearchLogsContent: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <span className="text-xs font-mono text-muted-foreground">{offer.offer_id}</span>
                             <Badge variant="outline" className="text-xs">${offer.payout.toFixed(2)}</Badge>
+                            {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.already_sent && <span className="text-[9px] px-1 py-0 rounded-full bg-amber-100 text-amber-700 font-medium">✉ Already sent</span>}
                             {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.visibility === 'active' && <span className="text-[9px] px-1 py-0 rounded-full bg-green-100 text-green-700">🟢 Active</span>}
                             {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.visibility === 'running' && <span className="text-[9px] px-1 py-0 rounded-full bg-emerald-100 text-emerald-700">🏃 Running</span>}
                             {(relatedOffers.find(r => r.offer_id === offer.offer_id) as any)?.visibility === 'rotating' && <span className="text-[9px] px-1 py-0 rounded-full bg-blue-100 text-blue-700">🔄 Rotating</span>}
@@ -712,6 +723,15 @@ const AdminSearchLogsContent: React.FC = () => {
               )}
             </div>
           </div>
+            </TabsContent>
+
+            <TabsContent value="intelligence" className="mt-3">
+              {inventoryEmailLog?.user_id && (
+                <PublisherIntelligencePanel userId={inventoryEmailLog.user_id} username={inventoryEmailLog.username} />
+              )}
+            </TabsContent>
+          </Tabs>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setInventoryEmailOpen(false)}>Cancel</Button>
             <Button

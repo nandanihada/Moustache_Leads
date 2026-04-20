@@ -139,8 +139,10 @@ export const searchLogsApi = {
     }
   },
 
-  async getRelatedOffers(keyword: string): Promise<{ success: boolean; offers: RelatedOffer[]; total: number }> {
-    const res = await fetch(`${API}/api/admin/search-logs/related-offers?keyword=${encodeURIComponent(keyword)}`, {
+  async getRelatedOffers(keyword: string, userId?: string): Promise<{ success: boolean; offers: RelatedOffer[]; total: number }> {
+    const params = new URLSearchParams({ keyword });
+    if (userId) params.set('user_id', userId);
+    const res = await fetch(`${API}/api/admin/search-logs/related-offers?${params}`, {
       headers: headers(),
     });
     if (!res.ok) throw new Error('Failed to fetch related offers');

@@ -3,12 +3,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import { Loader2, Mail, MessageSquare, Bell, Send, AlertTriangle } from 'lucide-react';
+import { Loader2, Mail, MessageSquare, Bell, Send, AlertTriangle, User } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 import type { PProf, Inv } from '@/pages/AdminOfferAccessRequests';
 
 interface SendOffersModalProps {
@@ -85,7 +87,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             Send Offers
@@ -93,79 +95,93 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
           </DialogTitle>
         </DialogHeader>
 
-        {loading ? (
-          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
-        ) : (
-          <div className="space-y-4">
-            {/* Missing image warning */}
-            {offersWithoutImage.length > 0 && (
-              <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-                <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
-                <div className="text-sm">
-                  <p className="font-medium text-amber-800 dark:text-amber-200">{offersWithoutImage.length} offer(s) have no image</p>
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-                    {offersWithoutImage.map(o => o.name).join(', ')}
-                  </p>
+        <Tabs defaultValue="compose" className="w-full">
+          <TabsList className="w-full grid grid-cols-2">
+            <TabsTrigger value="compose" className="text-xs gap-1.5"><Send className="h-3 w-3" />Compose Email</TabsTrigger>
+            <TabsTrigger value="intelligence" className="text-xs gap-1.5"><User className="h-3 w-3" />Publisher Intelligence</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="compose" className="mt-3">
+            {loading ? (
+              <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+            ) : (
+              <div className="space-y-4">
+                {/* Missing image warning */}
+                {offersWithoutImage.length > 0 && (
+                  <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm">
+                      <p className="font-medium text-amber-800 dark:text-amber-200">{offersWithoutImage.length} offer(s) have no image</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                        {offersWithoutImage.map(o => o.name).join(', ')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Offer list */}
+                <div className="space-y-1.5 max-h-48 overflow-y-auto border rounded-lg p-2">
+                  {offers.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No matching offers found</p>}
+                  {offers.map(o => (
+                    <label key={o.offer_id} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors">
+                      <Checkbox checked={selected.has(o.offer_id)} onCheckedChange={() => toggle(o.offer_id)} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{o.name}</p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-xs text-muted-foreground">${o.payout.toFixed(2)}</span>
+                          {(o as any).already_sent && <span className="text-[10px] px-1.5 py-0 rounded-full bg-amber-100 text-amber-700 font-medium">✉ Already sent</span>}
+                          {(o as any).visibility === 'active' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-green-100 text-green-700 font-medium">🟢 Active for all</span>}
+                          {(o as any).visibility === 'running' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-emerald-100 text-emerald-700 font-medium">🏃 Running</span>}
+                          {(o as any).visibility === 'rotating' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-100 text-blue-700 font-medium">🔄 In Rotation</span>}
+                          {(o as any).visibility === 'inactive' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-gray-100 text-gray-600 font-medium">⚫ Inactive</span>}
+                          {(o as any).grant_count > 0 && <span className="text-[10px] px-1.5 py-0 rounded-full bg-orange-100 text-orange-700 font-medium">🎯 Granted to {(o as any).grant_count}</span>}
+                          {!(o as any).image_url && !(o as any).thumbnail_url ? <span className="text-[10px] text-amber-500">⚠️ No image</span> : null}
+                        </div>
+                      </div>
+                      <Badge variant={o.match_strength === 'Strong' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
+                        {o.match_strength}
+                      </Badge>
+                    </label>
+                  ))}
+                </div>
+
+                {/* Send via */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-muted-foreground">Send via</Label>
+                  <div className="flex gap-2">
+                    {viaOpts.map(v => (
+                      <Button key={v.key} size="sm" variant={sendVia === v.key ? 'default' : 'outline'}
+                        className="text-xs gap-1.5" onClick={() => setSendVia(v.key)}>
+                        {v.icon}{v.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Editable message body */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium text-muted-foreground">Message (editable — offers will be shown in a table below this)</Label>
+                  <Textarea value={messageBody} onChange={e => setMessageBody(e.target.value)}
+                    rows={6} className="text-sm resize-y" />
+                </div>
+
+                {/* Email template settings */}
+                <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
+
+                {/* Custom note */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Personal note (appended to message)</Label>
+                  <Textarea value={customMsg} onChange={e => setCustomMsg(e.target.value)}
+                    placeholder="Add a personal note..." rows={2} className="text-sm resize-none" />
                 </div>
               </div>
             )}
+          </TabsContent>
 
-            {/* Offer list */}
-            <div className="space-y-1.5 max-h-48 overflow-y-auto border rounded-lg p-2">
-              {offers.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No matching offers found</p>}
-              {offers.map(o => (
-                <label key={o.offer_id} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors">
-                  <Checkbox checked={selected.has(o.offer_id)} onCheckedChange={() => toggle(o.offer_id)} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{o.name}</p>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs text-muted-foreground">${o.payout.toFixed(2)}</span>
-                      {(o as any).visibility === 'active' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-green-100 text-green-700 font-medium">🟢 Active for all</span>}
-                      {(o as any).visibility === 'running' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-emerald-100 text-emerald-700 font-medium">🏃 Running</span>}
-                      {(o as any).visibility === 'rotating' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-100 text-blue-700 font-medium">🔄 In Rotation</span>}
-                      {(o as any).visibility === 'inactive' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-gray-100 text-gray-600 font-medium">⚫ Inactive</span>}
-                      {(o as any).grant_count > 0 && <span className="text-[10px] px-1.5 py-0 rounded-full bg-orange-100 text-orange-700 font-medium">🎯 Granted to {(o as any).grant_count}</span>}
-                      {!(o as any).image_url && !(o as any).thumbnail_url ? <span className="text-[10px] text-amber-500">⚠️ No image</span> : null}
-                    </div>
-                  </div>
-                  <Badge variant={o.match_strength === 'Strong' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
-                    {o.match_strength}
-                  </Badge>
-                </label>
-              ))}
-            </div>
-
-            {/* Send via */}
-            <div className="space-y-2">
-              <Label className="text-xs font-medium text-muted-foreground">Send via</Label>
-              <div className="flex gap-2">
-                {viaOpts.map(v => (
-                  <Button key={v.key} size="sm" variant={sendVia === v.key ? 'default' : 'outline'}
-                    className="text-xs gap-1.5" onClick={() => setSendVia(v.key)}>
-                    {v.icon}{v.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-
-            {/* Editable message body */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-muted-foreground">Message (editable — offers will be shown in a table below this)</Label>
-              <Textarea value={messageBody} onChange={e => setMessageBody(e.target.value)}
-                rows={6} className="text-sm resize-y" />
-            </div>
-
-            {/* Email template settings */}
-            <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
-
-            {/* Custom note */}
-            <div className="space-y-1.5">
-              <Label className="text-xs">Personal note (appended to message)</Label>
-              <Textarea value={customMsg} onChange={e => setCustomMsg(e.target.value)}
-                placeholder="Add a personal note..." rows={2} className="text-sm resize-none" />
-            </div>
-          </div>
-        )}
+          <TabsContent value="intelligence" className="mt-3">
+            {publisher && <PublisherIntelligencePanel userId={publisher.user_id} username={publisher.username} />}
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <span className="text-xs text-muted-foreground">{selected.size} offer{selected.size !== 1 ? 's' : ''} selected</span>

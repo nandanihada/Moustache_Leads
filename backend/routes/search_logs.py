@@ -720,6 +720,19 @@ def get_related_offers():
         except Exception:
             pass
 
+        # Get offers already sent to the user being emailed
+        already_sent_offer_ids = set()
+        search_user_id = request.args.get('user_id', '')
+        if search_user_id:
+            try:
+                from models.offer_grant import OfferGrant
+                grant_model_sl = OfferGrant()
+                if grant_model_sl.collection is not None:
+                    for g in grant_model_sl.collection.find({'user_id': str(search_user_id)}, {'offer_id': 1}):
+                        already_sent_offer_ids.add(g['offer_id'])
+            except Exception:
+                pass
+
         # Serialize
         result = []
         for o in matching[:20]:
@@ -737,7 +750,11 @@ def get_related_offers():
             o['is_rotation_running'] = oid in rotation_running_ids
             o['is_in_rotation'] = oid in rotation_batch_ids
             o['grant_count'] = grant_counts.get(oid, 0)
+            o['already_sent'] = oid in already_sent_offer_ids
             result.append(o)
+        
+        # Sort: new offers first, already-sent at the bottom
+        result.sort(key=lambda x: (1 if x.get('already_sent') else 0, -(x.get('payout', 0) or 0)))
 
         return jsonify({'success': True, 'offers': result, 'total': len(result)}), 200
 

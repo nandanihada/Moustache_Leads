@@ -31,10 +31,12 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import {
-  Mail, Send, Eye, Users, Search, RefreshCw, Clock, Settings2, Layers, Timer
+  Mail, Send, Eye, Users, Search, RefreshCw, Clock, Settings2, Layers, Timer, User
 } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { offerInsightsApi, Partner } from '@/services/offerInsightsApi';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 
 interface InsightEmailCampaignProps {
   open: boolean;
@@ -234,6 +236,13 @@ const InsightEmailCampaign = ({
             </DialogDescription>
           </DialogHeader>
 
+          <Tabs defaultValue="compose" className="w-full">
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="compose" className="text-xs gap-1.5"><Send className="h-3 w-3" />Compose & Send</TabsTrigger>
+              <TabsTrigger value="intelligence" className="text-xs gap-1.5" disabled={selectedPartners.size !== 1}><User className="h-3 w-3" />Publisher Intelligence {selectedPartners.size === 1 ? '' : '(select 1)'}</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="compose" className="mt-3">
           <div className="space-y-5">
             {/* Subject */}
             <div className="space-y-2">
@@ -425,7 +434,15 @@ const InsightEmailCampaign = ({
                 )}
               </div>
             </div>
-          </div>
+            </div>
+            </TabsContent>
+
+            <TabsContent value="intelligence" className="mt-3">
+              {selectedPartners.size === 1 && (
+                <PublisherIntelligencePanel userId={Array.from(selectedPartners)[0]} />
+              )}
+            </TabsContent>
+          </Tabs>
 
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

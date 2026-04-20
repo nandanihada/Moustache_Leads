@@ -17,6 +17,7 @@ import {
 
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function daysAgoText(days: number) {
@@ -272,7 +273,21 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
           <button onClick={onClose} className="p-2 hover:bg-muted rounded-lg"><X className="h-5 w-5" /></button>
         </div>
 
-        <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="p-5 space-y-4">
+          {/* Publisher Intelligence — shown when single user selected */}
+          {users.length === 1 && (
+            <details className="border border-border/50 rounded-lg overflow-hidden">
+              <summary className="px-4 py-2.5 bg-muted/30 hover:bg-muted/50 cursor-pointer text-xs font-medium flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-orange-500" />
+                Publisher Intelligence — {users[0].first_name || users[0].username}
+              </summary>
+              <div className="p-3 border-t border-border/30">
+                <PublisherIntelligencePanel userId={users[0]._id} username={users[0].username} compact />
+              </div>
+            </details>
+          )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left: Schedule Outreach */}
           <div className="space-y-4">
             <h3 className="text-sm font-bold text-orange-500 uppercase tracking-wider">🗓 Schedule Outreach</h3>
@@ -450,6 +465,7 @@ function SandSModal({ users, open, onClose, prefilledOffer }: { users: InactiveU
               </div>
             )}
           </div>
+        </div>
         </div>
 
         {/* Footer Actions */}

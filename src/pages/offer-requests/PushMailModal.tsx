@@ -11,10 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import {
   Loader2, Calendar, Send, MessageSquare, Plus, X, Search,
-  Users, ChevronDown, ChevronUp, AlertTriangle,
+  Users, ChevronDown, ChevronUp, AlertTriangle, User,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 
 interface PushMailModalProps {
   open: boolean;
@@ -566,6 +567,19 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
                 className="mt-1 text-sm font-mono resize-y"
               />
             </div>
+
+            {/* Publisher Intelligence — shown when single publisher selected */}
+            {selectedPublishers.size === 1 && (
+              <details className="border border-border/50 rounded-lg overflow-hidden">
+                <summary className="px-3 py-2 bg-muted/30 hover:bg-muted/50 cursor-pointer text-xs font-medium flex items-center gap-1.5">
+                  <User className="h-3.5 w-3.5 text-orange-500" />
+                  Publisher Intelligence
+                </summary>
+                <div className="p-3 border-t border-border/30">
+                  <PublisherIntelligencePanel userId={Array.from(selectedPublishers)[0]} compact />
+                </div>
+              </details>
+            )}
           </div>
 
           <DialogFooter className="flex items-center justify-between sm:justify-between">

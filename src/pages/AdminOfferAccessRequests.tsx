@@ -102,6 +102,7 @@ export interface Inv {
   is_rotation_running?: boolean;
   is_in_rotation?: boolean;
   grant_count?: number;
+  already_sent?: boolean;
   image_url?: string;
   thumbnail_url?: string;
   countries?: string[];

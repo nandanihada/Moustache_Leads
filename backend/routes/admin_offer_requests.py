@@ -373,7 +373,6 @@ def get_inventory_matches():
         similar_offers = list(offers_collection.find(
             {
                 '$or': regex_patterns,
-                'status': {'$in': ['active', 'Active', None]},  # Only active offers
             },
             {
                 'offer_id': 1,
@@ -381,10 +380,45 @@ def get_inventory_matches():
                 'payout': 1,
                 'network': 1,
                 'category': 1,
+                'vertical': 1,
                 'device_targeting': 1,
                 'approval_status': 1,
+                'status': 1,
+                'image_url': 1,
+                'thumbnail_url': 1,
+                'countries': 1,
+                'allowed_countries': 1,
+                'rotation_running': 1,
             }
-        ).limit(limit))
+        ).limit(limit * 3))  # Fetch extra to account for filtering
+        
+        # Get offers already sent to this user (via grants)
+        already_sent_offer_ids = set()
+        if user_id:
+            try:
+                from models.offer_grant import OfferGrant
+                grant_model = OfferGrant()
+                if grant_model.collection is not None:
+                    sent_grants = grant_model.collection.find(
+                        {'user_id': str(user_id)},
+                        {'offer_id': 1}
+                    )
+                    already_sent_offer_ids = {g['offer_id'] for g in sent_grants}
+            except Exception:
+                pass
+
+        # Separate: new offers (not sent) and already-sent offers
+        new_offers = []
+        sent_offers = []
+        for o in similar_offers:
+            oid = o.get('offer_id', '')
+            if oid in already_sent_offer_ids:
+                sent_offers.append(o)
+            else:
+                new_offers.append(o)
+        
+        # Prioritize new offers, then append sent ones at the bottom (with badge)
+        similar_offers = new_offers[:limit] + sent_offers[:max(0, limit - len(new_offers))]
         
         # Get user's existing requests to mark which ones are already requested
         user_requests = {}
@@ -472,6 +506,7 @@ def get_inventory_matches():
                 'is_rotation_running': is_rotation_running,
                 'is_in_rotation': is_in_rotation_batch,
                 'grant_count': grant_counts.get(oid, 0),
+                'already_sent': oid in already_sent_offer_ids,
             })
         
         # Sort by match strength (Strong first) then by payout
@@ -689,6 +724,26 @@ Moustache Leads"""
                     grant_model.grant_offers_to_user(uid, offer_ids, source='offer_access_request', granted_by=admin_username)
         except Exception as grant_err:
             logging.warning(f"Failed to create offer grants: {grant_err}")
+
+        # Log to offer_send_history so Publisher Intelligence can track it
+        try:
+            history_col = db_instance.get_collection('offer_send_history')
+            if history_col is not None:
+                offer_names_list = [o.get('name', '') for o in offers]
+                history_col.insert_one({
+                    'user_id': user_ids[0] if len(user_ids) == 1 else None,
+                    'recipient_user_ids': user_ids,
+                    'offer_ids': offer_ids,
+                    'offer_names': offer_names_list,
+                    'offer_count': len(offer_ids),
+                    'source': 'offer_request',
+                    'send_via': send_via,
+                    'subject': email_subject,
+                    'admin_username': request.current_user.get('username', 'admin'),
+                    'created_at': datetime.utcnow(),
+                })
+        except Exception as log_err:
+            logging.warning(f"Failed to log send history: {log_err}")
 
         return jsonify({
             'success': results['sent'] > 0,
@@ -2885,4 +2940,301 @@ def get_charts_data():
         }))
     except Exception as e:
         logging.error(f"Charts data error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Publisher Intelligence Panel Data ──────────────────────────────────────
+
+@admin_offer_requests_bp.route('/offer-access-requests/publisher-intelligence/<user_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_publisher_intelligence(user_id):
+    """
+    Aggregated publisher intelligence for the email sending modal.
+    Returns: profile, stats, mail history, search keywords, offer categories,
+    selection accuracy, and recent send history.
+    """
+    try:
+        from bson import ObjectId
+        from utils.json_serializer import serialize_for_json
+
+        users_col = db_instance.get_collection('users')
+        clicks_col = db_instance.get_collection('clicks')
+        conversions_col = db_instance.get_collection('conversions')
+        requests_col = db_instance.get_collection('affiliate_requests')
+        search_logs_col = db_instance.get_collection('search_logs')
+        email_activity_col = db_instance.get_collection('email_activity_logs')
+        offer_send_col = db_instance.get_collection('offer_send_history')
+        push_mail_col = db_instance.get_collection('push_mail_history')
+        insight_email_col = db_instance.get_collection('insight_email_logs')
+        offers_col = db_instance.get_collection('offers')
+
+        # ── 1. User profile ──
+        user = None
+        try:
+            user = users_col.find_one({'_id': ObjectId(user_id)})
+        except:
+            pass
+        if not user:
+            # Try by string user_id field
+            user = users_col.find_one({'user_id': user_id}) if users_col is not None else None
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        uid_str = str(user['_id'])
+        username = user.get('username', '')
+        first_name = user.get('first_name', '')
+        last_name = user.get('last_name', '')
+        email = user.get('email', '')
+        country = user.get('country', '') or user.get('geo', {}).get('country', '')
+        created_at = user.get('created_at')
+        avatar_initials = ''
+        if first_name:
+            avatar_initials = first_name[0].upper()
+            if last_name:
+                avatar_initials += last_name[0].upper()
+        elif username:
+            avatar_initials = username[:2].upper()
+
+        profile = {
+            'user_id': uid_str,
+            'username': username,
+            'first_name': first_name,
+            'last_name': last_name,
+            'email': email,
+            'country': country,
+            'created_at': created_at,
+            'avatar_initials': avatar_initials,
+            'account_status': user.get('account_status', 'active'),
+            'vertical': user.get('vertical', '') or user.get('traffic_vertical', ''),
+        }
+
+        # ── 2. Click & conversion stats ──
+        total_clicks = 0
+        real_clicks = 0
+        total_conversions = 0
+        if clicks_col is not None:
+            total_clicks = clicks_col.count_documents({'user_id': uid_str})
+            real_clicks = clicks_col.count_documents({'user_id': uid_str, 'fraud_score': {'$lt': 50}})
+        if conversions_col is not None:
+            total_conversions = conversions_col.count_documents({'user_id': uid_str})
+        conv_rate = round((total_conversions / total_clicks * 100), 2) if total_clicks > 0 else 0
+
+        stats = {
+            'total_clicks': total_clicks,
+            'real_clicks': real_clicks,
+            'conversions': total_conversions,
+            'conv_rate': conv_rate,
+        }
+
+        # ── 3. Mail history — aggregate from all email collections ──
+        mail_history = []
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        total_sent = 0
+        sent_today = 0
+        last_sent = None
+        user_email = email  # from profile section above
+
+        # Broad query that matches all possible field patterns used across collections
+        def _user_query(extra_fields=None):
+            """Build $or query matching user by id or email across all field naming patterns"""
+            conditions = [
+                {'user_id': uid_str},
+                {'recipient_user_ids': uid_str},
+                {'recipient_ids': uid_str},
+            ]
+            if user_email:
+                conditions.append({'recipient_emails': user_email})
+            if extra_fields:
+                conditions.extend(extra_fields)
+            return {'$or': conditions}
+
+        # From email_activity_logs
+        if email_activity_col is not None:
+            query = _user_query()
+            total_from_activity = email_activity_col.count_documents(query)
+            total_sent += total_from_activity
+            sent_today += email_activity_col.count_documents({**query, 'created_at': {'$gte': today_start}})
+            last_activity = email_activity_col.find_one(query, sort=[('created_at', -1)])
+            if last_activity:
+                last_sent = last_activity.get('created_at')
+            # Get recent entries for history table
+            for doc in email_activity_col.find(query).sort('created_at', -1).limit(10):
+                mail_history.append({
+                    'source': doc.get('source', doc.get('action', 'email')),
+                    'subject': doc.get('subject', ''),
+                    'offer_names': doc.get('offer_names', []),
+                    'offer_count': doc.get('offer_count', len(doc.get('offer_ids', []))),
+                    'sent_at': doc.get('created_at'),
+                    'status': doc.get('status', 'sent'),
+                })
+
+        # From offer_send_history
+        if offer_send_col is not None:
+            query = _user_query()
+            for doc in offer_send_col.find(query).sort('created_at', -1).limit(10):
+                total_sent += 1
+                dt = doc.get('created_at')
+                if dt and dt >= today_start:
+                    sent_today += 1
+                if dt and (last_sent is None or dt > last_sent):
+                    last_sent = dt
+                mail_history.append({
+                    'source': doc.get('source', 'offer_request'),
+                    'subject': doc.get('subject', 'Offer Recommendation'),
+                    'offer_names': doc.get('offer_names', []),
+                    'offer_count': doc.get('offer_count', len(doc.get('offer_ids', []))),
+                    'sent_at': dt,
+                    'status': 'sent',
+                })
+
+        # From push_mail_history
+        if push_mail_col is not None:
+            query = _user_query()
+            for doc in push_mail_col.find(query).sort('created_at', -1).limit(5):
+                total_sent += 1
+                dt = doc.get('created_at')
+                if dt and dt >= today_start:
+                    sent_today += 1
+                if dt and (last_sent is None or dt > last_sent):
+                    last_sent = dt
+                mail_history.append({
+                    'source': 'push_mail',
+                    'subject': doc.get('subject', 'Push Mail'),
+                    'offer_names': doc.get('offer_names', []),
+                    'offer_count': len(doc.get('offer_ids', [])),
+                    'sent_at': dt,
+                    'status': 'sent',
+                })
+
+        # Sort mail_history by sent_at desc, limit to 15
+        mail_history.sort(key=lambda x: x.get('sent_at') or datetime.min, reverse=True)
+        mail_history = mail_history[:15]
+
+        mail_stats = {
+            'total_sent': total_sent,
+            'sent_today': sent_today,
+            'last_sent': last_sent,
+        }
+
+        # ── 4. Search keyword history ──
+        keywords = []
+        if search_logs_col is not None:
+            pipeline = [
+                {'$match': {'user_id': uid_str}},
+                {'$group': {'_id': '$keyword', 'count': {'$sum': 1}, 'last_searched': {'$max': '$searched_at'}}},
+                {'$sort': {'count': -1}},
+                {'$limit': 20},
+            ]
+            keywords = [{'keyword': d['_id'], 'count': d['count'], 'last_searched': d.get('last_searched')} for d in search_logs_col.aggregate(pipeline)]
+
+        # ── 5. Offer category breakdown (from requests) ──
+        categories = []
+        if requests_col is not None:
+            pipeline = [
+                {'$match': {'user_id': uid_str}},
+                {'$group': {'_id': '$offer_category', 'count': {'$sum': 1}}},
+                {'$sort': {'count': -1}},
+                {'$limit': 10},
+            ]
+            categories = [{'category': d['_id'] or 'Unknown', 'count': d['count']} for d in requests_col.aggregate(pipeline)]
+
+        # ── 6. Selection accuracy ──
+        accuracy = {'total_requests': 0, 'approved': 0, 'rejected': 0, 'pending': 0, 'on_vertical_pct': 0, 'off_vertical_pct': 0}
+        if requests_col is not None:
+            accuracy['total_requests'] = requests_col.count_documents({'user_id': uid_str})
+            accuracy['approved'] = requests_col.count_documents({'user_id': uid_str, 'status': 'approved'})
+            accuracy['rejected'] = requests_col.count_documents({'user_id': uid_str, 'status': 'rejected'})
+            accuracy['pending'] = requests_col.count_documents({'user_id': uid_str, 'status': {'$in': ['pending', 'review']}})
+
+            # On-vertical calculation
+            user_vertical = (user.get('vertical', '') or user.get('traffic_vertical', '') or '').lower()
+            if user_vertical and accuracy['total_requests'] > 0:
+                on_vertical = requests_col.count_documents({
+                    'user_id': uid_str,
+                    'offer_category': {'$regex': user_vertical, '$options': 'i'}
+                })
+                accuracy['on_vertical_pct'] = round(on_vertical / accuracy['total_requests'] * 100, 1)
+                accuracy['off_vertical_pct'] = round(100 - accuracy['on_vertical_pct'], 1)
+
+        # ── 6b. Signup vertical vs actual clicking behaviour ──
+        vertical_comparison = {
+            'signup_vertical': (user.get('vertical', '') or user.get('traffic_vertical', '') or 'Not set'),
+            'actual_clicking': [],
+            'match': 'Unknown',
+        }
+        if clicks_col is not None:
+            # Get top categories this user actually clicks on
+            try:
+                click_cat_pipeline = [
+                    {'$match': {'user_id': uid_str}},
+                    {'$lookup': {
+                        'from': 'offers',
+                        'localField': 'offer_id',
+                        'foreignField': 'offer_id',
+                        'as': 'offer_info'
+                    }},
+                    {'$unwind': {'path': '$offer_info', 'preserveNullAndEmptyArrays': True}},
+                    {'$group': {'_id': '$offer_info.category', 'count': {'$sum': 1}}},
+                    {'$sort': {'count': -1}},
+                    {'$limit': 5},
+                ]
+                actual_cats = list(clicks_col.aggregate(click_cat_pipeline))
+                vertical_comparison['actual_clicking'] = [
+                    {'category': d['_id'] or 'Unknown', 'count': d['count']}
+                    for d in actual_cats if d.get('_id')
+                ]
+            except Exception as vc_err:
+                logging.warning(f"Vertical comparison error: {vc_err}")
+
+            # Determine match level
+            user_vert_lower = vertical_comparison['signup_vertical'].lower()
+            if user_vert_lower and user_vert_lower != 'not set' and vertical_comparison['actual_clicking']:
+                top_actual = [c['category'].lower() for c in vertical_comparison['actual_clicking'][:2]]
+                if any(user_vert_lower in cat or cat in user_vert_lower for cat in top_actual):
+                    vertical_comparison['match'] = 'Strong'
+                elif any(user_vert_lower in cat or cat in user_vert_lower for cat in [c['category'].lower() for c in vertical_comparison['actual_clicking']]):
+                    vertical_comparison['match'] = 'Partial'
+                else:
+                    vertical_comparison['match'] = 'Off-vertical'
+
+        # ── 7. Offers previously sent to this user (deduplicated) ──
+        sent_offers = []
+        sent_offer_ids = set()
+        if offer_send_col is not None:
+            for doc in offer_send_col.find(_user_query()).sort('created_at', -1).limit(30):
+                for oid in (doc.get('offer_ids', []) or []):
+                    if oid not in sent_offer_ids:
+                        sent_offer_ids.add(oid)
+        if push_mail_col is not None:
+            for doc in push_mail_col.find(_user_query()).sort('created_at', -1).limit(20):
+                for oid in (doc.get('offer_ids', []) or []):
+                    if oid not in sent_offer_ids:
+                        sent_offer_ids.add(oid)
+
+        # Resolve offer names
+        if sent_offer_ids and offers_col is not None:
+            for o in offers_col.find({'offer_id': {'$in': list(sent_offer_ids)}}, {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1}):
+                sent_offers.append({
+                    'offer_id': o.get('offer_id'),
+                    'name': o.get('name', ''),
+                    'payout': o.get('payout', 0),
+                    'category': o.get('category', ''),
+                })
+
+        return jsonify(serialize_for_json({
+            'success': True,
+            'profile': profile,
+            'stats': stats,
+            'mail_stats': mail_stats,
+            'mail_history': mail_history,
+            'keywords': keywords,
+            'categories': categories,
+            'accuracy': accuracy,
+            'vertical_comparison': vertical_comparison,
+            'sent_offers': sent_offers[:30],
+        }))
+
+    except Exception as e:
+        logging.error(f"Publisher intelligence error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500

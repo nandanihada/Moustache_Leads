@@ -212,6 +212,10 @@ export const offerInsightsApi = {
     source_card?: string;
     offer_ids?: string[];
     offer_names?: string[];
+    template_style?: string;
+    visible_fields?: string[];
+    default_image?: string;
+    payout_type?: string;
   }) {
     const response = await fetch(`${API_BASE_URL}/api/admin/insights/send-custom-email`, {
       method: 'POST',
