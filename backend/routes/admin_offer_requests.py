@@ -282,11 +282,12 @@ def get_publisher_profiles_with_requests():
             }
             publisher_profiles.append(profile)
         
-        publisher_profiles.sort(key=lambda x: -x['pending_count'])
+        publisher_profiles.sort(key=lambda x: (x.get('requests', [{}])[0].get('requested_at') or datetime.min), reverse=True)
         
         # Enrich with mail_sent_today for each publisher
         try:
             email_logs_col = db_instance.get_collection('email_activity_logs')
+            proofs_col_check = db_instance.get_collection('placement_proofs')
             if email_logs_col is not None:
                 today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
                 for profile in publisher_profiles:
@@ -317,6 +318,22 @@ def get_publisher_profiles_with_requests():
                         profile['mail_last_sent'] = None
         except Exception as mail_err:
             logging.warning(f"Failed to enrich mail stats for offer requests: {mail_err}")
+
+        # Enrich with placement proof status
+        try:
+            if proofs_col_check is not None:
+                all_uids = [p['user_id'] for p in publisher_profiles if p.get('user_id')]
+                if all_uids:
+                    users_with_proofs = set()
+                    for doc in proofs_col_check.find(
+                        {'user_id': {'$in': all_uids}},
+                        {'user_id': 1}
+                    ):
+                        users_with_proofs.add(doc.get('user_id', ''))
+                    for profile in publisher_profiles:
+                        profile['has_proofs'] = profile['user_id'] in users_with_proofs
+        except Exception:
+            pass
         
         total = len(publisher_profiles)
         start_idx = (page - 1) * per_page
@@ -1709,7 +1726,7 @@ def get_tab_data():
 
         tab = request.args.get('tab', 'in_review')
         page = max(1, int(request.args.get('page', 1)))
-        per_page = min(int(request.args.get('per_page', 20)), 100)
+        per_page = min(int(request.args.get('per_page', 20)), 500)
         sort_dir = request.args.get('sort_dir', 'desc')
         user_id_filter = request.args.get('user_id', '')
         offer_name_filter = request.args.get('offer_name', '')
@@ -1727,6 +1744,7 @@ def get_tab_data():
         offers_col = db_instance.get_collection('offers')
         users_col = db_instance.get_collection('users')
         collections_col = db_instance.get_collection('offer_collections')
+        proofs_col = db_instance.get_collection('placement_proofs')
 
         sort_val = 1 if sort_dir == 'asc' else -1
 
@@ -1914,6 +1932,22 @@ def get_tab_data():
                     collection_status[oid] = {'direct_partner': False, 'affiliate': False}
                 collection_status[oid][doc['collection_type']] = True
 
+        # Check placement proofs for these users+offers
+        proof_set = set()  # set of "user_id:offer_id" that have proofs
+        if proofs_col is not None and needed_user_ids:
+            try:
+                for doc in proofs_col.find({
+                    'user_id': {'$in': needed_user_ids}
+                }, {'user_id': 1, 'offer_id': 1}):
+                    uid_p = doc.get('user_id', '')
+                    oid_p = doc.get('offer_id', '')
+                    if uid_p and oid_p:
+                        proof_set.add(f"{uid_p}:{oid_p}")
+                    elif uid_p:
+                        proof_set.add(f"{uid_p}:*")
+            except Exception:
+                pass
+
         results = []
         for r in reqs:
             oid = r.get('offer_id')
@@ -1940,6 +1974,7 @@ def get_tab_data():
                 'publisher_username': usr.get('username', r.get('username', '')),
                 'publisher_email': usr.get('email', r.get('email', '')),
                 'is_in_collection': collection_status.get(oid, {'direct_partner': False, 'affiliate': False}),
+                'has_placement_proof': f"{uid}:{oid}" in proof_set or f"{uid}:*" in proof_set,
             }
 
             if tab == 'rejected':

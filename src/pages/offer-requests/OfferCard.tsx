@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import {
   CheckCircle, XCircle, Loader2, AlertCircle, Heart, Users,
   Globe, DollarSign, Edit, Trash2, Send, Calendar, Briefcase, UserCheck, Activity,
+  Clock, FileImage,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { EditOfferModal } from '@/components/EditOfferModal';
@@ -33,6 +34,8 @@ export interface TabOfferRequest {
   rejection_reason?: string;
   rejection_category?: string;
   is_in_collection?: { direct_partner: boolean; affiliate: boolean };
+  has_placement_proof?: boolean;
+  placement_proof_id?: string;
   // Most Requested fields
   total_requests?: number;
   unique_users?: number;
@@ -151,6 +154,19 @@ export default function OfferCard({ item, tab, isSelected, onToggleSelect, onCol
             {item.offer_category && <span className="flex items-center gap-1"><Briefcase className="w-3 h-3" />{item.offer_category}</span>}
             {countries.length > 0 && <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{countries.join(', ')}{(item.offer_countries?.length || 0) > 5 ? '…' : ''}</span>}
             {item.publisher_username && <span className="flex items-center gap-1"><UserCheck className="w-3 h-3" />{item.publisher_username}</span>}
+            {item.requested_at && (
+              <span className="flex items-center gap-1" title="Request date (IST)">
+                <Clock className="w-3 h-3" />
+                {new Date(item.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+              </span>
+            )}
+            {item.has_placement_proof && (
+              <span className="flex items-center gap-1 text-emerald-600 font-medium cursor-pointer hover:underline"
+                onClick={() => window.open(`/admin/placement-proofs?user_id=${item.publisher_id}&offer_id=${item.offer_id}`, '_blank')}
+                title="View placement proof">
+                <FileImage className="w-3 h-3" />Proof
+              </span>
+            )}
           </div>
 
           {/* Most Requested stats */}

@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown, CheckCircle, XCircle, Loader2, AlertTriangle, AlertCircle,
   TrendingUp, MousePointerClick, Target, DollarSign, ExternalLink, Calendar,
-  Shield, Zap, Send, Package, Eye, Link2, Edit
+  Shield, Zap, Send, Package, Eye, Link2, Edit, FileImage
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { ResponsiveContainer, Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
@@ -44,6 +44,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [loadingHealth, setLoadingHealth] = useState<string | null>(null);
   const [selectedReqOffer, setSelectedReqOffer] = useState<string | null>(null);
   const [selectedRelated, setSelectedRelated] = useState<Set<string>>(new Set());
+  const [selectMode, setSelectMode] = useState(false);
   const token = localStorage.getItem('token');
   const risk = rsk(pub.risk_level);
 
@@ -187,6 +188,12 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
             {(pub.mail_total_sent || 0) > 0 && !(pub.mail_sent_today || 0) && (
               <span className="text-[10px] text-muted-foreground">{pub.mail_total_sent} mail(s)</span>
             )}
+            {pub.has_proofs && (
+              <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-200 gap-1 cursor-pointer"
+                onClick={(e) => { e.stopPropagation(); window.open(`/admin/placement-proofs?user_id=${pub.user_id}`, '_blank'); }}>
+                <FileImage className="w-3 h-3" /> 📎 Has Proof
+              </Badge>
+            )}
           </div>
           <p className="text-xs text-muted-foreground truncate">{pub.email}</p>
         </div>
@@ -242,9 +249,73 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                     )}
                   </h4>
 
-                  {/* Requested Offer Dropdown */}
+                  {/* Requested Offer — Single view dropdown OR Multi-select checklist */}
                   <div className="space-y-2">
-                    <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Requested Offer</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Requested Offer</label>
+                      <Button size="sm" variant={selectMode ? 'default' : 'outline'} className="h-6 px-2 text-[10px] gap-1"
+                        onClick={() => { setSelectMode(!selectMode); if (!selectMode) setSelectedReqs(new Set()); }}>
+                        {selectMode ? <><CheckCircle className="w-3 h-3" />Done</> : <><Checkbox className="w-3 h-3" />Select Multiple</>}
+                      </Button>
+                    </div>
+
+                    {selectMode ? (
+                      /* ── Multi-select checklist mode ── */
+                      <div className="space-y-2">
+                        <div className="border rounded-lg max-h-48 overflow-y-auto divide-y">
+                          {pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(req => (
+                            <label key={req.request_id} className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${selectedReqs.has(req.request_id) ? 'bg-blue-50 dark:bg-blue-950/20' : ''}`}>
+                              <input type="checkbox" className="rounded border-gray-300 w-4 h-4 accent-blue-600"
+                                checked={selectedReqs.has(req.request_id)}
+                                onChange={() => toggleReqSelect(req.request_id)} />
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-sm font-medium truncate">{req.offer_name}</span>
+                                  {req.offer_status === 'active' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-green-50 text-green-700">Active</Badge>}
+                                  {req.offer_status === 'inactive' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-gray-50 text-gray-600">Inactive</Badge>}
+                                  {req.status === 'review' && <Badge className="text-[9px] px-1 py-0 bg-blue-100 text-blue-700">Review</Badge>}
+                                  {req.offer_health?.status === 'unhealthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-red-50 text-red-600">⚠️ {req.offer_health.failures.length}</Badge>}
+                                </div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {req.offer_network} · ${req.offer_payout.toFixed(2)}
+                                  {req.requested_at ? ' · ' + new Date(req.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) + ' IST' : ''}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                        {/* Bulk action bar */}
+                        {selectedReqs.size > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap p-2 bg-muted/50 rounded-lg border">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{selectedReqs.size} selected</Badge>
+                            <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => bulkRequestAction('approve')} disabled={bulkActing}>
+                              <CheckCircle className="w-2.5 h-2.5" />Approve
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-red-600 border-red-200" onClick={() => bulkRequestAction('reject')} disabled={bulkActing}>
+                              <XCircle className="w-2.5 h-2.5" />Reject
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-amber-600 border-amber-200" onClick={() => bulkRequestAction('review')} disabled={bulkActing}>
+                              <AlertTriangle className="w-2.5 h-2.5" />Review
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-blue-600 border-blue-200" onClick={() => {
+                              const offers = pub.requests.filter(r => selectedReqs.has(r.request_id)).map(r => ({
+                                _id: '', offer_id: r.offer_id, name: r.offer_name, network: r.offer_network, payout: r.offer_payout, match_strength: ''
+                              }));
+                              onSendOffers(pub, offers);
+                            }}>
+                              <Send className="w-2.5 h-2.5" />Mail {selectedReqs.size}
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-6 px-2 text-[9px]" onClick={() => {
+                              const allIds = pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(r => r.request_id);
+                              setSelectedReqs(prev => prev.size === allIds.length ? new Set() : new Set(allIds));
+                            }}>
+                              {selectedReqs.size === pub.requests.filter(r => r.status === 'pending' || r.status === 'review').length ? 'Deselect All' : 'Select All'}
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* ── Single view dropdown mode ── */
                     <select
                       className="w-full border rounded-md px-3 py-2 text-sm bg-background"
                       value={selectedReqOffer || ''}
@@ -271,9 +342,11 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                         <option key={req.request_id} value={req.offer_id}>
                           {req.offer_name} · {req.offer_network} · ${req.offer_payout.toFixed(2)}
                           {req.offer_health?.status === 'unhealthy' ? ' · ⚠️ issues' : ''}
+                          {req.requested_at ? ' · ' + new Date(req.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) + ' IST' : ''}
                         </option>
                       ))}
                     </select>
+                    )}
 
                     {/* Selected offer detail card */}
                     {selectedReqOffer && (() => {
@@ -294,10 +367,16 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                                 {selReq.offer_health?.status === 'healthy' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-200"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}
                               </div>
                               <p className="text-xs text-muted-foreground">{selReq.offer_network} · {(selReq.offer_countries || []).join(', ') || 'Global'}</p>
+                              {selReq.requested_at && (
+                                <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                  <Calendar className="w-3 h-3" />
+                                  Requested: {new Date(selReq.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                                </p>
+                              )}
                             </div>
                             <p className="text-lg font-bold shrink-0">${selReq.offer_payout.toFixed(2)}</p>
                           </div>
-                          {selReq.offer_stats && (<div className="flex items-center gap-4 text-[10px] text-muted-foreground"><span className="flex items-center gap-0.5"><MousePointerClick className="w-3 h-3 text-blue-500" />Clicks {(selReq.offer_stats.total_clicks || 0).toLocaleString()}</span><span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle className="w-3 h-3" />Approved {selReq.offer_stats.approved_count || 0}</span><span className="flex items-center gap-0.5 text-red-500"><XCircle className="w-3 h-3" />Rejected {selReq.offer_stats.rejected_count || 0}</span><span className="flex items-center gap-0.5 text-amber-500"><AlertTriangle className="w-3 h-3" />Pending {selReq.offer_stats.pending_count || 0}</span></div>)}
+                          {selReq.offer_stats && (<div className="flex items-center gap-4 text-[10px] text-muted-foreground"><span className="flex items-center gap-0.5"><MousePointerClick className="w-3 h-3 text-blue-500" />Clicks {(selReq.offer_stats.total_clicks || 0).toLocaleString()}</span><span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle className="w-3 h-3" />Approved {selReq.offer_stats.approved_count || 0}</span><span className="flex items-center gap-0.5 text-red-500"><XCircle className="w-3 h-3" />Rejected {selReq.offer_stats.rejected_count || 0}</span><span className="flex items-center gap-0.5 text-amber-500"><AlertTriangle className="w-3 h-3" />Pending {selReq.offer_stats.pending_count || 0}</span>{pub.has_proofs && <span className="flex items-center gap-0.5 text-emerald-600 font-semibold cursor-pointer hover:underline" onClick={() => window.open(`/admin/placement-proofs?user_id=${pub.user_id}`, '_blank')}><FileImage className="w-3.5 h-3.5" />📎 Has Placement Proof</span>}</div>)}
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1" onClick={() => navigator.clipboard.writeText(selReq.offer_name).then(() => toast.success('Copied'))}>Copy name</Button>
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: selReq.offer_id, request_id: selReq.request_id, collection_type: 'direct_partner' }) }); toast.success('Added to DP'); } catch { toast.error('Failed'); } }}>DP</Button>
@@ -318,9 +397,38 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                       <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" />Loading related offers...</div>
                     ) : inventory.filter(inv => inv.offer_id !== selectedReqOffer).length > 0 && (
                       <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
+                        <div className="flex items-center justify-between flex-wrap gap-1">
                           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Related Offers</p>
-                          {selectedRelated.size > 0 && (<Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onSendOffers(pub, inventory.filter(inv => selectedRelated.has(inv.offer_id)))}><Send className="w-2.5 h-2.5" />Send {selectedRelated.size} selected in mail</Button>)}
+                          {selectedRelated.size > 0 && (
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{selectedRelated.size} selected</Badge>
+                              <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
+                                const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => {
+                                  const req = pub.requests.find(r => r.offer_id === inv.offer_id);
+                                  return req?.request_id;
+                                }).filter(Boolean) as string[];
+                                if (!ids.length) { toast.info('No matching requests to approve'); return; }
+                                try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids }) }); toast.success(`Approved ${ids.length}`); onRefreshList(); } catch { toast.error('Failed'); }
+                              }}><CheckCircle className="w-2.5 h-2.5" />Approve</Button>
+                              <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-red-600 border-red-200" onClick={async () => {
+                                const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => {
+                                  const req = pub.requests.find(r => r.offer_id === inv.offer_id);
+                                  return req?.request_id;
+                                }).filter(Boolean) as string[];
+                                if (!ids.length) { toast.info('No matching requests'); return; }
+                                try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-reject`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids, reason: 'Bulk rejected' }) }); toast.success(`Rejected ${ids.length}`); onRefreshList(); } catch { toast.error('Failed'); }
+                              }}><XCircle className="w-2.5 h-2.5" />Reject</Button>
+                              <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-amber-600 border-amber-200" onClick={async () => {
+                                const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => {
+                                  const req = pub.requests.find(r => r.offer_id === inv.offer_id);
+                                  return req?.request_id;
+                                }).filter(Boolean) as string[];
+                                if (!ids.length) { toast.info('No matching requests'); return; }
+                                try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/mark-review`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids }) }); toast.success(`Marked ${ids.length} for review`); onRefreshList(); } catch { toast.error('Failed'); }
+                              }}><AlertTriangle className="w-2.5 h-2.5" />Review</Button>
+                              <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onSendOffers(pub, inventory.filter(inv => selectedRelated.has(inv.offer_id)))}><Send className="w-2.5 h-2.5" />Mail {selectedRelated.size}</Button>
+                            </div>
+                          )}
                         </div>
                         {inventory.filter(inv => inv.offer_id !== selectedReqOffer).slice(0, 8).map(inv => (
                           <div key={inv.offer_id} className={`rounded-lg border px-3 py-2 text-xs space-y-1.5 ${selectedRelated.has(inv.offer_id) ? 'border-blue-300 bg-blue-50/50' : 'border-gray-200 bg-gray-50 dark:bg-gray-900/30'}`}>

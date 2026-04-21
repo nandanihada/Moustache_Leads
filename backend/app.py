@@ -3,6 +3,7 @@ from flask_cors import CORS
 from config import Config
 from database import db_instance
 import logging
+import os
 from datetime import datetime
 from flask.json.provider import DefaultJSONProvider
 
@@ -261,6 +262,13 @@ def create_app():
     # except Exception as e:
     #     print(f"❌ Failed to start offer scheduler service: {str(e)}")
     
+    # Serve uploaded files (placement proofs, etc.)
+    @app.route('/uploads/<path:filepath>', methods=['GET'])
+    def serve_uploads(filepath):
+        from flask import send_from_directory
+        upload_dir = os.path.join(os.path.dirname(__file__), 'uploads')
+        return send_from_directory(upload_dir, filepath)
+
     # Health check endpoint
     @app.route('/health', methods=['GET'])
     def health_check():

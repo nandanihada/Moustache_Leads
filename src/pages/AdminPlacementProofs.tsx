@@ -50,6 +50,7 @@ const AdminPlacementProofs = () => {
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewScore, setReviewScore] = useState(5);
   const [reviewing, setReviewing] = useState(false);
+  const [fullscreenImg, setFullscreenImg] = useState<string | null>(null);
 
   const fetchProofs = async () => {
     setLoading(true);
@@ -169,8 +170,8 @@ const AdminPlacementProofs = () => {
                             key={i}
                             src={url.startsWith('/') ? `${API_BASE_URL}${url}` : url}
                             alt=""
-                            className="w-10 h-10 rounded border object-cover cursor-pointer hover:opacity-80"
-                            onClick={() => { setSelectedProof(proof); setReviewOpen(true); }}
+                            className="w-10 h-10 rounded border object-cover cursor-pointer hover:opacity-80 hover:ring-2 hover:ring-blue-400 transition-all"
+                            onClick={() => setFullscreenImg(url.startsWith('/') ? `${API_BASE_URL}${url}` : url)}
                           />
                         ))}
                         {proof.image_urls.length > 3 && (
@@ -279,10 +280,12 @@ const AdminPlacementProofs = () => {
                         key={i}
                         src={url.startsWith('/') ? `${API_BASE_URL}${url}` : url}
                         alt={`Proof ${i + 1}`}
-                        className="w-full rounded-lg border object-cover max-h-[300px]"
+                        className="w-full rounded-lg border object-cover max-h-[300px] cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition-all"
+                        onClick={() => setFullscreenImg(url.startsWith('/') ? `${API_BASE_URL}${url}` : url)}
                       />
                     ))}
                   </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">Click any image to view fullscreen</p>
                 </div>
               )}
 
@@ -338,6 +341,26 @@ const AdminPlacementProofs = () => {
           )}
         </DialogContent>
       </Dialog>
+      {/* Fullscreen Image Overlay */}
+      {fullscreenImg && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center cursor-pointer"
+          onClick={() => setFullscreenImg(null)}
+        >
+          <button
+            className="absolute top-4 right-4 text-white bg-white/20 hover:bg-white/40 rounded-full w-10 h-10 flex items-center justify-center text-xl font-bold transition-colors z-10"
+            onClick={() => setFullscreenImg(null)}
+          >
+            ✕
+          </button>
+          <img
+            src={fullscreenImg}
+            alt="Proof fullscreen"
+            className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 };

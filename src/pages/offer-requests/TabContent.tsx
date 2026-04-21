@@ -6,8 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import {
   Search, RefreshCw, Mail, MessageSquare, Calendar, ArrowUpDown,
-  ChevronLeft, ChevronRight, Link2, Layers, Globe, User,
+  ChevronLeft, ChevronRight, Link2, Layers, Globe, User, ChevronRight as ChevronRightIcon,
 } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
 import { API_BASE_URL } from '@/services/apiConfig';
 import OfferCard, { type TabOfferRequest } from './OfferCard';
 import SendScheduleModal from './SendScheduleModal';
@@ -36,6 +37,8 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
   const [searchTimeout, setSearchTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [groupBy, setGroupBy] = useState<GroupBy>('all');
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [groupPage, setGroupPage] = useState(1);
+  const [groupPerPage, setGroupPerPage] = useState(20);
 
   // Modal
   const [sendModal, setSendModal] = useState<{ offerIds: string[]; mode: 'schedule' | 'send_now' } | null>(null);
@@ -64,34 +67,41 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
         setTotalPages(data.pagination?.pages || 1);
         setItems([]);
       } else {
-        // Regular tab data
-      const params = new URLSearchParams({
-        tab,
-        page: String(page),
-        per_page: String(perPage),
-        sort_dir: sortDir,
-      });
-      if (offerName) params.set('offer_name', offerName);
-      if (network) params.set('network', network);
+        // Regular tab data — when grouping, fetch ALL items to group properly
+        const isGrouped = groupBy !== 'all';
+        const params = new URLSearchParams({
+          tab,
+          page: isGrouped ? '1' : String(page),
+          per_page: isGrouped ? '500' : String(perPage),
+          sort_dir: sortDir,
+        });
+        if (offerName) params.set('offer_name', offerName);
+        if (network) params.set('network', network);
 
-      const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/tab-data?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setItems(data.requests || []);
-      setTotal(data.pagination?.total || 0);
-      setTotalPages(data.pagination?.pages || 1);
+        const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/tab-data?${params}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        setItems(data.requests || []);
+        if (isGrouped) {
+          // Total/pages will be computed from grouped data in the render
+          setTotal(data.requests?.length || 0);
+          setTotalPages(1);
+        } else {
+          setTotal(data.pagination?.total || 0);
+          setTotalPages(data.pagination?.pages || 1);
+        }
       }
     } catch {
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
     }
-  }, [tab, page, perPage, sortDir, offerName, network, isActive, token, historyFilter]);
+  }, [tab, page, perPage, sortDir, offerName, network, isActive, token, historyFilter, groupBy]);
 
   useEffect(() => { if (isActive) fetchData(); }, [fetchData, isActive]);
-  useEffect(() => { setPage(1); }, [offerName, network, sortDir, perPage]);
+  useEffect(() => { setPage(1); setGroupPage(1); }, [offerName, network, sortDir, perPage, groupBy]);
 
   const handleSearchChange = (value: string) => {
     if (searchTimeout) clearTimeout(searchTimeout);
@@ -110,10 +120,29 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
 
   const selectedOfferIds = Array.from(selectedIds);
 
-  // Group items by selected dimension
+  // Check if all offers in a group are selected
+  const isGroupSelected = (groupItems: TabOfferRequest[]) => {
+    return groupItems.length > 0 && groupItems.every(i => selectedIds.has(i.offer_id));
+  };
+  const isGroupPartial = (groupItems: TabOfferRequest[]) => {
+    return groupItems.some(i => selectedIds.has(i.offer_id)) && !isGroupSelected(groupItems);
+  };
+  const toggleGroupSelect = (groupItems: TabOfferRequest[]) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (isGroupSelected(groupItems)) {
+        groupItems.forEach(i => next.delete(i.offer_id));
+      } else {
+        groupItems.forEach(i => next.add(i.offer_id));
+      }
+      return next;
+    });
+  };
+
+  // Group items by selected dimension — CASE-INSENSITIVE to avoid duplicates
   const groupedData = useMemo(() => {
     if (groupBy === 'all') return null;
-    const groups: Record<string, { items: TabOfferRequest[]; count: number }> = {};
+    const groups: Record<string, { items: TabOfferRequest[]; count: number; displayName: string }> = {};
     for (const item of items) {
       let keys: string[] = [];
       if (groupBy === 'network') {
@@ -126,9 +155,10 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
         keys = [item.publisher_username || 'Unknown'];
       }
       for (const key of keys) {
-        if (!groups[key]) groups[key] = { items: [], count: 0 };
-        groups[key].items.push(item);
-        groups[key].count++;
+        const normalizedKey = key.trim().toLowerCase();
+        if (!groups[normalizedKey]) groups[normalizedKey] = { items: [], count: 0, displayName: key.trim() };
+        groups[normalizedKey].items.push(item);
+        groups[normalizedKey].count++;
       }
     }
     // Sort by count descending
@@ -232,7 +262,7 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
           <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px]" onClick={selectAll}>
             {selectedIds.size === items.length ? 'Deselect All' : 'Select All'}
           </Button>
-          <span>{total} total results</span>
+          <span>{groupBy !== 'all' && groupedData ? `${groupedData.length} groups · ` : ''}{total} total results</span>
         </div>
       )}
 
@@ -290,25 +320,52 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
       ) : items.length === 0 ? (
         <div className="text-center py-12 text-muted-foreground">No items found</div>
       ) : groupBy !== 'all' && groupedData ? (
-        /* ── Grouped View ── */
+        /* ── Grouped View with pagination ── */
+        <>
+        <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
+          <span>{groupedData.length} groups · {items.length} total offers</span>
+          <div className="ml-auto flex items-center gap-2">
+            <span>Groups per page:</span>
+            <Select value={String(groupPerPage)} onValueChange={v => { setGroupPerPage(Number(v)); setGroupPage(1); }}>
+              <SelectTrigger className="w-[70px] h-7 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="10">10</SelectItem>
+                <SelectItem value="20">20</SelectItem>
+                <SelectItem value="50">50</SelectItem>
+                <SelectItem value="100">100</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
         <div className="space-y-3">
-          {groupedData.map(([groupName, group]) => (
-            <div key={groupName} className="border rounded-lg overflow-hidden">
-              <button
-                className="w-full flex items-center justify-between p-3 bg-muted/30 hover:bg-muted/50 transition-colors text-left"
-                onClick={() => setExpandedGroup(prev => prev === groupName ? null : groupName)}
-              >
-                <div className="flex items-center gap-2">
-                  {groupBy === 'network' && <Link2 className="h-4 w-4 text-blue-500" />}
-                  {groupBy === 'vertical' && <Layers className="h-4 w-4 text-purple-500" />}
-                  {groupBy === 'country' && <Globe className="h-4 w-4 text-emerald-500" />}
-                  {groupBy === 'user' && <User className="h-4 w-4 text-orange-500" />}
-                  <span className="font-medium text-sm">{groupName}</span>
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{group.count}</Badge>
+          {groupedData.slice((groupPage - 1) * groupPerPage, groupPage * groupPerPage).map(([groupKey, group]) => (
+            <div key={groupKey} className="border rounded-lg overflow-hidden">
+              <div className="flex items-center gap-2 p-3 bg-muted/30 hover:bg-muted/50 transition-colors">
+                <div onClick={e => e.stopPropagation()}>
+                  <Checkbox
+                    checked={isGroupSelected(group.items)}
+                    // @ts-ignore — indeterminate not in type but works
+                    data-state={isGroupPartial(group.items) ? 'indeterminate' : isGroupSelected(group.items) ? 'checked' : 'unchecked'}
+                    onCheckedChange={() => toggleGroupSelect(group.items)}
+                    aria-label={`Select all ${group.displayName}`}
+                  />
                 </div>
-                <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expandedGroup === groupName ? 'rotate-90' : ''}`} />
-              </button>
-              {expandedGroup === groupName && (
+                <button
+                  className="flex-1 flex items-center justify-between text-left"
+                  onClick={() => setExpandedGroup(prev => prev === groupKey ? null : groupKey)}
+                >
+                  <div className="flex items-center gap-2">
+                    {groupBy === 'network' && <Link2 className="h-4 w-4 text-blue-500" />}
+                    {groupBy === 'vertical' && <Layers className="h-4 w-4 text-purple-500" />}
+                    {groupBy === 'country' && <Globe className="h-4 w-4 text-emerald-500" />}
+                    {groupBy === 'user' && <User className="h-4 w-4 text-orange-500" />}
+                    <span className="font-medium text-sm">{group.displayName}</span>
+                    <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{group.count}</Badge>
+                  </div>
+                  <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expandedGroup === groupKey ? 'rotate-90' : ''}`} />
+                </button>
+              </div>
+              {expandedGroup === groupKey && (
                 <div className="p-2 space-y-2 border-t">
                   {group.items.map(item => (
                     <OfferCard
@@ -328,6 +385,19 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
             </div>
           ))}
         </div>
+        {/* Group pagination */}
+        {Math.ceil(groupedData.length / groupPerPage) > 1 && (
+          <div className="flex items-center justify-center gap-2 pt-2">
+            <Button size="sm" variant="outline" disabled={groupPage <= 1} onClick={() => setGroupPage(p => p - 1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground">Page {groupPage} of {Math.ceil(groupedData.length / groupPerPage)}</span>
+            <Button size="sm" variant="outline" disabled={groupPage >= Math.ceil(groupedData.length / groupPerPage)} onClick={() => setGroupPage(p => p + 1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+        </>
       ) : (
         /* ── Flat View ── */
         <div className="space-y-2">
@@ -347,8 +417,8 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
+      {/* Pagination — hidden when grouped since all data is loaded */}
+      {totalPages > 1 && groupBy === 'all' && (
         <div className="flex items-center justify-center gap-2 pt-2">
           <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>
             <ChevronLeft className="h-4 w-4" />
