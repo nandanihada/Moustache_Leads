@@ -64,8 +64,6 @@ def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='pu
     # Fallback: no offers, just body text
     body_html = body_text.replace(chr(10), '<br>') if isinstance(body_text, str) else body_text
 
-    body_html = body_text.replace(chr(10), '<br>') if isinstance(body_text, str) else body_text
-
     return f"""<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:40px 20px;font-family:Arial,sans-serif;background:#f5f5f5;">
@@ -75,7 +73,6 @@ def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='pu
 <h1 style="margin:8px 0 0;font-size:20px;color:#111;">Moustache Leads</h1>
 </div>
 <div style="font-size:15px;color:#333;line-height:1.6;">{body_html}</div>
-{offers_table}
 <div style="text-align:center;margin-top:24px;">
 <a href="{frontend_url}/publisher/signin" style="display:inline-block;padding:12px 28px;background:#111;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">Login to View All Details</a>
 </div>
@@ -1178,7 +1175,13 @@ def approve_access_request(request_id):
                     offer_name=offer_name,
                     status='approved',
                     reason='',
-                    offer_id=str(access_request.get('offer_id', ''))
+                    offer_id=str(access_request.get('offer_id', '')),
+                    extra_data={
+                        'payout': offer.get('payout', '') if offer else '',
+                        'category': offer.get('category', offer.get('vertical', '')) if offer else '',
+                        'network': offer.get('network', '') if offer else '',
+                        'countries': ', '.join((offer.get('countries', []) or [])[:5]) if offer else '',
+                    } if offer else None
                 )
                 logging.info(f"✅ Approval email sent to {publisher['email']} for offer {offer_name}")
             else:

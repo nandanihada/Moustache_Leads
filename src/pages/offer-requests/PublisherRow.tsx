@@ -7,9 +7,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown, CheckCircle, XCircle, Loader2, AlertTriangle, AlertCircle,
   TrendingUp, MousePointerClick, Target, DollarSign, ExternalLink, Calendar,
-  Shield, Zap, Send, Package, Eye, Link2, Edit, FileImage
+  Shield, Zap, Send, Package, Eye, Link2, Edit, FileImage, Camera, Image
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { ResponsiveContainer, Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
 import type { PProf, PSt, Inv } from '@/pages/AdminOfferAccessRequests';
 import { fd, rsk } from '@/pages/AdminOfferAccessRequests';
@@ -45,6 +47,13 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [selectedReqOffer, setSelectedReqOffer] = useState<string | null>(null);
   const [selectedRelated, setSelectedRelated] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
+  const [proofRequestModal, setProofRequestModal] = useState<{ offerId: string; offerName: string } | null>(null);
+  const [proofRequestMsg, setProofRequestMsg] = useState('');
+  const [sendingProofReq, setSendingProofReq] = useState(false);
+  const [proofViewerOpen, setProofViewerOpen] = useState(false);
+  const [proofImages, setProofImages] = useState<string[]>([]);
+  const [loadingProofs, setLoadingProofs] = useState(false);
+  const [fullscreenImg, setFullscreenImg] = useState<string | null>(null);
   const token = localStorage.getItem('token');
   const risk = rsk(pub.risk_level);
 
@@ -165,6 +174,52 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
 
   const initials = ((pub.first_name?.[0] || '') + (pub.last_name?.[0] || pub.username?.[1] || '')).toUpperCase() || '??';
 
+  const openProofRequest = (offerId: string, offerName: string) => {
+    setProofRequestModal({ offerId, offerName });
+    setProofRequestMsg(`Hi ${pub.first_name || pub.username},\n\nWe require placement proof for the offer "${offerName}" before we can proceed with approval.\n\nPlease reply to this email with a screenshot or URL showing where you are promoting this offer.\n\nBest regards,\nMoustache Leads Team`);
+  };
+
+  const sendProofRequest = async () => {
+    if (!proofRequestModal) return;
+    setSendingProofReq(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/send-offers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          user_id: pub.user_id,
+          offer_ids: [proofRequestModal.offerId],
+          send_via: 'email',
+          message_body: proofRequestMsg,
+          subject: `Placement Proof Required — ${proofRequestModal.offerName}`,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success('Proof request email sent');
+      setProofRequestModal(null);
+    } catch { toast.error('Failed to send'); }
+    finally { setSendingProofReq(false); }
+  };
+
+  const viewProofs = async () => {
+    setLoadingProofs(true);
+    setProofViewerOpen(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/placement-proofs/admin/all?user_id=${pub.user_id}&per_page=50`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const urls: string[] = [];
+      for (const p of (data.proofs || [])) {
+        for (const u of (p.image_urls || [])) {
+          urls.push(u.startsWith('http') ? u : `${API_BASE_URL}${u}`);
+        }
+      }
+      setProofImages(urls);
+    } catch { toast.error('Failed to load proofs'); }
+    finally { setLoadingProofs(false); }
+  };
+
   return (
     <div className="border rounded-xl overflow-hidden bg-card shadow-sm hover:shadow-md transition-shadow">
       {/* Collapsed row */}
@@ -190,7 +245,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
             )}
             {pub.has_proofs && (
               <Badge className="text-[10px] px-1.5 py-0 bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 border-emerald-200 gap-1 cursor-pointer"
-                onClick={(e) => { e.stopPropagation(); window.open(`/admin/placement-proofs?user_id=${pub.user_id}`, '_blank'); }}>
+                onClick={(e) => { e.stopPropagation(); viewProofs(); }}>
                 <FileImage className="w-3 h-3" /> 📎 Has Proof
               </Badge>
             )}
@@ -386,6 +441,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200" onClick={() => rejectReq(selReq.request_id)} disabled={rejecting === selReq.request_id}>{rejecting === selReq.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject</Button>
                             <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => approveReq(selReq.request_id)} disabled={approving === selReq.request_id}>{approving === selReq.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</Button>
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => onSendOffers(pub, [{_id: '', offer_id: selReq.offer_id, name: selReq.offer_name, network: selReq.offer_network, payout: selReq.offer_payout, match_strength: ''}])}><Send className="w-3 h-3" />Suggest ↗</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-purple-600 border-purple-200" onClick={() => openProofRequest(selReq.offer_id, selReq.offer_name)}><Camera className="w-3 h-3" />Request Proof</Button>
                           </div>
                           {selReq.offer_health?.failures && selReq.offer_health.failures.length > 0 && (<div className="flex flex-wrap gap-1.5">{selReq.offer_health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400" />{f.criterion.replace('_', ' ')}</span>))}</div>)}
                         </div>
@@ -660,6 +716,65 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
         offer={editOffer}
         onOfferUpdated={() => { setEditOffer(null); onRefreshList(); }}
       />
+
+      {/* Request Proof Modal */}
+      <Dialog open={!!proofRequestModal} onOpenChange={v => { if (!v) setProofRequestModal(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Camera className="h-4 w-4 text-purple-600" /> Request Placement Proof
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="p-2 bg-muted/50 rounded text-xs">
+              <span className="text-muted-foreground">Offer:</span> <span className="font-medium">{proofRequestModal?.offerName}</span>
+              <br /><span className="text-muted-foreground">Publisher:</span> <span className="font-medium">{pub.username} ({pub.email})</span>
+            </div>
+            <Textarea value={proofRequestMsg} onChange={e => setProofRequestMsg(e.target.value)} rows={6} className="text-sm" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setProofRequestModal(null)}>Cancel</Button>
+            <Button size="sm" className="gap-1.5 bg-purple-600 hover:bg-purple-700" onClick={sendProofRequest} disabled={sendingProofReq}>
+              {sendingProofReq ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+              Send Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Proof Viewer Modal */}
+      <Dialog open={proofViewerOpen} onOpenChange={setProofViewerOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Image className="h-4 w-4 text-emerald-600" /> Placement Proofs — {pub.username}
+            </DialogTitle>
+          </DialogHeader>
+          {loadingProofs ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          ) : proofImages.length === 0 ? (
+            <p className="text-center text-muted-foreground py-6 text-sm">No proof images found</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {proofImages.map((url, i) => (
+                <img key={i} src={url} alt={`Proof ${i + 1}`}
+                  className="w-full rounded-lg border object-cover max-h-[250px] cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition-all"
+                  onClick={() => setFullscreenImg(url)}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              ))}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Fullscreen Image Overlay */}
+      {fullscreenImg && (
+        <div className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center cursor-pointer" onClick={() => setFullscreenImg(null)}>
+          <button className="absolute top-4 right-4 text-white bg-white/20 hover:bg-white/40 rounded-full w-10 h-10 flex items-center justify-center text-xl font-bold z-10" onClick={() => setFullscreenImg(null)}>✕</button>
+          <img src={fullscreenImg} alt="Proof fullscreen" className="max-w-[95vw] max-h-[95vh] object-contain rounded-lg shadow-2xl" onClick={e => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }

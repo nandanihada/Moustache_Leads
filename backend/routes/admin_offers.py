@@ -278,9 +278,18 @@ def create_offer():
                         
                         # Send single BCC email asynchronously (non-blocking)
                         email_service = get_email_service()
+                        template_settings = {
+                            'template_style': data.get('email_template_style', 'table'),
+                            'visible_fields': data.get('email_visible_fields'),
+                            'default_image': data.get('email_default_image', ''),
+                            'payout_type': data.get('email_payout_type', 'publisher'),
+                            'subject': data.get('email_subject', ''),
+                            'message': data.get('email_message', ''),
+                        }
                         email_service.send_new_offer_notification_async(
                             offer_data=offer_data,
-                            recipients=all_emails
+                            recipients=all_emails,
+                            template_settings=template_settings
                         )
                         
                         logging.info("✅ Email notification process started in background")

@@ -165,15 +165,19 @@ const AdminPlacementProofs = () => {
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
-                        {proof.image_urls.slice(0, 3).map((url, i) => (
+                        {proof.image_urls.slice(0, 3).map((url, i) => {
+                          const imgSrc = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+                          return (
                           <img
                             key={i}
-                            src={url.startsWith('/') ? `${API_BASE_URL}${url}` : url}
+                            src={imgSrc}
                             alt=""
                             className="w-10 h-10 rounded border object-cover cursor-pointer hover:opacity-80 hover:ring-2 hover:ring-blue-400 transition-all"
-                            onClick={() => setFullscreenImg(url.startsWith('/') ? `${API_BASE_URL}${url}` : url)}
+                            onClick={() => setFullscreenImg(imgSrc)}
+                            onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect fill="%23f3f4f6" width="40" height="40" rx="4"/><text x="20" y="24" text-anchor="middle" fill="%239ca3af" font-size="10">IMG</text></svg>'; }}
                           />
-                        ))}
+                          );
+                        })}
                         {proof.image_urls.length > 3 && (
                           <span className="text-xs text-muted-foreground self-center">+{proof.image_urls.length - 3}</span>
                         )}
@@ -275,15 +279,19 @@ const AdminPlacementProofs = () => {
                 <div>
                   <span className="text-sm text-muted-foreground">Screenshots:</span>
                   <div className="grid grid-cols-2 gap-2 mt-2">
-                    {selectedProof.image_urls.map((url, i) => (
+                    {selectedProof.image_urls.map((url, i) => {
+                      const imgSrc = url.startsWith('http') ? url : `${API_BASE_URL}${url}`;
+                      return (
                       <img
                         key={i}
-                        src={url.startsWith('/') ? `${API_BASE_URL}${url}` : url}
+                        src={imgSrc}
                         alt={`Proof ${i + 1}`}
                         className="w-full rounded-lg border object-cover max-h-[300px] cursor-pointer hover:opacity-90 hover:ring-2 hover:ring-blue-400 transition-all"
-                        onClick={() => setFullscreenImg(url.startsWith('/') ? `${API_BASE_URL}${url}` : url)}
+                        onClick={() => setFullscreenImg(imgSrc)}
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                       />
-                    ))}
+                      );
+                    })}
                   </div>
                   <p className="text-[10px] text-muted-foreground mt-1">Click any image to view fullscreen</p>
                 </div>

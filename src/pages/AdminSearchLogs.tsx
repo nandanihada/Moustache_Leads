@@ -23,6 +23,7 @@ import { useToast } from '@/hooks/use-toast';
 import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer } from '@/services/searchLogsApi';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import { API_BASE_URL } from '@/services/apiConfig';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 
@@ -702,6 +703,21 @@ const AdminSearchLogsContent: React.FC = () => {
                               placeholder="Target URL"
                             />
                           </div>
+                          <Button variant="outline" size="sm" className="h-6 px-2 text-[9px] gap-1 text-emerald-600 border-emerald-200 mt-1"
+                            onClick={async () => {
+                              try {
+                                const token = localStorage.getItem('token');
+                                const res = await fetch(`${API_BASE_URL}/api/admin/offers/${offer.offer_id}`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                  body: JSON.stringify({ name: offer.name, image_url: offer.image_url, target_url: offer.target_url, payout: offer.payout }),
+                                });
+                                if (!res.ok) throw new Error();
+                                toast({ title: 'Saved', description: `Offer "${offer.name}" updated permanently` });
+                              } catch { toast({ title: 'Error', description: 'Failed to save offer changes', variant: 'destructive' }); }
+                            }}>
+                            Save to Offer ✓
+                          </Button>
                         </div>
                         {offer.image_url ? (
                           <img

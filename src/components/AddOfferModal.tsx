@@ -32,6 +32,7 @@ import { partnerApi } from '@/services/partnerApi';
 import { API_BASE_URL } from '../services/apiConfig';
 import { TrafficSourceDisplay } from './TrafficSourceDisplay';
 import { TrafficSourceRules, getDefaultRulesForCategory } from '@/services/trafficSourceApi';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 interface AddOfferModalProps {
   open: boolean;
@@ -143,6 +144,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
   const [sendEmail, setSendEmail] = useState(true);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
+  const [emailSubject, setEmailSubject] = useState('');
+  const [emailMessage, setEmailMessage] = useState('');
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedAllowedCountries, setSelectedAllowedCountries] = useState<string[]>([]);  // NEW: For geo-restriction
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -467,7 +471,13 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         // 🔥 PROMO CODE ASSIGNMENT
         promo_code_id: selectedPromoCode || undefined,
         // 📧 EMAIL NOTIFICATION TOGGLE
-        send_email: sendEmail
+        send_email: sendEmail,
+        email_template_style: emailSettings.templateStyle,
+        email_visible_fields: emailSettings.visibleFields,
+        email_default_image: emailSettings.defaultImage,
+        email_payout_type: emailSettings.payoutType,
+        email_subject: emailSubject || undefined,
+        email_message: emailMessage || undefined,
       };
 
       // Remove partner_id if it's empty
@@ -2266,24 +2276,39 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
             </TabsContent>
           </Tabs >
 
-          <div className="flex items-center justify-between gap-2 pt-4 border-t">
-            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={sendEmail}
-                onChange={(e) => setSendEmail(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-              />
-              <span className="text-muted-foreground">Send email notification to publishers</span>
-            </label>
-            <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={loading}>
-                {loading ? 'Creating...' : 'Create Offer'}
-              </Button>
+          <div className="space-y-3 pt-4 border-t">
+            <div className="flex items-center justify-between gap-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <span className="text-muted-foreground">Send email notification to publishers</span>
+              </label>
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={loading}>
+                  {loading ? 'Creating...' : 'Create Offer'}
+                </Button>
+              </div>
             </div>
+            {sendEmail && (
+              <div className="space-y-2 p-3 bg-muted/30 rounded-lg border">
+                <div>
+                  <Label className="text-xs">Email Subject (optional — auto-generated if empty)</Label>
+                  <Input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="🚀 Happy Monday! New Offer: {offer_name} - Push More Traffic!" className="mt-1 text-sm" />
+                </div>
+                <div>
+                  <Label className="text-xs">Email Message (optional — shown above offer card)</Label>
+                  <Textarea value={emailMessage} onChange={e => setEmailMessage(e.target.value)} placeholder="Please push more traffic on this offer!" rows={2} className="mt-1 text-sm" />
+                </div>
+                <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
+              </div>
+            )}
           </div>
         </form >
       </DialogContent >

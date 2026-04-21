@@ -308,7 +308,7 @@ class EmailService:
 """
         return html
     
-    def send_new_offer_notification(self, offer_data: Dict, recipients: List[str]) -> Dict:
+    def send_new_offer_notification(self, offer_data: Dict, recipients: List[str], template_settings: Dict = None) -> Dict:
         """Send new offer notification to all recipients in a single BCC email"""
         if not self.is_configured:
             logger.warning("⚠️ Email service not configured. Skipping email notifications.")
@@ -320,9 +320,31 @@ class EmailService:
         offer_name = offer_data.get('name', 'New Offer')
         days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         current_day = days[datetime.now().weekday()]
-        subject = f"🚀 Happy {current_day}! New Offer: {offer_name} - Push More Traffic!"
         
-        html_content = self._create_new_offer_email_html(offer_data)
+        # Use custom subject if provided, otherwise auto-generate
+        ts = template_settings or {}
+        subject = ts.get('subject') or f"🚀 Happy {current_day}! New Offer: {offer_name} - Push More Traffic!"
+        custom_message = ts.get('message', '')
+        
+        # Use shared template builder if settings provided, otherwise default
+        if ts.get('template_style'):
+            try:
+                from utils.email_template_builder import build_offer_email_html
+                html_content = build_offer_email_html(
+                    offers=[offer_data],
+                    recipient_name='Publisher',
+                    subject=subject,
+                    custom_message=custom_message,
+                    template_style=ts.get('template_style', 'table'),
+                    visible_fields=ts.get('visible_fields'),
+                    payout_type=ts.get('payout_type', 'publisher'),
+                    default_image=ts.get('default_image', ''),
+                )
+            except Exception as tmpl_err:
+                logger.warning(f"Template builder failed, using default: {tmpl_err}")
+                html_content = self._create_new_offer_email_html(offer_data)
+        else:
+            html_content = self._create_new_offer_email_html(offer_data)
         
         logger.info(f"📧 Sending single BCC email to {len(recipients)} recipients...")
         
@@ -362,11 +384,11 @@ class EmailService:
         logger.info(f"📊 Email notification results: {sent_count} sent, {failed_count} failed (via BCC)")
         return {'total': len(recipients), 'sent': sent_count, 'failed': failed_count, 'offer_name': offer_name}
     
-    def send_new_offer_notification_async(self, offer_data: Dict, recipients: List[str]) -> None:
+    def send_new_offer_notification_async(self, offer_data: Dict, recipients: List[str], template_settings: Dict = None) -> None:
         """Send new offer notification asynchronously (non-blocking)"""
         def send_in_background():
             try:
-                result = self.send_new_offer_notification(offer_data, recipients)
+                result = self.send_new_offer_notification(offer_data, recipients, template_settings)
                 logger.info(f"✅ Background email sending complete: {result}")
             except Exception as e:
                 logger.error(f"❌ Error in background email sending: {str(e)}")
@@ -596,118 +618,117 @@ class EmailService:
         thread = threading.Thread(target=send_in_background, daemon=False)
         thread.start()
 
-    def _create_approval_email_html(self, offer_name: str, status: str, reason: str = '', notification_type: str = 'offer') -> str:
-        """Create HTML email template for offer/placement approval notification"""
+    def _create_approval_email_html(self, offer_name: str, status: str, reason: str = '', notification_type: str = 'offer', extra_data: dict = None) -> str:
+        """Create professional HTML email for offer/placement approval notification"""
         
         is_placement = notification_type == 'placement'
+        extra = extra_data or {}
+        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+        logo_url = 'https://moustacheleads.com/logo.png'
+        year = datetime.now().year
         
         if status == 'approved':
-            header_gradient = 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-            icon = '✅'
-            if is_placement:
-                title = 'Placement Approved!'
-                message = f'Great news! Your placement "{offer_name}" has been approved and is now live.'
-            else:
-                title = 'Offer Approved!'
-                message = f'Great news! Your offer "{offer_name}" has been approved and is now live.'
-            button_text = 'VIEW DASHBOARD'
+            accent = '#f97316'
+            accent_light = '#fff7ed'
+            icon_svg = '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 12px;"><tr><td align="center" valign="middle" style="width:52px;height:52px;border-radius:50%;background:#fff;font-size:28px;color:#16a34a;font-weight:bold;line-height:52px;">&#10003;</td></tr></table>'
+            title = 'Placement Approved!' if is_placement else 'Offer Approved!'
+            message = f'Your placement "{offer_name}" has been approved and is now live.' if is_placement else f'Your offer access request for "{offer_name}" has been approved. You can now start promoting this offer.'
+            cta_text = 'Go to Dashboard'
+            cta_url = f'{frontend_url}/publisher/signin'
         elif status == 'rejected':
-            header_gradient = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)'
-            icon = '❌'
-            if is_placement:
-                title = 'Placement Not Approved'
-                message = f'Unfortunately, your placement "{offer_name}" was not approved.'
-            else:
-                title = 'Offer Not Approved'
-                message = f'Unfortunately, your offer "{offer_name}" was not approved.'
-            button_text = 'VIEW DASHBOARD'
+            accent = '#ef4444'
+            accent_light = '#fef2f2'
+            icon_svg = '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 12px;"><tr><td align="center" valign="middle" style="width:52px;height:52px;border-radius:50%;background:#fff;font-size:28px;color:#ef4444;font-weight:bold;line-height:52px;">&#10007;</td></tr></table>'
+            title = 'Placement Not Approved' if is_placement else 'Offer Request Declined'
+            message = f'Your placement "{offer_name}" was not approved at this time.' if is_placement else f'Your access request for "{offer_name}" was not approved at this time.'
+            cta_text = 'View Other Offers'
+            cta_url = f'{frontend_url}/publisher/signin'
         else:
-            header_gradient = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'
-            icon = '⏳'
-            if is_placement:
-                title = 'Placement Under Review'
-                message = f'Your placement "{offer_name}" is currently under review.'
-            else:
-                title = 'Offer Under Review'
-                message = f'Your offer "{offer_name}" is currently under review.'
-            button_text = 'VIEW STATUS'
+            accent = '#f59e0b'
+            accent_light = '#fffbeb'
+            icon_svg = '<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 12px;"><tr><td align="center" valign="middle" style="width:52px;height:52px;border-radius:50%;background:#fff;font-size:24px;color:#d97706;font-weight:bold;line-height:52px;">&#9203;</td></tr></table>'
+            title = 'Placement Under Review' if is_placement else 'Offer Under Review'
+            message = f'Your placement "{offer_name}" is currently being reviewed by our team.' if is_placement else f'Your access request for "{offer_name}" is being reviewed. We\'ll notify you once a decision is made.'
+            cta_text = 'Check Status'
+            cta_url = f'{frontend_url}/publisher/signin'
         
-        # Only show reason for non-rejected statuses (remove reason from rejection emails)
-        reason_section = ''
-        if reason and status != 'rejected':
-            reason_section = f"""
-            <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <p style="margin: 0 0 10px 0; color: #374151; font-weight: 600;">Reason:</p>
-                <p style="margin: 0; color: #6b7280; line-height: 1.6;">{reason}</p>
-            </div>
-            """
-        
-        # For placements, don't show the name details block
-        name_block = ''
+        # Build offer details section
+        details_rows = ''
         if not is_placement:
-            name_block = f"""
-                                        <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 13px; text-transform: uppercase; font-weight: 600;">Offer Name</p>
-                                        <p style="margin: 0 0 20px 0; color: #111827; font-size: 18px; font-weight: 700;">{offer_name}</p>
-                                        {reason_section}"""
+            payout = extra.get('payout', '')
+            category = extra.get('category', '')
+            countries = extra.get('countries', '')
+            network = extra.get('network', '')
+            if payout:
+                details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;border-bottom:1px solid #f3f4f6;">Payout</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;border-bottom:1px solid #f3f4f6;">${payout}</td></tr>'
+            if category:
+                details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;border-bottom:1px solid #f3f4f6;">Category</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;border-bottom:1px solid #f3f4f6;">{category}</td></tr>'
+            if network:
+                details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;border-bottom:1px solid #f3f4f6;">Network</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;border-bottom:1px solid #f3f4f6;">{network}</td></tr>'
+            if countries:
+                details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;">Countries</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;">{countries}</td></tr>'
         
-        frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+        details_block = ''
+        if details_rows:
+            details_block = f'''
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+                <tr><td colspan="2" style="padding:10px 12px;background:{accent_light};font-weight:700;font-size:14px;color:{accent};">📋 Offer Details</td></tr>
+                {details_rows}
+            </table>'''
         
-        html = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Offer {status.title()} - {offer_name}</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; background-color: #f4f6f9;">
-    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f4f6f9; padding: 20px 0;">
-        <tr>
-            <td align="center">
-                <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
-                    <tr>
-                        <td style="background: {header_gradient}; padding: 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 48px; font-weight: 700;">{icon}</h1>
-                            <h2 style="margin: 15px 0 0 0; color: #ffffff; font-size: 28px; font-weight: 700;">{title}</h2>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 40px 30px;">
-                            <p style="text-align: center; font-size: 18px; color: #1f2937; font-weight: 600; margin: 0 0 30px 0;">
-                                {message}
-                            </p>
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f9fafb; border-radius: 8px; padding: 20px; margin: 20px 0; border: 1px solid #e5e7eb;">
-                                <tr>
-                                    <td>
-                                        {name_block}
-                                    </td>
-                                </tr>
-                            </table>
-                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 30px 0;">
-                                <tr>
-                                    <td align="center">
-                                        <a href="{frontend_url}/publisher/signin" style="display: inline-block; background: {header_gradient}; color: #ffffff; padding: 16px 50px; text-decoration: none; border-radius: 50px; font-weight: 700; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">{button_text} →</a>
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="background-color: #1f2937; padding: 30px; text-align: center;">
-                            <p style="margin: 0 0 15px 0; color: #ffffff; font-size: 20px; font-weight: 700;">MustacheLeads</p>
-                            <p style="margin: 20px 0 0 0; color: #6b7280; font-size: 12px;">© {datetime.now().year} MustacheLeads. All rights reserved.</p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>
-"""
+        reason_block = ''
+        if reason:
+            reason_block = f'''
+            <div style="background:#f9fafb;border-left:4px solid {accent};padding:12px 16px;margin:16px 0;border-radius:0 8px 8px 0;">
+                <p style="margin:0;font-size:13px;color:#6b7280;font-weight:600;">Note from admin:</p>
+                <p style="margin:6px 0 0;font-size:13px;color:#374151;">{reason}</p>
+            </div>'''
+        
+        html = f'''<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"></head>
+<body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f6f9;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:30px 0;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+    <!-- Logo Header -->
+    <tr><td style="padding:24px 30px;border-bottom:1px solid #f3f4f6;">
+        <table width="100%"><tr>
+            <td><img src="{logo_url}" alt="Moustache Leads" height="32" style="height:32px;" /></td>
+            <td align="right"><span style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;">Notification</span></td>
+        </tr></table>
+    </td></tr>
+    <!-- Status Banner -->
+    <tr><td style="background:{accent};padding:28px 30px;text-align:center;">
+        {icon_svg}
+        <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;">{title}</h1>
+    </td></tr>
+    <!-- Body -->
+    <tr><td style="padding:30px;">
+        <p style="font-size:15px;color:#374151;line-height:1.6;margin:0 0 16px;">{message}</p>
+        <!-- Offer name card -->
+        <div style="background:{accent_light};border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:16px 0;">
+            <p style="margin:0 0 4px;font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;">{'Placement' if is_placement else 'Offer'}</p>
+            <p style="margin:0;font-size:16px;font-weight:700;color:#111827;">{offer_name}</p>
+        </div>
+        {details_block}
+        {reason_block}
+        <!-- CTA Button -->
+        <table width="100%" style="margin:24px 0;"><tr><td align="center">
+            <a href="{cta_url}" style="display:inline-block;background:{accent};color:#fff;padding:14px 40px;text-decoration:none;border-radius:8px;font-weight:700;font-size:14px;">{cta_text} →</a>
+        </td></tr></table>
+    </td></tr>
+    <!-- Footer -->
+    <tr><td style="background:#1f2937;padding:24px 30px;text-align:center;">
+        <img src="{logo_url}" alt="Moustache Leads" height="24" style="height:24px;opacity:0.8;margin-bottom:12px;" />
+        <p style="margin:0;color:#9ca3af;font-size:12px;">© {year} Moustache Leads. All rights reserved.</p>
+        <p style="margin:8px 0 0;color:#6b7280;font-size:11px;">You received this because you are a registered publisher at moustacheleads.com</p>
+    </td></tr>
+</table>
+</td></tr></table>
+</body></html>'''
         return html
     
-    def send_approval_notification(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '', notification_type: str = 'offer') -> bool:
+    def send_approval_notification(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '', notification_type: str = 'offer', extra_data: dict = None) -> bool:
         """Send offer/placement approval/rejection notification"""
         if not self.is_configured:
             logger.warning("⚠️ Email service not configured. Skipping approval notification.")
@@ -715,27 +736,27 @@ class EmailService:
         
         if notification_type == 'placement':
             if status == 'approved':
-                subject = "✅ Your Placement Has Been Approved!"
+                subject = "Your Placement Has Been Approved!"
             elif status == 'rejected':
-                subject = "❌ Your Placement Was Not Approved"
+                subject = "Your Placement Was Not Approved"
             else:
-                subject = "⏳ Your Placement Is Under Review"
+                subject = "Your Placement Is Under Review"
         else:
             if status == 'approved':
-                subject = f"✅ Your Offer '{offer_name}' Has Been Approved!"
+                subject = f"Your Offer '{offer_name}' Has Been Approved!"
             elif status == 'rejected':
-                subject = f"❌ Your Offer '{offer_name}' Was Not Approved"
+                subject = f"Your Offer '{offer_name}' Was Not Approved"
             else:
-                subject = f"⏳ Your Offer '{offer_name}' Is Under Review"
+                subject = f"Your Offer '{offer_name}' Is Under Review"
         
-        html_content = self._create_approval_email_html(offer_name, status, reason, notification_type)
+        html_content = self._create_approval_email_html(offer_name, status, reason, notification_type, extra_data)
         return self._send_email(recipient_email, subject, html_content)
     
-    def send_approval_notification_async(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '', notification_type: str = 'offer') -> None:
+    def send_approval_notification_async(self, recipient_email: str, offer_name: str, status: str, reason: str = '', offer_id: str = '', notification_type: str = 'offer', extra_data: dict = None) -> None:
         """Send approval notification asynchronously"""
         def send_in_background():
             try:
-                result = self.send_approval_notification(recipient_email, offer_name, status, reason, offer_id, notification_type)
+                result = self.send_approval_notification(recipient_email, offer_name, status, reason, offer_id, notification_type, extra_data)
                 logger.info(f"✅ Background approval notification complete: {result}")
             except Exception as e:
                 logger.error(f"❌ Error sending approval notification: {str(e)}")
