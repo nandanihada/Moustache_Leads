@@ -1177,9 +1177,8 @@ def approve_access_request(request_id):
                     reason='',
                     offer_id=str(access_request.get('offer_id', '')),
                     extra_data={
-                        'payout': offer.get('payout', '') if offer else '',
+                        'payout': round(float(offer.get('payout', 0) or 0) * 0.8, 2) if offer else '',
                         'category': offer.get('category', offer.get('vertical', '')) if offer else '',
-                        'network': offer.get('network', '') if offer else '',
                         'countries': ', '.join((offer.get('countries', []) or [])[:5]) if offer else '',
                     } if offer else None
                 )

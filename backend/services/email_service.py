@@ -409,7 +409,8 @@ class EmailService:
         for offer in offers_list:
             name = offer.get('name', 'New Offer')
             category = offer.get('category', offer.get('vertical', 'General'))
-            payout = offer.get('payout', 0)
+            raw_payout = float(offer.get('payout', 0) or 0)
+            payout = round(raw_payout * 0.8, 2)  # Publisher payout (80%)
             currency = offer.get('currency', 'USD')
             offer_cards += f"""
                 <tr>
@@ -658,13 +659,10 @@ class EmailService:
             payout = extra.get('payout', '')
             category = extra.get('category', '')
             countries = extra.get('countries', '')
-            network = extra.get('network', '')
             if payout:
                 details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;border-bottom:1px solid #f3f4f6;">Payout</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;border-bottom:1px solid #f3f4f6;">${payout}</td></tr>'
             if category:
                 details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;border-bottom:1px solid #f3f4f6;">Category</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;border-bottom:1px solid #f3f4f6;">{category}</td></tr>'
-            if network:
-                details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;border-bottom:1px solid #f3f4f6;">Network</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;border-bottom:1px solid #f3f4f6;">{network}</td></tr>'
             if countries:
                 details_rows += f'<tr><td style="padding:8px 12px;color:#6b7280;font-size:13px;">Countries</td><td style="padding:8px 12px;font-weight:600;color:#111827;font-size:13px;">{countries}</td></tr>'
         
