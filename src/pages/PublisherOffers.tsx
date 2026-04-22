@@ -1071,8 +1071,7 @@ const PublisherOffersContent = () => {
                           <Search className="h-8 w-8 text-purple-300" />
                         </motion.div>
                         <div>
-                          <p className="text-sm font-medium text-gray-700">We might have something like this</p>
-                          <p className="text-xs text-gray-400 mt-1">We've noted your search — our team reviews these regularly.</p>
+                          <p className="text-sm font-medium text-gray-700">No offer found</p>
                         </div>
                         <Button size="sm" variant="outline" onClick={resetWizard} className="h-8 text-xs rounded-full px-4">Search again</Button>
                       </motion.div>
