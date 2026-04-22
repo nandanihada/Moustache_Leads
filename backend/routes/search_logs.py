@@ -761,3 +761,191 @@ def get_related_offers():
     except Exception as e:
         logger.error(f"Error getting related offers: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================================
+# ADMIN SEARCH SESSIONS (Wizard Activity)
+# ============================================================================
+
+@search_logs_bp.route('/search-sessions', methods=['GET'])
+@token_required
+def get_search_sessions():
+    """
+    Get search sessions (wizard activity) for admin review.
+    Shows what publishers searched: keyword, vertical, geo, payout, placement, outcome.
+    """
+    try:
+        user = request.current_user
+        if user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 25))
+        keyword = request.args.get('keyword', '').strip()
+        username = request.args.get('username', '').strip()
+        outcome = request.args.get('outcome', '').strip()
+        vertical = request.args.get('vertical', '').strip()
+        geo = request.args.get('geo', '').strip()
+
+        col = db_instance.get_collection('search_sessions')
+        if col is None:
+            return jsonify({'success': True, 'sessions': [], 'pagination': {'page': 1, 'per_page': per_page, 'total': 0, 'pages': 0}, 'stats': {}}), 200
+
+        query = {}
+        conditions = []
+        if keyword:
+            conditions.append({'query': {'$regex': keyword, '$options': 'i'}})
+        if username:
+            conditions.append({'$or': [
+                {'username': {'$regex': username, '$options': 'i'}},
+                {'user_id': username}
+            ]})
+        if outcome and outcome != 'all':
+            conditions.append({'session_outcome': outcome})
+        if vertical:
+            conditions.append({'events': {'$elemMatch': {
+                'type': 'filter_applied',
+                'data.vertical': {'$regex': vertical, '$options': 'i'}
+            }}})
+        if geo:
+            conditions.append({'events': {'$elemMatch': {
+                'type': 'filter_applied',
+                'data.geo': {'$regex': geo, '$options': 'i'}
+            }}})
+
+        if conditions:
+            query = {'$and': conditions}
+
+        total = col.count_documents(query)
+        skip = (page - 1) * per_page
+        sessions_raw = list(col.find(query).sort('created_at', -1).skip(skip).limit(per_page))
+
+        # Extract wizard choices from events
+        sessions = []
+        for s in sessions_raw:
+            s['_id'] = str(s['_id'])
+            # Parse events to extract wizard choices
+            chosen_vertical = ''
+            chosen_geo = ''
+            chosen_payout = ''
+            has_placement = None
+            placement_link = ''
+            proof_file_ref = ''
+            result_count = 0
+            final_pick = None
+
+            for ev in (s.get('events') or []):
+                data = ev.get('data', {})
+                if ev.get('type') == 'filter_applied':
+                    if data.get('vertical'):
+                        chosen_vertical = data['vertical']
+                    if data.get('geo'):
+                        chosen_geo = data['geo']
+                    if data.get('target_payout'):
+                        chosen_payout = str(data['target_payout'])
+                    if data.get('has_placement') is not None:
+                        has_placement = data['has_placement']
+                    if data.get('placement_link'):
+                        placement_link = data['placement_link']
+                    if data.get('proof_file_ref'):
+                        proof_file_ref = data['proof_file_ref']
+                    if data.get('result_count') is not None:
+                        result_count = data['result_count']
+                elif ev.get('type') == 'suggestion_picked':
+                    pass  # keyword already in query field
+                elif ev.get('type') == 'final_pick':
+                    final_pick = data.get('offer_id')
+                elif ev.get('type') == 'placement_intent':
+                    if data.get('target_payout'):
+                        chosen_payout = str(data['target_payout'])
+                    has_placement = data.get('proof_uploaded', False)
+                    placement_link = data.get('proof_file_reference', '')
+
+            s['wizard'] = {
+                'vertical': chosen_vertical,
+                'geo': chosen_geo,
+                'payout': chosen_payout,
+                'has_placement': has_placement,
+                'placement_link': placement_link,
+                'proof_file_ref': proof_file_ref,
+                'result_count': result_count,
+                'final_pick': final_pick,
+            }
+            # Remove raw events to keep response small
+            s.pop('events', None)
+            sessions.append(s)
+
+        # Stats
+        stats = {
+            'total': total,
+            'picked': col.count_documents({'session_outcome': 'picked'}),
+            'not_found': col.count_documents({'session_outcome': 'not_found'}),
+            'placement_intent': col.count_documents({'session_outcome': 'placement_intent'}),
+            'abandoned': col.count_documents({'session_outcome': 'abandoned'}),
+        }
+
+        return jsonify({
+            'success': True,
+            'sessions': sessions,
+            'stats': stats,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': (total + per_page - 1) // per_page
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting search sessions: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@search_logs_bp.route('/search-sessions/placement-intents', methods=['GET'])
+@token_required
+def get_placement_intents():
+    """Get placement intent queue for admin review."""
+    try:
+        user = request.current_user
+        if user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 25))
+
+        col = db_instance.get_collection('placement_intents')
+        if col is None:
+            return jsonify({'success': True, 'intents': [], 'total': 0}), 200
+
+        total = col.count_documents({})
+        intents = list(col.find({}).sort('created_at', -1).skip((page - 1) * per_page).limit(per_page))
+        for i in intents:
+            i['_id'] = str(i['_id'])
+
+        return jsonify({'success': True, 'intents': intents, 'total': total}), 200
+    except Exception as e:
+        logger.error(f"Error getting placement intents: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@search_logs_bp.route('/search-sessions/missing-signals', methods=['GET'])
+@token_required
+def get_missing_signals():
+    """Get missing inventory signals grouped by frequency."""
+    try:
+        user = request.current_user
+        if user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        col = db_instance.get_collection('missing_inventory_signals')
+        if col is None:
+            return jsonify({'success': True, 'signals': [], 'total': 0}), 200
+
+        signals = list(col.find({}).sort('search_count', -1).limit(100))
+        for s in signals:
+            s['_id'] = str(s['_id'])
+
+        return jsonify({'success': True, 'signals': signals, 'total': len(signals)}), 200
+    except Exception as e:
+        logger.error(f"Error getting missing signals: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

@@ -250,6 +250,34 @@ def serve_survey(click_id):
         if not offer:
             return '<h1>Offer not available</h1>', 404
 
+        # ── GEO RESTRICTION: Block users from non-target countries ──
+        offer_countries = offer.get('countries', [])
+        if offer_countries and len(offer_countries) > 0:
+            # Get user's real IP and country
+            user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '')
+            user_ip = user_ip.split(',')[0].strip() if ',' in user_ip else user_ip.strip()
+            try:
+                from models.geolocation import GeolocationService
+                geo_svc = GeolocationService()
+                ip_info = geo_svc.get_ip_info(user_ip)
+                user_country = (ip_info.get('country_code') or '').upper()
+                offer_countries_upper = [c.upper() for c in offer_countries]
+                # Only block if we have a valid 2-letter country code (not XX, empty, or local)
+                # Skip blocking for private/local IPs where geo can't be determined
+                is_valid_country = (
+                    user_country
+                    and len(user_country) == 2
+                    and user_country not in ('XX', 'ZZ', 'T1', 'A1', 'A2')
+                    and user_ip not in ('127.0.0.1', 'localhost', '::1', '')
+                    and not user_ip.startswith(('10.', '192.168.', '172.'))
+                )
+                if is_valid_country and user_country not in offer_countries_upper:
+                    logger.info(f"Geo blocked: user from {user_country}, offer requires {offer_countries_upper}")
+                    return render_template_string(GEO_BLOCKED_TEMPLATE, user_country=user_country, offer_countries=', '.join(offer_countries_upper))
+            except Exception as geo_err:
+                logger.warning(f"Geo check failed: {geo_err}")
+                # Don't block on geo check failure — let them through
+
         model = Survey()
         survey = model.get_survey_for_offer(offer)
         if not survey:
@@ -483,6 +511,37 @@ def _seed_default_surveys(model):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# Geo Blocked HTML Template
+# ═══════════════════════════════════════════════════════════════════════
+
+GEO_BLOCKED_TEMPLATE = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Not Available</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f8f9fa;display:flex;align-items:center;justify-content:center;min-height:100vh;color:#333}
+.container{text-align:center;max-width:420px;padding:40px 24px}
+.icon{font-size:64px;margin-bottom:20px}
+h1{font-size:22px;font-weight:700;margin-bottom:12px;color:#1a1a2e}
+p{font-size:14px;color:#666;line-height:1.6;margin-bottom:8px}
+.country-tag{display:inline-block;background:#e8e8ff;color:#5b5bd6;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:600;margin-top:12px}
+.footer{margin-top:32px;font-size:10px;color:#bbb}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="icon">🌍</div>
+<h1>This offer is not available in your region</h1>
+<p>This offer is only available in specific countries. Your location ({{ user_country }}) is not eligible.</p>
+<p class="country-tag">Available in: {{ offer_countries }}</p>
+<div class="footer">moustacheleads</div>
+</div>
+</body>
+</html>'''
+
 # Survey Page HTML Template (served to end users)
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -494,126 +553,87 @@ SURVEY_PAGE_TEMPLATE = '''<!DOCTYPE html>
 <title>{{ offer_name }}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,sans-serif;
-min-height:100vh;display:flex;background:#fff}
-/* Left branded panel */
-.brand-panel{width:42%;min-height:100vh;background:linear-gradient(160deg,#1e1b4b 0%,#312e81 40%,#4c1d95 70%,#6d28d9 100%);
-display:flex;flex-direction:column;justify-content:center;align-items:center;padding:48px 40px;position:relative;overflow:hidden}
-.brand-panel::before{content:'';position:absolute;top:-20%;right:-30%;width:500px;height:500px;
-background:radial-gradient(circle,rgba(139,92,246,.25) 0%,transparent 70%);pointer-events:none}
-.brand-panel::after{content:'';position:absolute;bottom:-15%;left:-20%;width:400px;height:400px;
-background:radial-gradient(circle,rgba(99,102,241,.2) 0%,transparent 70%);pointer-events:none}
-.brand-logo{position:relative;z-index:1;margin-bottom:32px}
-.brand-logo img{height:64px;filter:brightness(0) invert(1);opacity:.9}
-.brand-dots{position:absolute;top:40px;right:40px;display:grid;grid-template-columns:repeat(5,8px);gap:12px;opacity:.15}
-.brand-dots span{width:8px;height:8px;border-radius:50%;background:#fff}
-.brand-line{position:absolute;bottom:60px;left:40px;width:60px;height:3px;background:linear-gradient(90deg,rgba(255,255,255,.4),transparent);border-radius:2px}
-.brand-text{position:relative;z-index:1;text-align:center;color:#fff}
-.brand-text h2{font-size:28px;font-weight:700;letter-spacing:-.5px;margin-bottom:8px;line-height:1.2}
-.brand-text p{font-size:14px;opacity:.6;line-height:1.5;max-width:260px}
-/* Right content panel */
-.content-panel{flex:1;min-height:100vh;display:flex;flex-direction:column;justify-content:center;padding:48px 56px;position:relative}
-.content-panel::before{content:'';position:absolute;top:0;right:0;width:300px;height:300px;
-background:radial-gradient(circle,rgba(102,126,234,.06) 0%,transparent 70%);pointer-events:none}
-.content-inner{max-width:480px;width:100%;margin:0 auto;position:relative;z-index:1}
-.step-counter{font-size:12px;font-weight:600;color:#8b5cf6;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:24px}
-.step{display:none;animation:fadeSlide .4s ease}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+min-height:100vh;background:#fafafa;color:#1a1a2e;display:flex;flex-direction:column}
+.survey-wrap{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;min-height:calc(100vh - 40px)}
+.step{display:none;width:100%;max-width:560px;animation:fadeIn .35s ease}
 .step.active{display:block}
-@keyframes fadeSlide{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
-.question{font-size:22px;font-weight:700;color:#111827;margin-bottom:28px;line-height:1.35}
-.options{display:flex;flex-direction:column;gap:12px}
-.opt{display:flex;align-items:center;gap:14px;padding:16px 20px;border:2px solid #e5e7eb;border-radius:14px;
-cursor:pointer;transition:all .25s;font-size:15px;color:#374151;background:#fafafa}
-.opt:hover{border-color:#8b5cf6;background:#faf5ff;transform:translateX(4px)}
-.opt.selected{border-color:#8b5cf6;background:#ede9fe;color:#4c1d95;font-weight:600;
-box-shadow:0 0 0 3px rgba(139,92,246,.15);transform:translateX(4px)}
+@keyframes fadeIn{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.progress-bar{width:100%;max-width:560px;height:3px;background:#e5e7eb;border-radius:2px;margin-bottom:40px;overflow:hidden}
+.progress-fill{height:100%;background:linear-gradient(90deg,#8b5cf6,#6d28d9);border-radius:2px;transition:width .4s ease}
+.question{font-size:26px;font-weight:700;color:#111;margin-bottom:36px;line-height:1.35;text-align:center}
+.options{display:flex;flex-direction:column;gap:12px;max-width:440px;margin:0 auto}
+.opt{display:flex;align-items:center;gap:14px;padding:18px 22px;border:2px solid #e5e7eb;border-radius:14px;
+cursor:pointer;transition:all .2s;font-size:16px;color:#374151;background:#fff}
+.opt:hover{border-color:#8b5cf6;background:#faf5ff}
+.opt.selected{border-color:#8b5cf6;background:#ede9fe;color:#4c1d95;font-weight:600;box-shadow:0 0 0 3px rgba(139,92,246,.12)}
 .opt .radio{width:22px;height:22px;border-radius:50%;border:2px solid #d1d5db;display:flex;align-items:center;
-justify-content:center;flex-shrink:0;transition:all .25s}
+justify-content:center;flex-shrink:0;transition:all .2s}
 .opt.selected .radio{border-color:#8b5cf6;background:#8b5cf6}
 .opt.selected .radio::after{content:'';width:8px;height:8px;border-radius:50%;background:#fff}
-.yn-row{display:flex;gap:14px}
-.yn-btn{flex:1;padding:18px;border:2px solid #e5e7eb;border-radius:14px;cursor:pointer;text-align:center;
-font-size:16px;font-weight:600;transition:all .25s;background:#fafafa;color:#374151}
+.yn-row{display:flex;gap:16px;max-width:320px;margin:0 auto}
+.yn-btn{flex:1;padding:20px;border:2px solid #e5e7eb;border-radius:14px;cursor:pointer;text-align:center;
+font-size:17px;font-weight:600;transition:all .2s;background:#fff;color:#374151}
 .yn-btn:hover{border-color:#8b5cf6;background:#faf5ff}
-.yn-btn.selected{border-color:#8b5cf6;background:#ede9fe;color:#4c1d95;box-shadow:0 0 0 3px rgba(139,92,246,.15)}
-.text-input{width:100%;padding:16px 20px;border:2px solid #e5e7eb;border-radius:14px;font-size:15px;
-outline:none;transition:all .25s;font-family:inherit;background:#fafafa}
-.text-input:focus{border-color:#8b5cf6;background:#fff;box-shadow:0 0 0 3px rgba(139,92,246,.1)}
-.captcha-box{background:linear-gradient(135deg,#faf5ff,#f5f3ff);border:2px solid #e9d5ff;border-radius:16px;padding:28px;text-align:center}
-.captcha-q{font-size:20px;font-weight:700;color:#1e1b4b;margin-bottom:20px}
-.color-grid{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
-.color-swatch{width:60px;height:60px;border-radius:14px;cursor:pointer;border:3px solid transparent;
-transition:all .25s;box-shadow:0 4px 12px rgba(0,0,0,.1)}
-.color-swatch:hover{transform:scale(1.12);box-shadow:0 6px 16px rgba(0,0,0,.15)}
-.color-swatch.selected{border-color:#1e1b4b;transform:scale(1.12);box-shadow:0 6px 20px rgba(0,0,0,.2)}
-.captcha-opts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.captcha-opt{padding:14px;border:2px solid #e5e7eb;border-radius:12px;cursor:pointer;text-align:center;
-font-size:15px;font-weight:600;transition:all .25s;background:#fff}
+.yn-btn.selected{border-color:#8b5cf6;background:#ede9fe;color:#4c1d95;box-shadow:0 0 0 3px rgba(139,92,246,.12)}
+.text-input{width:100%;max-width:440px;margin:0 auto;display:block;padding:18px 22px;border:2px solid #e5e7eb;border-radius:14px;font-size:16px;
+outline:none;transition:all .2s;font-family:inherit;background:#fff}
+.text-input:focus{border-color:#8b5cf6;box-shadow:0 0 0 3px rgba(139,92,246,.08)}
+.captcha-box{background:#f8f5ff;border:2px solid #e9d5ff;border-radius:16px;padding:32px;text-align:center;max-width:440px;margin:0 auto}
+.captcha-q{font-size:20px;font-weight:700;color:#1e1b4b;margin-bottom:24px}
+.color-grid{display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.color-swatch{width:56px;height:56px;border-radius:14px;cursor:pointer;border:3px solid transparent;
+transition:all .2s;box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.color-swatch:hover{transform:scale(1.1)}
+.color-swatch.selected{border-color:#1e1b4b;transform:scale(1.1);box-shadow:0 6px 20px rgba(0,0,0,.15)}
+.captcha-opts{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:320px;margin:0 auto}
+.captcha-opt{padding:16px;border:2px solid #e5e7eb;border-radius:12px;cursor:pointer;text-align:center;
+font-size:16px;font-weight:600;transition:all .2s;background:#fff}
 .captcha-opt:hover{border-color:#8b5cf6;background:#faf5ff}
 .captcha-opt.selected{border-color:#8b5cf6;background:#ede9fe;color:#4c1d95}
-.scramble-input{width:100%;padding:16px;border:2px solid #e5e7eb;border-radius:14px;font-size:18px;
-text-align:center;letter-spacing:3px;text-transform:lowercase;outline:none;font-family:inherit;background:#fff}
-.scramble-input:focus{border-color:#8b5cf6;box-shadow:0 0 0 3px rgba(139,92,246,.1)}
-.btn-row{display:flex;gap:14px;margin-top:32px}
-.btn{flex:1;padding:16px;border:none;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer;
-transition:all .25s;font-family:inherit;letter-spacing:.3px}
-.btn-next{background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;box-shadow:0 6px 20px rgba(109,40,217,.35)}
-.btn-next:hover{box-shadow:0 8px 28px rgba(109,40,217,.45);transform:translateY(-2px)}
-.btn-next:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+.scramble-input{width:100%;max-width:300px;margin:0 auto;display:block;padding:18px;border:2px solid #e5e7eb;border-radius:14px;font-size:20px;
+text-align:center;letter-spacing:4px;text-transform:lowercase;outline:none;font-family:inherit;background:#fff}
+.scramble-input:focus{border-color:#8b5cf6;box-shadow:0 0 0 3px rgba(139,92,246,.08)}
+.btn-row{display:flex;gap:14px;margin-top:40px;max-width:440px;margin-left:auto;margin-right:auto;justify-content:center}
+.btn{padding:14px 32px;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;
+transition:all .2s;font-family:inherit}
+.btn-next{background:#7c3aed;color:#fff;box-shadow:0 4px 16px rgba(124,58,237,.3)}
+.btn-next:hover{background:#6d28d9;box-shadow:0 6px 20px rgba(109,40,217,.4);transform:translateY(-1px)}
+.btn-next:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
 .btn-back{background:#f3f4f6;color:#6b7280}
 .btn-back:hover{background:#e5e7eb}
-.footer-sig{margin-top:40px;text-align:center}
-.footer-sig a{font-size:11px;color:#c4b5fd;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
-.footer-sig a span{font-weight:700;color:#a78bfa}
 .error-msg{background:#fef2f2;color:#dc2626;padding:14px 18px;border-radius:12px;font-size:13px;
-margin-top:16px;display:none;text-align:center;font-weight:500}
+margin-top:16px;display:none;text-align:center;font-weight:500;max-width:440px;margin-left:auto;margin-right:auto}
 .success-anim{text-align:center;padding:60px 20px}
 .success-anim .check{width:72px;height:72px;background:linear-gradient(135deg,#22c55e,#16a34a);border-radius:50%;display:flex;
 align-items:center;justify-content:center;margin:0 auto 20px;box-shadow:0 8px 24px rgba(34,197,94,.3);animation:popIn .4s ease}
-.success-anim .check svg{width:36px;height:36px;color:#fff}
 @keyframes popIn{from{transform:scale(0)}60%{transform:scale(1.15)}to{transform:scale(1)}}
 .honeypot{position:absolute;left:-9999px;opacity:0;height:0;width:0}
-.loading{display:inline-block;width:20px;height:20px;border:2px solid #fff;border-top-color:transparent;
+.loading{display:inline-block;width:18px;height:18px;border:2px solid #fff;border-top-color:transparent;
 border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:8px}
 @keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:768px){
-body{flex-direction:column}
-.brand-panel{width:100%;min-height:auto;padding:32px 24px;flex-direction:row;gap:16px;justify-content:flex-start}
-.brand-logo{margin-bottom:0}.brand-logo img{height:36px}
-.brand-text{text-align:left}.brand-text h2{font-size:18px;margin-bottom:2px}.brand-text p{display:none}
-.brand-dots,.brand-line{display:none}
-.content-panel{padding:28px 24px;min-height:auto}
-.question{font-size:18px;margin-bottom:20px}
-.captcha-opts{grid-template-columns:1fr}
+.footer-brand{text-align:center;padding:12px;font-size:10px;color:#ccc;letter-spacing:.5px}
+.footer-brand img{height:14px;opacity:.3;vertical-align:middle;margin-right:4px}
+@media(max-width:600px){
+.question{font-size:20px;margin-bottom:28px}
+.survey-wrap{padding:20px 16px}
+.opt{padding:14px 16px;font-size:14px}
+.yn-btn{padding:16px;font-size:15px}
 }
 </style>
 </head>
 <body>
 
-<div class="brand-panel">
-  <div class="brand-dots">''' + ''.join(['<span></span>' for _ in range(25)]) + '''</div>
-  <div class="brand-line"></div>
-  <div class="brand-logo">
-    <img src="https://moustacheleads.com/logo.png" alt="ML" onerror="this.style.display='none'" />
-  </div>
-  <div class="brand-text">
-    <h2>MoustacheLeads</h2>
-    <p>Your trusted partner in performance marketing</p>
-  </div>
+<div class="survey-wrap">
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+  <div id="stepsContainer"></div>
+  <div class="error-msg" id="errorMsg"></div>
+  <input type="text" class="honeypot" id="hp_field" name="website" tabindex="-1" autocomplete="off">
 </div>
 
-<div class="content-panel">
-  <div class="content-inner">
-    <div class="step-counter" id="stepCounter"></div>
-    <div id="stepsContainer"></div>
-    <div class="error-msg" id="errorMsg"></div>
-    <input type="text" class="honeypot" id="hp_field" name="website" tabindex="-1" autocomplete="off">
-    <div class="footer-sig">
-      <a href="https://moustacheleads.com" target="_blank" rel="noopener">
-        Powered by <span>MoustacheLeads</span>
-      </a>
-    </div>
-  </div>
+<div class="footer-brand">
+  <img src="https://moustacheleads.com/logo.png" alt="" onerror="this.style.display='none'" />
+  moustacheleads
 </div>
 
 <script>
@@ -635,10 +655,10 @@ body{flex-direction:column}
   const questions = SURVEY.questions || [];
   const totalSteps = questions.length + (CAPTCHA ? 1 : 0);
   const container = document.getElementById('stepsContainer');
-  const counter = document.getElementById('stepCounter');
 
   function updateCounter() {
-    counter.textContent = 'Step ' + (currentStep + 1) + ' of ' + totalSteps;
+    const pct = ((currentStep + 1) / totalSteps) * 100;
+    document.getElementById('progressFill').style.width = pct + '%';
   }
 
   // Build question steps
@@ -795,7 +815,6 @@ body{flex-direction:column}
     .then(r => r.json())
     .then(res => {
       if (res.success && res.redirect_url) {
-        counter.style.display = 'none';
         container.innerHTML = '<div class="success-anim">' +
           '<div class="check"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">' +
           '<polyline points="20 6 9 17 4 12"></polyline></svg></div></div>';

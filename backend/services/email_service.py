@@ -207,7 +207,7 @@ class EmailService:
                     <tr>
                         <td style="background-color: #1f2937; padding: 30px; text-align: center;">
                             <p style="margin: 0 0 15px 0; color: #ffffff; font-size: 20px; font-weight: 700;">MustacheLeads</p>
-                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This email was sent to you because you are a registered publisher.</p>
+                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This email was sent to you because you are a registered user.</p>
                             <p style="margin: 20px 0 0 0; color: #6b7280; font-size: 12px;">© {datetime.now().year} MustacheLeads. All rights reserved.</p>
                         </td>
                     </tr>
@@ -253,7 +253,7 @@ class EmailService:
                 <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
                     <tr>
                         <td style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700;">Hey All! 👋</h1>
+                            <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700;">Hey! 👋</h1>
                             <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 18px; opacity: 0.95;">Happy {current_day}!</p>
                         </td>
                     </tr>
@@ -295,7 +295,7 @@ class EmailService:
                     <tr>
                         <td style="background-color: #1f2937; padding: 30px; text-align: center;">
                             <p style="margin: 0 0 15px 0; color: #ffffff; font-size: 20px; font-weight: 700;">MustacheLeads</p>
-                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This email was sent to you because you are a registered publisher.</p>
+                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This email was sent to you because you are a registered user.</p>
                             <p style="margin: 20px 0 0 0; color: #6b7280; font-size: 12px;">© {datetime.now().year} MustacheLeads. All rights reserved.</p>
                         </td>
                     </tr>
@@ -332,7 +332,7 @@ class EmailService:
                 from utils.email_template_builder import build_offer_email_html
                 html_content = build_offer_email_html(
                     offers=[offer_data],
-                    recipient_name='Publisher',
+                    recipient_name='',
                     subject=subject,
                     custom_message=custom_message,
                     template_style=ts.get('template_style', 'table'),
@@ -444,7 +444,7 @@ class EmailService:
                 <table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
                     <tr>
                         <td style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); padding: 40px 20px; text-align: center;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700;">Hey All! 👋</h1>
+                            <h1 style="margin: 0; color: #ffffff; font-size: 32px; font-weight: 700;">Hey! 👋</h1>
                             <p style="margin: 10px 0 0 0; color: #ffffff; font-size: 18px; opacity: 0.95;">Happy {current_day}!</p>
                         </td>
                     </tr>
@@ -479,7 +479,7 @@ class EmailService:
                     <tr>
                         <td style="background-color: #1f2937; padding: 30px; text-align: center;">
                             <p style="margin: 0 0 15px 0; color: #ffffff; font-size: 20px; font-weight: 700;">MustacheLeads</p>
-                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This email was sent to you because you are a registered publisher.</p>
+                            <p style="margin: 0 0 20px 0; color: #9ca3af; font-size: 13px; line-height: 1.6;">This email was sent to you because you are a registered user.</p>
                             <p style="margin: 20px 0 0 0; color: #6b7280; font-size: 12px;">&copy; {datetime.now().year} MustacheLeads. All rights reserved.</p>
                         </td>
                     </tr>
@@ -719,7 +719,7 @@ class EmailService:
     <tr><td style="background:#1f2937;padding:24px 30px;text-align:center;">
         <img src="{logo_url}" alt="Moustache Leads" height="24" style="height:24px;opacity:0.8;margin-bottom:12px;" />
         <p style="margin:0;color:#9ca3af;font-size:12px;">© {year} Moustache Leads. All rights reserved.</p>
-        <p style="margin:8px 0 0;color:#6b7280;font-size:11px;">You received this because you are a registered publisher at moustacheleads.com</p>
+        <p style="margin:8px 0 0;color:#6b7280;font-size:11px;">You received this because you are a registered user at moustacheleads.com</p>
     </td></tr>
 </table>
 </td></tr></table>

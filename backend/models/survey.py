@@ -380,10 +380,22 @@ class Survey:
                         user_name = u.get('username', '') or f"{u.get('first_name', '')} {u.get('last_name', '')}".strip()
             except Exception: pass
 
-        # VPN detection heuristic (basic: check for known VPN/proxy headers)
+        # VPN detection — use GeolocationService for proper detection
         ip = data.get('ip_address', '')
+        # Clean IP: take the first (client) IP if multiple are present
+        clean_ip = ip.split(',')[0].strip() if ',' in ip else ip.strip()
         is_vpn = False
-        if ',' in ip: is_vpn = True  # Multiple IPs = proxy chain
+        try:
+            from models.geolocation import GeolocationService
+            geo_svc = GeolocationService()
+            ip_info = geo_svc.get_ip_info(clean_ip)
+            is_vpn = ip_info.get('vpn_detected', False) or ip_info.get('proxy_detected', False) or ip_info.get('tor_detected', False)
+            # Also fill country from IP if not already set
+            if not country_code and ip_info.get('country_code'):
+                country_code = ip_info['country_code']
+                country = ip_info.get('country', '')
+        except Exception as vpn_err:
+            logger.warning(f"VPN detection failed for {clean_ip}: {vpn_err}")
 
         doc = {
             'survey_id': data['survey_id'],
@@ -392,7 +404,7 @@ class Survey:
             'click_id': click_id,
             'user_id': user_id,
             'user_name': user_name,
-            'ip_address': ip,
+            'ip_address': clean_ip,
             'user_agent': data.get('user_agent', ''),
             'browser': browser,
             'device': device,

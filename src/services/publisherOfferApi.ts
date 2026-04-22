@@ -214,6 +214,83 @@ export const publisherOfferApi = {
   getMyAccessRequests,
   logOfferView,
   markOfferClicked,
+  autocomplete,
+  createSearchSession,
+  logSearchEvent,
+  abandonSearchSession,
 };
+
+// ── Autocomplete & Search Session APIs ──
+
+export interface AutocompleteSuggestion {
+  offer_id: string;
+  name: string;
+  geo: string;
+  vertical: string;
+  payout: number;
+  currency: string;
+}
+
+export interface AutocompleteResponse {
+  suggestions: AutocompleteSuggestion[];
+  autocorrected_to: string | null;
+  query: string;
+}
+
+export interface SearchSessionResponse {
+  success: boolean;
+  session_id: string | null;
+  inventory_status: 'available' | 'in_inventory_not_active' | 'not_in_inventory';
+}
+
+/**
+ * Get autocomplete suggestions as user types
+ */
+export async function autocomplete(q: string): Promise<AutocompleteResponse> {
+  const response = await api.get('/api/publisher/offers/autocomplete', { params: { q } });
+  return response.data;
+}
+
+/**
+ * Create a search session when user submits search
+ */
+export async function createSearchSession(query: string, autocorrectedTo?: string | null, resultCount?: number): Promise<SearchSessionResponse> {
+  const response = await api.post('/api/publisher/search/session', {
+    query,
+    autocorrected_to: autocorrectedTo || undefined,
+    result_count: resultCount ?? 0,
+  });
+  return response.data;
+}
+
+/**
+ * Log a search event to an existing session
+ */
+export async function logSearchEvent(
+  sessionId: string,
+  eventType: 'suggestion_picked' | 'result_shown' | 'card_expanded' | 'next_requested' | 'filter_applied' | 'placement_intent' | 'not_in_inventory' | 'final_pick',
+  data?: Record<string, any>
+): Promise<void> {
+  try {
+    await api.post('/api/publisher/search/event', {
+      session_id: sessionId,
+      event_type: eventType,
+      data: data || {},
+    });
+  } catch {
+    // Silent fail — event logging should never block the user
+  }
+}
+
+/**
+ * Mark a search session as abandoned
+ */
+export async function abandonSearchSession(sessionId: string): Promise<void> {
+  try {
+    await api.post('/api/publisher/search/abandon', { session_id: sessionId });
+  } catch {
+    // Silent fail
+  }
+}
 
 export default publisherOfferApi;

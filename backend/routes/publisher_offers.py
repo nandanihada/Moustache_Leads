@@ -11,7 +11,9 @@ from services.access_control_service import AccessControlService
 from services.offer_visibility_service import offer_visibility_service
 from utils.json_serializer import safe_json_response
 from routes.search_logs import log_search_async
+from models.search_session import SearchSession
 import logging
+import re
 
 publisher_offers_bp = Blueprint('publisher_offers', __name__)
 logger = logging.getLogger(__name__)
@@ -704,6 +706,356 @@ def mark_offer_clicked():
         return jsonify({'success': True}), 200
 
 
+@publisher_offers_bp.route('/offers/autocomplete', methods=['GET', 'OPTIONS'])
+@token_required
+def autocomplete_offers():
+    """
+    Fuzzy autocomplete for offer search.
+    Returns up to 10 matching suggestions with offer name, geo, and vertical.
+    Supports typo correction via regex fuzzy matching.
+    """
+    try:
+        q = (request.args.get('q') or '').strip()
+        if len(q) < 2:
+            return jsonify({'suggestions': []}), 200
+
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'suggestions': []}), 200
+
+        user = request.current_user
+        user_id = user.get('_id')
+
+        visible_statuses = ['active', 'running', 'rotating']
+
+        # Build fuzzy regex: insert optional char between each letter for typo tolerance
+        # e.g. "survy" -> "s.?u.?r.?v.?y" which matches "survey"
+        escaped = [re.escape(c) for c in q.lower()]
+        fuzzy_pattern = '.?'.join(escaped)
+
+        search_regex = {'$regex': fuzzy_pattern, '$options': 'i'}
+
+        # Also try exact substring for better ranking
+        exact_regex = {'$regex': re.escape(q), '$options': 'i'}
+
+        # Get user-specific offer grants
+        granted_offer_ids = []
+        try:
+            from models.offer_grant import OfferGrant
+            grant_model = OfferGrant()
+            granted_offer_ids = grant_model.get_granted_offer_ids(str(user_id))
+        except Exception:
+            pass
+
+        # Build visibility filter
+        if granted_offer_ids:
+            visibility = {'$or': [
+                {'status': {'$in': visible_statuses}},
+                {'offer_id': {'$in': granted_offer_ids}},
+            ]}
+        else:
+            visibility = {'status': {'$in': visible_statuses}}
+
+        not_deleted = {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+
+        # Search across name, category, categories, network, offer_id
+        search_fields = [
+            {'name': search_regex},
+            {'category': search_regex},
+            {'categories': search_regex},
+            {'network': search_regex},
+            {'offer_id': search_regex},
+            {'description': search_regex},
+        ]
+
+        query = {
+            '$and': [
+                visibility,
+                not_deleted,
+                {'$or': search_fields},
+            ]
+        }
+
+        projection = {
+            'offer_id': 1, 'name': 1, 'countries': 1,
+            'category': 1, 'vertical': 1, 'categories': 1,
+            'payout': 1, 'currency': 1, 'status': 1,
+        }
+
+        # Fetch up to 30 candidates, then rank and return top 10
+        candidates = list(offers_col.find(query, projection).limit(30))
+
+        # Determine autocorrected query if fuzzy matched but exact didn't
+        autocorrected_to = None
+        if candidates:
+            exact_query = {
+                '$and': [
+                    visibility,
+                    not_deleted,
+                    {'$or': [
+                        {'name': exact_regex},
+                        {'category': exact_regex},
+                        {'categories': exact_regex},
+                    ]},
+                ]
+            }
+            exact_count = offers_col.count_documents(exact_query)
+            if exact_count == 0:
+                # The fuzzy matched but exact didn't — this is a typo correction
+                autocorrected_to = candidates[0].get('name', q)
+
+        # Rank: exact name match first, then category match, then others
+        q_lower = q.lower()
+
+        def rank_score(offer):
+            name = (offer.get('name') or '').lower()
+            if q_lower in name:
+                if name.startswith(q_lower):
+                    return 0  # Best: starts with query
+                return 1  # Good: contains query
+            cats = offer.get('categories') or [offer.get('category') or '']
+            for c in cats:
+                if q_lower in (c or '').lower():
+                    return 2  # Category match
+            return 3  # Fuzzy match only
+
+        candidates.sort(key=rank_score)
+        top = candidates[:10]
+
+        suggestions = []
+        for offer in top:
+            countries = offer.get('countries', [])
+            geo_display = ', '.join(countries[:3]) if countries else 'Global'
+            if len(countries) > 3:
+                geo_display += f' +{len(countries) - 3}'
+
+            cats = offer.get('categories') or []
+            vertical = cats[0] if cats else (offer.get('vertical') or offer.get('category') or 'OTHER')
+
+            try:
+                payout = round(float(offer.get('payout', 0) or 0) * 0.8, 2)
+            except (ValueError, TypeError):
+                payout = 0
+
+            suggestions.append({
+                'offer_id': offer.get('offer_id'),
+                'name': offer.get('name', ''),
+                'geo': geo_display,
+                'vertical': vertical,
+                'payout': payout,
+                'currency': offer.get('currency', 'USD'),
+            })
+
+        return jsonify({
+            'suggestions': suggestions,
+            'autocorrected_to': autocorrected_to,
+            'query': q,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Autocomplete error: {e}", exc_info=True)
+        return jsonify({'suggestions': []}), 200
+
+
+@publisher_offers_bp.route('/search/session', methods=['POST', 'OPTIONS'])
+@token_required
+def create_search_session():
+    """
+    Create a new search session when user submits a search.
+    Returns session_id for subsequent event tracking.
+    """
+    try:
+        user = request.current_user
+        data = request.get_json() or {}
+        query = (data.get('query') or '').strip()
+        autocorrected_to = data.get('autocorrected_to')
+        result_count = int(data.get('result_count', 0))
+
+        if not query:
+            return jsonify({'error': 'query is required'}), 400
+
+        # Determine inventory status
+        offers_col = db_instance.get_collection('offers')
+        inventory_status = 'not_in_inventory'
+        if offers_col is not None:
+            search_regex = {'$regex': re.escape(query), '$options': 'i'}
+            not_deleted = {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+            total = offers_col.count_documents({
+                '$and': [not_deleted, {'$or': [
+                    {'name': search_regex},
+                    {'offer_id': search_regex},
+                    {'category': search_regex},
+                    {'categories': search_regex},
+                ]}]
+            })
+            active = offers_col.count_documents({
+                '$and': [not_deleted, {'status': {'$in': ['active', 'running', 'rotating']}}, {'$or': [
+                    {'name': search_regex},
+                    {'offer_id': search_regex},
+                    {'category': search_regex},
+                    {'categories': search_regex},
+                ]}]
+            })
+            if total > 0 and active > 0:
+                inventory_status = 'available'
+            elif total > 0:
+                inventory_status = 'in_inventory_not_active'
+
+        session_id = SearchSession.create(
+            user_id=str(user.get('_id', '')),
+            username=user.get('username', ''),
+            query=query,
+            autocorrected_to=autocorrected_to,
+            result_count=result_count,
+            inventory_status=inventory_status,
+        )
+
+        # Also log to existing search_logs for backward compatibility
+        log_search_async(str(user.get('_id', '')), user.get('username', ''), query, result_count)
+
+        return jsonify({
+            'success': True,
+            'session_id': session_id,
+            'inventory_status': inventory_status,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Create search session error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@publisher_offers_bp.route('/search/event', methods=['POST', 'OPTIONS'])
+@token_required
+def log_search_event():
+    """
+    Log a search event to an existing session.
+    Event types: suggestion_picked, result_shown, card_expanded,
+                 next_requested, filter_applied, placement_intent,
+                 not_in_inventory, final_pick
+    """
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id')
+        event_type = data.get('event_type')
+        event_data = data.get('data', {})
+
+        if not session_id or not event_type:
+            return jsonify({'error': 'session_id and event_type are required'}), 400
+
+        valid_types = [
+            'suggestion_picked', 'result_shown', 'card_expanded',
+            'next_requested', 'filter_applied', 'placement_intent',
+            'not_in_inventory', 'final_pick',
+        ]
+        if event_type not in valid_types:
+            return jsonify({'error': f'Invalid event_type. Must be one of: {valid_types}'}), 400
+
+        # For placement_intent, also log to a dedicated collection for admin queue
+        if event_type == 'placement_intent':
+            _log_placement_intent(request.current_user, session_id, event_data)
+
+        # For not_in_inventory, log as missing inventory signal
+        if event_type == 'not_in_inventory':
+            _log_missing_inventory(request.current_user, event_data)
+
+        # Also update old search_logs for backward compat on final_pick
+        if event_type == 'final_pick':
+            _update_legacy_search_log(request.current_user, event_data)
+
+        ok = SearchSession.add_event(session_id, event_type, event_data)
+        return jsonify({'success': ok}), 200
+
+    except Exception as e:
+        logger.error(f"Log search event error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@publisher_offers_bp.route('/search/abandon', methods=['POST', 'OPTIONS'])
+@token_required
+def abandon_search_session():
+    """Mark a search session as abandoned."""
+    try:
+        data = request.get_json() or {}
+        session_id = data.get('session_id')
+        if not session_id:
+            return jsonify({'error': 'session_id is required'}), 400
+        ok = SearchSession.mark_abandoned(session_id)
+        return jsonify({'success': ok}), 200
+    except Exception as e:
+        logger.error(f"Abandon session error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+def _log_placement_intent(user, session_id, data):
+    """Log placement intent to dedicated collection for admin review queue."""
+    try:
+        col = db_instance.get_collection('placement_intents')
+        if col is None:
+            return
+        col.insert_one({
+            'user_id': str(user.get('_id', '')),
+            'username': user.get('username', ''),
+            'session_id': session_id,
+            'searched_term': data.get('searched_term', ''),
+            'guessed_offer_id': data.get('offer_id'),
+            'target_payout': data.get('target_payout'),
+            'proof_uploaded': data.get('proof_uploaded', False),
+            'proof_file_reference': data.get('proof_file_reference'),
+            'status': 'pending',  # pending | reviewed | actioned
+            'created_at': datetime.utcnow(),
+        })
+    except Exception as e:
+        logger.error(f"Failed to log placement intent: {e}")
+
+
+def _log_missing_inventory(user, data):
+    """Log missing inventory signal for admin review."""
+    try:
+        col = db_instance.get_collection('missing_inventory_signals')
+        if col is None:
+            return
+        raw_query = data.get('query', '')
+        # Upsert: increment count if same query exists
+        col.update_one(
+            {'query_normalized': raw_query.strip().lower()},
+            {
+                '$set': {
+                    'query_raw': raw_query,
+                    'last_searched_by': str(user.get('_id', '')),
+                    'last_searched_at': datetime.utcnow(),
+                },
+                '$inc': {'search_count': 1},
+                '$setOnInsert': {
+                    'query_normalized': raw_query.strip().lower(),
+                    'first_searched_at': datetime.utcnow(),
+                },
+            },
+            upsert=True,
+        )
+    except Exception as e:
+        logger.error(f"Failed to log missing inventory signal: {e}")
+
+
+def _update_legacy_search_log(user, data):
+    """Update old search_logs collection for backward compat on final_pick."""
+    try:
+        col = db_instance.get_collection('search_logs')
+        if col is None:
+            return
+        ten_min_ago = datetime.utcnow() - timedelta(minutes=10)
+        log = col.find_one(
+            {'user_id': str(user.get('_id', '')), 'searched_at': {'$gte': ten_min_ago}},
+            sort=[('searched_at', -1)]
+        )
+        if log:
+            col.update_one({'_id': log['_id']}, {'$set': {
+                'picked_offer': data.get('offer_name'),
+                'picked_offer_id': data.get('offer_id'),
+            }})
+    except Exception as e:
+        logger.error(f"Failed to update legacy search log: {e}")
+
+
 @publisher_offers_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -712,9 +1064,13 @@ def health_check():
         'service': 'publisher_offers',
         'endpoints': [
             'GET /api/publisher/offers/available',
+            'GET /api/publisher/offers/autocomplete',
             'GET /api/publisher/offers/<offer_id>',
             'POST /api/publisher/offers/<offer_id>/request-access',
             'GET /api/publisher/offers/<offer_id>/access-status',
-            'GET /api/publisher/my-requests'
+            'GET /api/publisher/my-requests',
+            'POST /api/publisher/search/session',
+            'POST /api/publisher/search/event',
+            'POST /api/publisher/search/abandon',
         ]
     }), 200

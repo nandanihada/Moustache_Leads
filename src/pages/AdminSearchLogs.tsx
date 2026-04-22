@@ -20,7 +20,7 @@ import {
   Eye, MousePointer, Link, FileText, User,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer } from '@/services/searchLogsApi';
+import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer, type SearchSession } from '@/services/searchLogsApi';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import { API_BASE_URL } from '@/services/apiConfig';
@@ -232,10 +232,7 @@ const AdminSearchLogsContent: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold">Search Logs</h1>
-          <p className="text-muted-foreground">Track what publishers are searching for in offers</p>
-        </div>
+        <div></div>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -765,9 +762,216 @@ const AdminSearchLogsContent: React.FC = () => {
   );
 };
 
+// ── SEARCH SESSIONS TAB (Wizard Activity) ──
+const SearchSessionsTab: React.FC = () => {
+  const [sessions, setSessions] = useState<SearchSession[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState({ total: 0, picked: 0, not_found: 0, placement_intent: 0, abandoned: 0 });
+  const [pagination, setPagination] = useState({ page: 1, per_page: 25, total: 0, pages: 0 });
+  const [keywordFilter, setKeywordFilter] = useState('');
+  const [usernameFilter, setUsernameFilter] = useState('');
+  const [outcomeFilter, setOutcomeFilter] = useState('all');
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const fetchSessions = async (pg = 1) => {
+    setLoading(true);
+    try {
+      const res = await searchLogsApi.getSearchSessions({
+        page: pg, per_page: 25,
+        keyword: keywordFilter, username: usernameFilter,
+        outcome: outcomeFilter === 'all' ? '' : outcomeFilter,
+      });
+      setSessions(res.sessions || []);
+      setStats(res.stats || { total: 0, picked: 0, not_found: 0, placement_intent: 0, abandoned: 0 });
+      setPagination(res.pagination || { page: pg, per_page: 25, total: 0, pages: 0 });
+    } catch { /* silent */ } finally { setLoading(false); }
+  };
+
+  useEffect(() => { fetchSessions(); }, []);
+
+  const outcomeBadge = (outcome: string) => {
+    const map: Record<string, { color: string; label: string }> = {
+      picked: { color: 'bg-green-100 text-green-700', label: 'Picked' },
+      not_found: { color: 'bg-red-100 text-red-700', label: 'Not Found' },
+      placement_intent: { color: 'bg-blue-100 text-blue-700', label: 'Placement Intent' },
+      abandoned: { color: 'bg-gray-100 text-gray-600', label: 'Abandoned' },
+      active: { color: 'bg-yellow-100 text-yellow-700', label: 'Active' },
+    };
+    const m = map[outcome] || { color: 'bg-gray-100 text-gray-500', label: outcome };
+    return <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${m.color}`}>{m.label}</span>;
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <Card><CardContent className="pt-4 pb-3 text-center"><div className="text-2xl font-bold">{stats.total}</div><p className="text-xs text-muted-foreground">Total Sessions</p></CardContent></Card>
+        <Card><CardContent className="pt-4 pb-3 text-center"><div className="text-2xl font-bold text-green-600">{stats.picked}</div><p className="text-xs text-muted-foreground">Picked Offer</p></CardContent></Card>
+        <Card><CardContent className="pt-4 pb-3 text-center"><div className="text-2xl font-bold text-red-500">{stats.not_found}</div><p className="text-xs text-muted-foreground">Not Found</p></CardContent></Card>
+        <Card><CardContent className="pt-4 pb-3 text-center"><div className="text-2xl font-bold text-blue-600">{stats.placement_intent}</div><p className="text-xs text-muted-foreground">Placement Intent</p></CardContent></Card>
+        <Card><CardContent className="pt-4 pb-3 text-center"><div className="text-2xl font-bold text-gray-500">{stats.abandoned}</div><p className="text-xs text-muted-foreground">Abandoned</p></CardContent></Card>
+      </div>
+
+      {/* Filters */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <Input placeholder="Keyword..." value={keywordFilter} onChange={e => setKeywordFilter(e.target.value)} className="w-40 h-8 text-xs" />
+        <Input placeholder="Username..." value={usernameFilter} onChange={e => setUsernameFilter(e.target.value)} className="w-40 h-8 text-xs" />
+        <Select value={outcomeFilter} onValueChange={setOutcomeFilter}>
+          <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="Outcome" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Outcomes</SelectItem>
+            <SelectItem value="picked">Picked</SelectItem>
+            <SelectItem value="not_found">Not Found</SelectItem>
+            <SelectItem value="placement_intent">Placement Intent</SelectItem>
+            <SelectItem value="abandoned">Abandoned</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button size="sm" onClick={() => fetchSessions()} disabled={loading} className="h-8 text-xs">
+          {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3 mr-1" />}Search
+        </Button>
+      </div>
+
+      {/* Sessions Table */}
+      <div className="rounded-lg border overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/50">
+              <TableHead className="text-xs w-[120px]">User</TableHead>
+              <TableHead className="text-xs">Keyword</TableHead>
+              <TableHead className="text-xs w-[100px]">Vertical</TableHead>
+              <TableHead className="text-xs w-[60px]">Geo</TableHead>
+              <TableHead className="text-xs w-[70px]">Payout</TableHead>
+              <TableHead className="text-xs w-[80px]">Placement</TableHead>
+              <TableHead className="text-xs w-[60px]">Results</TableHead>
+              <TableHead className="text-xs w-[100px]">Outcome</TableHead>
+              <TableHead className="text-xs w-[130px]">Time</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow><TableCell colSpan={9} className="text-center py-8"><RefreshCw className="h-4 w-4 animate-spin mx-auto" /></TableCell></TableRow>
+            ) : sessions.length === 0 ? (
+              <TableRow><TableCell colSpan={9} className="text-center py-8 text-sm text-muted-foreground">No search sessions yet</TableCell></TableRow>
+            ) : sessions.map(s => (
+              <React.Fragment key={s._id}>
+                <TableRow
+                  className="cursor-pointer hover:bg-muted/30 text-xs"
+                  onClick={() => setExpandedId(expandedId === s._id ? null : s._id)}
+                >
+                  <TableCell className="font-medium">{s.username || s.user_id?.slice(0, 8)}</TableCell>
+                  <TableCell className="font-semibold">{s.query}</TableCell>
+                  <TableCell>
+                    {s.wizard?.vertical ? (
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">{s.wizard.vertical}</span>
+                    ) : <span className="text-gray-300">—</span>}
+                  </TableCell>
+                  <TableCell>
+                    {s.wizard?.geo ? (
+                      <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">{s.wizard.geo}</span>
+                    ) : <span className="text-gray-300">—</span>}
+                  </TableCell>
+                  <TableCell>
+                    {s.wizard?.payout ? (
+                      <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full">${s.wizard.payout}</span>
+                    ) : <span className="text-gray-300">—</span>}
+                  </TableCell>
+                  <TableCell>
+                    {s.wizard?.has_placement === true ? (
+                      <CheckCircle className="h-3.5 w-3.5 text-green-500" />
+                    ) : s.wizard?.has_placement === false ? (
+                      <XCircle className="h-3.5 w-3.5 text-gray-400" />
+                    ) : <span className="text-gray-300">—</span>}
+                  </TableCell>
+                  <TableCell className="font-mono">{s.wizard?.result_count ?? s.result_count ?? '—'}</TableCell>
+                  <TableCell>{outcomeBadge(s.session_outcome)}</TableCell>
+                  <TableCell className="text-[10px] text-muted-foreground">{s.created_at ? new Date(s.created_at).toLocaleString() : '—'}</TableCell>
+                </TableRow>
+                {expandedId === s._id && (
+                  <TableRow>
+                    <TableCell colSpan={9} className="bg-muted/20 p-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                        <div><span className="text-muted-foreground">Session ID:</span> <span className="font-mono text-[10px]">{s._id}</span></div>
+                        <div><span className="text-muted-foreground">User ID:</span> <span className="font-mono text-[10px]">{s.user_id}</span></div>
+                        <div><span className="text-muted-foreground">Inventory:</span> {s.inventory_status}</div>
+                        <div><span className="text-muted-foreground">Autocorrected:</span> {s.autocorrected_to || 'No'}</div>
+                        {s.wizard?.placement_link && (
+                          <div className="col-span-2"><span className="text-muted-foreground">Placement Link:</span> <a href={s.wizard.placement_link} target="_blank" rel="noreferrer" className="text-blue-600 underline">{s.wizard.placement_link}</a></div>
+                        )}
+                        {s.wizard?.proof_file_ref && (
+                          <div className="col-span-4 space-y-2">
+                            <span className="text-muted-foreground">Placement Proof:</span>
+                            {(() => {
+                              const ref = s.wizard.proof_file_ref;
+                              // Format: proofId|/uploads/proofs/file1.png,/uploads/proofs/file2.png
+                              if (ref.includes('|')) {
+                                const [proofId, urls] = ref.split('|');
+                                const imageUrls = urls.split(',').filter(Boolean);
+                                return (
+                                  <div className="flex items-start gap-3 mt-1">
+                                    {imageUrls.map((url: string, i: number) => (
+                                      <a key={i} href={`${API_BASE_URL}${url}`} target="_blank" rel="noreferrer" className="block">
+                                        <img src={`${API_BASE_URL}${url}`} alt={`Proof ${i + 1}`}
+                                          className="w-32 h-24 object-cover rounded-lg border border-gray-200 hover:border-purple-400 hover:shadow-md transition-all cursor-pointer" />
+                                      </a>
+                                    ))}
+                                    <span className="text-[10px] text-muted-foreground self-end">ID: {proofId}</span>
+                                  </div>
+                                );
+                              }
+                              return <span className="text-green-600 font-medium ml-1">{ref}</span>;
+                            })()}
+                          </div>
+                        )}
+                        {s.wizard?.final_pick && (
+                          <div><span className="text-muted-foreground">Final Pick:</span> <span className="font-semibold">{s.wizard.final_pick}</span></div>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </React.Fragment>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      {pagination.pages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <Button size="sm" variant="outline" disabled={pagination.page <= 1} onClick={() => fetchSessions(pagination.page - 1)} className="h-7 text-xs">
+            <ChevronLeft className="h-3 w-3" />
+          </Button>
+          <span className="text-xs text-muted-foreground">{pagination.page} / {pagination.pages}</span>
+          <Button size="sm" variant="outline" disabled={pagination.page >= pagination.pages} onClick={() => fetchSessions(pagination.page + 1)} className="h-7 text-xs">
+            <ChevronRight className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const AdminSearchLogs: React.FC = () => (
   <AdminPageGuard requiredTab="search-logs">
-    <AdminSearchLogsContent />
+    <div className="space-y-4 p-4">
+      <div>
+        <h1 className="text-3xl font-bold">Search Logs</h1>
+        <p className="text-muted-foreground">Track what publishers are searching for in offers</p>
+      </div>
+      <Tabs defaultValue="logs" className="w-full">
+        <TabsList>
+          <TabsTrigger value="logs" className="text-xs gap-1.5"><Search className="h-3 w-3" />Search Logs</TabsTrigger>
+          <TabsTrigger value="sessions" className="text-xs gap-1.5"><FileText className="h-3 w-3" />Wizard Sessions</TabsTrigger>
+        </TabsList>
+        <TabsContent value="logs" className="mt-4">
+          <AdminSearchLogsContent />
+        </TabsContent>
+        <TabsContent value="sessions" className="mt-4">
+          <SearchSessionsTab />
+        </TabsContent>
+      </Tabs>
+    </div>
   </AdminPageGuard>
 );
 

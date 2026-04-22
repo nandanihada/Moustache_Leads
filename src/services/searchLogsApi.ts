@@ -73,6 +73,31 @@ export interface RelatedOffer {
   currency?: string;
 }
 
+export interface SearchSession {
+  _id: string;
+  user_id: string;
+  username: string;
+  query: string;
+  autocorrected_to?: string | null;
+  result_count: number;
+  inventory_status: string;
+  session_outcome: 'active' | 'picked' | 'skipped_all' | 'abandoned' | 'placement_intent' | 'not_found';
+  final_pick_offer_id?: string | null;
+  final_pick_position?: number | null;
+  wizard: {
+    vertical: string;
+    geo: string;
+    payout: string;
+    has_placement: boolean | null;
+    placement_link: string;
+    proof_file_ref: string;
+    result_count: number;
+    final_pick: string | null;
+  };
+  created_at: string;
+  updated_at: string;
+}
+
 export const searchLogsApi = {
   async getLogs(filters: SearchLogsFilters = {}): Promise<SearchLogsResponse> {
     const params = new URLSearchParams();
@@ -167,6 +192,38 @@ export const searchLogsApi = {
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error('Failed to send inventory email');
+    return res.json();
+  },
+
+  // ── Search Sessions (Wizard Activity) ──
+
+  async getSearchSessions(filters: {
+    page?: number; per_page?: number; keyword?: string; username?: string;
+    outcome?: string; vertical?: string; geo?: string;
+  } = {}): Promise<{
+    success: boolean;
+    sessions: SearchSession[];
+    stats: { total: number; picked: number; not_found: number; placement_intent: number; abandoned: number };
+    pagination: { page: number; per_page: number; total: number; pages: number };
+  }> {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([k, v]) => {
+      if (v !== undefined && v !== '') params.append(k, String(v));
+    });
+    const res = await fetch(`${API}/api/admin/search-sessions?${params}`, { headers: headers() });
+    if (!res.ok) throw new Error('Failed to fetch search sessions');
+    return res.json();
+  },
+
+  async getPlacementIntents(page = 1, perPage = 25): Promise<{ success: boolean; intents: any[]; total: number }> {
+    const res = await fetch(`${API}/api/admin/search-sessions/placement-intents?page=${page}&per_page=${perPage}`, { headers: headers() });
+    if (!res.ok) throw new Error('Failed to fetch placement intents');
+    return res.json();
+  },
+
+  async getMissingSignals(): Promise<{ success: boolean; signals: any[]; total: number }> {
+    const res = await fetch(`${API}/api/admin/search-sessions/missing-signals`, { headers: headers() });
+    if (!res.ok) throw new Error('Failed to fetch missing signals');
     return res.json();
   },
 };

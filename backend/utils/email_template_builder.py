@@ -21,7 +21,7 @@ DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'image', 'offer_id'
 
 def build_offer_email_html(
     offers: list,
-    recipient_name: str = 'Publisher',
+    recipient_name: str = '',
     subject: str = '',
     custom_message: str = '',
     template_style: str = 'table',  # 'table' or 'card'
@@ -85,7 +85,7 @@ def build_offer_email_html(
         <td style="background:linear-gradient(135deg,{color} 0%,#1a1a1a 100%);padding:35px 30px;text-align:center;">
             <img src="{LOGO_URL}" alt="MoustacheLeads" style="height:50px;margin-bottom:12px;display:inline-block;" />
             <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.5px;">MoustacheLeads</h1>
-            <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;">Hey {recipient_name}! 🎯</p>
+            <p style="margin:10px 0 0;color:rgba(255,255,255,0.9);font-size:15px;">Hey{(' ' + recipient_name) if recipient_name and recipient_name != 'there' else ''}!</p>
         </td>
     </tr>
     {msg_section}

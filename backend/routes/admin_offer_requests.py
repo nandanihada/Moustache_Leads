@@ -53,7 +53,7 @@ def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='pu
         from utils.email_template_builder import build_offer_email_html
         return build_offer_email_html(
             offers=offers,
-            recipient_name='Publisher',
+            recipient_name='',
             custom_message=body_text if isinstance(body_text, str) else '',
             template_style=template_style,
             visible_fields=visible_fields,
@@ -633,7 +633,7 @@ def send_offers_to_publisher():
 {custom_message or 'We have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.'}
 
 Best regards,
-Publisher Support Team
+Moustache Leads Team
 Moustache Leads"""
 
         # Send to users via BCC (single email) or support/notification per user
@@ -649,7 +649,7 @@ Moustache Leads"""
                     from email.mime.multipart import MIMEMultipart
                     
                     email_service = get_email_service()
-                    body = build_body('Publisher')
+                    body = build_body('')
                     html_body = body.replace('\n', '<br>')
                     html_content = _build_email_html(body, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
                     
@@ -2132,7 +2132,7 @@ def push_mail():
         logging.info(f"📧 Push mail: {len(all_users)} users, {len(recipients)} with email, send_type={send_type}")
 
         subject = message_template.get('subject', '🚀 Hot Offers You Should Check Out!')
-        body_text = message_template.get('body', "We've found some great offers that match what you're looking for.\n\nTo get started, log in to your publisher dashboard and apply for any of the offers below. Our team is happy to help you set up.\n\nBest regards,\nPublisher Support Team\nMoustache Leads")
+        body_text = message_template.get('body', "We've found some great offers that match what you're looking for.\n\nTo get started, log in to your publisher dashboard and apply for any of the offers below. Our team is happy to help you set up.\n\nBest regards,\nMoustache Leads Team\nMoustache Leads")
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
@@ -2619,7 +2619,7 @@ def push_mail_v2():
             if not message_body:
                 import calendar as cal_mod
                 day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                message_body = f"Happy {day_name}!\n\nWe have some great offers for you to push traffic on. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nPublisher Support Team\nMoustache Leads"
+                message_body = f"Happy {day_name}!\n\nWe have some great offers for you to push traffic on. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nMoustache Leads Team\nMoustache Leads"
 
             for u in resolved_users:
                 try:
@@ -2713,7 +2713,7 @@ def push_mail_v2():
                 if not message_body:
                     import calendar as cal_mod
                     day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                    message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nPublisher Support Team\nMoustache Leads"
+                    message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nMoustache Leads Team\nMoustache Leads"
                 html_body = _build_email_html(message_body, frontend_url, offers=offers)
                 result = sched_col.insert_one({
                     'subject': subject, 'body': html_body, 'recipients': emails,
@@ -2800,7 +2800,7 @@ def push_mail_v2():
             if not message_body:
                 import calendar as cal_mod
                 day_name = cal_mod.day_name[datetime.utcnow().weekday()]
-                message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nPublisher Support Team\nMoustache Leads"
+                message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nMoustache Leads Team\nMoustache Leads"
             html_body = _build_email_html(message_body, frontend_url, offers=offers)
 
             if history_col is not None:
