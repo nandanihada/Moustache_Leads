@@ -111,6 +111,15 @@ const Partners: React.FC = () => {
     { value: 'offer_id', label: 'offer_id', description: 'Offer identifier' },
     { value: 'conversion_id', label: 'conversion_id', description: 'Conversion identifier' },
     { value: 'currency', label: 'currency', description: 'Currency code' },
+    { value: 'event_type', label: 'event_type', description: 'Event type (install, registration, purchase, etc.)' },
+    { value: 'sub_id1', label: 'sub_id1', description: 'Custom sub parameter 1' },
+    { value: 'sub_id2', label: 'sub_id2', description: 'Custom sub parameter 2' },
+    { value: 'sub_id3', label: 'sub_id3', description: 'Custom sub parameter 3' },
+    { value: 'sub_id4', label: 'sub_id4', description: 'Custom sub parameter 4' },
+    { value: 'sub_id5', label: 'sub_id5', description: 'Custom sub parameter 5' },
+    { value: 'ip_address', label: 'ip_address', description: 'User IP address' },
+    { value: 'country', label: 'country', description: 'User country code' },
+    { value: 'user_agent', label: 'user_agent', description: 'User agent string' },
   ];
 
   const PARTNER_TEMPLATES: Record<string, ParameterMapping[]> = {
@@ -159,6 +168,15 @@ const Partners: React.FC = () => {
     { value: 'click_id', label: 'click_id' },
     { value: 'offer_id', label: 'offer_id' },
     { value: 'status', label: 'status' },
+    { value: 'event_type', label: 'event_type' },
+    { value: 'sub_id1', label: 'sub_id1' },
+    { value: 'sub_id2', label: 'sub_id2' },
+    { value: 'sub_id3', label: 'sub_id3' },
+    { value: 'sub_id4', label: 'sub_id4' },
+    { value: 'sub_id5', label: 'sub_id5' },
+    { value: 'ip_address', label: 'ip_address' },
+    { value: 'country', label: 'country' },
+    { value: 'user_agent', label: 'user_agent' },
   ];
   const [offerUrlParams, setOfferUrlParams] = useState<OfferUrlParamRow[]>([
     { our_field: 'user_id', their_param: '' }

@@ -21,6 +21,15 @@ const AVAILABLE_OUR_PARAMS = [
   { value: 'offer_id', label: 'offer_id', description: 'Offer identifier' },
   { value: 'conversion_id', label: 'conversion_id', description: 'Conversion identifier' },
   { value: 'currency', label: 'currency', description: 'Currency code (USD, EUR, etc.)' },
+  { value: 'event_type', label: 'event_type', description: 'Event type (install, registration, purchase, etc.)' },
+  { value: 'sub_id1', label: 'sub_id1', description: 'Custom sub parameter 1' },
+  { value: 'sub_id2', label: 'sub_id2', description: 'Custom sub parameter 2' },
+  { value: 'sub_id3', label: 'sub_id3', description: 'Custom sub parameter 3' },
+  { value: 'sub_id4', label: 'sub_id4', description: 'Custom sub parameter 4' },
+  { value: 'sub_id5', label: 'sub_id5', description: 'Custom sub parameter 5' },
+  { value: 'ip_address', label: 'ip_address', description: 'User IP address' },
+  { value: 'country', label: 'country', description: 'User country code' },
+  { value: 'user_agent', label: 'user_agent', description: 'User agent string' },
 ];
 
 const PARTNER_TEMPLATES = {

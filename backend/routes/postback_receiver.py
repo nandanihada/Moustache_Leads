@@ -359,6 +359,12 @@ def receive_postback(unique_key):
             'country_code': geo_country_code,
             'city': geo_city,
             'region': geo_region,
+            'event_type': params.get('event_type', '') or params.get('event', ''),
+            'sub_id1': params.get('sub_id1', '') or params.get('sub1', ''),
+            'sub_id2': params.get('sub_id2', '') or params.get('sub2', ''),
+            'sub_id3': params.get('sub_id3', '') or params.get('sub3', ''),
+            'sub_id4': params.get('sub_id4', '') or params.get('sub4', ''),
+            'sub_id5': params.get('sub_id5', '') or params.get('sub5', ''),
             'timestamp': datetime.utcnow(),
             'status': 'received'
         }
@@ -412,6 +418,12 @@ def receive_postback(unique_key):
                 click_id = get_param_value('click_id')
                 offer_id = get_param_value('offer_id') or get_param_value('survey_id')
                 upward_payout = get_param_value('payout') or get_param_value('amount') or 0
+                event_type = get_param_value('event_type') or get_param_value('event') or ''
+                sub_id1 = get_param_value('sub_id1') or get_param_value('sub1') or ''
+                sub_id2 = get_param_value('sub_id2') or get_param_value('sub2') or ''
+                sub_id3 = get_param_value('sub_id3') or get_param_value('sub3') or ''
+                sub_id4 = get_param_value('sub_id4') or get_param_value('sub4') or ''
+                sub_id5 = get_param_value('sub_id5') or get_param_value('sub5') or ''
 
                 # Find the click (already matched by processor, find it again for context)
                 click = None

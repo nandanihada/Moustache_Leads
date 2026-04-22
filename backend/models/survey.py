@@ -258,54 +258,33 @@ class Survey:
     def get_survey_for_offer(self, offer):
         """
         Determine which survey to show for an offer.
-        Priority: manual assignment > category match > name keyword match > random general.
+        ONLY shows surveys that admin has manually assigned — no auto-matching.
+        Admin can assign per-offer or per-category via the admin panel.
         """
         offer_id = offer.get('offer_id', '')
 
-        # 1. Check manual assignment
+        # 1. Check direct offer assignment (admin assigned this specific offer)
         assignment = self.assignments_col.find_one({'offer_id': offer_id})
         if assignment:
             survey = self.get_survey(assignment['survey_id'])
             if survey and survey.get('is_active'):
                 return survey
 
-        # 2. Match by offer category/vertical
+        # 2. Check category-level assignment (admin assigned all offers in this category)
         category = offer.get('vertical') or offer.get('category') or ''
         if category:
-            survey = self.collection.find_one({
-                'category': {'$regex': f'^{re.escape(category)}$', '$options': 'i'},
-                'is_active': True
+            cat_assignment = self.assignments_col.find_one({
+                'offer_id': f'category:{category.upper()}',
+                'assignment_type': 'category'
             })
-            if survey:
-                survey['_id'] = str(survey['_id'])
-                return survey
+            if cat_assignment:
+                survey = self.get_survey(cat_assignment['survey_id'])
+                if survey and survey.get('is_active'):
+                    return survey
 
-        # 3. Match by description/name keywords
-        text = f"{offer.get('name', '')} {offer.get('description', '')}".lower()
-        best_match = None
-        best_score = 0
-        for cat, keywords in CATEGORY_KEYWORDS.items():
-            score = sum(1 for kw in keywords if kw in text)
-            if score > best_score:
-                best_score = score
-                best_match = cat
-        if best_match and best_score > 0:
-            survey = self.collection.find_one({
-                'category': {'$regex': f'^{re.escape(best_match)}$', '$options': 'i'},
-                'is_active': True
-            })
-            if survey:
-                survey['_id'] = str(survey['_id'])
-                return survey
-
-        # 4. Fallback: random active survey
-        pipeline = [{'$match': {'is_active': True}}, {'$sample': {'size': 1}}]
-        results = list(self.collection.aggregate(pipeline))
-        if results:
-            results[0]['_id'] = str(results[0]['_id'])
-            return results[0]
-
+        # No assignment = no survey. User goes directly to the offer.
         return None
+
 
     # ── Response recording ───────────────────────────────────────────────
 

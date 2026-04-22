@@ -127,17 +127,36 @@ def list_assignments():
 @survey_gateway_bp.route('/api/admin/surveys/assign', methods=['POST'])
 @_admin_guard
 def assign_survey():
-    """Assign a survey to one or more offers."""
+    """Assign a survey to one or more offers, or to an entire category."""
     data = request.get_json()
     survey_id = data.get('survey_id')
     offer_ids = data.get('offer_ids', [])
     offer_id = data.get('offer_id')
+    category = data.get('category')  # e.g. "FINANCE", "GAMES_INSTALL"
+
     if offer_id:
         offer_ids = [offer_id]
-    if not survey_id or not offer_ids:
-        return jsonify({'success': False, 'error': 'survey_id and offer_ids required'}), 400
+
+    if not survey_id:
+        return jsonify({'success': False, 'error': 'survey_id required'}), 400
+
     model = Survey()
     user = getattr(request, 'current_user', {})
+
+    # Category-level assignment
+    if category:
+        cat_key = f'category:{category.upper()}'
+        model.assign_survey_to_offer(cat_key, survey_id, user.get('username', 'admin'))
+        # Also store assignment_type for the category lookup
+        model.assignments_col.update_one(
+            {'offer_id': cat_key},
+            {'$set': {'assignment_type': 'category'}},
+        )
+        return jsonify({'success': True, 'message': f'Survey assigned to all {category} offers'})
+
+    if not offer_ids:
+        return jsonify({'success': False, 'error': 'offer_ids or category required'}), 400
+
     if len(offer_ids) == 1:
         model.assign_survey_to_offer(offer_ids[0], survey_id, user.get('username', 'admin'))
     else:
