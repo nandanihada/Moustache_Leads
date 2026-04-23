@@ -1,7 +1,14 @@
 from datetime import datetime, timedelta
 from bson import ObjectId
 import bcrypt
+import secrets
+import string
 from database import db_instance
+
+
+def generate_api_key(length: int = 40):
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 # Account status constants
 ACCOUNT_STATUS_PENDING = 'pending_approval'
@@ -44,7 +51,9 @@ class User:
             'username': username,
             'email': email,
             'password': hashed_password,
+            'api_key': generate_api_key(),
             'role': kwargs.get('role', 'user'),  # Default role is 'user', can be 'admin', 'subadmin', or 'partner'
+            'level': kwargs.get('level', 'L1'),  # Default level is L1 (L1-L6)
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
             'is_active': True,
@@ -105,6 +114,12 @@ class User:
         if not self._check_db_connection():
             return None
         return self.collection.find_one({'email': email})
+
+    def find_by_api_key(self, api_key):
+        """Find user by API key"""
+        if not self._check_db_connection():
+            return None
+        return self.collection.find_one({'api_key': api_key})
     
     def find_by_id(self, user_id):
         """Find user by ID"""
@@ -113,6 +128,22 @@ class User:
         try:
             return self.collection.find_one({'_id': ObjectId(user_id)})
         except:
+            return None
+
+    def reset_api_key(self, user_id):
+        """Reset a user's API key and return it"""
+        if not self._check_db_connection():
+            return None
+        try:
+            new_key = generate_api_key()
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {'$set': {'api_key': new_key, 'updated_at': datetime.utcnow()}}
+            )
+            if result.modified_count > 0:
+                return new_key
+            return None
+        except Exception:
             return None
     
     def verify_password(self, username, password):
@@ -176,6 +207,7 @@ class User:
             'username': username,
             'email': email,
             'password': hashed_password,
+            'api_key': generate_api_key(),
             'role': 'admin',  # Admin role
             'created_at': datetime.utcnow(),
             'updated_at': datetime.utcnow(),
@@ -544,3 +576,32 @@ class User:
             return user.get('account_status') == ACCOUNT_STATUS_APPROVED
         except Exception:
             return False
+
+    def generate_api_key(self):
+        """Generate a secure random API key"""
+        import secrets
+        return f"ml_{secrets.token_hex(24)}"
+
+    def reset_api_key(self, user_id):
+        """Reset or generate API key for a user"""
+        if not self._check_db_connection():
+            return False, "Database connection error"
+            
+        try:
+            new_key = self.generate_api_key()
+            result = self.collection.update_one(
+                {'_id': ObjectId(user_id)},
+                {
+                    '$set': {
+                        'api_key': new_key,
+                        'api_key_updated_at': datetime.utcnow(),
+                        'updated_at': datetime.utcnow()
+                    }
+                }
+            )
+            
+            if result.matched_count > 0:
+                return True, new_key
+            return False, "User not found"
+        except Exception as e:
+            return False, f"Error resetting API key: {str(e)}"

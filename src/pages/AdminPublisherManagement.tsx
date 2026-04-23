@@ -63,6 +63,7 @@ interface Publisher {
   id: string;
   username: string;
   email: string;
+  apiKey?: string;
   firstName: string;
   lastName: string;
   companyName: string;
@@ -70,7 +71,6 @@ interface Publisher {
   postbackUrl: string;
   role: string;
   status: string;
-  password: string;
   createdAt: string;
   updatedAt?: string;
   lastLogin?: string;
@@ -82,30 +82,14 @@ interface Publisher {
   };
 }
 
-interface PublisherDetails extends Publisher {
-  placements: Array<{
-    id: string;
-    placementIdentifier: string;
-    offerwallTitle: string;
-    platformType: string;
-    currencyName: string;
-    exchangeRate: number;
-    postbackUrl: string;
-    status: string;
-    approvalStatus: string;
-    approvedAt?: string;
-    createdAt: string;
-  }>;
-}
-
 const AdminPublisherManagement = () => {
   const { toast } = useToast();
   const [publishers, setPublishers] = useState<Publisher[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedPublisher, setSelectedPublisher] = useState<PublisherDetails | null>(null);
-  const [actionType, setActionType] = useState<'view' | 'edit' | 'block' | 'unblock' | 'delete' | null>(null);
+  const [selectedPublisher, setSelectedPublisher] = useState<any>(null);
+  const [actionType, setActionType] = useState<'view' | 'edit' | 'block' | 'unblock' | 'delete' | 'create' | 'reset_api_key' | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [editForm, setEditForm] = useState({
     firstName: '',
@@ -113,7 +97,11 @@ const AdminPublisherManagement = () => {
     companyName: '',
     website: '',
     postbackUrl: '',
-    email: ''
+    email: '',
+    username: '',
+    password: '',
+    role: 'user',
+    approve: true
   });
   const [blockReason, setBlockReason] = useState('');
   const [pagination, setPagination] = useState({
@@ -209,6 +197,22 @@ const AdminPublisherManagement = () => {
       let response;
 
       switch (actionType) {
+        case 'create':
+          response = await fetch(`${API_BASE_URL}/auth/admin/create-user`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify(editForm),
+          });
+          break;
+
+        case 'reset_api_key':
+          response = await fetch(`${API_BASE_URL}/generate-api-key`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ user_id: selectedPublisher.id }),
+          });
+          break;
+
         case 'edit':
           response = await fetch(`${API_BASE_URL}/admin/publishers/${selectedPublisher.id}`, {
             method: 'PUT',
@@ -343,10 +347,16 @@ const AdminPublisherManagement = () => {
             Manage publishers, view their details, and control access to offers.
           </p>
         </div>
-        <Button onClick={fetchPublishers} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={fetchPublishers} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button onClick={() => setActionType('create')}>
+            <User className="h-4 w-4 mr-2" />
+            Add New Publisher
+          </Button>
+        </div>
       </div>
 
       {/* Search and Filters */}
@@ -566,7 +576,9 @@ const AdminPublisherManagement = () => {
                 <Tabs defaultValue="details" className="space-y-4">
                   <TabsList>
                     <TabsTrigger value="details">Details</TabsTrigger>
+                    <TabsTrigger value="preferences">Preferences</TabsTrigger>
                     <TabsTrigger value="placements">Placements ({selectedPublisher.placements?.length || 0})</TabsTrigger>
+                    <TabsTrigger value="api">API Access</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="details" className="space-y-4">
@@ -581,40 +593,118 @@ const AdminPublisherManagement = () => {
                           <p className="text-sm">{selectedPublisher.email}</p>
                         </div>
                         <div>
-                          <Label className="text-sm font-medium text-gray-600">Password</Label>
-                          <p className="text-sm font-mono bg-gray-100 p-2 rounded">{selectedPublisher.password}</p>
-                        </div>
-                        <div>
                           <Label className="text-sm font-medium text-gray-600">Name</Label>
                           <p className="text-sm">{selectedPublisher.firstName} {selectedPublisher.lastName}</p>
                         </div>
-                        <div>
-                          <Label className="text-sm font-medium text-gray-600">Company</Label>
-                          <p className="text-sm">{selectedPublisher.companyName || 'N/A'}</p>
-                        </div>
                       </div>
                       <div className="space-y-4">
-                        <div>
-                          <Label className="text-sm font-medium text-gray-600">Website</Label>
-                          <p className="text-sm">{selectedPublisher.website || 'N/A'}</p>
-                        </div>
-                        <div>
-                          <Label className="text-sm font-medium text-gray-600">Postback URL</Label>
-                          <p className="text-sm break-all">{selectedPublisher.postbackUrl || 'N/A'}</p>
-                        </div>
                         <div>
                           <Label className="text-sm font-medium text-gray-600">Status</Label>
                           <div className="mt-1">{getStatusBadge(selectedPublisher.status)}</div>
                         </div>
                         <div>
-                          <Label className="text-sm font-medium text-gray-600">Joined</Label>
-                          <p className="text-sm">{new Date(selectedPublisher.createdAt).toLocaleDateString()}</p>
-                        </div>
-                        <div>
-                          <Label className="text-sm font-medium text-gray-600">Last Login</Label>
-                          <p className="text-sm">{selectedPublisher.lastLogin ? new Date(selectedPublisher.lastLogin).toLocaleDateString() : 'Never'}</p>
+                          <Label className="text-sm font-medium text-gray-600">Role</Label>
+                          <p className="text-sm capitalize">{selectedPublisher.role}</p>
                         </div>
                       </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="preferences" className="space-y-6">
+                    <div className="grid grid-cols-2 gap-6">
+                      <div className="space-y-4">
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Verticals of Interest</Label>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {selectedPublisher.verticals?.length > 0 ? selectedPublisher.verticals.map((v: string) => (
+                              <Badge key={v} variant="secondary" className="bg-blue-50 text-blue-700 hover:bg-blue-100 border-blue-200">{v}</Badge>
+                            )) : <span className="text-sm text-gray-400">None selected</span>}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Target GEOs</Label>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {selectedPublisher.geos?.length > 0 ? selectedPublisher.geos.map((g: string) => (
+                              <Badge key={g} variant="secondary" className="bg-green-50 text-green-700 hover:bg-green-100 border-green-200">{g}</Badge>
+                            )) : <span className="text-sm text-gray-400">None selected</span>}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Traffic Sources</Label>
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {selectedPublisher.trafficSources?.length > 0 ? selectedPublisher.trafficSources.map((ts: string) => (
+                              <Badge key={ts} variant="secondary" className="bg-purple-50 text-purple-700 hover:bg-purple-100 border-purple-200">{ts}</Badge>
+                            )) : <span className="text-sm text-gray-400">None selected</span>}
+                          </div>
+                        </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">URLs</Label>
+                          <div className="mt-2 space-y-1">
+                            {selectedPublisher.websiteUrls?.filter((u: string) => u).length > 0 ? selectedPublisher.websiteUrls.filter((u: string) => u).map((url: string, idx: number) => (
+                              <a key={idx} href={url.startsWith('http') ? url : `https://${url}`} target="_blank" rel="noreferrer" className="text-sm text-blue-600 hover:underline block truncate flex items-center gap-1">
+                                <LinkIcon className="w-3 h-3"/> {url}
+                              </a>
+                            )) : <span className="text-sm text-gray-400">None provided</span>}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-4">
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Social Contacts</Label>
+                          <div className="mt-2 text-sm space-y-1 border rounded-md p-3 bg-slate-50">
+                            <p><strong>LinkedIn:</strong> {selectedPublisher.socialContacts?.linkedin || 'N/A'}</p>
+                            <p><strong>Telegram:</strong> {selectedPublisher.socialContacts?.telegram || 'N/A'}</p>
+                            <p><strong>Agency:</strong> {selectedPublisher.socialContacts?.agency || 'N/A'}</p>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Smart Link Interest</Label>
+                          <div className="mt-2 text-sm border rounded-md p-3 bg-slate-50">
+                            <p><strong>Interested:</strong> <span className={selectedPublisher.smartLinkInterest === 'yes' ? 'text-green-600 font-medium' : ''}>{selectedPublisher.smartLinkInterest === 'yes' ? 'Yes' : 'No'}</span></p>
+                            {selectedPublisher.smartLinkInterest === 'yes' && (
+                              <p className="mt-1"><strong>Source:</strong> {selectedPublisher.smartLinkTrafficSource || 'N/A'}</p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div>
+                           <Label className="text-sm font-medium text-gray-600">Location / Address</Label>
+                           <div className="mt-2 text-sm border rounded-md p-3 bg-slate-50">
+                             <p>{selectedPublisher.address?.unit ? `Unit ${selectedPublisher.address.unit}, ` : ''}{selectedPublisher.address?.street || 'N/A'}</p>
+                             <p>{selectedPublisher.address?.city || ''} {selectedPublisher.address?.state || ''} {selectedPublisher.address?.country || ''} {selectedPublisher.address?.postal || ''}</p>
+                           </div>
+                        </div>
+                        
+                        <div>
+                           <Label className="text-sm font-medium text-gray-600">Bank Details</Label>
+                           <div className="mt-2 text-sm border rounded-md p-3 bg-slate-50">
+                             <p><strong>Bank:</strong> {selectedPublisher.payoutDetails?.bank_name || 'N/A'}</p>
+                             <p><strong>Beneficiary:</strong> {selectedPublisher.payoutDetails?.account_name || 'N/A'}</p>
+                           </div>
+                        </div>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="api" className="space-y-4">
+                    <div className="p-4 border border-blue-100 bg-blue-50 rounded-lg">
+                      <Label className="text-sm font-medium text-blue-800">API Key</Label>
+                      <div className="flex gap-2 mt-2">
+                        <Input 
+                          value={selectedPublisher.apiKey || 'No API key generated'} 
+                          readOnly 
+                          className="font-mono bg-white"
+                        />
+                        <Button variant="outline" onClick={() => setActionType('reset_api_key')}>
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          Reset Key
+                        </Button>
+                      </div>
+                      <p className="text-xs text-blue-600 mt-2 italic">
+                        Publisher can use this key to fetch public offers via API.
+                      </p>
                     </div>
                   </TabsContent>
 
@@ -649,9 +739,30 @@ const AdminPublisherManagement = () => {
                 </Tabs>
               )}
 
-              {/* Edit Form */}
-              {actionType === 'edit' && (
+              {/* Create / Edit Form */}
+              {(actionType === 'create' || actionType === 'edit') && (
                 <div className="grid grid-cols-2 gap-4">
+                  {actionType === 'create' && (
+                    <>
+                      <div>
+                        <Label htmlFor="username">Username</Label>
+                        <Input
+                          id="username"
+                          value={editForm.username}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, username: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="password">Password</Label>
+                        <Input
+                          id="password"
+                          type="password"
+                          value={editForm.password}
+                          onChange={(e) => setEditForm(prev => ({ ...prev, password: e.target.value }))}
+                        />
+                      </div>
+                    </>
+                  )}
                   <div>
                     <Label htmlFor="firstName">First Name</Label>
                     <Input
@@ -668,7 +779,7 @@ const AdminPublisherManagement = () => {
                       onChange={(e) => setEditForm(prev => ({ ...prev, lastName: e.target.value }))}
                     />
                   </div>
-                  <div>
+                  <div className={actionType === 'edit' ? 'col-span-2' : ''}>
                     <Label htmlFor="email">Email</Label>
                     <Input
                       id="email"
@@ -677,30 +788,33 @@ const AdminPublisherManagement = () => {
                       onChange={(e) => setEditForm(prev => ({ ...prev, email: e.target.value }))}
                     />
                   </div>
-                  <div>
-                    <Label htmlFor="companyName">Company Name</Label>
-                    <Input
-                      id="companyName"
-                      value={editForm.companyName}
-                      onChange={(e) => setEditForm(prev => ({ ...prev, companyName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Label htmlFor="website">Website</Label>
-                    <Input
-                      id="website"
-                      value={editForm.website}
-                      onChange={(e) => setEditForm(prev => ({ ...prev, website: e.target.value }))}
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <Label htmlFor="postbackUrl">Postback URL</Label>
-                    <Input
-                      id="postbackUrl"
-                      value={editForm.postbackUrl}
-                      onChange={(e) => setEditForm(prev => ({ ...prev, postbackUrl: e.target.value }))}
-                    />
-                  </div>
+                  {actionType === 'create' && (
+                    <div>
+                      <Label htmlFor="role">Role</Label>
+                      <select 
+                        id="role"
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                        value={editForm.role}
+                        onChange={(e) => setEditForm(prev => ({ ...prev, role: e.target.value }))}
+                      >
+                        <option value="user">User</option>
+                        <option value="partner">Partner</option>
+                        <option value="subadmin">Sub-Admin</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Reset API Key Confirmation */}
+              {actionType === 'reset_api_key' && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <p className="text-amber-800 font-medium">
+                    Are you sure you want to reset the API key for {selectedPublisher.username}?
+                  </p>
+                  <p className="text-amber-700 text-sm mt-1">
+                    The old key will become immediately invalid.
+                  </p>
                 </div>
               )}
 
@@ -726,46 +840,71 @@ const AdminPublisherManagement = () => {
                 </div>
               )}
 
-              {actionType === 'delete' && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-800 font-medium">
-                    ⚠️ This action cannot be undone!
-                  </p>
-                  <p className="text-red-700 text-sm mt-1">
-                    This will permanently delete the publisher account and all their placements.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeDialog}>
-              Cancel
-            </Button>
-            {actionType !== 'view' && (
-              <Button
-                onClick={handleAction}
-                disabled={actionLoading}
-                variant={actionType === 'delete' || actionType === 'block' ? 'destructive' : 'default'}
-              >
-                {actionLoading ? (
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <>
-                    {actionType === 'edit' && <Edit className="h-4 w-4 mr-2" />}
-                    {actionType === 'block' && <Ban className="h-4 w-4 mr-2" />}
-                    {actionType === 'unblock' && <ShieldCheck className="h-4 w-4 mr-2" />}
-                    {actionType === 'delete' && <Trash2 className="h-4 w-4 mr-2" />}
-                  </>
+                  <TabsContent value="placements" className="space-y-4">
+                    {selectedPublisher.placements && selectedPublisher.placements.length > 0 ? (
+                      <div className="space-y-3">
+                        {selectedPublisher.placements.map((placement: any) => (
+                          <Card key={placement.id}>
+                            <CardContent className="pt-4">
+                              <div className="flex items-center justify-between">
+                                  <div>
+                                    <h4 className="font-medium">{placement.offerwallTitle}</h4>
+                                    <p className="text-sm text-muted-foreground">
+                                      {placement.platformType} • {placement.currencyName} (1 USD = {placement.exchangeRate})
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Created: {new Date(placement.createdAt).toLocaleDateString()}
+                                    </p>
+                                  </div>
+                                  <Badge className={getPlacementStatusColor(placement.approvalStatus)}>
+                                    {placement.approvalStatus.replace('_', ' ')}
+                                  </Badge>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-center text-muted-foreground py-8">No placements found</p>
+                      )}
+                    </TabsContent>
+                  </Tabs>
                 )}
-                {actionType === 'edit' && 'Save Changes'}
-                {actionType === 'block' && 'Block Publisher'}
-                {actionType === 'unblock' && 'Unblock Publisher'}
-                {actionType === 'delete' && 'Delete Publisher'}
-              </Button>
+                {/* ... existing forms ... */}
+              </div>
             )}
-          </DialogFooter>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={closeDialog}>
+                Cancel
+              </Button>
+              {actionType !== 'view' && (
+                <Button
+                  onClick={handleAction}
+                  disabled={actionLoading}
+                  variant={actionType === 'delete' || actionType === 'block' || actionType === 'reset_api_key' ? 'destructive' : 'default'}
+                >
+                  {actionLoading ? (
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <>
+                      {actionType === 'create' && <User className="h-4 w-4 mr-2" />}
+                      {actionType === 'edit' && <Edit className="h-4 w-4 mr-2" />}
+                      {actionType === 'block' && <Ban className="h-4 w-4 mr-2" />}
+                      {actionType === 'unblock' && <ShieldCheck className="h-4 w-4 mr-2" />}
+                      {actionType === 'delete' && <Trash2 className="h-4 w-4 mr-2" />}
+                      {actionType === 'reset_api_key' && <RefreshCw className="h-4 w-4 mr-2" />}
+                    </>
+                  )}
+                  {actionType === 'create' && 'Create Publisher'}
+                  {actionType === 'edit' && 'Save Changes'}
+                  {actionType === 'block' && 'Block Publisher'}
+                  {actionType === 'unblock' && 'Unblock Publisher'}
+                  {actionType === 'delete' && 'Delete Publisher'}
+                  {actionType === 'reset_api_key' && 'Confirm Reset'}
+                </Button>
+              )}
+            </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

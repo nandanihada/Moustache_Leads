@@ -14,6 +14,7 @@ interface User {
   first_name?: string;
   last_name?: string;
   company_name?: string;
+  api_key?: string;
 }
 
 interface AuthContextType {
@@ -65,19 +66,30 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         }
       })
         .then(res => {
-          if (res.ok) {
+          if (res.ok) return res.json();
+          throw new Error('Invalid token');
+        })
+        .then(data => {
+          if (data.valid && data.user) {
             setToken(storedToken);
-            setUser(storedUser);
+            // Use the fresh user data from the backend (contains api_key)
+            setUser(data.user);
+            // Sync with storage so persistent state is also fresh
+            setAuthUser(data.user);
           } else {
-            // Token is invalid/expired — clear everything
-            console.warn('Stored token is invalid, clearing auth');
             clearAuth();
           }
         })
-        .catch(() => {
-          // Network error — still use stored token (offline-friendly)
-          setToken(storedToken);
-          setUser(storedUser);
+        .catch((err) => {
+          console.error('Auth verification error:', err);
+          // Only clear if specifically an auth error, not a network error
+          if (err.message === 'Invalid token') {
+            clearAuth();
+          } else {
+            // Keep using stored data for temporary offline/network issues
+            setToken(storedToken);
+            setUser(storedUser);
+          }
         })
         .finally(() => setLoading(false));
     } else {

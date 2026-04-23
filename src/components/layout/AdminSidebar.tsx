@@ -25,7 +25,13 @@ import {
   ClipboardList,
   RefreshCw,
   CreditCard,
-  ShieldCheck
+  ShieldCheck,
+  MapPin,
+  Globe,
+  Layers,
+  Activity,
+  HelpCircle,
+  StickyNote
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -63,6 +69,7 @@ const adminMenuStructure = [
     type: "group" as const,
     subtabs: [
       { title: "Users", url: "/admin/users", icon: Users, tab: "publishers" },
+      { title: "Publisher Analytics", url: "/admin/publisher-analytics", icon: BarChart3, tab: "publisher-analytics" },
       { title: "Advertisers", url: "/admin/advertisers", icon: Building2, tab: "advertisers" },
       { title: "Subadmin Management", url: "/admin/subadmin-management", icon: Shield, tab: "subadmin-management" },
       { title: "Offer Access Requests", url: "/admin/offer-access-requests", icon: UserCheck, tab: "offer-access-requests" },
@@ -76,10 +83,14 @@ const adminMenuStructure = [
     subtabs: [
       { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
       { title: "OffersNew", url: "/admin/offers-new", icon: Gift, tab: "offers-new" },
+      { title: "Public Smart Link", url: "/admin/offers-v3", icon: Globe, tab: "offers-v3" },
+      { title: "Smart Links", url: "/admin/smart-links", icon: Zap, tab: "smart-links" },
+      { title: "Offer Analytics", url: "/admin/offer-analytics", icon: Sparkles, tab: "offer-analytics" },
       { title: "Missing Offers", url: "/admin/missing-offers", icon: AlertTriangle, tab: "missing-offers" },
       { title: "Offer Insights", url: "/admin/offer-insights", icon: Sparkles, tab: "offer-insights" },
       { title: "Email Activity", url: "/admin/email-activity", icon: Mail, tab: "email-activity" },
       { title: "Promo Codes", url: "/admin/promo-codes", icon: Zap, tab: "promo-codes" },
+      { title: "Promo Analytics V2", url: "/admin/promo-analytics-v2", icon: Zap, tab: "promo-analytics-v2" },
       { title: "Gift Cards", url: "/admin/gift-cards", icon: Gift, tab: "gift-cards" },
     ]
   },
@@ -90,9 +101,20 @@ const adminMenuStructure = [
     subtabs: [
       { title: "Reports", url: "/admin/tracking-reports", icon: BarChart3, tab: "tracking" },
       { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
-      { title: "Click Tracking", url: "/admin/click-tracking", icon: MousePointerClick, tab: "click-tracking" },
+
       { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },
       { title: "Reactivation", url: "/admin/reactivation", icon: RefreshCw, tab: "reactivation" },
+    ]
+  },
+  {
+    title: "Deep Analytics",
+    icon: Activity,
+    type: "group" as const,
+    subtabs: [
+      { title: "Network Analytics", url: "/admin/network-analytics", icon: Globe, tab: "network-analytics" },
+      { title: "Vertical Analytics", url: "/admin/vertical-analytics", icon: Layers, tab: "vertical-analytics" },
+      { title: "Geo Analytics", url: "/admin/geo-analytics", icon: MapPin, tab: "geo-analytics" },
+      { title: "Status Analytics", url: "/admin/status-analytics", icon: Activity, tab: "status-analytics" },
     ]
   },
   {
@@ -116,7 +138,15 @@ const adminMenuStructure = [
       { title: "Postback", url: "/admin/postback", icon: Inbox, tab: "postback" },
       { title: "Test Postback", url: "/admin/test-postback", icon: Zap, tab: "test-postback" },
       { title: "Postback Pipeline", url: "/admin/postback-pipeline", icon: Zap, tab: "postback" },
+      { title: "API Stats", url: "/admin/api-stats", icon: Activity, tab: "api-stats" },
     ]
+  },
+  {
+    title: "User Polls",
+    url: "/admin/polls",
+    icon: HelpCircle,
+    tab: "polls",
+    type: "single" as const,
   },
   {
     title: "Support",
@@ -137,6 +167,13 @@ const adminMenuStructure = [
     url: "/admin/payments",
     icon: CreditCard,
     tab: "payments",
+    type: "single" as const,
+  },
+  {
+    title: "Admin Notes",
+    url: "/admin/notes",
+    icon: StickyNote,
+    tab: "admin-notes",
     type: "single" as const,
   },
 ];

@@ -268,7 +268,10 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     star_rating: 5,
     urgency_type: '',
     timer_enabled: false,
-    timer_end_date: ''
+    timer_end_date: '',
+    // Smart Link selection fields
+    priority: 0,
+    rotation_weight: 1.0
   });
 
   // Update traffic source rules when vertical changes
@@ -470,6 +473,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         fallback_redirect_timer: fallbackRedirect.timer,
         // 🔥 PROMO CODE ASSIGNMENT
         promo_code_id: selectedPromoCode || undefined,
+        // Smart Link selection fields
+        priority: Number(formData.priority) || 0,
+        rotation_weight: Number(formData.rotation_weight) || 1.0,
         // 📧 EMAIL NOTIFICATION TOGGLE
         send_email: sendEmail,
         email_template_style: emailSettings.templateStyle,
@@ -709,6 +715,33 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           <SelectItem value="1">⭐ (1 Star)</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="priority">Selection Priority (Smart Link)</Label>
+                      <Input
+                        id="priority"
+                        type="number"
+                        value={formData.priority || 0}
+                        onChange={(e) => handleInputChange('priority', parseInt(e.target.value) || 0)}
+                        placeholder="0"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Higher values are prioritized in Smart Link redirection.</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="rotation_weight">Rotation Weight (0.1 - 10)</Label>
+                      <Input
+                        id="rotation_weight"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={formData.rotation_weight || 1.0}
+                        onChange={(e) => handleInputChange('rotation_weight', parseFloat(e.target.value) || 1.0)}
+                        placeholder="1.0"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Relative probability for weighted random rotation.</p>
                     </div>
                   </div>
 

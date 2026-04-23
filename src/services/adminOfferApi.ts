@@ -307,6 +307,7 @@ export interface RunningOffer extends Offer {
   when_expired?: string;
   days_remaining?: number;
   sub_statuses: string[];
+  action_counts?: Record<string, number>;
 }
 
 export interface OfferStats {

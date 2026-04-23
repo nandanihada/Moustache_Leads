@@ -3,6 +3,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AdminSidebar } from "./AdminSidebar";
 import { TopBar } from "./TopBar";
 import AdminSupportNotification from "@/components/AdminSupportNotification";
+import FloatingNotesButton from "@/components/FloatingNotesButton";
 
 const AdminLayout = () => {
   return (
@@ -19,6 +20,7 @@ const AdminLayout = () => {
         </div>
       </div>
       <AdminSupportNotification />
+      <FloatingNotesButton />
     </SidebarProvider>
   );
 };

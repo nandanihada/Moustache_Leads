@@ -109,6 +109,32 @@ def handle_offer_click(offer_id):
                 f"(Rule: {result['rule_applied']}, GEO: {access_check['country_code']})"
             )
             
+            # --- API STATS INTERCEPTION ---
+            subid = request.args.get('subid')
+            if subid and len(subid) == 24: # Valid ObjectId length
+                try:
+                    from database import db_instance
+                    from bson import ObjectId
+                    db_instance.get_collection('api_stats').update_one(
+                        {
+                            'api_key_id': ObjectId(subid),
+                            'date': datetime.utcnow().strftime('%Y-%m-%d')
+                        },
+                        {
+                            '$inc': {'clicks': 1},
+                            '$setOnInsert': {
+                                'impressions': 1,
+                                'device_type': 'desktop',
+                                'traffic_source': 'api'
+                            }
+                        },
+                        upsert=True
+                    )
+                    logging.info(f"📊 Successfully tracked API Click for API Key ID: {subid}")
+                except Exception as e:
+                    logging.error(f"Failed to log API click stat: {e}")
+            # -----------------------------
+            
             # Redirect to resolved URL
             return redirect(result['destination_url'], code=302)
             

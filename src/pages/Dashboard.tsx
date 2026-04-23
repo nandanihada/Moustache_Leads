@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X } from "lucide-react";
+import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X, Link } from "lucide-react";
 import PlacementRequired from "@/components/PlacementRequired";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { dashboardApi, DashboardStats, ChartDataPoint, TopOffer } from "@/services/dashboardApi";
@@ -141,7 +141,7 @@ const DashboardContent = () => {
   };
 
   // Custom KPI Card Component
-  const StatCard = ({ title, value, change, changeType, icon: Icon, loading }: any) => {
+  const StatCard = ({ title, value, change, changeType, icon: Icon, loading, onClick }: any) => {
     const getChangeIcon = () => {
       if (changeType === 'positive') return <ArrowUpRight className="h-4 w-4" />;
       if (changeType === 'negative') return <ArrowDownRight className="h-4 w-4" />;
@@ -154,8 +154,10 @@ const DashboardContent = () => {
       return 'text-gray-600 bg-gray-50';
     };
 
-    return (
-      <div className="group relative bg-white rounded-2xl p-6 border border-gray-100 hover:border-gray-200 transition-all duration-300 hover:shadow-lg hover:shadow-gray-100/50">
+    const cardClass = `group relative bg-white rounded-2xl p-6 border border-gray-100 hover:border-gray-200 transition-all duration-300 hover:shadow-lg hover:shadow-gray-100/50 ${onClick ? 'cursor-pointer hover:bg-gray-50' : ''}`;
+
+    const CardContent = (
+      <div className={cardClass}>
         <div className="flex items-start justify-between mb-4">
           <div className="p-2.5 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 group-hover:from-gray-100 group-hover:to-gray-50 transition-all duration-300">
             <Icon className="h-5 w-5 text-gray-700" />
@@ -179,6 +181,16 @@ const DashboardContent = () => {
         </div>
       </div>
     );
+
+    if (onClick) {
+      return (
+        <button onClick={onClick} className="w-full text-left transition-transform hover:scale-[1.02] active:scale-[0.98]">
+          {CardContent}
+        </button>
+      );
+    }
+
+    return CardContent;
   };
 
   return (
@@ -217,12 +229,13 @@ const DashboardContent = () => {
             loading={loading}
           />
           <StatCard
-            title="Active Offers"
-            value={stats?.active_offers?.toString() || '0'}
-            change="Available"
-            changeType="neutral"
-            icon={Gift}
+            title="API Access & Smart Link"
+            value="Ready"
+            change="Active"
+            changeType="positive"
+            icon={Link}
             loading={loading}
+            onClick={() => navigate('/settings?tab=credentials')}
           />
       </div>
 

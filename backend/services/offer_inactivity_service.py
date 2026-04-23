@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta
 from threading import Thread
 import time
+from dateutil.parser import parse
 from database import db_instance
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,26 @@ class OfferInactivityService:
         self.offers_collection = db_instance.get_collection('offers')
         self.running = False
         logger.info(f"✅ Offer inactivity service initialized (threshold: {INACTIVITY_DAYS} days)")
+
+    def _to_datetime(self, val):
+        """Standardize various date formats into naive UTC datetime objects for consistency."""
+        if val is None:
+            return None
+        if isinstance(val, datetime):
+            if val.tzinfo is not None:
+                from datetime import timezone
+                return val.astimezone(timezone.utc).replace(tzinfo=None)
+            return val
+        if isinstance(val, str):
+            try:
+                dt = parse(val)
+                if dt.tzinfo is not None:
+                    from datetime import timezone
+                    dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+                return dt
+            except Exception:
+                return None
+        return None
 
     def _get_last_click_dates(self, offer_ids):
         """Query all click collections to find the most recent click per offer."""
@@ -50,9 +71,14 @@ class OfferInactivityService:
                         oid = str(doc['_id']) if doc['_id'] else None
                         if not oid:
                             continue
-                        existing = last_clicks.get(oid)
-                        if not existing or doc['last_click'] > existing:
-                            last_clicks[oid] = doc['last_click']
+                        
+                        current_lcd = self._to_datetime(doc.get('last_click'))
+                        if not current_lcd:
+                            continue
+                            
+                        existing = self._to_datetime(last_clicks.get(oid))
+                        if not existing or current_lcd > existing:
+                            last_clicks[oid] = current_lcd
             except Exception as e:
                 logger.warning(f"Inactivity check - failed to query {col_name}: {e}")
 
@@ -84,7 +110,8 @@ class OfferInactivityService:
             candidates = []
 
             for offer in active_offers:
-                lcd = offer.get('last_click_date')
+                lcd_raw = offer.get('last_click_date')
+                lcd = self._to_datetime(lcd_raw)
                 if lcd:
                     if lcd < cutoff_date:
                         candidates.append(offer)
@@ -99,7 +126,7 @@ class OfferInactivityService:
                     click_dates = self._get_last_click_dates(set(lookup_ids))
                     for offer in needs_lookup:
                         oid = offer.get('offer_id')
-                        lcd = click_dates.get(oid)
+                        lcd = self._to_datetime(click_dates.get(oid))
                         if lcd:
                             # Backfill last_click_date on the offer for future fast-path
                             self.offers_collection.update_one(
@@ -110,7 +137,7 @@ class OfferInactivityService:
                                 candidates.append(offer)
                         else:
                             # Never clicked — check if offer was created more than 30 days ago
-                            created = offer.get('created_at')
+                            created = self._to_datetime(offer.get('created_at'))
                             if created and created < cutoff_date:
                                 candidates.append(offer)
 

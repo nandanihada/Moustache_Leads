@@ -4,7 +4,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Switch } from '@/components/ui/switch';
 import '@/styles/admin-offers-v2.css';
 import { RunningOffersGeoChart } from '@/components/RunningOffersGeoChart';
-import { AdminOffersDrilldownView } from '@/components/AdminOffersDrilldownView';
+import { OfferDrilldown } from '@/components/OfferDrilldown';
 import {
   Dialog as GenericDialog,
   DialogContent as GenericDialogContent,
@@ -1803,23 +1803,7 @@ const AdminOffers = () => {
          </div>
       )}
 
-      <AdminOffersDrilldownView 
-        offers={offersSubView === 'running' ? runningOffers as any : rawOffers}
-        selectedOfferIds={offersSubView === 'running' ? selectedRunningOffers : selectedOffers}
-        onToggleSelect={(id, e) => {
-          e.stopPropagation();
-          if (offersSubView === 'running') {
-            const next = new Set(selectedRunningOffers);
-            if ((e.target as HTMLInputElement).checked) next.add(id);
-            else next.delete(id);
-            setSelectedRunningOffers(next);
-          } else {
-            const next = new Set(selectedOffers);
-            if ((e.target as HTMLInputElement).checked) next.add(id);
-            else next.delete(id);
-            setSelectedOffers(next);
-          }
-        }}
+      <OfferDrilldown 
         onOfferSelect={(offer) => {
           setSelectedOffer(offer as any);
           setOfferDetailsModalOpen(true);
@@ -1828,6 +1812,7 @@ const AdminOffers = () => {
           setSelectedOffer(offer as any);
           setEditOfferModalOpen(true);
         }}
+        onOfferDelete={(id) => handleDeleteOffer(id)}
       />
           </TabsContent>
 

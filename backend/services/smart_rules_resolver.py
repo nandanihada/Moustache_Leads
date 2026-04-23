@@ -110,7 +110,7 @@ class SmartRulesResolver:
             offer = self.offer_model.collection.find_one({
                 'offer_id': offer_id,
                 'is_active': True,
-                'status': 'Active'
+                'status': {'$in': ['active', 'Active']}
             })
             
             # Cache the result
