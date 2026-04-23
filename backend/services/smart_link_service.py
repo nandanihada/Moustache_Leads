@@ -145,6 +145,7 @@ class SmartLinkService:
             query['$and'].append({
                 '$or': [{'exclude_from_smart_link': {'$exists': False}}, {'exclude_from_smart_link': False}]
             })
+            print(f"[EXCLUSION-FILTER] Global exclusion filter applied")
 
             # Exclude user-specifically excluded offers from smart links
             if publisher_id:
@@ -152,11 +153,15 @@ class SmartLinkService:
                     from bson import ObjectId
                     user_doc = db_instance.get_collection('users').find_one({'_id': ObjectId(publisher_id)})
                     if user_doc and user_doc.get('excluded_smart_link_offers'):
+                        excluded_list = user_doc['excluded_smart_link_offers']
+                        print(f"[EXCLUSION-FILTER] Publisher {publisher_id} has {len(excluded_list)} excluded offers: {excluded_list}")
                         query['$and'].append({
-                            'offer_id': {'$nin': user_doc['excluded_smart_link_offers']}
+                            'offer_id': {'$nin': excluded_list}
                         })
+                    else:
+                        print(f"[EXCLUSION-FILTER] Publisher {publisher_id} has no exclusions")
                 except Exception as e:
-                    print(f"Error fetching publisher exclusions: {e}")
+                    print(f"[EXCLUSION-FILTER] Error fetching publisher exclusions: {e}")
 
             # Country targeting
             if country:
@@ -257,6 +262,7 @@ class SmartLinkService:
 
             # Sort by offer_id to ensure the rotation pointer hits a consistent sequence
             offers = list(self.offers_collection.find(query, projection).sort('offer_id', 1))
+            print(f"[EXCLUSION-FILTER] Query returned {len(offers)} offers after applying all filters including exclusions")
             
             # Manual time-based filtering to be more robust
             eligible = []

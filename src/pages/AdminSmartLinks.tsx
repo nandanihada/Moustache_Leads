@@ -185,14 +185,18 @@ const AdminSmartLinks: React.FC = () => {
 
   const fetchPublishers = async () => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/partners`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/auth/admin/users`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
       const data = await response.json();
-      if (data.success) {
-        setPublishers(data.partners);
+      if (data.users) {
+        // Filter users/publishers (show all regardless of approval status)
+        const filteredUsers = data.users.filter((u: any) => 
+          u.role === 'publisher' || u.role === 'user'
+        );
+        setPublishers(filteredUsers);
       }
     } catch (err) {
       console.error('Failed to fetch publishers', err);
@@ -1123,7 +1127,10 @@ const SmartLinkModal: React.FC<{
                     <SelectContent>
                       <SelectItem value="">System (Global / Public)</SelectItem>
                       {publishers.map(pub => (
-                        <SelectItem key={pub._id} value={pub._id}>{pub.partner_name || pub.owner_username}</SelectItem>
+                        <SelectItem key={pub._id} value={pub._id}>
+                          {pub.first_name && pub.last_name ? `${pub.first_name} ${pub.last_name}` : pub.username}
+                          {pub.company_name && ` (${pub.company_name})`}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1362,6 +1369,7 @@ const ExclusionsTab: React.FC<{ offers: Offer[], publishers: any[], token: strin
   const [loading, setLoading] = useState(true);
   const [targetType, setTargetType] = useState('global');
   const [selectedPublisher, setSelectedPublisher] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchExclusions();
@@ -1377,6 +1385,8 @@ const ExclusionsTab: React.FC<{ offers: Offer[], publishers: any[], token: strin
       if (data.success) {
         setGlobalExcluded(data.global_excluded);
         setPubExclusions(data.publisher_exclusions);
+        console.log('[EXCLUSIONS] Global excluded offers:', data.global_excluded);
+        console.log('[EXCLUSIONS] Publisher exclusions:', data.publisher_exclusions);
       }
     } catch (e) {
       console.error(e);
@@ -1424,6 +1434,15 @@ const ExclusionsTab: React.FC<{ offers: Offer[], publishers: any[], token: strin
     }
   };
 
+  const filteredOffers = useMemo(() => {
+    if (!searchQuery.trim()) return offers;
+    const query = searchQuery.toLowerCase();
+    return offers.filter(o => 
+      o.offer_id.toLowerCase().includes(query) || 
+      o.name.toLowerCase().includes(query)
+    );
+  }, [offers, searchQuery]);
+
   return (
     <div className="space-y-6">
        <Card className="border-none shadow-sm shadow-rose-100">
@@ -1434,6 +1453,30 @@ const ExclusionsTab: React.FC<{ offers: Offer[], publishers: any[], token: strin
             <CardDescription className="text-rose-700/70">
               Select offers to completely block them from appearing in Smart Link rotations. Global exclusions affect all users. Publisher exclusions affect only the selected user's Private Master Node.
             </CardDescription>
+            
+            {/* Exclusion Summary Stats */}
+            <div className="flex items-center gap-4 mt-4 p-4 bg-white rounded-lg border border-rose-200">
+              <div className="flex items-center gap-2">
+                <div className="h-10 w-10 rounded-full bg-rose-100 flex items-center justify-center">
+                  <span className="text-rose-700 font-bold text-lg">{globalExcluded.length}</span>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase font-semibold">Global Exclusions</p>
+                  <p className="text-[10px] text-slate-400">Blocked for all users</p>
+                </div>
+              </div>
+              <div className="h-8 w-px bg-slate-200" />
+              <div className="flex items-center gap-2">
+                <div className="h-10 w-10 rounded-full bg-indigo-100 flex items-center justify-center">
+                  <span className="text-indigo-700 font-bold text-lg">{Object.keys(pubExclusions).length}</span>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 uppercase font-semibold">Publishers with Exclusions</p>
+                  <p className="text-[10px] text-slate-400">Custom blocked offers</p>
+                </div>
+              </div>
+            </div>
+            
             <div className="flex flex-col md:flex-row items-center gap-4 mt-4">
               <Select value={targetType} onValueChange={(v) => { setTargetType(v); setSelectedPublisher(''); }}>
                  <SelectTrigger className="w-full md:w-[200px] bg-white border-rose-200">
@@ -1452,11 +1495,25 @@ const ExclusionsTab: React.FC<{ offers: Offer[], publishers: any[], token: strin
                    </SelectTrigger>
                    <SelectContent>
                      {publishers.map(p => (
-                        <SelectItem key={p._id} value={p._id}>{p.username || p.partner_name}</SelectItem>
+                        <SelectItem key={p._id} value={p._id}>
+                          {p.first_name && p.last_name ? `${p.first_name} ${p.last_name}` : p.username}
+                          {p.company_name && ` (${p.company_name})`}
+                        </SelectItem>
                      ))}
                    </SelectContent>
                 </Select>
               )}
+              
+              {/* Search Box */}
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <Input 
+                  placeholder="Search by Offer ID or Name (e.g., ML-02150)..." 
+                  className="pl-9 bg-white border-rose-200"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
             </div>
          </CardHeader>
          <CardContent className="p-0">
@@ -1466,26 +1523,38 @@ const ExclusionsTab: React.FC<{ offers: Offer[], publishers: any[], token: strin
              <div className="p-12 text-center text-slate-400">Please select a publisher to manage their blocked offers.</div>
            ) : (
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
-                {offers.map(offer => {
-                  const isExcluded = targetType === 'global' ? 
-                     globalExcluded.includes(offer.offer_id) : 
-                     (pubExclusions[selectedPublisher]?.excluded_offers || []).includes(offer.offer_id);
-                  
-                   return (
-                     <div key={offer.offer_id} className={`p-4 rounded-xl border flex items-start gap-4 transition-all ${isExcluded ? 'border-rose-300 bg-rose-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-                        <button 
-                           onClick={() => handleToggleExclusion(offer.offer_id)}
-                           className={`h-6 w-6 mt-0.5 shrink-0 rounded flex items-center justify-center border transition-all ${isExcluded ? 'bg-rose-500 border-rose-600 text-white shadow-inner shadow-black/20' : 'bg-slate-50 border-slate-300 text-slate-200 hover:border-rose-400'}`}
-                        >
-                          {isExcluded && <Check className="h-4 w-4" />}
-                        </button>
-                        <div>
-                          <p className={`font-bold ${isExcluded ? 'text-rose-900 line-through decoration-rose-300' : 'text-slate-800'}`}>{offer.name}</p>
-                          <p className="text-xs text-slate-400 font-mono mt-1">ID: {offer.offer_id}</p>
-                        </div>
-                     </div>
-                   );
-                })}
+                {filteredOffers.length > 0 ? (
+                  filteredOffers.map(offer => {
+                    const isExcluded = targetType === 'global' ? 
+                       globalExcluded.includes(offer.offer_id) : 
+                       (pubExclusions[selectedPublisher]?.excluded_offers || []).includes(offer.offer_id);
+                    
+                     return (
+                       <div key={offer.offer_id} className={`p-4 rounded-xl border flex items-start gap-4 transition-all ${isExcluded ? 'border-rose-300 bg-rose-50/50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
+                          <button 
+                             onClick={() => handleToggleExclusion(offer.offer_id)}
+                             className={`h-6 w-6 mt-0.5 shrink-0 rounded flex items-center justify-center border transition-all ${isExcluded ? 'bg-rose-500 border-rose-600 text-white shadow-inner shadow-black/20' : 'bg-slate-50 border-slate-300 text-slate-200 hover:border-rose-400'}`}
+                          >
+                            {isExcluded && <Check className="h-4 w-4" />}
+                          </button>
+                          <div className="flex-1">
+                            <p className={`font-bold ${isExcluded ? 'text-rose-900 line-through decoration-rose-300' : 'text-slate-800'}`}>{offer.name}</p>
+                            <p className="text-xs text-slate-400 font-mono mt-1">ID: {offer.offer_id}</p>
+                            {isExcluded && (
+                              <Badge className="mt-2 bg-rose-600 text-white text-[10px] px-2 py-0.5">
+                                ⛔ EXCLUDED FROM ROTATION
+                              </Badge>
+                            )}
+                          </div>
+                       </div>
+                     );
+                  })
+                ) : (
+                  <div className="col-span-3 p-12 text-center text-slate-400">
+                    <AlertCircle className="h-10 w-10 mx-auto opacity-20 mb-2" />
+                    <p className="text-sm">No offers found matching "{searchQuery}"</p>
+                  </div>
+                )}
              </div>
            )}
          </CardContent>
