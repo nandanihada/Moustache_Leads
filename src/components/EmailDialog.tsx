@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { API_BASE_URL } from '@/services/apiConfig';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 interface EmailDialogProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export const EmailDialog: React.FC<EmailDialogProps> = ({
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const { toast } = useToast();
 
   const handleSend = async () => {
@@ -87,6 +89,12 @@ export const EmailDialog: React.FC<EmailDialogProps> = ({
           body: JSON.stringify({
             subject: subject.trim(),
             message: message.trim(),
+            template_settings: {
+              template_style: emailSettings.templateStyle,
+              visible_fields: emailSettings.visibleFields,
+              default_image: emailSettings.defaultImage,
+              payout_type: emailSettings.payoutType,
+            },
           }),
         }
       );
@@ -122,6 +130,7 @@ export const EmailDialog: React.FC<EmailDialogProps> = ({
     if (!sending) {
       setSubject('');
       setMessage('');
+      setEmailSettings(DEFAULT_EMAIL_SETTINGS);
       onClose();
     }
   };
@@ -265,6 +274,9 @@ export const EmailDialog: React.FC<EmailDialogProps> = ({
               </p>
             </div>
           </div>
+
+          {/* Email Template Settings */}
+          <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
 
           {/* Message Textarea */}
           <div className="space-y-2">

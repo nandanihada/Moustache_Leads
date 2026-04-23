@@ -145,7 +145,7 @@ const App = () => (
               >
                 <Route index element={<Dashboard />} />
                 <Route path="offers" element={<PublisherOffers />} />
-                <Route path="smart-link" element={<PublisherSmartLink />} />
+                <Route path="smart-link" element={<Navigate to="/dashboard" replace />} />
                 <Route path="promo-codes" element={<PublisherPromoCodeManagement />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="performance-report" element={<PerformanceReport />} />
@@ -156,9 +156,9 @@ const App = () => (
                 <Route path="payments" element={<Payments />} />
                 <Route path="payments/invoice/:id" element={<Invoice />} />
                 <Route path="settings" element={<Settings />} />
-                <Route path="api-access" element={<APIAccess />} />
-                <Route path="api-stats" element={<APIStats />} />
-                <Route path="api-conversions" element={<APIConversions />} />
+                <Route path="api-access" element={<Navigate to="/dashboard" replace />} />
+                <Route path="api-stats" element={<Navigate to="/dashboard" replace />} />
+                <Route path="api-conversions" element={<Navigate to="/dashboard" replace />} />
                 <Route path="profile" element={<PartnerProfile />} />
                 <Route path="gift-cards" element={<GiftCardRedemption />} />
                 <Route path="redeem-gift-card" element={<RedeemGiftCard />} />
@@ -168,7 +168,7 @@ const App = () => (
                 <Route path="ascend" element={<AscendIframe />} />
                 <Route path="support" element={<SupportPage />} />
                 <Route path="referrals" element={<Referrals />} />
-                <Route path="test-promo-v2" element={<PromoTabV2 />} />
+                <Route path="test-promo-v2" element={<Navigate to="/dashboard" replace />} />
               </Route>
 
               {/* Admin Dashboard routes */}

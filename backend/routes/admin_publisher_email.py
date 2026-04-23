@@ -249,7 +249,7 @@ def send_email_to_specific_publisher(publisher_id):
         
         # Log email in database
         email_logs_col = db_instance.get_collection('email_logs')
-        if email_logs_col:
+        if email_logs_col is not None:
             email_logs_col.insert_one({
                 'type': 'admin_to_publisher',
                 'from_user_id': str(current_user['_id']),
@@ -348,7 +348,7 @@ def send_bulk_email_to_publishers():
                 })
                 
                 # Log email
-                if email_logs_col:
+                if email_logs_col is not None:
                     email_logs_col.insert_one({
                         'type': 'admin_bulk_email',
                         'from_user_id': str(current_user['_id']),

@@ -53,6 +53,7 @@ interface SubTab {
   requiresPlacement?: boolean;
   requiresAccountApproval?: boolean;  // New: requires account to be approved
   adminOnly?: boolean;  // Only visible to admin
+  locked?: boolean;  // Temporarily locked — hidden from users until unlocked
 }
 
 interface MenuItem {
@@ -81,7 +82,7 @@ const menuStructure: MenuItem[] = [
     subtabs: [
       { title: "Placements", url: "/dashboard/placements", icon: Target, alwaysAccessible: true, requiresAccountApproval: true },
       { title: "Offers", url: "/dashboard/offers", icon: Gift, requiresPlacement: true },
-      { title: "Smart Link", url: "/dashboard/smart-link", icon: Zap, requiresPlacement: true },
+      { title: "Smart Link", url: "/dashboard/smart-link", icon: Zap, requiresPlacement: true, locked: true },
       { title: "Assets", url: "/dashboard/assets", icon: FileImage, adminOnly: true },
     ]
   },
@@ -93,8 +94,8 @@ const menuStructure: MenuItem[] = [
     subtabs: [
       { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
       { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },
-      { title: "API Stats", url: "/dashboard/api-stats", icon: Activity },
-      { title: "API Conversions", url: "/dashboard/api-conversions", icon: Receipt },
+      { title: "API Stats", url: "/dashboard/api-stats", icon: Activity, locked: true },
+      { title: "API Conversions", url: "/dashboard/api-conversions", icon: Receipt, locked: true },
     ]
   },
   {
@@ -104,7 +105,7 @@ const menuStructure: MenuItem[] = [
     requiresPlacement: true,
     subtabs: [
       { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
-      { title: "Direct Promo Code", url: "/dashboard/test-promo-v2", icon: Zap },
+      { title: "Direct Promo Code", url: "/dashboard/test-promo-v2", icon: Zap, locked: true },
       { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
     ]
   },
@@ -114,7 +115,7 @@ const menuStructure: MenuItem[] = [
     type: "group",
     subtabs: [
       { title: "Settings", url: "/dashboard/settings", icon: Settings },
-      { title: "API Access", url: "/dashboard/api-access", icon: Zap },
+      { title: "API Access", url: "/dashboard/api-access", icon: Zap, locked: true },
     ]
   },
   {
@@ -385,7 +386,7 @@ export function AppSidebar() {
                         </CollapsibleTrigger>
                         <CollapsibleContent className="mt-1">
                           <SidebarMenu className="ml-6 border-l-2 border-muted pl-2">
-                            {item.subtabs?.filter(subtab => !subtab.adminOnly || isAdminOrSubadmin).map((subtab) => {
+                            {item.subtabs?.filter(subtab => !subtab.adminOnly || isAdminOrSubadmin).filter(subtab => !subtab.locked).map((subtab) => {
                               // Check if this specific subtab is disabled
                               // Account approval check: if subtab requires account approval and account is not approved
                               const needsAccountApproval = subtab.requiresAccountApproval && !isAccountApproved;

@@ -2136,7 +2136,7 @@ def push_mail():
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
-        html_body = _build_email_html(body_text, frontend_url, offers=offers)
+        html_body = _build_email_html(body_text, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -2336,11 +2336,9 @@ def schedule_send():
 
         if not message_body:
             if send_frequency == 'single' and len(offers) == 1:
-                o = offers[0]
-                message_body = f"Offer: {o.get('name', '')}\nPayout: ${round(float(o.get('payout', 0) or 0) * 0.8, 2)}"
+                message_body = f"Please check out this offer we've selected for you."
             else:
-                lines = [f"• {o.get('name', '')} — ${round(float(o.get('payout', 0) or 0) * 0.8, 2)}" for o in offers]
-                message_body = '\n'.join(lines)
+                message_body = f"We have {len(offers)} great offers for you. Check out the details below."
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
@@ -2574,6 +2572,10 @@ def push_mail_v2():
         subject = data.get('subject', '🚀 Push Mail — Check These Offers!')
         message_body = data.get('message_body', '')
         source_tab = data.get('source_tab', '')
+        template_style = data.get('template_style', 'table')
+        visible_fields = data.get('visible_fields')
+        default_image = data.get('default_image', '')
+        payout_type = data.get('payout_type', 'publisher')
         admin_user = request.current_user
 
         if not offer_ids:
@@ -2650,7 +2652,7 @@ def push_mail_v2():
             # If scheduled support, also schedule the email
             if scheduled_at:
                 sched_col = db_instance.get_collection('scheduled_emails')
-                html_body = _build_email_html(message_body, frontend_url, offers=offers)
+                html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
                 sched_col.insert_one({
                     'subject': subject, 'body': html_body, 'recipients': emails,
                     'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
@@ -2714,7 +2716,7 @@ def push_mail_v2():
                     import calendar as cal_mod
                     day_name = cal_mod.day_name[datetime.utcnow().weekday()]
                     message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nMoustache Leads Team\nMoustache Leads"
-                html_body = _build_email_html(message_body, frontend_url, offers=offers)
+                html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
                 result = sched_col.insert_one({
                     'subject': subject, 'body': html_body, 'recipients': emails,
                     'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
@@ -2801,7 +2803,7 @@ def push_mail_v2():
                 import calendar as cal_mod
                 day_name = cal_mod.day_name[datetime.utcnow().weekday()]
                 message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nMoustache Leads Team\nMoustache Leads"
-            html_body = _build_email_html(message_body, frontend_url, offers=offers)
+            html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
 
             if history_col is not None:
                 history_col.insert_one({

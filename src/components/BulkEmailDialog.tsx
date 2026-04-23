@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { API_BASE_URL } from "@/services/apiConfig";
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 interface BulkEmailDialogProps {
   isOpen: boolean;
@@ -93,6 +94,7 @@ export const BulkEmailDialog: React.FC<BulkEmailDialogProps> = ({
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [sending, setSending] = useState(false);
   const [expandedPublishers, setExpandedPublishers] = useState<Set<string>>(new Set());
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -103,6 +105,7 @@ export const BulkEmailDialog: React.FC<BulkEmailDialogProps> = ({
       setMessage("");
       setPreviewData([]);
       setExpandedPublishers(new Set());
+      setEmailSettings(DEFAULT_EMAIL_SETTINGS);
     }
   }, [isOpen]);
 
@@ -246,7 +249,13 @@ export const BulkEmailDialog: React.FC<BulkEmailDialogProps> = ({
           publisher_ids: selectedPublishers.map(p => p.id),
           offer_types: selectedOfferTypes,
           subject: subject.trim(),
-          message: message.trim()
+          message: message.trim(),
+          template_settings: {
+            template_style: emailSettings.templateStyle,
+            visible_fields: emailSettings.visibleFields,
+            default_image: emailSettings.defaultImage,
+            payout_type: emailSettings.payoutType,
+          },
         })
       });
 
@@ -468,6 +477,12 @@ export const BulkEmailDialog: React.FC<BulkEmailDialogProps> = ({
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Message Body
                   </label>
+
+                  {/* Email Template Settings */}
+                  <div className="mb-3">
+                    <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
+                  </div>
+
                   <Textarea
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
