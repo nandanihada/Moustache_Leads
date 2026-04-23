@@ -135,17 +135,21 @@ export default function AdminOfferAnalytics() {
       statusCounts.requested += rs?.action_counts?.['requested'] || (hasSub('requested') ? 1 : 0);
       statusCounts.picked += rs?.action_counts?.['picked'] || (hasSub('picked') ? 1 : 0);
 
-      // Vertical breakdown
+      // Vertical breakdown - use vertical first, then category
       const v = o.vertical || o.category || 'Other';
       verticalMap.set(v, (verticalMap.get(v) || 0) + 1);
 
-      // Geo breakdown
-      o.countries?.forEach(c => {
-        geoMap.set(c, (geoMap.get(c) || 0) + 1);
-      });
+      // Geo breakdown - only count if countries exist
+      if (o.countries && o.countries.length > 0) {
+        o.countries.forEach(c => {
+          if (c && c.trim()) { // Only count non-empty country codes
+            geoMap.set(c, (geoMap.get(c) || 0) + 1);
+          }
+        });
+      }
 
-      // Network aggregation
-      const net = o.network || 'Unknown';
+      // Network aggregation - only count if network exists
+      const net = o.network && o.network.trim() ? o.network : 'Unknown';
       if (!networkMap.has(net)) {
         networkMap.set(net, { network: net, offers: 0, active: 0, views: 0, clicks: 0, efficiency: 0 });
       }
@@ -154,21 +158,24 @@ export default function AdminOfferAnalytics() {
       if (o.status === 'active') nData.active++;
       nData.views += views;
       nData.clicks += clicks;
-      nData.efficiency = nData.views > 0 ? ((nData.clicks / nData.views) * 100).toFixed(2) : 0;
+      nData.efficiency = nData.views > 0 ? parseFloat(((nData.clicks / nData.views) * 100).toFixed(2)) : 0;
     });
 
-    // Formatting for charts
+    // Formatting for charts - only include networks with actual data
     const networksChart = Array.from(networkMap.values())
+      .filter(n => n.clicks > 0 || n.offers > 0) // Only show networks with activity
       .sort((a, b) => b.clicks - a.clicks)
       .slice(0, 10);
 
     const verticalsChart = Array.from(verticalMap.entries())
       .map(([name, count]) => ({ name, count }))
+      .filter(v => v.name !== 'Other' || verticalMap.size === 1) // Hide 'Other' unless it's the only one
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
 
     const geoChart = Array.from(geoMap.entries())
       .map(([name, count]) => ({ name, count }))
+      .filter(g => g.name && g.name.length === 2) // Only valid country codes
       .sort((a, b) => b.count - a.count)
       .slice(0, 8);
       
@@ -187,9 +194,11 @@ export default function AdminOfferAnalytics() {
       totalOffers: filteredOffers.length, 
       totalActive: statusCounts.active,
       totalViews, totalClicks, 
-      overallEfficiency: totalViews > 0 ? ((totalClicks / totalViews) * 100).toFixed(2) : 0,
+      overallEfficiency: totalViews > 0 ? parseFloat(((totalClicks / totalViews) * 100).toFixed(2)) : 0,
       networksChart, verticalsChart, geoChart, statusChart, statusCounts,
-      allNetworks: Array.from(networkMap.values()).sort((a, b) => b.efficiency - a.efficiency)
+      allNetworks: Array.from(networkMap.values())
+        .filter(n => n.offers > 0) // Only show networks with offers
+        .sort((a, b) => b.clicks - a.clicks)
     };
   }, [filteredOffers, runningStatsMap, rotatingIds]);
 
@@ -236,9 +245,16 @@ export default function AdminOfferAnalytics() {
       const v = o.vertical || o.category || 'Other';
       ddVerticalMap.set(v, (ddVerticalMap.get(v) || 0) + 1);
 
-      o.countries?.forEach(c => ddGeoMap.set(c, (ddGeoMap.get(c) || 0) + 1));
+      // Only count valid countries
+      if (o.countries && o.countries.length > 0) {
+        o.countries.forEach(c => {
+          if (c && c.trim() && c.length === 2) {
+            ddGeoMap.set(c, (ddGeoMap.get(c) || 0) + 1);
+          }
+        });
+      }
 
-      const net = o.network || 'Unknown';
+      const net = o.network && o.network.trim() ? o.network : 'Unknown';
       if (!ddNetworkMap.has(net)) ddNetworkMap.set(net, { network: net, offers: 0, clicks: 0 });
       const nData = ddNetworkMap.get(net);
       nData.offers++;
@@ -249,9 +265,20 @@ export default function AdminOfferAnalytics() {
       totalOffers: ddTotalOffers,
       totalClicks: ddTotalClicks,
       offersList: ddOffersList.sort((a, b) => b.clicks - a.clicks),
-      networksChart: Array.from(ddNetworkMap.values()).sort((a, b) => b.clicks - a.clicks).slice(0, 10),
-      verticalsChart: Array.from(ddVerticalMap.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 8),
-      geoChart: Array.from(ddGeoMap.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count).slice(0, 8)
+      networksChart: Array.from(ddNetworkMap.values())
+        .filter(n => n.offers > 0)
+        .sort((a, b) => b.clicks - a.clicks)
+        .slice(0, 10),
+      verticalsChart: Array.from(ddVerticalMap.entries())
+        .map(([name, count]) => ({ name, count }))
+        .filter(v => v.name !== 'Other' || ddVerticalMap.size === 1)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8),
+      geoChart: Array.from(ddGeoMap.entries())
+        .map(([name, count]) => ({ name, count }))
+        .filter(g => g.name && g.name.length === 2)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 8)
     };
   }, [filteredOffers, runningStatsMap, rotatingIds, selectedMetric]);
 
@@ -416,20 +443,29 @@ export default function AdminOfferAnalytics() {
           <h2 className="text-xs font-black uppercase text-zinc-400 mb-4 flex items-center gap-2">
             <Shield className="w-4 h-4 text-red-500" /> Network Activity Ranking
           </h2>
-          <div className="flex-1 overflow-auto pr-2">
-            <div className="grid grid-cols-4 text-[9px] font-black uppercase text-zinc-600 tracking-widest pb-2 border-b border-white/5 mb-2">
-              <span className="col-span-2">Network</span>
-              <span className="text-right">Offers</span>
-              <span className="text-right">Clicks</span>
-            </div>
-            {analytics.allNetworks.map((net, i) => (
-              <div key={i} className="grid grid-cols-4 items-center py-2 border-b border-white/5 hover:bg-white/5 transition-colors text-xs font-bold px-1 rounded">
-                <span className="col-span-2 truncate pr-2" title={net.network}>{net.network}</span>
-                <span className="text-right text-zinc-400">{net.offers}</span>
-                <span className="text-right text-cyan-400">{net.clicks.toLocaleString()}</span>
+          {analytics.allNetworks.length > 0 ? (
+            <div className="flex-1 overflow-auto pr-2">
+              <div className="grid grid-cols-4 text-[9px] font-black uppercase text-zinc-600 tracking-widest pb-2 border-b border-white/5 mb-2">
+                <span className="col-span-2">Network</span>
+                <span className="text-right">Offers</span>
+                <span className="text-right">Clicks</span>
               </div>
-            ))}
-          </div>
+              {analytics.allNetworks.map((net, i) => (
+                <div key={i} className="grid grid-cols-4 items-center py-2 border-b border-white/5 hover:bg-white/5 transition-colors text-xs font-bold px-1 rounded">
+                  <span className="col-span-2 truncate pr-2" title={net.network}>{net.network}</span>
+                  <span className="text-right text-zinc-400">{net.offers}</span>
+                  <span className="text-right text-cyan-400">{net.clicks.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-zinc-600">
+              <div className="text-center">
+                <Shield className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p className="text-xs font-bold uppercase">No network data available</p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
       {/* DEEP DIVE SECTION */}
