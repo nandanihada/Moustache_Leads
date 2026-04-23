@@ -11,7 +11,9 @@ from services.access_control_service import AccessControlService
 from services.offer_visibility_service import offer_visibility_service
 from utils.json_serializer import safe_json_response
 from routes.search_logs import log_search_async
+from models.smart_link import SmartLink
 import logging
+import uuid
 
 publisher_offers_bp = Blueprint('publisher_offers', __name__)
 logger = logging.getLogger(__name__)
@@ -649,6 +651,67 @@ def mark_offer_clicked():
         return jsonify({'success': True}), 200
 
 
+@publisher_offers_bp.route('/smart-links', methods=['POST'])
+@token_required
+def create_smart_link_publisher():
+    """Publisher endpoint to create their own smart link"""
+    try:
+        data = request.get_json()
+        user = request.current_user
+        
+        if not data or not data.get('name'):
+            return jsonify({'error': 'Name is required'}), 400
+
+        # Auto-generate slug if not provided
+        slug = data.get('slug')
+        if not slug:
+            base = data['name'].lower().replace(' ', '-')
+            slug = f"{base}-{str(uuid.uuid4())[:6]}"
+
+        smart_link_model = SmartLink()
+        smart_link, error = smart_link_model.create_smart_link(
+            name=data['name'],
+            slug=slug,
+            publisher_id=str(user.get('_id', user.get('id', ''))),
+            traffic_type=data.get('traffic_type', 'mainstream'),
+            allow_adult=data.get('allow_adult', False),
+            status=data.get('status', 'active'),
+            offer_ids=data.get('offer_ids'),
+            rotation_strategy=data.get('rotation_strategy', 'performance'),
+            fallback_url=data.get('fallback_url')
+        )
+
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({
+            'success': True,
+            'message': 'Smart link created successfully',
+            'smart_link': {**smart_link, '_id': str(smart_link['_id'])}
+        }), 201
+
+    except Exception as e:
+        logger.error(f"Error creating smart link: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@publisher_offers_bp.route('/smart-links', methods=['GET'])
+@token_required
+def get_publisher_smart_links():
+    """Get smart links for the current publisher"""
+    try:
+        user = request.current_user
+        publisher_id = str(user.get('_id', user.get('id', '')))
+        
+        smart_link_model = SmartLink()
+        links = smart_link_model.get_smart_links_by_publisher(publisher_id)
+        
+        return jsonify({
+            'success': True,
+            'smart_links': links
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @publisher_offers_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -660,6 +723,8 @@ def health_check():
             'GET /api/publisher/offers/<offer_id>',
             'POST /api/publisher/offers/<offer_id>/request-access',
             'GET /api/publisher/offers/<offer_id>/access-status',
-            'GET /api/publisher/my-requests'
+            'GET /api/publisher/my-requests',
+            'POST /api/publisher/smart-links',
+            'GET /api/publisher/smart-links'
         ]
     }), 200

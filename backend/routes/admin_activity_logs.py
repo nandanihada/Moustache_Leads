@@ -111,3 +111,60 @@ def get_filter_options():
     except Exception as e:
         logging.error(f"Get filter options error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+@admin_activity_logs_bp.route('/activity-logs/users-by-level', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('fraud-management')
+def get_users_by_level():
+    """Get users filtered by level with their last 10 activities"""
+    try:
+        from models.user import User
+        from bson import ObjectId
+        
+        level = request.args.get('level', '')
+        if not level:
+            return jsonify({'error': 'Level parameter required'}), 400
+        
+        user_model = User()
+        users_collection = user_model.collection
+        
+        # Find users with the specified level
+        users = list(users_collection.find(
+            {'level': level, 'role': {'$ne': 'admin'}},
+            {'password': 0}
+        ).sort('created_at', -1))
+        
+        result_users = []
+        for user in users:
+            # Get last 10 activities for this user
+            activities = list(log_model.collection.find(
+                {'admin_username': user['username']}
+            ).sort('timestamp', -1).limit(10))
+            
+            # Format activities
+            formatted_activities = []
+            for act in activities:
+                formatted_activities.append({
+                    'id': str(act['_id']),
+                    'type': act.get('action', 'unknown'),
+                    'offer': act.get('details', {}).get('offer_name', 'N/A'),
+                    'timestamp': act['timestamp'].isoformat() if act.get('timestamp') else None,
+                })
+            
+            result_users.append({
+                'id': str(user['_id']),
+                'username': user['username'],
+                'email': user['email'],
+                'level': user.get('level', 'N/A'),
+                'activities': formatted_activities,
+            })
+        
+        return jsonify({
+            'success': True,
+            'users': result_users,
+        }), 200
+    
+    except Exception as e:
+        logging.error(f"Get users by level error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

@@ -154,3 +154,30 @@ def get_publisher_settings():
     except Exception as e:
         logger.error(f"❌ Error getting publisher settings: {str(e)}")
         return jsonify({'error': f'Error retrieving settings: {str(e)}'}), 500
+
+
+@publisher_settings_bp.route('/api/generate-api-key', methods=['POST'])
+@token_required
+def regenerate_api_key():
+    """Regenerate the current user's API key"""
+    try:
+        from flask import request
+        current_user = request.current_user
+        user_model = User()
+        user_id = str(current_user['_id'])
+        
+        success, new_key = user_model.reset_api_key(user_id)
+        
+        if not success:
+            return jsonify({'error': new_key}), 500
+            
+        logger.info(f"✅ Regenerated API key for user {current_user.get('username')}")
+        
+        return jsonify({
+            'message': 'API Key regenerated successfully',
+            'api_key': new_key
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error regenerating API key: {str(e)}")
+        return jsonify({'error': f'Error regenerating API key: {str(e)}'}), 500

@@ -372,6 +372,14 @@ def register():
             if role in allowed_roles:
                 optional_fields['role'] = role
         
+        # Extract new preference/address/payout fields
+        new_keys = ['verticals', 'geos', 'traffic_sources', 'website_urls', 'promotion_description', 
+                    'monthly_visits', 'conversion_rate', 'social_contacts', 'smart_link_interest', 
+                    'smart_link_traffic_source', 'address', 'payout_details']
+        for key in new_keys:
+            if key in data:
+                optional_fields[key] = data[key]
+        
         # Consent fields
         optional_fields['terms_accepted'] = bool(data.get('terms_accepted', False))
         optional_fields['terms_accepted_at'] = datetime.utcnow() if data.get('terms_accepted') else None
@@ -509,7 +517,8 @@ def register():
                 'last_name': user_data.get('last_name'),
                 'company_name': user_data.get('company_name'),
                 'website': user_data.get('website'),
-                'postback_url': user_data.get('postback_url')
+                'postback_url': user_data.get('postback_url'),
+                'api_key': user_data.get('api_key')
             }
         }), 201
         
@@ -591,6 +600,13 @@ def login():
         if user_data.get('role') == 'admin':
             account_status = 'approved'
         
+        # Ensure user has an API key (auto-generate for legacy users)
+        api_key = user_data.get('api_key')
+        if not api_key:
+            from models.user import User
+            _, api_key = user_model.reset_api_key(str(user_data['_id']))
+            user_data['api_key'] = api_key
+
         return jsonify({
             'message': 'Login successful',
             'token': token,
@@ -601,7 +617,8 @@ def login():
                 'email': user_data['email'],
                 'role': user_data.get('role', 'user'),
                 'account_status': account_status,
-                'email_verified': user_data.get('email_verified', False)
+                'email_verified': user_data.get('email_verified', False),
+                'api_key': api_key
             }
         }), 200
         
@@ -627,7 +644,9 @@ def get_profile():
                 'website': user.get('website'),
                 'postback_url': user.get('postback_url'),
                 'postback_method': user.get('postback_method', 'GET'),
-                'created_at': user['created_at'].isoformat() if user.get('created_at') else None
+                'api_key': user.get('api_key'),
+                'created_at': user['created_at'].isoformat() if user.get('created_at') else None,
+                'account_status': user.get('account_status', 'pending_approval')
             }
         }), 200
     except Exception as e:
@@ -675,7 +694,8 @@ def update_profile():
                     'company_name': updated_user.get('company_name'),
                     'website': updated_user.get('website'),
                     'postback_url': updated_user.get('postback_url'),
-                    'postback_method': updated_user.get('postback_method', 'GET')
+                    'postback_method': updated_user.get('postback_method', 'GET'),
+                    'api_key': updated_user.get('api_key')
                 }
             }), 200
         else:
@@ -690,17 +710,108 @@ def verify_token():
     """Verify if token is valid"""
     try:
         user = request.current_user
+        # User from token_required is the object from DB
+        api_key = user.get('api_key')
+        
+        # Auto-generate if missing (for legacy users)
+        if not api_key:
+            user_model = User()
+            _, api_key = user_model.reset_api_key(str(user['_id']))
+            user['api_key'] = api_key
+
         return jsonify({
             'valid': True,
             'user': {
                 'id': str(user['_id']),
                 'username': user['username'],
                 'email': user['email'],
-                'role': user.get('role', 'user')
+                'role': user.get('role', 'user'),
+                'api_key': api_key,
+                'account_status': user.get('account_status', 'pending_approval')
             }
         }), 200
     except Exception as e:
         return jsonify({'error': f'Token verification failed: {str(e)}'}), 500
+
+@auth_bp.route('/admin/create-user', methods=['POST'])
+@token_required
+def admin_create_user():
+    """Create a user directly (admin only)"""
+    try:
+        user = request.current_user
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+            
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+            
+        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        if not username or not email or not password:
+            return jsonify({'error': 'Username, email and password are required'}), 400
+            
+        # Create user
+        user_model = User()
+        user_data, error = user_model.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=data.get('firstName', ''),
+            last_name=data.get('lastName', ''),
+            company_name=data.get('companyName', ''),
+            website=data.get('website', ''),
+            role=data.get('role', 'user'),
+            level=data.get('level', 'L1')
+        )
+        
+        if error:
+            return jsonify({'error': error}), 400
+            
+        # Manually approve if requested
+        if data.get('approve', False):
+            user_model.approve_user(str(user_data['_id']), str(user['_id']))
+            user_data['account_status'] = 'approved'
+            
+        return jsonify({
+            'message': 'User created successfully',
+            'user': {
+                'id': str(user_data['_id']),
+                'username': user_data['username'],
+                'email': user_data['email'],
+                'api_key': user_data.get('api_key')
+            }
+        }), 201
+        
+    except Exception as e:
+        logging.error(f"Admin user creation failed: {str(e)}")
+        return jsonify({'error': f'Failed to create user: {str(e)}'}), 500
+
+@auth_bp.route('/admin/users/<user_id>/reset-api-key', methods=['POST'])
+@token_required
+def reset_user_api_key(user_id):
+    """Admin-only API key reset for a specific user"""
+    try:
+        user = request.current_user
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+            
+        user_model = User()
+        success, result = user_model.reset_api_key(user_id)
+        
+        if not success:
+            return jsonify({'error': result}), 400
+            
+        return jsonify({
+            'message': 'API Key reset successfully',
+            'api_key': result
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"API key reset failed: {str(e)}")
+        return jsonify({'error': f'Failed to reset API key: {str(e)}'}), 500
 
 @auth_bp.route('/create-admin', methods=['POST'])
 def create_admin():

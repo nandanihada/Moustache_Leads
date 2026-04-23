@@ -87,7 +87,20 @@ reactivation_bp = safe_import_blueprint('routes.reactivation', 'reactivation_bp'
 referrals_bp = safe_import_blueprint('routes.referrals', 'referrals_bp')
 user_payments_bp = safe_import_blueprint('routes.user_payments', 'user_payments_bp')
 admin_payments_bp = safe_import_blueprint('routes.admin_payments', 'admin_payments_bp')
-
+admin_click_tracking_bp = safe_import_blueprint('routes.admin_click_tracking', 'admin_click_tracking_bp')
+public_api_bp = safe_import_blueprint('routes.public_api', 'public_api_bp')
+offer_access_bp = safe_import_blueprint('routes.offer_access', 'offer_access_bp')
+poll_api_bp = safe_import_blueprint('routes.poll_api', 'poll_bp')
+smart_link_bp = safe_import_blueprint('routes.smart_link', 'smart_link_bp')
+api_keys_bp = safe_import_blueprint('routes.api_keys_routes', 'api_keys_bp')
+api_tracking_bp = safe_import_blueprint('routes.api_tracking_routes', 'api_tracking_bp')
+api_reports_routes_bp = safe_import_blueprint('routes.api_reports_routes', 'api_reports_routes_bp')
+promo_v2_bp = safe_import_blueprint('routes.promo_v2_routes', 'promo_v2_bp')
+user_offers_bp = safe_import_blueprint('routes.user_offers', 'user_offers_bp')
+admin_notes_bp = safe_import_blueprint('routes.admin_notes', 'admin_notes_bp')
+admin_publisher_email_bp = safe_import_blueprint('routes.admin_publisher_email', 'admin_publisher_email_bp')
+admin_publisher_bulk_email_bp = safe_import_blueprint('routes.admin_publisher_bulk_email', 'admin_publisher_bulk_email_bp')
+admin_level_progression_bp = safe_import_blueprint('routes.admin_level_progression', 'admin_level_progression_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -165,6 +178,20 @@ blueprints = [
     (referrals_bp, '/api'),
     (user_payments_bp, '/api/payments'),
     (admin_payments_bp, '/api/admin/payments'),
+    (admin_click_tracking_bp, '/api/admin/click-tracking'),
+    (public_api_bp, '/api'),
+    (offer_access_bp, '/api'),
+    (poll_api_bp, '/api'),
+    (smart_link_bp, ''),
+    (api_keys_bp, '/api'),
+    (api_tracking_bp, '/v1'),
+    (api_reports_routes_bp, '/v1'),
+    (promo_v2_bp, ''),
+    (user_offers_bp, '/api/admin'),
+    (admin_notes_bp, ''),
+    (admin_publisher_email_bp, ''),
+    (admin_publisher_bulk_email_bp, ''),
+    (admin_level_progression_bp, ''),
 ]
 
 def create_app():
@@ -221,9 +248,9 @@ def create_app():
     for blueprint, url_prefix in blueprints:
         if blueprint:
             app.register_blueprint(blueprint, url_prefix=url_prefix)
-            print(f"✅ Registered blueprint: {blueprint.name} at {url_prefix}")
+            print(f"[+] Registered blueprint: {blueprint.name} at {url_prefix}")
         else:
-            print(f"❌ Failed to register blueprint with prefix: {url_prefix}")
+            print(f"Failed to register blueprint with prefix: {url_prefix}")
     
     # Initialize comprehensive analytics tracker
     try:
@@ -234,7 +261,7 @@ def create_app():
         tracker = ComprehensiveOfferwallTracker(db_instance)
         set_tracker(tracker, db_instance)
         set_comprehensive_tracker(tracker)
-        print("✅ Comprehensive analytics tracker initialized")
+        print("[+] Comprehensive analytics tracker initialized")
     except Exception as e:
         print(f"❌ Failed to initialize comprehensive analytics tracker: {str(e)}")
     

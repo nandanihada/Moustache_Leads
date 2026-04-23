@@ -69,11 +69,15 @@ class UserReports:
             pagination = pagination or {'page': 1, 'per_page': 20}
             sort_config = sort or {'field': 'date', 'order': 'desc'}
             
-            # Get user info to check if admin
-            user = self.users_collection.find_one({'_id': ObjectId(user_id)})
-            is_admin = user and user.get('role') == 'admin'
+            # Get user info to check if admin or subadmin
+            user = None
+            if ObjectId.is_valid(user_id):
+                user = self.users_collection.find_one({'_id': ObjectId(user_id)})
+            elif isinstance(user_id, str):
+                user = self.users_collection.find_one({'username': user_id})
+            is_admin = user and user.get('role') in ('admin', 'subadmin')
             
-            # Build match query - Filter by user's placements unless admin
+            # Build match query - Filter by user's placements unless admin/subadmin
             match_query = {
                 'timestamp': {  # offerwall_clicks_detailed uses 'timestamp' not 'click_time'
                     '$gte': start_date,
@@ -205,9 +209,9 @@ class UserReports:
                     }
                 }
                 if not is_admin:
-                    simple_match_query['user_id'] = user_id
+                    simple_match_query['$or'] = [{'user_id': user_id}, {'affiliate_id': user_id}]
                 elif filters.get('publisher_id'):
-                    simple_match_query['user_id'] = filters['publisher_id']
+                    simple_match_query['$or'] = [{'user_id': filters['publisher_id']}, {'affiliate_id': filters['publisher_id']}]
                 if filters.get('offer_id'):
                     simple_match_query['offer_id'] = match_query.get('offer_id')
                 if filters.get('country'):
@@ -317,8 +321,7 @@ class UserReports:
                 'timestamp': {  # forwarded_postbacks uses 'timestamp' not 'conversion_time'
                     '$gte': start_date,
                     '$lte': end_date
-                },
-                'forward_status': 'success'  # Only successful forwards
+                }
             }
             
             # Filter by publisher_id if not admin
@@ -354,7 +357,8 @@ class UserReports:
                         'approved_conversions': {'$sum': 1},  # All forwarded postbacks are successful
                         'pending_conversions': {'$sum': 0},
                         'rejected_conversions': {'$sum': 0},
-                        'total_payout': {'$sum': '$points'},  # forwarded_postbacks uses 'points' not 'payout'
+                        'total_payout': {'$sum': {'$ifNull': ['$points', 0]}},  # forwarded_postbacks uses 'points' as payout
+                        'total_revenue': {'$sum': {'$ifNull': ['$revenue', {'$ifNull': ['$points', 0]}]}},
                         'avg_time_spent_seconds': {'$avg': 0}  # Not available in forwarded_postbacks
                     }
                 }
@@ -444,8 +448,8 @@ class UserReports:
                     merged_data[conv_key]['approved_conversions'] += conv_row['approved_conversions']
                     merged_data[conv_key]['pending_conversions'] += conv_row['pending_conversions']
                     merged_data[conv_key]['rejected_conversions'] += conv_row['rejected_conversions']
-                    merged_data[conv_key]['total_payout'] += conv_row['total_payout']
-                    merged_data[conv_key]['total_revenue'] += conv_row['total_payout']
+                    merged_data[conv_key]['total_payout'] += conv_row.get('total_payout', 0)
+                    merged_data[conv_key]['total_revenue'] += conv_row.get('total_revenue', 0)
                 else:
                     # Conversion _id may have fewer fields than click _id
                     # (e.g., conv has {date, offer_id} but click has {date, offer_id, country})
@@ -462,8 +466,8 @@ class UserReports:
                             existing_row['approved_conversions'] += conv_row['approved_conversions']
                             existing_row['pending_conversions'] += conv_row['pending_conversions']
                             existing_row['rejected_conversions'] += conv_row['rejected_conversions']
-                            existing_row['total_payout'] += conv_row['total_payout']
-                            existing_row['total_revenue'] += conv_row['total_payout']
+                            existing_row['total_payout'] += conv_row.get('total_payout', 0)
+                            existing_row['total_revenue'] += conv_row.get('total_revenue', 0)
                             matched = True
                             break  # Assign to first matching row to avoid double-counting
                     
@@ -480,8 +484,8 @@ class UserReports:
                             'approved_conversions': conv_row['approved_conversions'],
                             'pending_conversions': conv_row['pending_conversions'],
                             'rejected_conversions': conv_row['rejected_conversions'],
-                            'total_payout': conv_row['total_payout'],
-                            'total_revenue': conv_row['total_payout'],
+                            'total_payout': conv_row.get('total_payout', 0),
+                            'total_revenue': conv_row.get('total_revenue', 0),
                             'avg_time_spent_seconds': conv_row.get('avg_time_spent_seconds', 0)
                         }
             
@@ -643,17 +647,20 @@ class UserReports:
             filters = filters or {}
             pagination = pagination or {'page': 1, 'per_page': 20}
             
-            # Get user info to check if admin
-            user = self.users_collection.find_one({'_id': ObjectId(user_id)})
-            is_admin = user and user.get('role') == 'admin'
+            # Get user info to check if admin or subadmin
+            user = None
+            if ObjectId.is_valid(user_id):
+                user = self.users_collection.find_one({'_id': ObjectId(user_id)})
+            elif isinstance(user_id, str):
+                user = self.users_collection.find_one({'username': user_id})
+            is_admin = user and user.get('role') in ('admin', 'subadmin')
             
-            # Build query - Filter by publisher_id unless admin
+            # Build query - Filter by publisher_id unless admin/subadmin
             query = {
                 'timestamp': {  # forwarded_postbacks uses 'timestamp'
                     '$gte': start_date,
                     '$lte': end_date
-                },
-                'forward_status': 'success'  # Only successful forwards
+                }
             }
             
             # Filter by publisher_id if not admin
@@ -827,7 +834,11 @@ class UserReports:
             logger.info(f"📊 Chart Data Request: metric={metric}, user={user_id}, range={start_date} to {end_date}")
             
             # Get user info to check if admin
-            user = self.users_collection.find_one({'_id': ObjectId(user_id)})
+            user = None
+            if ObjectId.is_valid(user_id):
+                user = self.users_collection.find_one({'_id': ObjectId(user_id)})
+            elif isinstance(user_id, str):
+                user = self.users_collection.find_one({'username': user_id})
             is_admin = user and user.get('role') == 'admin'
             
             # Determine collection and field based on metric
@@ -865,8 +876,7 @@ class UserReports:
                 collection = self.conversions_collection  # forwarded_postbacks
                 date_field = 'timestamp'
                 match_query = {
-                    date_field: {'$gte': start_date, '$lte': end_date},
-                    'forward_status': 'success'
+                    date_field: {'$gte': start_date, '$lte': end_date}
                 }
                 
                 # Filter by publisher_id if not admin
@@ -1025,11 +1035,13 @@ class UserReports:
         total_clicks = sum(row.get('clicks', 0) for row in data)
         total_conversions = sum(row.get('conversions', 0) for row in data)
         total_payout = sum(row.get('total_payout', 0.0) for row in data)
+        total_revenue = sum(row.get('total_revenue', 0.0) for row in data)
         
         return {
             'total_clicks': total_clicks,
             'total_conversions': total_conversions,
             'total_payout': round(total_payout, 2),
+            'total_revenue': round(total_revenue, 2),
             'avg_cr': MetricsCalculator.calculate_cr(total_conversions, total_clicks),
             'avg_epc': MetricsCalculator.calculate_epc(total_payout, total_clicks)
         }

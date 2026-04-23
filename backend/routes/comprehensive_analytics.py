@@ -627,6 +627,15 @@ def get_click_history():
         unique_clicks.sort(key=lambda x: x.get('timestamp') or datetime.min, reverse=True)
         unique_clicks = unique_clicks[:limit]
         
+        # Look up offer status to support UI logic
+        offers_collection = db_instance.get_collection('offers')
+        unique_offer_ids = list(set([c.get('offer_id') for c in unique_clicks if c.get('offer_id')]))
+        offer_statuses = {}
+        if unique_offer_ids and offers_collection is not None:
+            offers_cursor = offers_collection.find({'offer_id': {'$in': unique_offer_ids}}, {'offer_id': 1, 'status': 1})
+            for off in offers_cursor:
+                offer_statuses[off.get('offer_id')] = (off.get('status') or 'active').lower()
+        
         # Format response for clicks
         formatted_clicks = []
         for click in unique_clicks:
@@ -683,6 +692,8 @@ def get_click_history():
             # Get publisher_id from different possible fields
             pub_id = click.get('publisher_id') or click.get('affiliate_id') or 'Unknown'
             
+            offer_status = offer_statuses.get(click.get('offer_id'), 'active')
+            
             formatted_clicks.append({
                 'click_id': click.get('click_id'),
                 'user_id': click.get('user_id'),
@@ -697,6 +708,8 @@ def get_click_history():
                 'geo': geo_response,
                 'fraud_indicators': fraud_response,
                 'event_type': 'click',
+                'is_paused': offer_status == 'paused',
+                'offer_status': offer_status,
             })
         
         # Also get conversions for the same filters

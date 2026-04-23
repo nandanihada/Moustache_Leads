@@ -27,34 +27,40 @@ class Database:
                 return
             
             # Try multiple connection approaches
+            import time
             connection_attempts = [
-                # Attempt 1: Atlas connection with connection pooling + SSL bypass
+                # Attempt 1: Atlas connection with certifi CA + custom timeouts
                 lambda: MongoClient(
                     Config.MONGODB_URI,
-                    serverSelectionTimeoutMS=10000,
-                    connectTimeoutMS=20000,
-                    socketTimeoutMS=30000,
+                    tlsCAFile=certifi.where(),
+                    serverSelectionTimeoutMS=30000,
+                    connectTimeoutMS=30000,
+                    socketTimeoutMS=60000,
+                    maxPoolSize=50,
+                    minPoolSize=5,
+                    retryWrites=True,
+                    retryReads=True
+                ),
+                # Attempt 2: Atlas connection with SSL bypass for problematic networks
+                lambda: MongoClient(
+                    Config.MONGODB_URI,
                     tlsAllowInvalidCertificates=True,
-                    maxPoolSize=50,
-                    minPoolSize=5,
-                    maxIdleTimeMS=30000,
-                    waitQueueTimeoutMS=10000,
-                    retryWrites=True,
-                    retryReads=True
-                ),
-                # Attempt 2: Standard connection with pooling
-                lambda: MongoClient(
-                    Config.MONGODB_URI,
-                    serverSelectionTimeoutMS=5000,
+                    serverSelectionTimeoutMS=30000,
+                    connectTimeoutMS=30000,
+                    socketTimeoutMS=60000,
                     maxPoolSize=50,
                     minPoolSize=5,
                     retryWrites=True,
                     retryReads=True
                 ),
-                # Attempt 3: Minimal connection (no pooling tweaks)
+                # Attempt 3: Standard connection with pooling
                 lambda: MongoClient(
                     Config.MONGODB_URI,
-                    serverSelectionTimeoutMS=10000
+                    serverSelectionTimeoutMS=30000,
+                    maxPoolSize=50,
+                    minPoolSize=5,
+                    retryWrites=True,
+                    retryReads=True
                 ),
             ]
             
@@ -65,9 +71,9 @@ class Database:
                 try:
                     logging.info(f"MongoDB connection attempt {i}...")
                     self._client = attempt()
-                    self._db = self._client[Config.DATABASE_NAME]
-                    # Test the connection
+                    # Test the connection with a short timeout
                     self._client.admin.command('ping')
+                    self._db = self._client[Config.DATABASE_NAME]
                     logging.info(f"Successfully connected to MongoDB on attempt {i}")
                     return
                 except Exception as attempt_error:
@@ -76,10 +82,13 @@ class Database:
                         self._client.close()
                     self._client = None
                     self._db = None
+                    # Small sleep before next attempt if this was a network blip
+                    if i < len(connection_attempts):
+                        time.sleep(2)
                     continue
             
             # If all attempts failed
-            raise Exception("All connection attempts failed")
+            raise Exception("All connection attempts failed. Check your internet connection or MongoDB Atlas IP whitelist.")
             
         except Exception as e:
             logging.error(f"Failed to connect to MongoDB: {e}")

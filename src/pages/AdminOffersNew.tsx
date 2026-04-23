@@ -60,9 +60,8 @@ import { EditOfferModal } from '@/components/EditOfferModal';
 import { LinkMaskingModal } from '@/components/LinkMaskingModal';
 import { DomainManagementModal } from '@/components/DomainManagementModal';
 import { AdvancedSettingsModal } from '@/components/AdvancedSettingsModal';
-import { OfferDetailsModal } from '@/components/OfferDetailsModal';
-import { BulkOfferUpload } from '@/components/BulkOfferUpload';
 import { ApiImportModal } from '@/components/ApiImportModal';
+import { OfferDrilldown } from '@/components/OfferDrilldown';
 import { adminOfferApi, Offer, RunningOffer, RotationStatus } from '@/services/adminOfferApi';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -82,7 +81,7 @@ const AdminOffers = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [recycleBinSearchTerm, setRecycleBinSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [activeTab, setActiveTab] = useState('offers');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [offersSubView, setOffersSubView] = useState<'all' | 'running'>('all');
   const [addOfferModalOpen, setAddOfferModalOpen] = useState(false);
   const [editOfferModalOpen, setEditOfferModalOpen] = useState(false);
@@ -1667,6 +1666,10 @@ const AdminOffers = () => {
       <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); if (v === 'offers') setOffersSubView('all'); }} className="space-y-4">
         <div className="flex items-center gap-2 flex-wrap">
           <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="dashboard" className="flex items-center gap-2">
+              <Activity className="h-4 w-4" />
+              Offers Dashboard
+            </TabsTrigger>
             <TabsTrigger value="offers" className="flex items-center gap-2">
               <Globe className="h-4 w-4" />
               {offersSubView === 'running' ? `Running Offers (${runningPagination.total})` : `Active Offers (${pagination.total})`}
@@ -1702,6 +1705,15 @@ const AdminOffers = () => {
             </DropdownMenu>
           )}
         </div>
+
+        {/* Dashboard/Drilldown Tab */}
+        <TabsContent value="dashboard" className="space-y-4 pt-4">
+          <OfferDrilldown 
+            onOfferSelect={handleViewDetails}
+            onOfferEdit={handleEditOffer}
+            onOfferDelete={handleDeleteOffer}
+          />
+        </TabsContent>
 
         {/* Active Offers Tab */}
         <TabsContent value="offers" className="space-y-4">

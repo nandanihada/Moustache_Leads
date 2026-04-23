@@ -609,6 +609,7 @@ class Offer:
                 # 🔥 AUTO-SET AFFILIATES TO 'REQUEST' IF APPROVAL REQUIRED
                 'affiliates': 'request' if (offer_data.get('require_approval') or offer_data.get('approval_type') in ['time_based', 'manual']) else offer_data.get('affiliates', 'all'),
                 'access_type': offer_data.get('access_type', 'public'),  # public/private/request-only
+                'is_public': offer_data.get('access_type', 'public') == 'public', # Explicit boolean for API filtering
                 'selected_users': offer_data.get('selected_users', []),  # Specific affiliate list
                 'manager': offer_data.get('manager', '').strip(),  # Campaign manager
                 'approval_notes': offer_data.get('approval_notes', '').strip(),  # Access instructions

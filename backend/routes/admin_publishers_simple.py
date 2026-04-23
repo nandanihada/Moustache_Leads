@@ -324,3 +324,31 @@ def delete_publisher(publisher_id):
     except Exception as e:
         logger.error(f"Error deleting publisher: {e}")
         return jsonify({'error': f'Failed to delete publisher: {str(e)}'}), 500
+
+@admin_publishers_simple_bp.route('/publishers/<publisher_id>/reset-api-key', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('publishers')
+def reset_publisher_api_key(publisher_id):
+    """Reset or generate API key for a publisher"""
+    try:
+        user_model = User()
+        
+        # Check if publisher exists
+        publisher = user_model.collection.find_one({'_id': ObjectId(publisher_id)})
+        if not publisher:
+            return jsonify({'error': 'Publisher not found'}), 404
+            
+        success, result = user_model.reset_api_key(publisher_id)
+        
+        if not success:
+            return jsonify({'error': result}), 400
+            
+        return jsonify({
+            'message': 'API Key reset successfully',
+            'api_key': result,
+            'username': publisher['username']
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"API key reset failed: {str(e)}")
+        return jsonify({'error': f'Failed to reset API key: {str(e)}'}), 500

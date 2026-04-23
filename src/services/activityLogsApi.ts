@@ -162,3 +162,31 @@ export async function fetchEmailActivityLogs(params: {
   if (!res.ok) throw new Error("Failed to fetch email activity logs");
   return res.json();
 }
+
+export interface UserActivity {
+  id: string;
+  type: string;
+  offer: string;
+  timestamp: string;
+}
+
+export interface LevelUser {
+  id: string;
+  username: string;
+  email: string;
+  level: string;
+  activities: UserActivity[];
+}
+
+export interface LevelUsersResponse {
+  success: boolean;
+  users: LevelUser[];
+}
+
+export async function fetchUsersByLevel(level: string): Promise<LevelUsersResponse> {
+  const res = await fetch(`${API_BASE()}/activity-logs/users-by-level?level=${level}`, {
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch users by level");
+  return res.json();
+}

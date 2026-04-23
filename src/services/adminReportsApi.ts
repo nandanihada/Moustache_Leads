@@ -248,6 +248,45 @@ export const adminReportsApi = {
     return response.json();
   },
 
+  async warnUser(user_id: string, reason: string) {
+    const response = await fetch(`http://localhost:8080/api/admin/click-tracking/action/warn`, {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id, reason })
+    });
+    return response.json();
+  },
+
+  async requestProof(user_id: string, offer_id: string) {
+    const response = await fetch(`http://localhost:8080/api/admin/click-tracking/action/warn`, {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id, reason: `Please provide traffic placement proof for offer ${offer_id}.` })
+    });
+    return response.json();
+  },
+
+  async pauseOffer(offer_id: string) {
+    const response = await fetch(`http://localhost:8080/api/admin/click-tracking/action/pause-offer`, {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offer_id })
+    });
+    return response.json();
+  },
+
+  async decreasePrice(offer_id: string, new_price: number, user_id?: string) {
+    const response = await fetch(`http://localhost:8080/api/admin/click-tracking/action/decrease-price`, {
+      method: 'POST', headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ offer_id, new_price, user_id })
+    });
+    return response.json();
+  },
+
+  async getClickAnalytics(days: number = 7) {
+    const response = await fetch(`http://localhost:8080/api/admin/click-tracking/analytics?days=${days}`, {
+      headers: authHeaders()
+    });
+    return response.json();
+  },
+
   async exportReport(type: 'performance' | 'conversions', filters: AdminPerformanceFilters) {
     const params = new URLSearchParams();
     params.append('type', type);

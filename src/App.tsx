@@ -9,12 +9,16 @@ import AdminLayout from "./components/layout/AdminLayout";
 import Dashboard from "./pages/Dashboard";
 import Offers from "./pages/Offers";
 import PublisherOffers from "./pages/PublisherOffers";
+import PublisherSmartLink from "./pages/PublisherSmartLink";
 import Reports from "./pages/Reports";
 import Users from "./pages/Users";
 import Placements from "./pages/Placements";
 import Assets from "./pages/Assets";
 import Payments from "./pages/Payments";
 import Settings from "./pages/Settings";
+import APIAccess from "./pages/APIAccess";
+import APIStats from "./pages/APIStats";
+import APIConversions from "./pages/APIConversions";
 import CampaignBuilder from "./pages/CampaignBuilder";
 import AscendIframe from "@/pages/AscendIframe";   // ✅ Updated import
 import AdminDashboard from "./pages/AdminDashboard";
@@ -56,12 +60,15 @@ import AdminEmailActivityLogs from "./pages/AdminEmailActivityLogs";
 import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
 import AdminPlacementProofs from "./pages/AdminPlacementProofs";
 import AdminSupportInbox from "./pages/AdminSupportInbox";
+import AdminOfferAnalytics from "./pages/AdminOfferAnalytics";
+import AdminDetailedAnalytics from "./pages/AdminDetailedAnalytics";
 import AdminSearchLogs from "./pages/AdminSearchLogs";
 import AdminActivityLogs from "./pages/AdminActivityLogs";
 import AdminReportsTracking from "./pages/AdminReportsTracking";
 import AdminReactivation from "./pages/AdminReactivation";
 import AdminReferrals from "./pages/AdminReferrals";
 import Referrals from "./pages/Referrals";
+import AdminPolls from "./pages/AdminPolls";
 import AdminPayments from "./pages/AdminPayments";
 import Invoice from "./pages/Invoice";
 import SupportPage from "./pages/SupportPage";
@@ -84,8 +91,16 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthDebug } from "./components/AuthDebug";
 import { SmartRedirect } from "./components/SmartRedirect";
+import { SmartLinkRedirector } from "./components/SmartLinkRedirector";
 import { TestOfferModal } from "./components/TestOfferModal";
 import { SubdomainRouter } from "./middleware/subdomainRouter";
+import PublicSmartLink from "./pages/PublicSmartLink";
+import AdminSmartLinks from "./pages/AdminSmartLinks";
+import AdminApiStats from "./pages/AdminApiStats";
+import AdminNotes from "./pages/AdminNotes";
+import AdminPublisherAnalytics from "./pages/AdminPublisherAnalytics";
+import PromoTabV2 from "./components/PromoTabV2";
+import AdminPromoAnalyticsV2 from "./pages/AdminPromoAnalyticsV2";
 
 const queryClient = new QueryClient();
 
@@ -114,6 +129,8 @@ const App = () => (
                 <Route path="/team" element={<Team />} />
                 <Route path="/test-modal" element={<TestOfferModal />} />
                 <Route path="/offerwall" element={<OfferwallPage />} />
+                <Route path="/smart-link-preview" element={<PublicSmartLink />} />
+                <Route path="/smart/:slug" element={<SmartLinkRedirector />} />
 
               {/* Protected dashboard routes */}
               <Route
@@ -126,6 +143,7 @@ const App = () => (
               >
                 <Route index element={<Dashboard />} />
                 <Route path="offers" element={<PublisherOffers />} />
+                <Route path="smart-link" element={<PublisherSmartLink />} />
                 <Route path="promo-codes" element={<PublisherPromoCodeManagement />} />
                 <Route path="reports" element={<Reports />} />
                 <Route path="performance-report" element={<PerformanceReport />} />
@@ -136,6 +154,9 @@ const App = () => (
                 <Route path="payments" element={<Payments />} />
                 <Route path="payments/invoice/:id" element={<Invoice />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="api-access" element={<APIAccess />} />
+                <Route path="api-stats" element={<APIStats />} />
+                <Route path="api-conversions" element={<APIConversions />} />
                 <Route path="profile" element={<PartnerProfile />} />
                 <Route path="gift-cards" element={<GiftCardRedemption />} />
                 <Route path="redeem-gift-card" element={<RedeemGiftCard />} />
@@ -145,6 +166,7 @@ const App = () => (
                 <Route path="ascend" element={<AscendIframe />} />
                 <Route path="support" element={<SupportPage />} />
                 <Route path="referrals" element={<Referrals />} />
+                <Route path="test-promo-v2" element={<PromoTabV2 />} />
               </Route>
 
               {/* Admin Dashboard routes */}
@@ -164,10 +186,16 @@ const App = () => (
                 <Route path="missing-offers" element={<AdminMissingOffers />} />
                 <Route path="offer-insights" element={<AdminOfferInsights />} />
                 <Route path="email-activity" element={<AdminEmailActivityLogs />} />
+                <Route path="offer-analytics" element={<AdminOfferAnalytics />} />
                 <Route path="promo-codes" element={<AdminPromoCodeManagement />} />
+                <Route path="promo-analytics-v2" element={<AdminPromoAnalyticsV2 />} />
                 <Route path="offer-access-requests" element={<AdminOfferAccessRequests />} />
                 <Route path="placement-approval" element={<AdminPlacementApproval />} />
                 <Route path="offerwall-analytics" element={<AdminOfferwallAnalytics />} />
+                <Route path="network-analytics" element={<AdminDetailedAnalytics type="network" />} />
+                <Route path="vertical-analytics" element={<AdminDetailedAnalytics type="vertical" />} />
+                <Route path="geo-analytics" element={<AdminDetailedAnalytics type="geo" />} />
+                <Route path="status-analytics" element={<AdminDetailedAnalytics type="status" />} />
                 <Route path="click-tracking" element={<AdminClickTracking />} />
                 <Route path="login-logs" element={<AdminLoginLogs />} />
                 <Route path="active-users" element={<AdminActiveUsers />} />
@@ -187,6 +215,11 @@ const App = () => (
                 <Route path="reactivation" element={<AdminReactivation />} />
                 <Route path="referrals" element={<AdminReferrals />} />
                 <Route path="payments" element={<AdminPayments />} />
+                <Route path="polls" element={<AdminPolls />} />
+                <Route path="smart-links" element={<AdminSmartLinks />} />
+                <Route path="api-stats" element={<AdminApiStats />} />
+                <Route path="notes" element={<AdminNotes />} />
+                <Route path="publisher-analytics" element={<AdminPublisherAnalytics />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

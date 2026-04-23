@@ -5,6 +5,7 @@ import { TopBar } from "./TopBar";
 import { useActivityTracking } from "@/hooks/useActivityTracking";
 import NotificationBar from "@/components/NotificationBar";
 import { SupportReplyPopup } from "@/components/SupportReplyPopup";
+import PollWidget from "@/components/user/PollWidget";
 
 const DashboardLayout = () => {
   // Automatically track page visits and send heartbeats
@@ -23,6 +24,7 @@ const DashboardLayout = () => {
             </div>
           </main>
           <SupportReplyPopup />
+          <PollWidget />
         </div>
       </div>
     </SidebarProvider>

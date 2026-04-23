@@ -208,14 +208,23 @@ export const AdminOffersDrilldownView: React.FC<AdminOffersDrilldownViewProps> =
     'MF', // Saint Martin (French part)
     'PM', // Saint Pierre and Miquelon
     'SH', // Saint Helena, Ascension and Tristan da Cunha
-    'WF'  // Wallis and Futuna
+    'WF', // Wallis and Futuna
+    'A1', 'A2', 'O1', 'AP', 'EU' // Non-country codes
   ]);
+
+  const normalizeGeo = (c: string) => {
+    let normalized = c;
+    if (normalized === 'UK') normalized = 'GB'; // Map UK to GB to prevent duplicates
+    if (normalized === 'ALL' || normalized === 'GLOBAL') normalized = 'WW';
+    return normalized;
+  };
 
   const parseCountries = (o: Offer) => {
     if (!o.countries?.length) return ['WW'];
     const all = o.countries
       .flatMap(c => c.split(/[,|]/))
       .map(c => c.trim().toUpperCase())
+      .map(normalizeGeo)
       .filter(c => c && !EXCLUDED_MINOR_TERRITORIES.has(c));
     
     const unique = all.length ? Array.from(new Set(all)) : ['WW'];

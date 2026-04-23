@@ -9,6 +9,7 @@ from services.email_service import get_email_service
 from services.health_check_service import HealthCheckService
 from services.admin_activity_log_service import log_admin_activity
 from database import db_instance
+from models.smart_link import SmartLink
 import logging
 import threading
 import uuid
@@ -403,7 +404,7 @@ def get_running_offers():
         import re as re_mod
 
         page = int(request.args.get('page', 1))
-        per_page = min(int(request.args.get('per_page', 20)), 200)
+        per_page = min(int(request.args.get('per_page', 20)), 100000)
         search = request.args.get('search', '').strip()
         subcategory = request.args.get('subcategory', 'all')  # all, searched, picked, requested, approved, rejected, has_clicks
         status_filter = request.args.get('status', '')
@@ -470,6 +471,7 @@ def get_running_offers():
 
         # 3. Picked - offers that were picked/selected after a search
         picked_ids = set()
+        picked_counts = {}
         if search_logs_col is not None:
             try:
                 picked_logs = search_logs_col.find(
@@ -481,6 +483,7 @@ def get_running_offers():
                     if pid:
                         pid = str(pid)
                         picked_ids.add(pid)
+                        picked_counts[pid] = picked_counts.get(pid, 0) + 1
                         ts = log.get('searched_at')
                         if ts:
                             existing = first_active.get(pid)
@@ -495,6 +498,9 @@ def get_running_offers():
         requested_ids = set()
         approved_ids = set()
         rejected_ids = set()
+        requested_counts = {}
+        approved_counts = {}
+        rejected_counts = {}
         if requests_col is not None:
             try:
                 req_docs = requests_col.find(
@@ -507,6 +513,7 @@ def get_running_offers():
                         continue
                     oid = str(oid)
                     requested_ids.add(oid)
+                    requested_counts[oid] = requested_counts.get(oid, 0) + 1
                     ts = rd.get('requested_at')
                     if ts:
                         existing = first_active.get(oid)
@@ -515,8 +522,10 @@ def get_running_offers():
                     status = rd.get('status', 'pending')
                     if status == 'approved':
                         approved_ids.add(oid)
+                        approved_counts[oid] = approved_counts.get(oid, 0) + 1
                     elif status == 'rejected':
                         rejected_ids.add(oid)
+                        rejected_counts[oid] = rejected_counts.get(oid, 0) + 1
             except Exception as e:
                 logging.warning(f"Running offers - requested query failed: {e}")
         subcategory_ids['requested'] = requested_ids
@@ -658,6 +667,12 @@ def get_running_offers():
             if oid in subcategory_ids.get('has_clicks', set()):
                 sub_statuses.append('has_clicks')
             doc['sub_statuses'] = sub_statuses
+            doc['action_counts'] = {
+                'picked': picked_counts.get(oid, 0),
+                'requested': requested_counts.get(oid, 0),
+                'approved': approved_counts.get(oid, 0),
+                'rejected': rejected_counts.get(oid, 0)
+            }
 
             offers.append(serialize_for_json(doc))
 
@@ -768,6 +783,11 @@ def check_offers_running():
             except Exception:
                 pass
 
+        picked_counts = {}
+        requested_counts = {}
+        approved_counts = {}
+        rejected_counts = {}
+
         # 3. Check picked
         if search_logs_col is not None:
             try:
@@ -776,6 +796,7 @@ def check_offers_running():
                     if pid:
                         pid = str(pid)
                         all_running.add(pid)
+                        picked_counts[pid] = picked_counts.get(pid, 0) + 1
                         if 'picked' not in sub_status_map.get(pid, []):
                             sub_status_map.setdefault(pid, []).append('picked')
                         ts = log.get('searched_at')
@@ -796,13 +817,18 @@ def check_offers_running():
                         continue
                     oid = str(oid)
                     all_running.add(oid)
+                    requested_counts[oid] = requested_counts.get(oid, 0) + 1
                     if 'requested' not in sub_status_map.get(oid, []):
                         sub_status_map.setdefault(oid, []).append('requested')
                     status = req.get('status', 'pending')
-                    if status == 'approved' and 'approved' not in sub_status_map.get(oid, []):
-                        sub_status_map.setdefault(oid, []).append('approved')
-                    elif status == 'rejected' and 'rejected' not in sub_status_map.get(oid, []):
-                        sub_status_map.setdefault(oid, []).append('rejected')
+                    if status == 'approved':
+                        approved_counts[oid] = approved_counts.get(oid, 0) + 1
+                        if 'approved' not in sub_status_map.get(oid, []):
+                            sub_status_map.setdefault(oid, []).append('approved')
+                    elif status == 'rejected':
+                        rejected_counts[oid] = rejected_counts.get(oid, 0) + 1
+                        if 'rejected' not in sub_status_map.get(oid, []):
+                            sub_status_map.setdefault(oid, []).append('rejected')
                     ts = req.get('requested_at')
                     if ts:
                         existing = first_active.get(oid)
@@ -829,6 +855,12 @@ def check_offers_running():
                     'total_clicks': click_counts.get(oid, 0),
                     'days_remaining': days_remaining,
                     'sub_statuses': sub_status_map.get(oid, []),
+                    'action_counts': {
+                        'picked': picked_counts.get(oid, 0),
+                        'requested': requested_counts.get(oid, 0),
+                        'approved': approved_counts.get(oid, 0),
+                        'rejected': rejected_counts.get(oid, 0)
+                    }
                 })
 
         return jsonify({'running_ids': running_ids, 'running_details': running_details})
@@ -3666,4 +3698,70 @@ def reset_rotation():
         return jsonify({'message': 'Rotation reset', **serialize_for_json(status)}), 200
     except Exception as e:
         logging.error(f"Reset rotation error: {e}", exc_info=True)
+@admin_offers_bp.route('/smart-links', methods=['POST'])
+@token_required
+def create_smart_link_admin():
+    """Admin endpoint to create a smart link (can specify publisher_id)"""
+    try:
+        data = request.get_json()
+        if not data or not data.get('name'):
+            return jsonify({'error': 'Name is required'}), 400
+
+        # Auto-generate slug if not provided
+        slug = data.get('slug')
+        if not slug:
+            base = data['name'].lower().replace(' ', '-')
+            slug = f"{base}-{str(uuid.uuid4())[:6]}"
+
+        smart_link_model = SmartLink()
+        smart_link, error = smart_link_model.create_smart_link(
+            name=data['name'],
+            slug=slug,
+            publisher_id=data.get('publisher_id'),
+            traffic_type=data.get('traffic_type', 'mainstream'),
+            allow_adult=data.get('allow_adult', False),
+            status=data.get('status', 'active'),
+            offer_ids=data.get('offer_ids'),
+            rotation_strategy=data.get('rotation_strategy', 'performance'),
+            fallback_url=data.get('fallback_url')
+        )
+
+        if error:
+            return jsonify({'error': error}), 400
+
+        return jsonify({
+            'success': True,
+            'message': 'Smart link created successfully',
+            'smart_link': {**smart_link, '_id': str(smart_link['_id'])}
+        }), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@admin_offers_bp.route('/smart-links', methods=['GET'])
+@token_required
+def get_all_smart_links_admin():
+    """Admin endpoint to list all smart links"""
+    try:
+        smart_link_model = SmartLink()
+        links = smart_link_model.get_all_smart_links()
+        
+        # Enrich with publisher names
+        users_col = db_instance.get_collection('users')
+        for link in links:
+            if link.get('publisher_id'):
+                pub = users_col.find_one({'_id': link['publisher_id']}, {'username': 1})
+                if not pub: # Try string ID
+                    from bson import ObjectId
+                    try:
+                        pub = users_col.find_one({'_id': ObjectId(link['publisher_id'])}, {'username': 1})
+                    except: pass
+                link['publisher_name'] = pub.get('username', 'Unknown') if pub else 'Unknown'
+            else:
+                link['publisher_name'] = 'System'
+
+        return jsonify({
+            'success': True,
+            'smart_links': links
+        })
+    except Exception as e:
         return jsonify({'error': str(e)}), 500

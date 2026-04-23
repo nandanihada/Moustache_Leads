@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff, Copy, RefreshCw, Save } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import PublisherEmailSettings from "@/components/PublisherEmailSettings";
 import { BillingInfoTab } from "@/components/BillingInfoTab";
+import { API_BASE_URL } from "@/services/apiConfig";
 
 const Settings = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -19,29 +20,67 @@ const Settings = () => {
   const { user, token } = useAuth();
 
   const [profile, setProfile] = useState({
-    firstName: "John",
-    lastName: "Smith",
-    email: "john.smith@example.com",
-    phone: "+1 (555) 123-4567",
-    company: "Digital Marketing Inc.",
-    website: "https://digitalmarketing.example.com"
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    company: "",
+    website: ""
   });
 
   const [billing, setBilling] = useState({
-    address: "123 Main Street",
-    city: "New York",
-    state: "NY",
-    zipCode: "10001",
-    country: "United States",
-    taxId: "12-3456789",
-    paymentMethod: "PayPal",
-    paymentEmail: "payments@example.com"
+    address: "",
+    city: "",
+    state: "",
+    zipCode: "",
+    country: "",
+    taxId: "",
+    paymentMethod: "",
+    paymentEmail: ""
   });
 
-  const [credentials] = useState({
-    apiKey: "your_api_key_here",
+  const [credentials, setCredentials] = useState({
+    apiKey: "",
     secretKey: "your_secret_key_here"
   });
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    const loadProfile = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to load profile');
+        }
+
+        const data = await response.json();
+        const userProfile = data.user || {};
+
+        setProfile({
+          firstName: userProfile.first_name || user?.username || '',
+          lastName: userProfile.last_name || '',
+          email: userProfile.email || '',
+          phone: '',
+          company: userProfile.company_name || '',
+          website: userProfile.website || ''
+        });
+        setCredentials(prev => ({ ...prev, apiKey: userProfile.api_key || '' }));
+      } catch (error) {
+        console.error('Error loading profile:', error);
+      }
+    };
+
+    loadProfile();
+  }, [token, user]);
 
   const copyToClipboard = (text: string, type: string) => {
     navigator.clipboard.writeText(text);
@@ -51,11 +90,38 @@ const Settings = () => {
     });
   };
 
-  const regenerateKey = (keyType: string) => {
-    toast({
-      title: "Key Regenerated",
-      description: `New ${keyType} has been generated`,
-    });
+  const regenerateKey = async () => {
+    if (!token) {
+      toast({ title: "Authentication required", description: "Please sign in to regenerate your API key.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/generate-api-key`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to regenerate API key');
+      }
+
+      setCredentials(prev => ({ ...prev, apiKey: data.api_key || prev.apiKey }));
+      toast({
+        title: "API Key Regenerated",
+        description: "Your API key was regenerated successfully",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error regenerating API key",
+        description: error?.message || 'An unexpected error occurred',
+        variant: "destructive"
+      });
+    }
   };
 
   const saveProfile = () => {
@@ -217,40 +283,16 @@ const Settings = () => {
                     </div>
                   </div>
 
-                  <div>
-                    <Label htmlFor="secretKey">Secret Key</Label>
-                    <div className="flex gap-2 mt-2">
-                      <div className="flex-1 relative">
-                        <Input
-                          id="secretKey"
-                          type={showSecretKey ? "text" : "password"}
-                          value={credentials.secretKey}
-                          readOnly
-                          className="font-mono"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="absolute right-1 top-1/2 -translate-y-1/2"
-                          onClick={() => setShowSecretKey(!showSecretKey)}
-                        >
-                          {showSecretKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                      <Button
-                        variant="outline"
-                        onClick={() => copyToClipboard(credentials.secretKey, "Secret Key")}
-                      >
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => regenerateKey("Secret Key")}
-                      >
-                        <RefreshCw className="h-4 w-4" />
-                      </Button>
-                    </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm text-muted-foreground">
+                      Use your API key to fetch offers from the public API. Example request:
+                    </p>
+                    <pre className="mt-3 rounded bg-slate-950 p-3 text-xs text-white overflow-x-auto">
+{`curl "${API_BASE_URL}/api/offers?api_key=${credentials.apiKey}&country=US&device_type=mobile"`}
+                    </pre>
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      You can also pass the API key in the <code>X-API-Key</code> header or by using <code>Authorization: ApiKey &lt;key&gt;</code>.
+                    </p>
                   </div>
                 </div>
 

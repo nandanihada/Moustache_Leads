@@ -22,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { AlertCircle, Clock, MapPin, Smartphone, Globe, Shield, Zap } from 'lucide-react';
 import { API_BASE_URL } from '../services/apiConfig';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 interface Click {
   click_id: string;
@@ -110,16 +111,19 @@ interface ClickDetails extends Click {
   };
   fraud_indicators: {
     duplicate_detected?: boolean;
+    duplicate_click?: boolean;
     fast_click?: boolean;
     vpn_proxy?: boolean;
     bot_like?: boolean;
     fraud_score?: number;
     fraud_status?: string;
+    vpn_detected?: boolean;
+    proxy_detected?: boolean;
   };
 }
 
-function AdminClickTracking() {
-  const [activeTab, setActiveTab] = useState('all-clicks');
+export function AdminClickTrackingContent() {
+  const [activeTab, setActiveTab] = useState('analytics');
   const [trackingSource, setTrackingSource] = useState<'offerwall' | 'dashboard'>('offerwall');
   const [clicks, setClicks] = useState<Click[]>([]);
   const [dashboardClicks, setDashboardClicks] = useState<Click[]>([]);
@@ -132,7 +136,95 @@ function AdminClickTracking() {
   const [userTimeline, setUserTimeline] = useState<Click[]>([]);
   const [publisherTimeline, setPublisherTimeline] = useState<Click[]>([]);
 
+  // Advanced Analytics State
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+
   const token = localStorage.getItem('token');
+
+  // Action handlers
+  const pauseOffer = async (offer_id: string) => {
+    if(!window.confirm('Pause this offer?')) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/click-tracking/action/pause-offer`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offer_id })
+      });
+      const data = await res.json();
+      if(data.success) {
+        let suggestionText = data.suggestions && data.suggestions.length > 0 
+          ? '\\n\\nRelated offers you can suggest:\\n' + data.suggestions.map((s:any) => `- ${s.name} ($${s.payout})`).join('\\n')
+          : '';
+        alert('Offer paused successfully!' + suggestionText);
+      } else {
+        alert('Failed: ' + data.error);
+      }
+    } catch(e) { alert(e); }
+  };
+
+  const unpauseOffer = async (offer_id: string) => {
+    if(!window.confirm('Unpause this offer? (Make it Active)')) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/click-tracking/action/unpause-offer`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offer_id })
+      });
+      const data = await res.json();
+      if(data.success) {
+        alert(data.message);
+      } else {
+        alert('Failed: ' + data.error);
+      }
+    } catch(e) { alert(e); }
+  };
+
+  const warnUser = async (user_id: string) => {
+    if(!user_id) return alert('Invalid User ID');
+    const reason = window.prompt('Warning reason? (Sent to user inbox)');
+    if(!reason) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/click-tracking/action/warn`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id, reason })
+      });
+      const data = await res.json();
+      if(data.success) alert('User warned.');
+      else alert('Failed: ' + data.error);
+    } catch(e) { alert(e); }
+  };
+
+  const decreasePrice = async (offer_id: string, user_id: string | null = null) => {
+    const price = window.prompt(`New payout price for ${user_id ? 'this user' : 'ALL users'}?`);
+    if(!price) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/click-tracking/action/decrease-price`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ offer_id, user_id, new_price: price })
+      });
+      const data = await res.json();
+      if(data.success) alert(data.message);
+      else alert('Failed: ' + data.error);
+    } catch(e) { alert(e); }
+  };
+
+  const fetchAnalytics = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/click-tracking/analytics?source=${trackingSource}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await response.json();
+      if(data.success) {
+        setAnalyticsData(data);
+      }
+    } catch(e) { console.error('Error fetching analytics:', e); }
+    setLoading(false);
+  };
+
+
 
   // Fetch all clicks
   const fetchAllClicks = async () => {
@@ -281,11 +373,11 @@ function AdminClickTracking() {
     }
   };
 
-  // Load all clicks on mount
   useEffect(() => {
+    fetchAnalytics();
     fetchAllClicks();
     fetchDashboardClicks();
-  }, []);
+  }, [trackingSource]);
 
   const getFraudBadgeColor = (status?: string) => {
     switch (status) {
@@ -330,11 +422,7 @@ function AdminClickTracking() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Click Tracking</h1>
-        <p className="text-gray-500 mt-2">View detailed information about all clicks</p>
-      </div>
+    <div className="space-y-6">
 
       {/* Source Selector - Offerwall vs Dashboard */}
       <div className="flex gap-4 mb-4">
@@ -438,15 +526,124 @@ function AdminClickTracking() {
       )}
 
       {/* Offerwall Clicks Section */}
-      {trackingSource === 'offerwall' && (
+      {trackingSource === 'offerwall' && (<>
+
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6 mb-4">
           <TabsTrigger value="all-clicks">All Clicks</TabsTrigger>
           <TabsTrigger value="by-user">By User</TabsTrigger>
           <TabsTrigger value="by-publisher">By Publisher</TabsTrigger>
           <TabsTrigger value="by-offer">By Offer</TabsTrigger>
           <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="analytics">Analytics & Actions</TabsTrigger>
         </TabsList>
+
+        {/* Analytics Tab */}
+        <TabsContent value="analytics" className="space-y-4">
+          {analyticsData && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardHeader><CardTitle>Top Clicks by User</CardTitle></CardHeader>
+                  <CardContent className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analyticsData.top_users} layout="vertical" margin={{ left: 40 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis dataKey="user_id" type="category" width={80} />
+                        <Tooltip />
+                        <Bar dataKey="clicks" fill="var(--color-primary, #f97316)" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader><CardTitle>Top Clicks by Offer</CardTitle></CardHeader>
+                  <CardContent className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analyticsData.top_offers} layout="vertical" margin={{ left: 40 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis dataKey="offer_id" type="category" width={80} />
+                        <Tooltip />
+                        <Bar dataKey="clicks" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader><CardTitle>Top Clicks by Country</CardTitle></CardHeader>
+                  <CardContent className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analyticsData.top_countries} layout="vertical" margin={{ left: 40 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis dataKey="country" type="category" width={80} />
+                        <Tooltip />
+                        <Bar dataKey="clicks" fill="#22c55e" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Suspicious / Detailed Clicks</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>User ID</TableHead>
+                        <TableHead>Offer ID</TableHead>
+                        <TableHead>IP Address</TableHead>
+                        <TableHead>Country</TableHead>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Suspicious?</TableHead>
+                        <TableHead>Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {analyticsData.recent_clicks.map((click: any) => (
+                        <TableRow key={click._id || click.click_id} className={click.is_suspicious ? 'bg-red-50/50' : ''}>
+                          <TableCell>{click.affiliate_id}</TableCell>
+                          <TableCell>{click.offer_id}</TableCell>
+                          <TableCell>{click.ip_address}</TableCell>
+                          <TableCell>{click.country}</TableCell>
+                          <TableCell>{click.click_time ? formatDate(click.click_time) : 'Unknown'}</TableCell>
+                          <TableCell>
+                            {click.is_suspicious ? (
+                              <Badge variant="destructive" className="flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" /> Suspicious
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="bg-green-50 text-green-700">Genuine</Badge>
+                            )}
+                            {click.is_suspicious && <p className="text-xs text-red-600 mt-1 max-w-[150px]">{click.suspicious_reason}</p>}
+                          </TableCell>
+                          <TableCell>
+                             <div className="flex flex-col gap-1 items-start">
+                               <Button size="sm" variant="outline" onClick={() => warnUser(click.affiliate_id)} className="h-7 w-full text-xs">Warn User</Button>
+                               {!click.is_paused && (
+                                 <Button size="sm" variant="destructive" onClick={() => pauseOffer(click.offer_id)} className="h-7 w-full text-xs">Pause Offer</Button>
+                               )}
+                               {click.is_paused && (
+                                 <Button size="sm" variant="outline" className="h-7 w-full text-xs border-green-500 text-green-600 hover:bg-green-50" onClick={() => unpauseOffer(click.offer_id)}>Unpause Offer</Button>
+                               )}
+                               <Button size="sm" variant="secondary" onClick={() => decreasePrice(click.offer_id, click.affiliate_id)} className="h-7 w-full text-xs">Decrease Price</Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </TabsContent>
 
         {/* All Clicks Tab */}
         <TabsContent value="all-clicks" className="space-y-4">
@@ -513,13 +710,19 @@ function AdminClickTracking() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => fetchClickDetails(click.click_id)}
-                            >
-                              Details
-                            </Button>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex flex-wrap gap-1 w-[200px]">
+                                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fetchClickDetails(click.click_id)}>Details</Button>
+                                {!click.is_paused && (
+                                  <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => pauseOffer(click.offer_id)}>Pause</Button>
+                                )}
+                                {click.is_paused && (
+                                  <Button size="sm" variant="outline" className="h-7 text-xs border-green-500 text-green-600 hover:bg-green-50" onClick={() => unpauseOffer(click.offer_id)}>Unpause</Button>
+                                )}
+                                <Button size="sm" variant="secondary" className="h-7 text-xs bg-yellow-100 text-yellow-800 hover:bg-yellow-200 border-yellow-300" onClick={() => warnUser(click.user_id)}>Warn User</Button>
+                                <Button size="sm" variant="secondary" className="h-7 text-xs bg-blue-100 text-blue-800 hover:bg-blue-200" onClick={() => decreasePrice(click.offer_id, click.user_id)}>Decrease Price</Button>
+                              </div>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -856,7 +1059,7 @@ function AdminClickTracking() {
           </div>
         </TabsContent>
       </Tabs>
-      )}
+      </>)}
 
       {/* Click Details Modal */}
       <Dialog open={showDetailsModal} onOpenChange={setShowDetailsModal}>
@@ -1089,7 +1292,7 @@ function AdminClickTracking() {
 
 const AdminClickTrackingWithGuard = () => (
   <AdminPageGuard requiredTab="click-tracking">
-    <AdminClickTracking />
+    <AdminClickTrackingContent />
   </AdminPageGuard>
 );
 

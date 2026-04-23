@@ -1,3 +1,4 @@
+import { AdminClickTrackingContent } from './AdminClickTracking';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -654,7 +655,7 @@ function AdminReportsTrackingContent() {
         <button onClick={() => setActiveTab('conversion')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'conversion' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><FileText className="h-4 w-4" />Conversion Report</button>
         <button onClick={() => setActiveTab('clicks')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'clicks' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><MousePointerClick className="h-4 w-4" />Click Tracking</button>
       </div>
-      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : <ClickTrackingTab />}
+      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : <AdminClickTrackingContent />}
     </div>
   );
 }

@@ -31,6 +31,8 @@ import {
   RotateCcw,
   Package,
   Send,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 const CATEGORY_TABS = [
@@ -86,6 +88,8 @@ export default function AdminActivityLogs() {
   });
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
+  const [showLevelFilters, setShowLevelFilters] = useState(false);
+  const [selectedLevel, setSelectedLevel] = useState<string>("");
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["activity-logs", filters],
@@ -228,6 +232,15 @@ export default function AdminActivityLogs() {
           <Filter className="h-4 w-4" />
           Filters {hasActiveFilters && `(active)`}
         </button>
+        <button
+          onClick={() => setShowLevelFilters(!showLevelFilters)}
+          className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm transition-colors ${
+            selectedLevel ? "border-blue-500 text-blue-700 bg-blue-50" : "border-border text-muted-foreground hover:bg-muted/50"
+          }`}
+        >
+          <User className="h-4 w-4" />
+          Level Filters {selectedLevel && `(${selectedLevel})`}
+        </button>
         {hasActiveFilters && (
           <button onClick={clearFilters} className="flex items-center gap-1 px-2 py-2 text-sm text-muted-foreground hover:text-foreground">
             <X className="h-3.5 w-3.5" /> Clear
@@ -305,6 +318,9 @@ export default function AdminActivityLogs() {
           </div>
         </div>
       )}
+
+      {/* Level Filters Panel */}
+      {showLevelFilters && <LevelFiltersPanel selectedLevel={selectedLevel} onLevelSelect={setSelectedLevel} />}
 
       {/* Rotation Live Panel - shown when rotation tab is active */}
       {filters.category === "rotation" && <RotationLivePanel />}
@@ -446,6 +462,185 @@ export default function AdminActivityLogs() {
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Level Filters Panel - shows users grouped by level with their last 10 activities */
+function LevelFiltersPanel({ selectedLevel, onLevelSelect }: { selectedLevel: string; onLevelSelect: (level: string) => void }) {
+  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+  const levels = ["L1", "L2", "L3", "L4", "L5", "L6", "L7"];
+
+  const levelLabels: Record<string, string> = {
+    "L1": "Signed up, no engagement",
+    "L2": "Browsed, no action",
+    "L3": "Placed, never activated",
+    "L4": "Requested, no approval",
+    "L5": "Approved, no clicks",
+    "L6": "Suspicious activity",
+    "L7": "Genuine, no conversion",
+  };
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["level-users", selectedLevel],
+    queryFn: async () => {
+      if (!selectedLevel) return { users: [] };
+      
+      const token = document.cookie.split("token=")[1]?.split(";")[0] || "";
+      const res = await fetch(
+        `${import.meta.env.VITE_API_BASE_URL || "http://localhost:5000"}/api/admin/activity-logs/users-by-level?level=${selectedLevel}`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to fetch users");
+      }
+      return res.json();
+    },
+    enabled: !!selectedLevel,
+    retry: 1,
+  });
+
+  const toggleUser = (userId: string) => {
+    setExpandedUsers((prev) => {
+      const next = new Set(prev);
+      next.has(userId) ? next.delete(userId) : next.add(userId);
+      return next;
+    });
+  };
+
+  const getActivityColor = (type: string) => {
+    switch (type) {
+      case "view": return "bg-blue-100 text-blue-700";
+      case "approval": return "bg-green-100 text-green-700";
+      case "rejected": return "bg-red-100 text-red-700";
+      default: return "bg-gray-100 text-gray-700";
+    }
+  };
+
+  const formatDate = (ts: string) => {
+    try {
+      return new Date(ts).toLocaleString();
+    } catch {
+      return ts;
+    }
+  };
+
+  return (
+    <div className="border border-blue-200 rounded-lg bg-blue-50/20 overflow-hidden">
+      {/* Header with Level Tabs */}
+      <div className="flex items-center justify-between px-4 py-3 bg-blue-100/40 border-b border-blue-200">
+        <div className="flex items-center gap-3">
+          <User className="h-5 w-5 text-blue-600" />
+          <span className="font-semibold text-blue-900">User Level Filters</span>
+        </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          {levels.map((level) => (
+            <button
+              key={level}
+              onClick={() => onLevelSelect(selectedLevel === level ? "" : level)}
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                selectedLevel === level
+                  ? "bg-blue-600 text-white"
+                  : "bg-white text-blue-700 hover:bg-blue-50 border border-blue-200"
+              }`}
+              title={levelLabels[level]}
+            >
+              {level}
+            </button>
+          ))}
+          {selectedLevel && (
+            <button
+              onClick={() => onLevelSelect("")}
+              className="ml-2 p-1 hover:bg-blue-200 rounded transition-colors"
+              aria-label="Clear level filter"
+            >
+              <X className="h-3.5 w-3.5 text-blue-600" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Users List */}
+      {!selectedLevel ? (
+        <div className="px-4 py-8 text-center text-muted-foreground">
+          Select a level (L1-L7) to view users and their activities
+        </div>
+      ) : isLoading ? (
+        <div className="px-4 py-8 text-center text-blue-600">
+          <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2" />
+          Loading users for {selectedLevel}...
+        </div>
+      ) : !data?.users || data.users.length === 0 ? (
+        <div className="px-4 py-8 text-center text-muted-foreground">
+          No users found for level {selectedLevel}
+        </div>
+      ) : (
+        <div className="divide-y divide-blue-100">
+          {data.users.map((user) => (
+            <div key={user.id} className="bg-white">
+              {/* User Header */}
+              <div
+                onClick={() => toggleUser(user.id)}
+                className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-blue-50/50 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-semibold text-sm">
+                    {user.username.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="font-medium text-foreground">{user.username}</div>
+                    <div className="text-xs text-muted-foreground">{user.email}</div>
+                  </div>
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs font-medium rounded">
+                    {user.level}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {user.activities?.length || 0} activities
+                  </span>
+                  {expandedUsers.has(user.id) ? (
+                    <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+
+              {/* User Activities (Expanded) */}
+              {expandedUsers.has(user.id) && user.activities && user.activities.length > 0 && (
+                <div className="px-4 pb-3">
+                  <div className="bg-gray-50 rounded-lg p-3 space-y-2">
+                    <div className="text-xs font-medium text-muted-foreground mb-2">
+                      Last {Math.min(10, user.activities.length)} Activities
+                    </div>
+                    {user.activities.slice(0, 10).map((activity) => (
+                      <div
+                        key={activity.id}
+                        className="flex items-center justify-between p-2 bg-white rounded border border-gray-200"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${getActivityColor(activity.type)}`}>
+                            {activity.type}
+                          </span>
+                          <span className="text-xs text-foreground">{activity.offer}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{formatDate(activity.timestamp)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

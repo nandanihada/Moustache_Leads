@@ -247,6 +247,9 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
     file_description: '',
     // Promo code field
     promo_code_id: '',
+    // Smart Link Selection fields
+    priority: 0,
+    rotation_weight: 1.0,
     // 🔥 APPROVAL WORKFLOW FIELDS - Initialize with defaults
     approval_type: 'auto_approve',
     auto_approve_delay: 0,
@@ -324,6 +327,9 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         file_description: (offer as any).file_description || '',
         // Promo code field
         promo_code_id: (offer as any).promo_code_id || '',
+        // Smart Link selection fields
+        priority: (offer as any).priority || 0,
+        rotation_weight: (offer as any).rotation_weight || 1.0,
         // 🔥 APPROVAL WORKFLOW FIELDS - Load from offer
         approval_type: (offer as any).approval_settings?.type || 'auto_approve',
         auto_approve_delay: (offer as any).approval_settings?.auto_approve_delay || 0,
@@ -610,6 +616,9 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         fallback_redirect_timer: fallbackRedirect.timer,
         // 🔥 PROMO CODE ASSIGNMENT
         promo_code_id: selectedPromoCode || undefined,
+        // Smart Link selection fields
+        priority: Number(formData.priority) || 0,
+        rotation_weight: Number(formData.rotation_weight) || 1.0,
         // 🔥 APPROVAL WORKFLOW DATA: Include all approval settings
         approval_type: formData.approval_type || 'auto_approve',
         auto_approve_delay: formData.auto_approve_delay || 0,
@@ -761,6 +770,33 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                           <SelectItem value="CPC">CPC</SelectItem>
                         </SelectContent>
                       </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="priority">Selection Priority (Smart Link)</Label>
+                      <Input
+                        id="priority"
+                        type="number"
+                        value={formData.priority || 0}
+                        onChange={(e) => handleInputChange('priority', parseInt(e.target.value) || 0)}
+                        placeholder="0"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Higher values are prioritized in Smart Link redirection.</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="rotation_weight">Rotation Weight (0.1 - 10)</Label>
+                      <Input
+                        id="rotation_weight"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={formData.rotation_weight || 1.0}
+                        onChange={(e) => handleInputChange('rotation_weight', parseFloat(e.target.value) || 1.0)}
+                        placeholder="1.0"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Relative probability for weighted random rotation.</p>
                     </div>
                   </div>
 

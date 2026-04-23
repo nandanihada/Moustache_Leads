@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronDown,
   MessageCircle,
+  Activity,
   LucideIcon
 } from "lucide-react";
 import { NavLink, useNavigate, Link, useLocation } from "react-router-dom";
@@ -80,6 +81,7 @@ const menuStructure: MenuItem[] = [
     subtabs: [
       { title: "Placements", url: "/dashboard/placements", icon: Target, alwaysAccessible: true, requiresAccountApproval: true },
       { title: "Offers", url: "/dashboard/offers", icon: Gift, requiresPlacement: true },
+      { title: "Smart Link", url: "/dashboard/smart-link", icon: Zap, requiresPlacement: true },
       { title: "Assets", url: "/dashboard/assets", icon: FileImage, adminOnly: true },
     ]
   },
@@ -91,6 +93,8 @@ const menuStructure: MenuItem[] = [
     subtabs: [
       { title: "Performance Report", url: "/dashboard/performance-report", icon: TrendingUp },
       { title: "Conversion Report", url: "/dashboard/conversion-report", icon: Receipt },
+      { title: "API Stats", url: "/dashboard/api-stats", icon: Activity },
+      { title: "API Conversions", url: "/dashboard/api-conversions", icon: Receipt },
     ]
   },
   {
@@ -100,6 +104,7 @@ const menuStructure: MenuItem[] = [
     requiresPlacement: true,
     subtabs: [
       { title: "Promo Codes", url: "/dashboard/promo-codes", icon: Zap },
+      { title: "Direct Promo Code", url: "/dashboard/test-promo-v2", icon: Zap },
       { title: "Redeem Gift Card", url: "/dashboard/redeem-gift-card", icon: Gift },
     ]
   },
@@ -109,6 +114,7 @@ const menuStructure: MenuItem[] = [
     type: "group",
     subtabs: [
       { title: "Settings", url: "/dashboard/settings", icon: Settings },
+      { title: "API Access", url: "/dashboard/api-access", icon: Zap },
     ]
   },
   {

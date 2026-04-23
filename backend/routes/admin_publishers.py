@@ -183,7 +183,17 @@ def get_publisher_details(publisher_id):
             'createdAt': publisher['created_at'].isoformat() if publisher.get('created_at') and hasattr(publisher.get('created_at'), 'isoformat') else None,
             'updatedAt': publisher.get('updated_at').isoformat() if publisher.get('updated_at') and hasattr(publisher.get('updated_at'), 'isoformat') else None,
             'lastLogin': publisher.get('lastLogin').isoformat() if publisher.get('lastLogin') and hasattr(publisher.get('lastLogin'), 'isoformat') else None,
-            'placements': placement_list
+            'placements': placement_list,
+            'verticals': publisher.get('verticals', []),
+            'geos': publisher.get('geos', []),
+            'trafficSources': publisher.get('traffic_sources', []),
+            'websiteUrls': publisher.get('website_urls', []),
+            'promotionDescription': publisher.get('promotion_description', ''),
+            'socialContacts': publisher.get('social_contacts', {}),
+            'smartLinkInterest': publisher.get('smart_link_interest', 'none'),
+            'smartLinkTrafficSource': publisher.get('smart_link_traffic_source', ''),
+            'address': publisher.get('address', {}),
+            'payoutDetails': publisher.get('payout_details', {})
         }
         
         return jsonify(publisher_data), 200
