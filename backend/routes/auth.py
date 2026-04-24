@@ -624,6 +624,14 @@ def login():
             )
             return jsonify({'error': 'Account is deactivated'}), 401
         
+        # Check email verification (skip for admins)
+        if user_data.get('role') != 'admin' and not user_data.get('email_verified', False):
+            return jsonify({
+                'error': 'Please verify your email before logging in. Check your inbox for the verification link.',
+                'email_not_verified': True,
+                'email': user_data.get('email', '')
+            }), 403
+        
         # Track successful login and create session
         session_id = activity_tracking_service.track_login_attempt(
             user_data,

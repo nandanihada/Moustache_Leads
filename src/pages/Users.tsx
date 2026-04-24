@@ -45,6 +45,20 @@ interface User {
   newsletter_consent?: boolean;
   newsletter_consent_at?: string;
   level?: string;
+  // Registration profile fields
+  verticals?: string[];
+  geos?: string[];
+  traffic_sources?: string[];
+  website_urls?: string[];
+  promotion_description?: string;
+  monthly_visits?: string;
+  conversion_rate?: string;
+  social_contacts?: { linkedin?: string; telegram?: string; agency?: string };
+  smart_link_interest?: string;
+  smart_link_traffic_source?: string;
+  address?: { street?: string; unit?: string; city?: string; country?: string; state?: string; postal?: string };
+  payout_details?: { tax_id?: string; vat_id?: string; bank_name?: string; account_name?: string; account_number?: string; routing_number?: string };
+  partners?: { network?: string; email?: string }[];
 }
 
 interface UserCounts {
@@ -976,6 +990,55 @@ const Users = () => {
                                         </div>
                                       </div>
                                     </div>
+
+                                    {/* REGISTRATION PROFILE DATA */}
+                                    {(user.verticals?.length > 0 || user.geos?.length > 0 || user.traffic_sources?.length > 0 || user.website_urls?.length > 0 || user.social_contacts || user.address || user.payout_details || user.promotion_description) && (
+                                      <div className="bg-gradient-to-br from-blue-50 to-white p-6 rounded-2xl border border-blue-200 shadow-sm">
+                                        <h4 className="text-base font-bold text-blue-900 mb-4 flex items-center gap-2">
+                                          📋 Registration Profile
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+                                          {user.verticals?.length > 0 && (
+                                            <div><span className="font-semibold text-blue-800">Verticals:</span> <span className="text-gray-700">{user.verticals.join(', ')}</span></div>
+                                          )}
+                                          {user.geos?.length > 0 && (
+                                            <div><span className="font-semibold text-blue-800">GEOs:</span> <span className="text-gray-700">{user.geos.join(', ')}</span></div>
+                                          )}
+                                          {user.traffic_sources?.length > 0 && (
+                                            <div><span className="font-semibold text-blue-800">Traffic Sources:</span> <span className="text-gray-700">{user.traffic_sources.join(', ')}</span></div>
+                                          )}
+                                          {user.website_urls?.length > 0 && user.website_urls.some((u: string) => u) && (
+                                            <div><span className="font-semibold text-blue-800">Websites:</span> <span className="text-gray-700">{user.website_urls.filter((u: string) => u).join(', ')}</span></div>
+                                          )}
+                                          {user.monthly_visits && (
+                                            <div><span className="font-semibold text-blue-800">Monthly Visits:</span> <span className="text-gray-700">{user.monthly_visits}</span></div>
+                                          )}
+                                          {user.conversion_rate && (
+                                            <div><span className="font-semibold text-blue-800">Conversion Rate:</span> <span className="text-gray-700">{user.conversion_rate}</span></div>
+                                          )}
+                                          {user.promotion_description && (
+                                            <div className="col-span-full"><span className="font-semibold text-blue-800">Promotion:</span> <span className="text-gray-700">{user.promotion_description}</span></div>
+                                          )}
+                                          {user.social_contacts && (
+                                            <div>
+                                              <span className="font-semibold text-blue-800">Social:</span>{' '}
+                                              <span className="text-gray-700">
+                                                {[user.social_contacts.linkedin && `LinkedIn: ${user.social_contacts.linkedin}`, user.social_contacts.telegram && `TG: ${user.social_contacts.telegram}`, user.social_contacts.agency && `Agency: ${user.social_contacts.agency}`].filter(Boolean).join(' • ') || 'N/A'}
+                                              </span>
+                                            </div>
+                                          )}
+                                          {user.address && (user.address.city || user.address.country) && (
+                                            <div><span className="font-semibold text-blue-800">Location:</span> <span className="text-gray-700">{[user.address.street, user.address.city, user.address.state, user.address.country, user.address.postal].filter(Boolean).join(', ')}</span></div>
+                                          )}
+                                          {user.payout_details && (user.payout_details.bank_name || user.payout_details.account_name) && (
+                                            <div><span className="font-semibold text-blue-800">Payout:</span> <span className="text-gray-700">{[user.payout_details.bank_name, user.payout_details.account_name && `Acc: ${user.payout_details.account_name}`].filter(Boolean).join(' • ') || 'N/A'}</span></div>
+                                          )}
+                                          {user.smart_link_interest && user.smart_link_interest !== 'none' && (
+                                            <div><span className="font-semibold text-blue-800">Smart Link:</span> <span className="text-gray-700">{user.smart_link_interest}{user.smart_link_traffic_source ? ` (${user.smart_link_traffic_source})` : ''}</span></div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
 
                                     {/* PUBLISHER SIGNALS */}
                                     <div className="bg-gradient-to-br from-purple-50 to-white p-6 rounded-2xl border border-purple-200 shadow-sm">

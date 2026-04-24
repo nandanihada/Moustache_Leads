@@ -72,6 +72,8 @@ export default function PublisherSignIn() {
             }
           }
         }
+      } else if (data.email_not_verified) {
+        toast.error('Please verify your email first. Check your inbox for the verification link.');
       } else {
         alert(data.error || "Login failed");
       }

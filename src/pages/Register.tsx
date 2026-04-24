@@ -187,8 +187,8 @@ export default function Register() {
           username: username,
           token: data.token
         });
-        login(data.token, data.user);
-        toast.success("Account created successfully!");
+        // Don't auto-login — user must verify email first
+        toast.success("Account created! Please complete your profile.");
         setStep(2);
       } else {
         const errorText = data.error || "Registration failed";
