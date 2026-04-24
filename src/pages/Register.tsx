@@ -208,6 +208,62 @@ export default function Register() {
   const nextStep = () => setStep(prev => Math.min(prev + 1, totalSteps));
   const prevStep = () => setStep(prev => Math.max(prev - 1, 1));
 
+  // Save steps 2-7 profile data to backend
+  const saveProfileAndFinish = async () => {
+    if (!registrationData?.token) {
+      // No token means registration didn't complete — just go to step 8
+      nextStep();
+      return;
+    }
+    try {
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      await fetch(`${API_URL}/api/auth/update-profile`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${registrationData.token}`,
+        },
+        body: JSON.stringify({
+          verticals: formData.verticals,
+          geos: formData.geos,
+          traffic_sources: formData.trafficSources,
+          website_urls: formData.websiteUrls.filter(u => u.trim()),
+          promotion_description: formData.promotionDescription,
+          monthly_visits: formData.monthlyVisits,
+          conversion_rate: formData.conversionRate,
+          social_contacts: {
+            linkedin: formData.linkedinUrl,
+            telegram: formData.telegramHandle,
+            agency: formData.teamAccount,
+          },
+          smart_link_interest: formData.smartLinkInterest,
+          smart_link_traffic_source: formData.smartLinkTrafficSource,
+          address: {
+            street: formData.streetAddress,
+            unit: formData.unitAddress,
+            city: formData.city,
+            country: formData.country,
+            state: formData.stateProvince,
+            postal: formData.postalCode,
+          },
+          payout_details: {
+            tax_id: formData.taxId,
+            vat_id: formData.vatId,
+            bank_name: formData.bankName,
+            account_name: formData.accountHolderName,
+            account_number: formData.accountNumber,
+            routing_number: formData.routingNumber,
+          },
+          partners: partners.filter(p => p.network || p.email),
+        }),
+      });
+    } catch (err) {
+      // Non-blocking — profile save failure shouldn't block registration completion
+      console.error('Profile save error:', err);
+    }
+    nextStep();
+  };
+
   // Visual enhancements for bigger font and shorter aesthetic
   const inputClass = "w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white text-base outline-none focus:border-purple-400 transition-colors placeholder:text-purple-200/50 backdrop-blur-sm";
   const labelClass = "block text-sm font-medium text-purple-100 mb-2";
@@ -551,8 +607,8 @@ export default function Register() {
             <div className="flex items-center justify-between mt-10">
               <button className={btnBack} onClick={prevStep}>Back</button>
               <div className="flex gap-2">
-                <button className={btnSkip} onClick={nextStep}>Skip</button>
-                <button className={btnPrimary} onClick={nextStep}>Finish &rarr;</button>
+                <button className={btnSkip} onClick={saveProfileAndFinish}>Skip</button>
+                <button className={btnPrimary} onClick={saveProfileAndFinish}>Finish &rarr;</button>
               </div>
             </div>
           </div>
@@ -565,16 +621,31 @@ export default function Register() {
               <Check size={40} className="stroke-2" />
             </div>
             
-            <h2 className="text-4xl font-extrabold text-white mb-4">You're in!</h2>
-            <p className="text-xl text-purple-200 mb-8 max-w-md mx-auto leading-relaxed">
-              Account created successfully.
+            <h2 className="text-4xl font-extrabold text-white mb-4">Almost there!</h2>
+            <p className="text-xl text-purple-200 mb-4 max-w-md mx-auto leading-relaxed">
+              Your account has been created.
             </p>
-            
-            <div className="flex justify-center">
-              <button className={`${btnPrimary} w-full sm:w-auto min-w-[200px] shadow-[0_0_20px_rgba(168,85,247,0.4)]`} onClick={() => navigate("/dashboard")}>
-                Go to Dashboard ↗
-              </button>
+
+            {/* Email verification notice */}
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 mb-6 max-w-md mx-auto">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
+                  <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
+                </svg>
+                <span className="text-amber-300 font-bold text-lg">Verify your email</span>
+              </div>
+              <p className="text-purple-200 text-sm mb-3">
+                We've sent a verification link to <span className="text-white font-semibold">{registrationData?.email}</span>
+              </p>
+              <p className="text-purple-300/80 text-xs">
+                Please click the link in your email to verify your account. You won't be able to access the dashboard until your email is verified.
+              </p>
             </div>
+
+            <p className="text-purple-400 text-xs max-w-sm mx-auto">
+              Didn't receive the email? Check your spam folder or contact support.
+            </p>
           </div>
         )}
       </div>

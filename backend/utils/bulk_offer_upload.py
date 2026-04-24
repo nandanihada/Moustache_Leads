@@ -27,24 +27,51 @@ from services.tracking_link_generator import process_offer_tracking_link
 # Field mapping from spreadsheet columns to database fields
 SPREADSHEET_TO_DB_MAPPING = {
     'offer_id': 'campaign_id',  # In spreadsheet this is their campaign ID
+    'offer id': 'campaign_id',
     'campaign_id': 'campaign_id',
+    'campaign id': 'campaign_id',
+    'id': 'campaign_id',
     'title': 'name',
     'name': 'name',
+    'offer_name': 'name',
+    'offer name': 'name',
+    'offer title': 'name',
     'url': 'target_url',
     'target_url': 'target_url',
+    'target url': 'target_url',
+    'tracking_url': 'target_url',
+    'tracking url': 'target_url',
+    'tracking_link': 'target_url',
+    'tracking link': 'target_url',
+    'link': 'target_url',
     'country': 'countries',
     'countries': 'countries',
+    'geo': 'countries',
+    'geos': 'countries',
     'payout': 'payout',
+    'price': 'payout',
+    'amount': 'payout',
     'preview_url': 'preview_url',
     'preview url': 'preview_url',
     'image_url': 'image_url',
     'image url': 'image_url',
+    'image': 'image_url',
+    'thumbnail': 'image_url',
+    'thumbnail_url': 'image_url',
     'description': 'description',
+    'desc': 'description',
+    'details': 'description',
     'platform': 'network',
     'name of platform': 'network',
     'network': 'network',
+    'network_name': 'network',
+    'network name': 'network',
+    'source': 'network',
+    'affiliate_network': 'network',
+    'affiliate network': 'network',
     'expiry': 'expiration_date',
     'expiration_date': 'expiration_date',
+    'expiration date': 'expiration_date',
     # Vertical (replaces category) - supports both old and new column names
     'vertical': 'vertical',
     'category': 'vertical',  # Backward compatibility - maps to vertical
@@ -111,7 +138,6 @@ BASE_REQUIRED_FIELDS = [
     'campaign_id',  # offer_id in spreadsheet - REQUIRED for ALL networks
     'name',         # title in spreadsheet
     'countries',    # country in spreadsheet
-    'description',
     'network'       # platform in spreadsheet
 ]
 
@@ -280,8 +306,10 @@ def parse_payout_value(payout_str: str) -> Tuple[float, float, str]:
 
 
 def normalize_column_name(column: str) -> str:
-    """Normalize column names to lowercase and remove extra spaces"""
-    return column.strip().lower()
+    """Normalize column names to lowercase, remove extra spaces, and convert spaces to underscores"""
+    normalized = column.strip().lower()
+    # Also try matching with underscores replaced by spaces and vice versa
+    return normalized
 
 
 
@@ -447,44 +475,45 @@ def fetch_google_sheet(sheet_url: str) -> Tuple[List[Dict[str, Any]], Optional[s
 
 def map_spreadsheet_to_db(row_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Map spreadsheet column names to database field names
-    
-    Args:
-        row_data: Dictionary with spreadsheet column names
-        
-    Returns:
-        Dictionary with database field names
+    Map spreadsheet column names to database field names.
+    Tries exact match first, then underscore/space variants.
     """
     mapped_data = {}
     
-    for spreadsheet_col, db_field in SPREADSHEET_TO_DB_MAPPING.items():
-        if spreadsheet_col in row_data and row_data[spreadsheet_col]:
-            value = row_data[spreadsheet_col]
-            
-            # Handle country field - convert to array
-            if db_field == 'countries' and value:
-                # Split by comma if multiple countries
-                if isinstance(value, str):
-                    mapped_data[db_field] = [c.strip().upper() for c in value.split(',') if c.strip()]
-                else:
-                    mapped_data[db_field] = [str(value).strip().upper()]
-            # Handle revenue_share_percent - remove % sign if present, detect currency values
-            elif db_field == 'revenue_share_percent' and value:
-                value_str = str(value).strip()
-                # Check if this looks like a currency value (has $, €, etc.)
-                is_currency_value = any(symbol in value_str for symbol in CURRENCY_INDICATORS)
-                
-                if is_currency_value:
-                    # This is actually a payout value, not a percentage
-                    # Store it temporarily, will be handled in validation
-                    mapped_data[db_field] = value_str
-                else:
-                    # Remove % sign and store
-                    if '%' in value_str:
-                        value_str = value_str.replace('%', '').strip()
-                    mapped_data[db_field] = value_str
+    for raw_col, value in row_data.items():
+        if raw_col.startswith('_') or not value:
+            continue
+        col = raw_col.strip().lower()
+        # Try exact match first
+        db_field = SPREADSHEET_TO_DB_MAPPING.get(col)
+        # Try with underscores replaced by spaces
+        if not db_field:
+            db_field = SPREADSHEET_TO_DB_MAPPING.get(col.replace('_', ' '))
+        # Try with spaces replaced by underscores
+        if not db_field:
+            db_field = SPREADSHEET_TO_DB_MAPPING.get(col.replace(' ', '_'))
+        
+        if not db_field:
+            continue
+        
+        # Handle country field - convert to array
+        if db_field == 'countries' and value:
+            if isinstance(value, str):
+                mapped_data[db_field] = [c.strip().upper() for c in value.split(',') if c.strip()]
             else:
-                mapped_data[db_field] = value
+                mapped_data[db_field] = [str(value).strip().upper()]
+        # Handle revenue_share_percent - remove % sign if present, detect currency values
+        elif db_field == 'revenue_share_percent' and value:
+            value_str = str(value).strip()
+            is_currency_value = any(symbol in value_str for symbol in CURRENCY_INDICATORS)
+            if is_currency_value:
+                mapped_data[db_field] = value_str
+            else:
+                if '%' in value_str:
+                    value_str = value_str.replace('%', '').strip()
+                mapped_data[db_field] = value_str
+        else:
+            mapped_data[db_field] = value
     
     return mapped_data
 
@@ -732,11 +761,6 @@ def validate_spreadsheet_data(rows: List[Dict[str, Any]], store_missing: bool = 
         
         # Map spreadsheet columns to database fields
         mapped_data = map_spreadsheet_to_db(row)
-        
-        # Debug logging
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Row {row_number} mapped data: {mapped_data}")
 
         # Check if this is a special network that can generate target_url
         network = mapped_data.get('network', '').lower().strip().replace(' ', '').replace('_', '')

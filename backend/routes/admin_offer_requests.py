@@ -1618,7 +1618,7 @@ def get_tab_counts():
         all_requests = count_with_breakdown({'status': 'pending'})
         approved = count_with_breakdown({'status': 'approved'})
         rejected = count_with_breakdown({'status': 'rejected'})
-        in_review = count_with_breakdown({'status': 'review'})
+        in_review = count_with_breakdown({'status': {'$in': ['pending', 'review']}})
 
         dp_count = 0
         dp_today = 0
@@ -1873,9 +1873,13 @@ def get_tab_data():
         status_map = {
             'approved': 'approved',
             'rejected': 'rejected',
-            'in_review': 'review',
+            'in_review': ['pending', 'review'],
         }
-        q = {'status': status_map.get(tab, 'review')}
+        mapped = status_map.get(tab, 'review')
+        if isinstance(mapped, list):
+            q = {'status': {'$in': mapped}}
+        else:
+            q = {'status': mapped}
 
         if user_id_filter:
             q['user_id'] = user_id_filter

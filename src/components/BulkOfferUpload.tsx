@@ -252,12 +252,15 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
 
                 const pct = status.total > 0 ? Math.round((status.processed / status.total) * 100) : 0;
                 setUploadProgress(pct);
+                const rawTotal = status.total_raw || status.total;
+                const validationSkipped = status.validation_skipped || 0;
+                const validationNote = validationSkipped > 0 ? ` (${validationSkipped} rows skipped in validation)` : '';
                 setImportStep(
                     status.status === 'validating'
                         ? `🔍 Validating & mapping fields...`
                         : status.current_offer
-                        ? `⚙️ Processing: ${status.processed} / ${status.total} — ${status.current_offer}`
-                        : `⚙️ Processing: ${status.processed} / ${status.total}`
+                        ? `⚙️ Processing: ${status.processed} / ${status.total} — ${status.current_offer}${validationNote}`
+                        : `⚙️ Processing: ${status.processed} / ${status.total}${validationNote}`
                 );
 
                 if (status.status === 'completed' || status.status === 'failed') {
@@ -268,11 +271,25 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                     if (status.status === 'completed') {
                         setUploadProgress(100);
                         setImportStep('✅ Import complete!');
+
+                        const validationSkipped = status.validation_skipped || 0;
+                        const totalRaw = status.total_raw || status.total;
+                        let msg = `Created ${status.succeeded} offers`;
+                        if (status.failed > 0) msg += `, ${status.failed} failed`;
+                        if (status.skipped_duplicates.length > 0) msg += `, ${status.skipped_duplicates.length} skipped`;
+                        if (validationSkipped > 0) msg += `, ${validationSkipped} rows skipped during validation (missing required fields)`;
+                        msg += ` in ${status.elapsed_seconds}s`;
+                        if (validationSkipped > 0) msg += ` (${totalRaw} total rows in file, ${status.valid_count || status.total} passed validation)`;
+
                         setUploadResult({
                             success: status.succeeded > 0,
                             created_count: status.succeeded,
                             error_count: status.failed,
                             duplicate_count: status.skipped_duplicates.length,
+                            validation_skipped: validationSkipped,
+                            total_raw: totalRaw,
+                            valid_count: status.valid_count || status.total,
+                            validation_errors_sample: status.validation_errors_sample || [],
                             created_offer_ids: status.created_ids,
                             skipped_duplicates: status.skipped_duplicates.map(d => ({
                                 row: d.row,
@@ -284,7 +301,7 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                 row: e.row || 0,
                                 error: e.error,
                             })),
-                            message: `Created ${status.succeeded} offers${status.failed > 0 ? `, ${status.failed} failed` : ''}${status.skipped_duplicates.length > 0 ? `, ${status.skipped_duplicates.length} skipped` : ''} in ${status.elapsed_seconds}s`,
+                            message: msg,
                         });
 
                         toast({
@@ -1122,6 +1139,33 @@ export const BulkOfferUpload: React.FC<BulkOfferUploadProps> = ({
                                             </div>
                                         ))}
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Validation Summary — shows when rows were skipped during validation */}
+                            {uploadResult.validation_skipped > 0 && (
+                                <div className="border rounded-lg p-4 bg-amber-50">
+                                    <h4 className="font-semibold text-sm mb-1 text-amber-800">
+                                        ⚠️ Validation: {uploadResult.validation_skipped} of {uploadResult.total_raw} rows skipped
+                                    </h4>
+                                    <p className="text-xs text-amber-700 mb-2">
+                                        Only {uploadResult.valid_count} rows passed validation. The rest were missing required fields (name, URL, payout, etc).
+                                    </p>
+                                    {uploadResult.validation_errors_sample && uploadResult.validation_errors_sample.length > 0 && (
+                                        <div className="space-y-1 max-h-40 overflow-y-auto mt-2">
+                                            {uploadResult.validation_errors_sample.map((ve: any, idx: number) => (
+                                                <div key={idx} className="text-xs border-l-2 border-amber-400 pl-2 py-0.5">
+                                                    <span className="font-medium text-amber-700">Row {ve.row}:</span>{' '}
+                                                    <span className="text-amber-600">{ve.name || 'Unknown'} — {ve.error}</span>
+                                                </div>
+                                            ))}
+                                            {uploadResult.validation_skipped > uploadResult.validation_errors_sample.length && (
+                                                <p className="text-xs text-amber-500 italic mt-1">
+                                                    ...and {uploadResult.validation_skipped - uploadResult.validation_errors_sample.length} more
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

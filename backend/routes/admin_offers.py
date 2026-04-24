@@ -2188,15 +2188,41 @@ def bulk_upload_offers_async():
 
                 skip_invalid = opts.get('skip_invalid_rows', False)
                 if not valid_rows:
+                    # Build detailed error info for the user
+                    validation_errors = []
+                    for er in (error_rows + missing_rows)[:50]:
+                        row_num = er.get('row', er.get('row_number', '?'))
+                        name = er.get('data', {}).get('name', '') or er.get('data', {}).get('title', '') or 'Unknown'
+                        missing = er.get('missing_fields', [])
+                        errs = er.get('errors', [])
+                        reason = ', '.join(errs) if errs else f"Missing: {', '.join(missing)}" if missing else 'Validation failed'
+                        validation_errors.append({'row': row_num, 'name': name, 'error': reason})
                     _jobs_col.update_one({'job_id': jid}, {'$set': {
                         'status': 'failed', 'current_offer': '',
-                        'errors': [{'error': f'No valid rows. {len(error_rows)} errors, {len(missing_rows)} missing data.'}]
+                        'validation_errors_count': len(error_rows) + len(missing_rows),
+                        'missing_data_count': len(missing_rows),
+                        'validation_errors_sample': validation_errors,
+                        'errors': validation_errors[:10] if validation_errors else [{'error': f'No valid rows. {len(error_rows)} errors, {len(missing_rows)} missing data.'}]
                     }})
                     return
 
                 # Always proceed with valid rows, skip invalid ones
                 if error_rows or missing_rows:
                     logging.info(f"⚠️ [ASYNC-BG] Skipping {len(error_rows)} errors + {len(missing_rows)} missing, proceeding with {len(valid_rows)} valid rows")
+                    # Store validation stats so frontend can show them
+                    validation_errors = []
+                    for er in (error_rows + missing_rows)[:50]:
+                        row_num = er.get('row', er.get('row_number', '?'))
+                        name = er.get('data', {}).get('name', '') or er.get('data', {}).get('title', '') or 'Unknown'
+                        missing = er.get('missing_fields', [])
+                        errs = er.get('errors', [])
+                        reason = ', '.join(errs) if errs else f"Missing: {', '.join(missing)}" if missing else 'Validation failed'
+                        validation_errors.append({'row': row_num, 'name': name, 'error': reason})
+                    _jobs_col.update_one({'job_id': jid}, {'$set': {
+                        'validation_errors_count': len(error_rows) + len(missing_rows),
+                        'validation_errors_sample': validation_errors,
+                        'missing_data_count': len(missing_rows),
+                    }})
 
                 # --- Apply options ---
                 approval_type = opts.get('approval_type', 'auto_approve')
@@ -2230,6 +2256,9 @@ def bulk_upload_offers_async():
                 # --- Processing phase ---
                 _jobs_col.update_one({'job_id': jid}, {'$set': {
                     'status': 'processing', 'total': len(valid_rows),
+                    'total_raw': len(raw_rows),
+                    'valid_count': len(valid_rows),
+                    'validation_skipped': len(error_rows) + len(missing_rows),
                     'current_offer': 'Starting offer creation...'
                 }})
 
@@ -2306,6 +2335,12 @@ def bulk_upload_status(job_id):
         'job_id': job['job_id'],
         'status': job['status'],
         'total': job['total'],
+        'total_raw': job.get('total_raw', job['total']),
+        'valid_count': job.get('valid_count', job['total']),
+        'validation_skipped': job.get('validation_skipped', 0),
+        'validation_errors_count': job.get('validation_errors_count', 0),
+        'validation_errors_sample': job.get('validation_errors_sample', [])[:20],
+        'missing_data_count': job.get('missing_data_count', 0),
         'processed': job['processed'],
         'succeeded': job['succeeded'],
         'failed': job['failed'],

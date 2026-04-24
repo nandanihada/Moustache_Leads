@@ -745,6 +745,48 @@ def update_profile():
     except Exception as e:
         return jsonify({'error': f'Failed to update profile: {str(e)}'}), 500
 
+@auth_bp.route('/update-profile', methods=['PUT'])
+@token_required
+def update_registration_profile():
+    """Save additional registration profile data (steps 2-7 of registration wizard).
+    Stores verticals, geos, traffic sources, address, payout details, etc."""
+    try:
+        user = request.current_user
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        update_doc = {}
+        # Registration wizard fields
+        profile_fields = [
+            'verticals', 'geos', 'traffic_sources', 'website_urls',
+            'promotion_description', 'monthly_visits', 'conversion_rate',
+            'social_contacts', 'smart_link_interest', 'smart_link_traffic_source',
+            'address', 'payout_details', 'partners',
+        ]
+        for field in profile_fields:
+            if field in data and data[field]:
+                update_doc[field] = data[field]
+
+        if not update_doc:
+            return jsonify({'message': 'No profile data to update'}), 200
+
+        update_doc['registration_profile_completed'] = True
+        update_doc['registration_profile_updated_at'] = datetime.utcnow()
+
+        user_model = User()
+        success = user_model.update_user(str(user['_id']), update_doc)
+
+        if success:
+            logging.info(f"✅ Registration profile saved for user {user.get('username')} — fields: {list(update_doc.keys())}")
+            return jsonify({'success': True, 'message': 'Profile data saved'}), 200
+        else:
+            return jsonify({'error': 'Failed to save profile data'}), 500
+    except Exception as e:
+        logging.error(f"Registration profile update error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @auth_bp.route('/verify-token', methods=['POST'])
 @token_required
 def verify_token():
