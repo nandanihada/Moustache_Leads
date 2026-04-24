@@ -18,6 +18,7 @@ import {
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
+import UserPreferenceBadges from '@/components/UserPreferenceBadges';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function daysAgoText(days: number) {
@@ -1056,6 +1057,7 @@ function UserCard({ user, selected, onSelect, expanded, onToggle }: {
             {riskBadge(user.risk_level)}
           </div>
           <p className="text-xs text-muted-foreground truncate">{user.email}{user.country && user.country !== 'Unknown' ? ` · ${user.country}` : ''}{user.city && user.city !== 'Unknown' ? ` · ${user.city}` : ''}</p>
+          <UserPreferenceBadges user={user as any} compact />
         </div>
 
         {/* Quick Stats */}

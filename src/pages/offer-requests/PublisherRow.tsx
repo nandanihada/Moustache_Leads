@@ -13,6 +13,7 @@ import { API_BASE_URL } from '@/services/apiConfig';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { ResponsiveContainer, Area, AreaChart, CartesianGrid, XAxis, YAxis, Tooltip as RTooltip } from 'recharts';
+import UserPreferenceBadges from '@/components/UserPreferenceBadges';
 import type { PProf, PSt, Inv } from '@/pages/AdminOfferAccessRequests';
 import { fd, rsk } from '@/pages/AdminOfferAccessRequests';
 import { EditOfferModal } from '@/components/EditOfferModal';
@@ -285,6 +286,9 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                     <Badge variant="outline" className="text-[10px]">{pub.account_status}</Badge>
                     {pub.company_name && <span>· {pub.company_name}</span>}
                     {pub.website && <a href={pub.website} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-blue-500 hover:underline"><ExternalLink className="w-3 h-3" />{pub.website}</a>}
+                  </div>
+                  <div className="mt-1.5">
+                    <UserPreferenceBadges user={pub} compact />
                   </div>
                 </div>
                 <Badge variant={pub.fraud_score < 30 ? 'default' : pub.fraud_score < 60 ? 'secondary' : 'destructive'} className="text-xs">

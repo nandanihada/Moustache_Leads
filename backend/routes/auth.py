@@ -765,7 +765,8 @@ def update_registration_profile():
             return jsonify({'error': 'No data provided'}), 400
 
         update_doc = {}
-        # Registration wizard fields
+        # Registration wizard fields — save ALL fields including empty ones
+        # so admin can see "No preference" vs "never filled"
         profile_fields = [
             'verticals', 'geos', 'traffic_sources', 'website_urls',
             'promotion_description', 'monthly_visits', 'conversion_rate',
@@ -773,11 +774,8 @@ def update_registration_profile():
             'address', 'payout_details', 'partners',
         ]
         for field in profile_fields:
-            if field in data and data[field]:
+            if field in data:
                 update_doc[field] = data[field]
-
-        if not update_doc:
-            return jsonify({'message': 'No profile data to update'}), 200
 
         update_doc['registration_profile_completed'] = True
         update_doc['registration_profile_updated_at'] = datetime.utcnow()

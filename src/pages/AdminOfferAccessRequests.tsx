@@ -78,6 +78,11 @@ export interface PProf {
   mail_sent_today?: number;
   mail_total_sent?: number;
   mail_last_sent?: string | null;
+  // Registration preferences
+  verticals?: string[];
+  geos?: string[];
+  traffic_sources?: string[];
+  registration_profile_completed?: boolean;
 }
 
 export interface PSt {

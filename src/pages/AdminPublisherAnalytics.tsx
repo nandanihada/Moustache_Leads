@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { API_BASE_URL } from "@/services/apiConfig";
 import { EmailDialog } from "@/components/EmailDialog";
 import { BulkEmailDialog } from "@/components/BulkEmailDialog";
+import UserPreferenceBadges from "@/components/UserPreferenceBadges";
 
 interface User {
   _id: string;
@@ -27,6 +28,10 @@ interface User {
   company_name?: string;
   level?: string;
   account_status: string;
+  verticals?: string[];
+  geos?: string[];
+  traffic_sources?: string[];
+  registration_profile_completed?: boolean;
 }
 
 interface UserStats {
@@ -799,6 +804,7 @@ const AdminPublisherAnalytics = () => {
                               </p>
                               <p className="text-xs text-muted-foreground">@{user.username}</p>
                               {user.company_name && <p className="text-xs text-muted-foreground">{user.company_name}</p>}
+                              <UserPreferenceBadges user={user} compact />
                             </div>
                           </div>
                         </TableCell>

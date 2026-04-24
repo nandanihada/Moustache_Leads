@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { API_BASE_URL } from "@/services/apiConfig";
+import UserPreferenceBadges from "@/components/UserPreferenceBadges";
 
 interface User {
   _id: string;
@@ -59,6 +60,7 @@ interface User {
   address?: { street?: string; unit?: string; city?: string; country?: string; state?: string; postal?: string };
   payout_details?: { tax_id?: string; vat_id?: string; bank_name?: string; account_name?: string; account_number?: string; routing_number?: string };
   partners?: { network?: string; email?: string }[];
+  registration_profile_completed?: boolean;
 }
 
 interface UserCounts {
@@ -836,6 +838,7 @@ const Users = () => {
                                   </p>
                                   <p className="text-sm text-muted-foreground">@{user.username}</p>
                                   {user.company_name && <p className="text-xs text-muted-foreground">{user.company_name}</p>}
+                                  <UserPreferenceBadges user={user} compact />
                                 </div>
                               </div>
                             </TableCell>
