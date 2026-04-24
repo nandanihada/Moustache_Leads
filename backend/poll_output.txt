@@ -1,0 +1,103 @@
+============================================================
+ACTIVE POLL FOUND
+============================================================
+Question: hey are you fine?
+Target Countries: ['IN']
+Target Users: []
+Require Placement: None
+Viewed Users: 0
+Voted Users: 0
+
+============================================================
+CHECKING USERS
+============================================================
+
+User: manoj.prathuru11492
+  Email: manoj.prathuru114@gmail.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: safarovbigzod7295
+  Email: safarovbigzod72@gmail.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: ashraful.work2413
+  Email: ashraful.work24@gmail.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: p.carry49
+  Email: p.carry@galaksion.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: rilopy84
+  Email: rilopy@denipl.net
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: md habibur
+  Email: pioneergbd.360@gmail.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: art
+  Email: tannerlovelace47@gmail.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: jatin
+  Email: Jatin@brandshapers.co
+  Country (direct): IN
+  Country (address): IN
+  Final Country: IN
+  Has Placement: False (0 placements)
+  Country Match: True (user: 'IN' vs targets: ['IN'])
+  WOULD SEE POLL: True
+
+User: reshma1270
+  Email: reshma12@gmail.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False
+
+User: fazila
+  Email: fazila@mediamosiac.com
+  Country (direct): None
+  Country (address): None
+  Final Country: NOT SET
+  Has Placement: False (0 placements)
+  Country Match: False (user: 'NOT SET' vs targets: ['IN'])
+  WOULD SEE POLL: False

@@ -201,11 +201,18 @@ def create_app():
     # Set custom JSON provider for proper datetime serialization
     app.json = CustomJSONProvider(app)
     
-    # Configure logging
+    # Configure logging with proper shutdown handling
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        force=True  # Force reconfiguration to avoid conflicts
     )
+    
+    # Disable logging during shutdown to prevent daemon thread errors
+    import atexit
+    def shutdown_logging():
+        logging.shutdown()
+    atexit.register(shutdown_logging)
     
     # Enable CORS - simplified config, detailed handling in after_request/before_request
     CORS(app, supports_credentials=True)
@@ -418,6 +425,20 @@ def create_app():
 
 # Create app instance for Gunicorn
 app = create_app()
+
+# Add signal handlers for graceful shutdown
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    """Handle shutdown signals gracefully"""
+    logging.info(f"Received signal {sig}, shutting down gracefully...")
+    logging.shutdown()
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 # Track whether background services have been started (to avoid duplicates)
 _background_services_started = False

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, Filter, ChevronDown, Globe, Activity, ShieldAlert, Award, TrendingUp, BarChart2, Users as UsersIcon, Loader2, ArrowUpDown, ArrowUp, ArrowDown, ChevronRight, AlertTriangle, CheckCircle, XCircle, Clock, Eye, TrendingDown, Mail } from "lucide-react";
+import { Search, Filter, ChevronDown, Globe, Activity, ShieldAlert, Award, TrendingUp, BarChart2, Users as UsersIcon, Loader2, ChevronRight, AlertTriangle, CheckCircle, XCircle, Clock, Eye, TrendingDown, Mail } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,8 @@ interface UserStats {
   offers_requested: number;
   approved_offers: any[];
   rejected_offers: any[];
+  approved_count: number;
+  rejected_count: number;
   suspicious: boolean;
   conversions: number;
   top_vertical: string;
@@ -41,6 +43,7 @@ interface UserStats {
   logins_7d: number;
   offers_viewed: number;
   avg_time_spent: string;
+  total_time_spent_seconds?: number;
   approval_rate: number;
 }
 
@@ -56,6 +59,7 @@ interface LevelEligibility {
   next_level: string;
   reason: string;
   criteria_met: Record<string, boolean>;
+  is_correction?: boolean;
 }
 
 const AdminPublisherAnalytics = () => {
@@ -68,7 +72,7 @@ const AdminPublisherAnalytics = () => {
   const [showLevelFilter, setShowLevelFilter] = useState(false);
   const [selectedActivityFilter, setSelectedActivityFilter] = useState<string>("");
   const [showActivityFilter, setShowActivityFilter] = useState(false);
-  const [sortColumn, setSortColumn] = useState<string>("clicks");
+  const [sortColumn, setSortColumn] = useState<string>("username");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [expandedData, setExpandedData] = useState<Record<string, ExpandedData>>({});
@@ -82,16 +86,17 @@ const AdminPublisherAnalytics = () => {
   const [showEmailLogs, setShowEmailLogs] = useState(false);
   const [emailLogs, setEmailLogs] = useState<any[]>([]);
   const [emailLogsLoading, setEmailLogsLoading] = useState(false);
+  const [levelDistributionData, setLevelDistributionData] = useState<any[]>([]);
   const { toast } = useToast();
 
   const levelDefinitions = [
-    { value: "L1", label: "L1 — Signed up, no engagement" },
-    { value: "L2", label: "L2 — Browsed, no action" },
-    { value: "L3", label: "L3 — Placed, never activated" },
-    { value: "L4", label: "L4 — Requested, no approval" },
-    { value: "L5", label: "L5 — Approved, no clicks" },
-    { value: "L6", label: "L6 — Suspicious activity" },
-    { value: "L7", label: "L7 — Genuine, no conversion" },
+    { value: "L1", label: "L1 — Signed up, no engagement", description: "No offers viewed yet" },
+    { value: "L2", label: "L2 — Browsed offers", description: "Viewed offers but no action" },
+    { value: "L3", label: "L3 — Active account", description: "Has login activity" },
+    { value: "L4", label: "L4 — Requested offers", description: "Requested at least one offer" },
+    { value: "L5", label: "L5 — Approved with conversions", description: "Has approved offers and conversions" },
+    { value: "L6", label: "L6 — Suspicious activity", description: "Flagged for review" },
+    { value: "L7", label: "L7 — Genuine, no conversion", description: "Approved offers but no conversions yet" },
   ];
 
   const activityFilters = [
@@ -101,17 +106,140 @@ const AdminPublisherAnalytics = () => {
     { value: "rejected", label: "Rejected", description: "Sort by rejected offers" },
     { value: "suspicious", label: "Suspicious", description: "Show flagged users" },
     { value: "conversions", label: "Conversions", description: "Sort by conversions" },
+    { value: "time_spent", label: "Time Spent", description: "Sort by total time spent" },
   ];
+
+  const [loadingAllStats, setLoadingAllStats] = useState(false);
 
   useEffect(() => {
     fetchUsers();
+    fetchLevelDistribution();
   }, []);
 
+  // Auto-load stats for first 20 users on page load
   useEffect(() => {
-    if (users.length > 0) {
-      checkLevelEligibility();
+    if (users.length > 0 && Object.keys(userStats).length === 0) {
+      loadBulkStats(users.map(u => u._id));
     }
   }, [users]);
+
+  const loadBulkStats = async (userIds: string[]) => {
+    const token = localStorage.getItem('token');
+    try {
+      console.log(`[BULK_STATS] Loading stats for ${userIds.length} users in ONE call`);
+      const response = await fetch(`${API_BASE_URL}/api/admin/users/bulk-stats`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ user_ids: userIds })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`[BULK_STATS] Received stats for ${Object.keys(data.stats).length} users`);
+        
+        // Merge with existing stats
+        setUserStats(prev => ({
+          ...prev,
+          ...Object.entries(data.stats).reduce((acc, [userId, stats]: [string, any]) => {
+            acc[userId] = {
+              total_clicks: stats.total_clicks || 0,
+              offers_requested: stats.offers_requested || 0,
+              approved_offers: [],
+              rejected_offers: [],
+              approved_count: 0,
+              rejected_count: 0,
+              suspicious: stats.suspicious || false,
+              conversions: stats.conversions || 0,
+              top_vertical: stats.top_vertical || 'N/A',
+              top_geos: stats.top_geos || [],
+              logins_7d: stats.logins_7d || 0,
+              offers_viewed: stats.offers_viewed || 0,
+              avg_time_spent: stats.avg_time_spent || '0s',
+              total_time_spent_seconds: stats.total_time_spent_seconds || 0,
+              approval_rate: 0
+            };
+            return acc;
+          }, {} as Record<string, UserStats>)
+        }));
+
+        // Now fetch offers data for each user (approved/rejected counts)
+        for (const userId of userIds) {
+          fetchUserOffers(userId);
+        }
+      }
+    } catch (err) {
+      console.error('[BULK_STATS] Error:', err);
+    }
+  };
+
+  const fetchUserOffers = async (userId: string) => {
+    const token = localStorage.getItem('token');
+    try {
+      const offersRes = await fetch(`${API_BASE_URL}/api/admin/users/${userId}/offers`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const offersData = await offersRes.json();
+
+      if (offersRes.ok) {
+        const approvedCount = offersData.approved_offers?.length || 0;
+        const rejectedCount = offersData.rejected_offers?.length || 0;
+        const requestedCount = userStats[userId]?.offers_requested || 0;
+        const approvalRate = requestedCount > 0 ? Math.round((approvedCount / requestedCount) * 100) : 0;
+
+        setUserStats(prev => ({
+          ...prev,
+          [userId]: {
+            ...prev[userId],
+            approved_offers: offersData.approved_offers || [],
+            rejected_offers: offersData.rejected_offers || [],
+            approved_count: approvedCount,
+            rejected_count: rejectedCount,
+            approval_rate: approvalRate
+          }
+        }));
+      }
+    } catch (err) {
+      console.error(`Error fetching offers for ${userId}:`, err);
+    }
+  };
+
+  const loadAllStatsInBatches = async () => {
+    setLoadingAllStats(true);
+    
+    try {
+      // Load all users' stats in ONE bulk call
+      await loadBulkStats(users.map(u => u._id));
+      
+      toast({ title: "Stats Loaded", description: `Loaded stats for ${users.length} publishers`, variant: "default" });
+    } finally {
+      setLoadingAllStats(false);
+    }
+  };
+
+  // Don't check level eligibility automatically - too slow!
+  // Only check when user clicks "Check Levels" button
+
+  const fetchLevelDistribution = async () => {
+    const token = localStorage.getItem('token');
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/publishers/level-distribution`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setLevelDistributionData(data.distribution || []);
+      }
+    } catch (err) {
+      console.error('Error fetching level distribution:', err);
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -130,10 +258,8 @@ const AdminPublisherAnalytics = () => {
       const approvedUsers = (data.users || []).filter((u: User) => u.account_status === 'approved');
       setUsers(approvedUsers);
       
-      // Fetch stats for all users
-      approvedUsers.forEach((user: User) => {
-        fetchUserStats(user._id);
-      });
+      // Don't auto-load stats - let user click button
+      // This makes initial page load much faster
     } catch (error) {
       console.error('Error fetching users:', error);
       toast({ title: "Error", description: "Failed to fetch users", variant: "destructive" });
@@ -176,6 +302,12 @@ const AdminPublisherAnalytics = () => {
         
         const eligibilityMap: Record<string, LevelEligibility> = {};
         data.results.forEach((result: any) => {
+          console.log(`📊 Publisher ${result.username} (${result.current_level}):`, {
+            eligible: result.eligible,
+            next_level: result.next_level,
+            reason: result.reason,
+            debug: result.debug
+          });
           eligibilityMap[result.publisher_id] = result;
         });
         
@@ -203,30 +335,122 @@ const AdminPublisherAnalytics = () => {
     }
   };
 
+  const handleBulkLevelUpgrade = async () => {
+    console.log('🚀 Bulk upgrade clicked');
+    console.log('Level eligibility:', levelEligibility);
+    
+    const eligibleUsers = Object.entries(levelEligibility)
+      .filter(([_, eligibility]) => eligibility.eligible)
+      .map(([userId, _]) => userId);
+    
+    console.log('Eligible users:', eligibleUsers);
+    
+    if (eligibleUsers.length === 0) {
+      toast({ 
+        title: "No Upgrades", 
+        description: "No publishers eligible for upgrade",
+        variant: "default"
+      });
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    let successCount = 0;
+    let failCount = 0;
+
+    toast({ 
+      title: "Bulk Upgrade Started", 
+      description: `Updating ${eligibleUsers.length} publishers...`,
+      variant: "default"
+    });
+
+    for (const userId of eligibleUsers) {
+      try {
+        const eligibility = levelEligibility[userId];
+        const targetLevel = eligibility?.next_level;
+        
+        console.log(`Upgrading ${userId} to ${targetLevel}`);
+        
+        if (!targetLevel) {
+          console.log(`Skipping ${userId} - no target level`);
+          continue;
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/api/admin/publishers/${userId}/upgrade-level`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ new_level: targetLevel })
+        });
+
+        if (response.ok) {
+          successCount++;
+          console.log(`✓ Upgraded ${userId}`);
+        } else {
+          const errorData = await response.json().catch(() => ({}));
+          console.error(`✗ Failed to upgrade ${userId}:`, errorData);
+          failCount++;
+        }
+      } catch (err) {
+        console.error(`Error upgrading user ${userId}:`, err);
+        failCount++;
+      }
+    }
+
+    console.log(`Bulk upgrade complete: ${successCount} success, ${failCount} failed`);
+
+    toast({ 
+      title: "Bulk Upgrade Complete", 
+      description: `✓ ${successCount} upgraded${failCount > 0 ? `, ✗ ${failCount} failed` : ''}`,
+      variant: successCount > 0 ? "default" : "destructive"
+    });
+
+    // Refresh data
+    await fetchUsers();
+    await fetchLevelDistribution();
+    await checkLevelEligibility();
+  };
+
   const handleLevelUpgrade = async (userId: string) => {
     setUpgradeLoading(prev => ({ ...prev, [userId]: true }));
     const token = localStorage.getItem('token');
     
     try {
+      const eligibility = levelEligibility[userId];
+      const targetLevel = eligibility?.next_level;
+      
+      if (!targetLevel) {
+        toast({ 
+          title: "Error", 
+          description: "No target level found",
+          variant: "destructive"
+        });
+        return;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/api/admin/publishers/${userId}/upgrade-level`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
-        }
+        },
+        body: JSON.stringify({ new_level: targetLevel })
       });
 
       const data = await response.json();
       
       if (response.ok) {
         toast({ 
-          title: "Level Upgraded", 
-          description: `Publisher upgraded to ${data.new_level}`,
+          title: eligibility.is_correction ? "Level Corrected" : "Level Upgraded", 
+          description: `Publisher ${eligibility.is_correction ? 'corrected' : 'upgraded'} to ${data.new_level}`,
           variant: "default"
         });
         
         // Refresh user data
         await fetchUsers();
+        await fetchLevelDistribution();
         await checkLevelEligibility();
       } else {
         toast({ 
@@ -248,6 +472,8 @@ const AdminPublisherAnalytics = () => {
   };
 
   const fetchUserStats = async (userId: string) => {
+    // This is now only used when expanding individual rows
+    // Bulk loading uses loadBulkStats instead
     setStatsLoading(prev => ({ ...prev, [userId]: true }));
     const token = localStorage.getItem('token');
     try {
@@ -277,6 +503,8 @@ const AdminPublisherAnalytics = () => {
             offers_requested: requestedCount,
             approved_offers: offersData.approved_offers || [],
             rejected_offers: offersData.rejected_offers || [],
+            approved_count: approvedCount,
+            rejected_count: rejectedCount,
             suspicious: stats.suspicious || false,
             conversions: stats.conversions || 0,
             top_vertical: stats.top_vertical || 'N/A',
@@ -284,12 +512,13 @@ const AdminPublisherAnalytics = () => {
             logins_7d: stats.logins_7d || 0,
             offers_viewed: stats.offers_viewed || 0,
             avg_time_spent: stats.avg_time_spent || '0s',
+            total_time_spent_seconds: stats.total_time_spent_seconds || 0,
             approval_rate: approvalRate
           }
         }));
       }
     } catch (err) {
-      console.error(`Error fetching stats for user ${userId}:`, err);
+      console.error(`[STATS] Error for user ${userId}:`, err);
     } finally {
       setStatsLoading(prev => ({ ...prev, [userId]: false }));
     }
@@ -297,7 +526,7 @@ const AdminPublisherAnalytics = () => {
 
   const getStatValue = (user: User, column: string): number => {
     const stats = userStats[user._id];
-    if (!stats) return 0;
+    if (!stats) return Number.NEGATIVE_INFINITY;
 
     switch (column) {
       case 'clicks':
@@ -305,34 +534,69 @@ const AdminPublisherAnalytics = () => {
       case 'requested':
         return stats.offers_requested;
       case 'approved':
-        return stats.approved_offers.length;
+        return stats.approved_count || 0;
       case 'rejected':
-        return stats.rejected_offers.length;
+        return stats.rejected_count || 0;
       case 'suspicious':
         return stats.suspicious ? 1 : 0;
       case 'conversions':
         return stats.conversions;
       case 'approval_rate':
         return stats.approval_rate;
+      case 'time_spent':
+        return stats.total_time_spent_seconds || 0;
       default:
-        return 0;
+        return Number.NEGATIVE_INFINITY;
     }
   };
 
   const handleSort = (column: string) => {
-    if (sortColumn === column) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortColumn(column);
-      setSortOrder('desc');
-    }
+    setSortColumn(column);
+    setSortOrder('desc'); // Always sort descending when clicking
+  };
+
+  // Helper function to calculate correct level based on actual stats
+  const calculateCorrectLevel = (userId: string): string => {
+    const stats = userStats[userId];
+    if (!stats) return 'L1'; // Default if no stats loaded yet
+    
+    const offers_viewed = stats.total_clicks || 0;
+    const offers_requested = stats.offers_requested || 0;
+    const approved_count = stats.approved_count || 0;
+    const suspicious = stats.suspicious || false;
+    const conversions = stats.conversions || 0;
+    const logins_7d = stats.logins_7d || 0;
+    
+    // L6: Suspicious activity (highest priority)
+    if (suspicious) return 'L6';
+    
+    // L7: Approved offers + NO conversions + NOT suspicious
+    if (approved_count > 0 && conversions === 0 && !suspicious) return 'L7';
+    
+    // L5: Approved offers + HAS conversions
+    if (approved_count > 0 && conversions > 0) return 'L5';
+    
+    // L4: Requested offers (none approved yet)
+    if (offers_requested > 0) return 'L4';
+    
+    // L3: Login activity in last 7 days
+    if (logins_7d > 0) return 'L3';
+    
+    // L2: Viewed offers
+    if (offers_viewed > 0) return 'L2';
+    
+    // L1: No engagement
+    return 'L1';
   };
 
   const filteredUsers = users.filter(user => {
     const name = `${user.first_name || ''} ${user.last_name || ''} ${user.username}`.toLowerCase();
     const matchesSearch = name.includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesLevel = !selectedLevel || user.level === selectedLevel;
+    
+    // Calculate correct level based on actual stats
+    const correctLevel = calculateCorrectLevel(user._id);
+    const matchesLevel = !selectedLevel || correctLevel === selectedLevel;
     
     if (selectedActivityFilter) {
       const stats = userStats[user._id];
@@ -350,16 +614,22 @@ const AdminPublisherAnalytics = () => {
   });
 
   const sortedUsers = [...filteredUsers].sort((a, b) => {
+    // Sort by username alphabetically by default
+    if (sortColumn === 'username') {
+      const aName = `${a.first_name || ''} ${a.last_name || ''} ${a.username}`.toLowerCase();
+      const bName = `${b.first_name || ''} ${b.last_name || ''} ${b.username}`.toLowerCase();
+      return aName.localeCompare(bName);
+    }
+    
+    // Sort by stats
     const aValue = getStatValue(a, sortColumn);
     const bValue = getStatValue(b, sortColumn);
-    return sortOrder === 'desc' ? bValue - aValue : aValue - bValue;
+    return bValue - aValue; // Always descending for stats
   });
 
   const getSortIcon = (column: string) => {
-    if (sortColumn !== column) return <ArrowUpDown className="w-4 h-4 ml-1 text-gray-400" />;
-    return sortOrder === 'desc' ? 
-      <ArrowDown className="w-4 h-4 ml-1 text-blue-600" /> : 
-      <ArrowUp className="w-4 h-4 ml-1 text-blue-600" />;
+    if (sortColumn !== column) return null;
+    return <Filter className="w-4 h-4 ml-1 text-blue-600" />;
   };
 
   const toggleExpandRow = async (userId: string) => {
@@ -371,6 +641,11 @@ const AdminPublisherAnalytics = () => {
     } else {
       newExpanded.add(userId);
       setExpandedRows(newExpanded);
+      
+      // Fetch stats when expanding (if not already loaded)
+      if (!userStats[userId]) {
+        await fetchUserStats(userId);
+      }
       
       // Fetch expanded data if not already loaded
       if (!expandedData[userId]) {
@@ -466,6 +741,13 @@ const AdminPublisherAnalytics = () => {
   };
 
   const eligibleCount = Object.values(levelEligibility).filter(e => e.eligible).length;
+  
+  // Calculate level distribution based on ACTUAL calculated levels (not database levels)
+  const levelDistribution = users.reduce((acc, user) => {
+    const correctLevel = calculateCorrectLevel(user._id);
+    acc[correctLevel] = (acc[correctLevel] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
 
   const fetchEmailLogs = async () => {
     setEmailLogsLoading(true);
@@ -500,13 +782,20 @@ const AdminPublisherAnalytics = () => {
                 <TrendingUp className="w-8 h-8" />
               </div>
               <div>
-                <h2 className="text-2xl font-bold">{eligibleCount} Publisher{eligibleCount !== 1 ? 's' : ''} Qualify for Level Upgrade</h2>
-                <p className="text-white/90 text-sm">Review and confirm upgrades to improve publisher engagement</p>
+                <h2 className="text-2xl font-bold">{eligibleCount} Publisher{eligibleCount !== 1 ? 's' : ''} Need Level Updates</h2>
+                <p className="text-white/90 text-sm">Includes level corrections and natural progressions</p>
               </div>
             </div>
-            <Badge className="bg-white text-purple-700 hover:bg-white text-lg px-4 py-2 font-bold">
-              {eligibleCount} Ready
-            </Badge>
+            <Button
+              onClick={() => {
+                console.log('Button clicked!');
+                handleBulkLevelUpgrade();
+              }}
+              className="bg-white text-purple-700 hover:bg-white/90 text-lg px-6 py-6 font-bold shadow-xl"
+            >
+              <Award className="w-5 h-5 mr-2" />
+              {eligibleCount} Ready - Update All
+            </Button>
           </div>
         </div>
       )}
@@ -515,20 +804,93 @@ const AdminPublisherAnalytics = () => {
         <div>
           <h1 className="text-3xl font-bold text-foreground">Publisher Analytics</h1>
           <p className="text-muted-foreground">Comprehensive publisher performance metrics and insights</p>
+          <div className="flex gap-2 mt-2">
+            {levelDistributionData.length > 0 ? (
+              levelDistributionData.map(levelData => {
+                const hasUpgrades = levelData.recent_upgrades > 0;
+                const hasDowngrades = levelData.recent_downgrades > 0;
+                const netChange = levelData.net_change;
+                
+                return (
+                  <Badge 
+                    key={levelData.level} 
+                    variant="outline" 
+                    className={`text-xs flex items-center gap-1 ${
+                      hasUpgrades ? 'bg-green-50 border-green-300 text-green-700' : 
+                      hasDowngrades ? 'bg-red-50 border-red-300 text-red-700' : ''
+                    }`}
+                  >
+                    {levelData.level}: {levelData.count}
+                    {hasUpgrades && netChange > 0 && (
+                      <span className="text-green-600 font-bold">↑{netChange}</span>
+                    )}
+                    {hasDowngrades && netChange < 0 && (
+                      <span className="text-red-600 font-bold">↓{Math.abs(netChange)}</span>
+                    )}
+                  </Badge>
+                );
+              })
+            ) : (
+              ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7'].map(level => (
+                <Badge key={level} variant="outline" className="text-xs">
+                  {level}: {levelDistribution[level] || 0}
+                </Badge>
+              ))
+            )}
+            {loadingAllStats && (
+              <Badge className="bg-blue-600 text-white animate-pulse">
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                Loading stats...
+              </Badge>
+            )}
+          </div>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            setShowEmailLogs(!showEmailLogs);
-            if (!showEmailLogs && emailLogs.length === 0) {
-              fetchEmailLogs();
-            }
-          }}
-          className="gap-2"
-        >
-          <Mail className="w-4 h-4" />
-          {showEmailLogs ? 'Hide' : 'View'} Email History
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={async () => {
+              await loadAllStatsInBatches();
+            }}
+            className="gap-2"
+            disabled={loadingAllStats}
+          >
+            {loadingAllStats ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading...
+              </>
+            ) : (
+              <>
+                <BarChart2 className="w-4 h-4" />
+                Load All Stats
+              </>
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              checkLevelEligibility();
+              toast({ title: "Checking Levels", description: "Analyzing all publishers...", variant: "default" });
+            }}
+            className="gap-2"
+          >
+            <TrendingUp className="w-4 h-4" />
+            Check Levels
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setShowEmailLogs(!showEmailLogs);
+              if (!showEmailLogs && emailLogs.length === 0) {
+                fetchEmailLogs();
+              }
+            }}
+            className="gap-2"
+          >
+            <Mail className="w-4 h-4" />
+            {showEmailLogs ? 'Hide' : 'View'} Email History
+          </Button>
+        </div>
       </div>
 
       {/* Email Logs Panel */}
@@ -715,50 +1077,88 @@ const AdminPublisherAnalytics = () => {
                       />
                     </TableHead>
                     <TableHead className="whitespace-nowrap">Publisher</TableHead>
-                    <TableHead className="whitespace-nowrap cursor-pointer" onClick={() => handleSort('clicks')}>
-                      <div className="flex items-center">
-                        Clicks
-                        {getSortIcon('clicks')}
-                      </div>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('clicks')}
+                        className={`h-8 px-2 ${sortColumn === 'clicks' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Clicks {getSortIcon('clicks')}
+                      </Button>
                     </TableHead>
-                    <TableHead className="whitespace-nowrap cursor-pointer" onClick={() => handleSort('requested')}>
-                      <div className="flex items-center">
-                        Requested
-                        {getSortIcon('requested')}
-                      </div>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('requested')}
+                        className={`h-8 px-2 ${sortColumn === 'requested' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Requested {getSortIcon('requested')}
+                      </Button>
                     </TableHead>
-                    <TableHead className="whitespace-nowrap cursor-pointer" onClick={() => handleSort('approved')}>
-                      <div className="flex items-center">
-                        Approved
-                        {getSortIcon('approved')}
-                      </div>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('approved')}
+                        className={`h-8 px-2 ${sortColumn === 'approved' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Approved {getSortIcon('approved')}
+                      </Button>
                     </TableHead>
-                    <TableHead className="whitespace-nowrap cursor-pointer" onClick={() => handleSort('rejected')}>
-                      <div className="flex items-center">
-                        Rejected
-                        {getSortIcon('rejected')}
-                      </div>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('rejected')}
+                        className={`h-8 px-2 ${sortColumn === 'rejected' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Rejected {getSortIcon('rejected')}
+                      </Button>
                     </TableHead>
-                    <TableHead className="whitespace-nowrap cursor-pointer" onClick={() => handleSort('suspicious')}>
-                      <div className="flex items-center">
-                        Suspicious
-                        {getSortIcon('suspicious')}
-                      </div>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('suspicious')}
+                        className={`h-8 px-2 ${sortColumn === 'suspicious' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Suspicious {getSortIcon('suspicious')}
+                      </Button>
                     </TableHead>
-                    <TableHead className="whitespace-nowrap cursor-pointer" onClick={() => handleSort('conversions')}>
-                      <div className="flex items-center">
-                        Conversions
-                        {getSortIcon('conversions')}
-                      </div>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('conversions')}
+                        className={`h-8 px-2 ${sortColumn === 'conversions' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Conversions {getSortIcon('conversions')}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('time_spent')}
+                        className={`h-8 px-2 ${sortColumn === 'time_spent' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Time Spent {getSortIcon('time_spent')}
+                      </Button>
                     </TableHead>
                     <TableHead className="whitespace-nowrap">Vertical</TableHead>
                     <TableHead className="whitespace-nowrap">Geo</TableHead>
                     <TableHead className="whitespace-nowrap">Level</TableHead>
-                    <TableHead className="whitespace-nowrap cursor-pointer" onClick={() => handleSort('approval_rate')}>
-                      <div className="flex items-center">
-                        Approval Rate
-                        {getSortIcon('approval_rate')}
-                      </div>
+                    <TableHead className="whitespace-nowrap">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => handleSort('approval_rate')}
+                        className={`h-8 px-2 ${sortColumn === 'approval_rate' ? 'bg-blue-50 text-blue-700' : ''}`}
+                      >
+                        Approval Rate {getSortIcon('approval_rate')}
+                      </Button>
                     </TableHead>
                     <TableHead className="whitespace-nowrap">Actions</TableHead>
                   </TableRow>
@@ -774,6 +1174,9 @@ const AdminPublisherAnalytics = () => {
                     const isEligible = eligibility?.eligible || false;
                     const currentLevelNum = getLevelNumber(user.level || 'L1');
                     const isUpgrading = upgradeLoading[user._id];
+
+                    // Stats are fetched automatically after users load.
+                    // Rows show a neutral placeholder until real data arrives.
 
                     return (
                       <React.Fragment key={user._id}>
@@ -805,74 +1208,117 @@ const AdminPublisherAnalytics = () => {
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : stats ? (
+                            <span className="font-semibold">{stats.total_clicks.toLocaleString()}</span>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
                           ) : (
-                            <span className="font-semibold">{stats?.total_clicks?.toLocaleString() || 0}</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : stats ? (
+                            <span className="font-semibold">{stats.offers_requested}</span>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
                           ) : (
-                            <span className="font-semibold">{stats?.offers_requested || 0}</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
+                          ) : stats ? (
                             <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                              {stats?.approved_offers?.length || 0}
+                              {stats.approved_count}
                             </Badge>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
+                          ) : stats ? (
                             <Badge variant="destructive">
-                              {stats?.rejected_offers?.length || 0}
+                              {stats.rejected_count}
                             </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell onClick={() => toggleExpandRow(user._id)}>
-                          {isLoading ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : stats?.suspicious ? (
-                            <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
-                              <ShieldAlert className="w-3 h-3 mr-1" />
-                              YES
-                            </Badge>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
                           ) : (
-                            <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                              <Award className="w-3 h-3 mr-1" />
-                              NO
-                            </Badge>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : stats ? (
+                            stats.suspicious ? (
+                              <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
+                                <ShieldAlert className="w-3 h-3 mr-1" />
+                                YES
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
+                                <Award className="w-3 h-3 mr-1" />
+                                NO
+                              </Badge>
+                            )
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
                           ) : (
-                            <span className="font-semibold">{stats?.conversions || 0}</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : stats ? (
+                            <span className="font-semibold">{stats.conversions}</span>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
                           ) : (
-                            <span className="text-sm">{stats?.top_vertical || 'N/A'}</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : stats?.top_geos && stats.top_geos.length > 0 ? (
+                          ) : stats ? (
+                            <span className="text-sm font-medium text-amber-700">{stats.avg_time_spent}</span>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell onClick={() => toggleExpandRow(user._id)}>
+                          {isLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : stats ? (
+                            <span className="text-sm">{stats.top_vertical}</span>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell onClick={() => toggleExpandRow(user._id)}>
+                          {isLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : stats && stats.top_geos && stats.top_geos.length > 0 ? (
                             <div className="flex items-center gap-1">
                               <Globe className="w-3 h-3 text-blue-600" />
                               <span className="text-sm font-medium">{stats.top_geos[0].country}</span>
                             </div>
+                          ) : loadingAllStats ? (
+                            <span className="text-sm text-muted-foreground">Loading...</span>
                           ) : (
-                            <span className="text-sm text-muted-foreground">N/A</span>
+                            <span className="text-sm text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
@@ -897,16 +1343,20 @@ const AdminPublisherAnalytics = () => {
                         <TableCell onClick={() => toggleExpandRow(user._id)}>
                           {isLoading ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
+                          ) : stats ? (
                             <div className="flex items-center gap-2">
                               <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden w-16">
                                 <div 
                                   className="h-full bg-gradient-to-r from-green-500 to-green-600 rounded-full" 
-                                  style={{ width: `${stats?.approval_rate || 0}%` }}
+                                  style={{ width: `${stats.approval_rate}%` }}
                                 ></div>
                               </div>
-                              <span className="text-sm font-semibold">{stats?.approval_rate || 0}%</span>
+                              <span className="text-sm font-semibold">{stats.approval_rate}%</span>
                             </div>
+                          ) : loadingAllStats ? (
+                            <span className="text-muted-foreground">Loading...</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </TableCell>
                         <TableCell>
@@ -936,14 +1386,30 @@ const AdminPublisherAnalytics = () => {
                               <div className="p-6 space-y-6">
                                 {/* Level Progression Section */}
                                 {isEligible && (
-                                  <div className="bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-xl shadow-lg p-6 text-white">
+                                  <div className={`rounded-xl shadow-lg p-6 text-white ${
+                                    eligibility.is_correction 
+                                      ? 'bg-gradient-to-r from-orange-600 via-red-600 to-pink-600'
+                                      : 'bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600'
+                                  }`}>
                                     <div className="flex items-start justify-between mb-4">
                                       <div>
                                         <h3 className="text-xl font-bold mb-1 flex items-center gap-2">
-                                          <TrendingUp className="w-6 h-6" />
-                                          Level Upgrade Available
+                                          {eligibility.is_correction ? (
+                                            <>
+                                              <AlertTriangle className="w-6 h-6" />
+                                              Level Correction Required
+                                            </>
+                                          ) : (
+                                            <>
+                                              <TrendingUp className="w-6 h-6" />
+                                              Level Upgrade Available
+                                            </>
+                                          )}
                                         </h3>
                                         <p className="text-white/90 text-sm">{eligibility.reason}</p>
+                                        {eligibility.is_correction && (
+                                          <p className="text-white/80 text-xs mt-1">⚠️ Current level doesn't match actual activity</p>
+                                        )}
                                       </div>
                                       <Button
                                         onClick={() => handleLevelUpgrade(user._id)}
@@ -953,12 +1419,12 @@ const AdminPublisherAnalytics = () => {
                                         {isUpgrading ? (
                                           <>
                                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                            Upgrading...
+                                            {eligibility.is_correction ? 'Correcting...' : 'Upgrading...'}
                                           </>
                                         ) : (
                                           <>
                                             <Award className="w-4 h-4 mr-2" />
-                                            Confirm Level Upgrade
+                                            {eligibility.is_correction ? 'Fix Level' : 'Confirm Upgrade'}
                                           </>
                                         )}
                                       </Button>
@@ -986,9 +1452,9 @@ const AdminPublisherAnalytics = () => {
                                                 <span className={`text-xs mt-1 font-semibold ${
                                                   isCurrent || isNext ? 'text-white' : 'text-white/60'
                                                 }`}>
-                                                  {level === 1 ? 'Signed' :
+                                                  {level === 1 ? 'Signed Up' :
                                                    level === 2 ? 'Browsed' :
-                                                   level === 3 ? 'Placed' :
+                                                   level === 3 ? 'Active' :
                                                    level === 4 ? 'Requested' :
                                                    level === 5 ? 'Approved' :
                                                    level === 6 ? 'Suspicious' :
@@ -1011,10 +1477,10 @@ const AdminPublisherAnalytics = () => {
                                       <div className="grid grid-cols-7 gap-2 mt-4">
                                         {[
                                           { level: 'L1', desc: 'Signed up, no engagement' },
-                                          { level: 'L2', desc: 'Browsed, no action' },
-                                          { level: 'L3', desc: 'Placed, never activated' },
-                                          { level: 'L4', desc: 'Requested, no approval' },
-                                          { level: 'L5', desc: 'Approved, no clicks' },
+                                          { level: 'L2', desc: 'Browsed offers' },
+                                          { level: 'L3', desc: 'Active account' },
+                                          { level: 'L4', desc: 'Requested offers' },
+                                          { level: 'L5', desc: 'Approved + conversions' },
                                           { level: 'L6', desc: 'Suspicious activity' },
                                           { level: 'L7', desc: 'Genuine, no conversion' }
                                         ].map((item, idx) => {
@@ -1149,7 +1615,7 @@ const AdminPublisherAnalytics = () => {
                                         <p className="text-xs font-bold text-gray-900">{stats?.top_vertical || 'N/A'}</p>
                                       </div>
                                       <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-md p-2 border border-amber-100">
-                                        <p className="text-[10px] text-gray-600 mb-0.5 font-medium">Time on site</p>
+                                        <p className="text-[10px] text-gray-600 mb-0.5 font-medium">Total time spent</p>
                                         <p className="text-xs font-bold text-gray-900 flex items-center gap-1">
                                           <Clock className="w-3 h-3 text-amber-600" />
                                           {stats?.avg_time_spent || '—'}
