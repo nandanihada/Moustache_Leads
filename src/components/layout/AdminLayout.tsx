@@ -7,7 +7,7 @@ import FloatingNotesButton from "@/components/FloatingNotesButton";
 
 const AdminLayout = () => {
   return (
-    <SidebarProvider defaultOpen={true}>
+    <SidebarProvider defaultOpen={false}>
       <div className="h-screen w-screen max-w-full flex bg-background overflow-hidden">
         <AdminSidebar />
         <div className="flex-1 flex flex-col min-w-0 max-w-full overflow-hidden">

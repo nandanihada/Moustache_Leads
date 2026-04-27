@@ -20,3 +20,6 @@ class Config:
     
     # IPQualityScore API key for referral fraud detection
     IPQUALITYSCORE_API_KEY = os.getenv('IPQUALITYSCORE_API_KEY', '')
+
+    # Groq API key for AI-powered offer name extraction
+    GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')

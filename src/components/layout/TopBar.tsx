@@ -159,8 +159,8 @@ export function TopBar() {
     <header className="h-14 sm:h-16 border-b border-border/60 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex-shrink-0">
       <div className="flex items-center justify-between h-full px-3 sm:px-6">
         <div className="flex items-center gap-2 sm:gap-4 md:gap-8 min-w-0 flex-1">
-          {/* Mobile menu trigger - only visible on mobile */}
-          <SidebarTrigger className="md:hidden h-9 w-9" />
+          {/* Sidebar toggle — always visible */}
+          <SidebarTrigger className="h-9 w-9" />
           
           {/* Only show earnings for users with approved placement */}
           {hasApprovedPlacement && earnings && (

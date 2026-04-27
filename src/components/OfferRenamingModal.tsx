@@ -22,7 +22,7 @@ import {
   Eye,
   RotateCcw,
 } from 'lucide-react';
-import { Offer } from '@/services/adminOfferApi';
+import { Offer, adminOfferApi } from '@/services/adminOfferApi';
 
 // ─── Types ───────────────────────────────────────────────────────────
 export interface ExtractedParts {
@@ -126,17 +126,19 @@ function extractPartsFromOffer(offer: Offer): ExtractedParts {
   const nameTokens = name.split(/[-_|/\\,\s]+/).filter(Boolean);
   const usedTokens = new Set<number>();
 
-  // 1. GEO — prefer API geo field, then name, then description
+  // 1. GEO — collect ALL geo codes from API field and name, comma-separated
+  const allGeos: string[] = [];
   if (apiGeo.length > 0) {
-    parts.geo = apiGeo[0];
+    allGeos.push(...apiGeo);
   }
   nameTokens.forEach((t, i) => {
     const upper = t.toUpperCase();
     if (COUNTRY_CODES.has(upper)) {
-      if (!parts.geo) parts.geo = upper;
+      if (!allGeos.includes(upper)) allGeos.push(upper);
       usedTokens.add(i);
     }
   });
+  parts.geo = allGeos.join(', ');
 
   // 2. Opt-in
   const optinMatch = name.match(OPTIN_PATTERNS) || desc.match(OPTIN_PATTERNS);
@@ -197,49 +199,102 @@ function extractPartsFromOffer(offer: Offer): ExtractedParts {
   }
   parts.brand = brandTokens.join(' ');
 
-  // 8. Extra — anything remaining
+  // 8. Extra — only short standalone descriptors from remaining tokens
+  // Filter out filler words and number-only tokens
+  const FILLER_WORDS = new Set(['only', 'and', 'the', 'for', 'with', 'from', 'your', 'our', 'new', 'free', 'get', 'now', 'best', 'top', 'just', 'more', 'all', 'any', 'app', 'web', 'int']);
   const extraTokens: string[] = [];
   nameTokens.forEach((t, i) => {
-    if (!usedTokens.has(i) && !/^\d+$/.test(t)) {
+    if (!usedTokens.has(i) && !/^\d+$/.test(t) && t.length <= 20 && !FILLER_WORDS.has(t.toLowerCase())) {
       extraTokens.push(t);
     }
   });
-  parts.extra = extraTokens.join(' ');
+  // Keep meaningful short extras (max 3 words)
+  parts.extra = extraTokens.slice(0, 3).join(' ');
 
-  // 9. Infer model from vertical if not found
+  // 9. Infer model from vertical if not found — mark as inferred
   if (!parts.model && vertical && VERTICAL_TO_MODEL[vertical]) {
     parts.model = VERTICAL_TO_MODEL[vertical];
+    // Return a special marker so the caller can set inferred=true on the token
+    (parts as any)._inferredModel = true;
   }
 
   return parts;
 }
 
 // ─── Template Composition ────────────────────────────────────────────
+
+function buildTokensFromParts(parts: ExtractedParts): Record<PartKey, TokenState> {
+  const tokens: Record<PartKey, TokenState> = {} as any;
+  for (const key of PART_KEYS) {
+    tokens[key] = {
+      value: parts[key],
+      // Extra starts OFF by default — it's a suggestion, manager toggles ON if wanted
+      enabled: key === 'extra' ? false : !!parts[key],
+      inferred: key === 'model' && !!(parts as any)._inferredModel,
+    };
+  }
+  return tokens;
+}
+
 function composeNameFromTemplate(template: string, tokens: Record<PartKey, TokenState>): string {
   if (!template.trim()) return '';
 
-  let result = template;
+  // Step 1: Build a list of segments — alternating between literal separators and placeholder values
+  // Parse the template into parts: [{type:'text',value:'-'}, {type:'placeholder',key:'brand'}, ...]
+  const segments: Array<{ type: 'separator' | 'value'; text: string }> = [];
+  const placeholderRegex = /\{(brand|amount|geo|optin|model|incent|proof|extra)\}/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
 
-  // Replace each placeholder with its value (or empty if disabled/missing)
-  for (const key of PART_KEYS) {
+  while ((match = placeholderRegex.exec(template)) !== null) {
+    // Text before this placeholder is a separator
+    if (match.index > lastIndex) {
+      segments.push({ type: 'separator', text: template.slice(lastIndex, match.index) });
+    }
+    const key = match[1] as PartKey;
     const token = tokens[key];
-    const value = token.enabled && token.value ? token.value : '';
-    result = result.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
+    let value = token && token.enabled && token.value ? token.value : '';
+    // For GEO: if multi-value (comma-separated), join with /
+    if (key === 'geo' && value && value.includes(',')) {
+      value = value.split(/[,\s]+/).filter(Boolean).join('/');
+    }
+    segments.push({ type: 'value', text: value });
+    lastIndex = match.index + match[0].length;
+  }
+  // Trailing text after last placeholder
+  if (lastIndex < template.length) {
+    segments.push({ type: 'separator', text: template.slice(lastIndex) });
   }
 
-  // Clean up: remove orphaned separators
-  // Remove leading/trailing separators and collapse multiple separators
-  result = result
-    .replace(/^[\s\-_|/\\,→>]+/, '')  // leading separators
-    .replace(/[\s\-_|/\\,→>]+$/, '')  // trailing separators
-    .replace(/([\-_|/\\,→>])\s*\1+/g, '$1')  // collapse duplicate separators
-    .replace(/\s{2,}/g, ' ')  // collapse multiple spaces
-    .replace(/^[\-_|/\\,→>]\s*/, '')  // leading separator after cleanup
-    .replace(/\s*[\-_|/\\,→>]$/, '')  // trailing separator after cleanup
-    .replace(/([\-_|/\\,→>])\s*([\-_|/\\,→>])/g, '$1')  // adjacent different separators
-    .trim();
+  // Step 2: Build result — only include a separator if it sits between two non-empty values
+  // First, filter out empty values and merge adjacent separators
+  const filtered: typeof segments = [];
+  for (const seg of segments) {
+    if (seg.type === 'value' && !seg.text) continue; // skip empty values
+    if (seg.type === 'separator' && filtered.length > 0 && filtered[filtered.length - 1].type === 'separator') {
+      // Merge adjacent separators (keep the first one)
+      continue;
+    }
+    filtered.push(seg);
+  }
 
-  return result;
+  // Now build the result: separators only between values
+  const resultParts: string[] = [];
+  for (let i = 0; i < filtered.length; i++) {
+    const seg = filtered[i];
+    if (seg.type === 'value') {
+      resultParts.push(seg.text);
+    } else {
+      // Separator: only include if previous AND next are values
+      const prev = i > 0 ? filtered[i - 1] : null;
+      const next = i < filtered.length - 1 ? filtered[i + 1] : null;
+      if (prev && prev.type === 'value' && next && next.type === 'value') {
+        resultParts.push(seg.text);
+      }
+    }
+  }
+
+  return resultParts.join('').trim();
 }
 
 // ─── Component ───────────────────────────────────────────────────────
@@ -327,41 +382,94 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
   const runExtraction = useCallback(() => {
     setExtracting(true);
 
-    // Simulate brief processing delay for UX
-    setTimeout(() => {
-      if (mode === 'bulk') {
-        // Use first offer for bulk extraction
-        if (selectedOffers.length > 0) {
-          const parts = extractPartsFromOffer(selectedOffers[0]);
-          const tokens: Record<PartKey, TokenState> = {} as any;
-          for (const key of PART_KEYS) {
-            tokens[key] = { value: parts[key], enabled: !!parts[key] };
-          }
-          setBulkTokens(tokens);
-        }
-      } else {
-        // Per-offer extraction
-        const map: Record<string, OfferTokens> = {};
-        for (const offer of selectedOffers) {
-          const parts = extractPartsFromOffer(offer);
-          const tokens: Record<PartKey, TokenState> = {} as any;
-          for (const key of PART_KEYS) {
-            tokens[key] = { value: parts[key], enabled: !!parts[key] };
-          }
-          map[offer.offer_id] = {
-            offerId: offer.offer_id,
-            originalName: offer.name,
-            tokens,
-            composedName: '',
-            manualOverride: '',
-          };
-        }
-        setOfferTokensMap(map);
-      }
+    // Try AI extraction via backend first, fall back to local regex
+    const offersPayload = selectedOffers.map(o => ({
+      offer_id: o.offer_id,
+      name: o.name || '',
+      description: o.description || '',
+      vertical: o.vertical || o.category || '',
+      category: o.category || '',
+      countries: o.countries || [],
+    }));
 
-      setExtracted(true);
-      setExtracting(false);
-    }, 300);
+    adminOfferApi.aiExtractParts(offersPayload)
+      .then(response => {
+        const extractions = response.extractions;
+
+        if (mode === 'bulk') {
+          // Use first offer's AI extraction for bulk mode
+          if (selectedOffers.length > 0) {
+            const offerId = selectedOffers[0].offer_id;
+            const aiResult = extractions[offerId];
+            if (aiResult) {
+              const tokens: Record<PartKey, TokenState> = {} as any;
+              for (const key of PART_KEYS) {
+                tokens[key] = {
+                  value: aiResult[key as keyof typeof aiResult] as string || '',
+                  enabled: key === 'extra' ? false : !!(aiResult[key as keyof typeof aiResult]),
+                  inferred: key === 'model' && aiResult.inferred_model,
+                };
+              }
+              setBulkTokens(tokens);
+            } else {
+              // Fallback to local extraction for this offer
+              setBulkTokens(buildTokensFromParts(extractPartsFromOffer(selectedOffers[0])));
+            }
+          }
+        } else {
+          // Per-offer: each offer gets its own AI-extracted tokens
+          const map: Record<string, OfferTokens> = {};
+          for (const offer of selectedOffers) {
+            const aiResult = extractions[offer.offer_id];
+            let tokens: Record<PartKey, TokenState>;
+            if (aiResult) {
+              tokens = {} as any;
+              for (const key of PART_KEYS) {
+                tokens[key] = {
+                  value: aiResult[key as keyof typeof aiResult] as string || '',
+                  enabled: key === 'extra' ? false : !!(aiResult[key as keyof typeof aiResult]),
+                  inferred: key === 'model' && aiResult.inferred_model,
+                };
+              }
+            } else {
+              tokens = buildTokensFromParts(extractPartsFromOffer(offer));
+            }
+            map[offer.offer_id] = {
+              offerId: offer.offer_id,
+              originalName: offer.name,
+              tokens,
+              composedName: '',
+              manualOverride: '',
+            };
+          }
+          setOfferTokensMap(map);
+        }
+
+        setExtracted(true);
+        setExtracting(false);
+      })
+      .catch(() => {
+        // AI failed — fall back to local regex extraction silently
+        if (mode === 'bulk') {
+          if (selectedOffers.length > 0) {
+            setBulkTokens(buildTokensFromParts(extractPartsFromOffer(selectedOffers[0])));
+          }
+        } else {
+          const map: Record<string, OfferTokens> = {};
+          for (const offer of selectedOffers) {
+            map[offer.offer_id] = {
+              offerId: offer.offer_id,
+              originalName: offer.name,
+              tokens: buildTokensFromParts(extractPartsFromOffer(offer)),
+              composedName: '',
+              manualOverride: '',
+            };
+          }
+          setOfferTokensMap(map);
+        }
+        setExtracted(true);
+        setExtracting(false);
+      });
   }, [mode, selectedOffers]);
 
   // Auto-extract on open
@@ -555,6 +663,14 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
     const activeTokens = PART_KEYS.filter(k => tokens[k].value);
     const missingTokens = PART_KEYS.filter(k => !tokens[k].value);
 
+    // Split multi-value GEO into individual items for rendering
+    const geoValues = tokens.geo?.value ? tokens.geo.value.split(/[,\s]+/).filter(Boolean).map(g => g.trim()) : [];
+    const hasMultiGeo = geoValues.length > 1;
+
+    // Track which individual geo codes are disabled (stored as comma-separated in a special state)
+    // For simplicity, we use the token enabled flag for all geos together,
+    // but render them as individual chips that can be toggled
+
     return (
       <div className="flex flex-wrap gap-1.5 items-center">
         {activeTokens.map(key => {
@@ -576,6 +692,44 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                 </Button>
               </div>
             );
+          }
+
+          // For GEO with multiple values, render each country as a separate chip
+          if (key === 'geo' && hasMultiGeo) {
+            return geoValues.map((geoCode, gi) => (
+              <div
+                key={`geo-${gi}`}
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-all ${
+                  token.enabled ? PART_COLORS.geo : 'bg-gray-50 text-gray-400 border-gray-200 line-through opacity-60'
+                }`}
+              >
+                <span className="font-medium text-[10px] uppercase opacity-70">GEO:</span>
+                <span>{geoCode}</span>
+                <button
+                  onClick={() => {
+                    // Remove this specific geo code from the value
+                    const remaining = geoValues.filter((_, i) => i !== gi);
+                    if (remaining.length === 0) {
+                      deleteToken('geo', offerId);
+                    } else {
+                      // Update the geo value without this code
+                      if (mode === 'bulk' || !offerId) {
+                        setBulkTokens(prev => ({ ...prev, geo: { ...prev.geo, value: remaining.join(', ') } }));
+                      } else {
+                        setOfferTokensMap(prev => {
+                          const od = prev[offerId]; if (!od) return prev;
+                          return { ...prev, [offerId]: { ...od, tokens: { ...od.tokens, geo: { ...od.tokens.geo, value: remaining.join(', ') } } } };
+                        });
+                      }
+                    }
+                  }}
+                  className="hover:opacity-70 text-red-400"
+                  title={`Remove ${geoCode}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ));
           }
 
           return (
@@ -826,18 +980,24 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                 {previewList.map(item => {
                   const isEditingThis = editingComposed === item.offerId;
                   const hasChange = item.composedName && item.composedName !== item.originalName;
+                  const isManuallyEdited = !!manualOverrides[item.offerId];
 
                   return (
                     <div
                       key={item.offerId}
-                      className={`p-2 rounded border text-sm ${
-                        hasChange ? 'border-blue-200 bg-blue-50/30' : 'border-gray-200 bg-gray-50/30'
+                      className={`p-2 rounded border text-sm group ${
+                        isManuallyEdited ? 'border-amber-300 bg-amber-50/30' : hasChange ? 'border-blue-200 bg-blue-50/30' : 'border-gray-200 bg-gray-50/30'
                       }`}
                     >
                       <div className="flex items-start gap-2">
                         <div className="flex-1 min-w-0">
-                          <div className="text-xs text-muted-foreground line-through truncate">
-                            was: {item.originalName}
+                          <div className="flex items-center gap-1.5">
+                            <div className="text-xs text-muted-foreground line-through truncate flex-1">
+                              was: {item.originalName}
+                            </div>
+                            {isManuallyEdited && (
+                              <span className="text-[9px] px-1.5 py-0 rounded bg-amber-100 text-amber-700 border border-amber-200 whitespace-nowrap shrink-0">✏️ edited</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
                             <ArrowRight className="h-3 w-3 text-blue-500 shrink-0" />
@@ -855,12 +1015,19 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                                     }
                                     if (e.key === 'Escape') setEditingComposed(null);
                                   }}
+                                  onBlur={() => {
+                                    if (editingComposedValue.trim()) {
+                                      setManualOverrides(prev => ({ ...prev, [item.offerId]: editingComposedValue }));
+                                    }
+                                    setEditingComposed(null);
+                                  }}
                                 />
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 w-6 p-0"
-                                  onClick={() => {
+                                  onMouseDown={e => {
+                                    e.preventDefault(); // prevent blur before click
                                     setManualOverrides(prev => ({ ...prev, [item.offerId]: editingComposedValue }));
                                     setEditingComposed(null);
                                   }}
@@ -870,7 +1037,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                               </div>
                             ) : (
                               <span
-                                className={`font-medium cursor-pointer hover:underline ${
+                                className={`font-medium cursor-pointer hover:underline inline-flex items-center gap-1 ${
                                   hasChange ? 'text-blue-700' : 'text-gray-400 italic'
                                 }`}
                                 onClick={() => {
@@ -880,6 +1047,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                                 title="Click to edit manually"
                               >
                                 {item.composedName || '(no change)'}
+                                <Edit3 className="h-3 w-3 opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
                               </span>
                             )}
                           </div>

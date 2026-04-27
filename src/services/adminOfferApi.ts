@@ -704,6 +704,21 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
+  async aiExtractParts(offers: Array<{ offer_id: string; name: string; description?: string; vertical?: string; category?: string; countries?: string[] }>): Promise<{
+    extractions: Record<string, {
+      brand: string; amount: string; geo: string; optin: string;
+      model: string; incent: string; proof: string; extra: string;
+      inferred_model: boolean;
+    }>;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/offers/ai-extract-parts`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offers }),
+    });
+    return this.handleResponse(response);
+  }
+
   async inlineUpdateOffer(offerId: string, fields: Record<string, unknown>): Promise<{ message: string; updated_fields: string[] }> {
     const response = await fetch(`${API_BASE_URL}/offers/${offerId}/inline-update`, {
       method: 'PATCH',

@@ -1452,6 +1452,134 @@ def bulk_update_payout():
         logging.error(f"Bulk update payout error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to update payout: {str(e)}'}), 500
 
+@admin_offers_bp.route('/offers/ai-extract-parts', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def ai_extract_parts():
+    """Use Groq AI to extract structured parts from offer names — batches all offers in one call."""
+    try:
+        from config import Config
+        api_key = Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        offers = data.get('offers', [])
+        if not offers or not isinstance(offers, list):
+            return jsonify({'error': 'offers array is required'}), 400
+
+        # Cap at 10 offers per call to keep prompt size reasonable and fast
+        offers = offers[:10]
+
+        # Build the prompt — one call for all offers
+        offer_lines = []
+        for i, o in enumerate(offers):
+            name = o.get('name', '')
+            desc = (o.get('description', '') or '')[:200]  # truncate long descriptions
+            vertical = o.get('vertical', '') or o.get('category', '') or ''
+            geo = ', '.join(o.get('countries', [])[:10]) if o.get('countries') else ''
+            offer_lines.append(f"Offer {i+1}: name=\"{name}\" | description=\"{desc}\" | vertical=\"{vertical}\" | geo=\"{geo}\"")
+
+        offers_block = '\n'.join(offer_lines)
+
+        prompt = f"""Extract structured parts from these affiliate offer names. For each offer, return a JSON object with these fields:
+- brand: the product/company name only
+- amount: any monetary value (€, $, £ etc.)
+- geo: ALL country codes as a comma-separated string (e.g. "DE, UK, PL"). Include codes from the geo field, name, AND description. Prefer the geo field first.
+- optin: SOI / DOI / 1Click / 2Click (from name or description)
+- model: CPL / CPA / CPI / CPE (from name or description; if not found but vertical suggests it, include it and set inferred=true)
+- incent: Incent / Non-Incent (from name or description)
+- proof: Proof / No-Proof (from name or description)
+- extra: ONLY short standalone descriptors (1-3 words max) that could appear in an offer name, like: Voucher, Premium, Kids, Gift Card, Pro, Lite, Plus. Do NOT include sentences, CTAs, conversion instructions, or phrases longer than 3 words. If nothing fits, use empty string.
+- inferred_model: true if model was inferred from vertical, false otherwise
+
+Rules:
+- If a field cannot be found, use empty string ""
+- Do NOT guess or invent values
+- For geo: return ALL country codes found, comma-separated
+- For extra: NEVER include descriptions, instructions, or sentences. Only short product descriptors (1-3 words).
+- Return ONLY a JSON array, no explanation
+
+{offers_block}
+
+Return a JSON array with {len(offers)} objects, one per offer, in the same order."""
+
+        import json as json_module
+        from groq import Groq
+
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "You are a precise data extraction assistant. Return only valid JSON arrays. No markdown, no explanation, no code fences."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=2000,
+        )
+
+        raw_response = completion.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        if raw_response.startswith('```'):
+            raw_response = raw_response.split('\n', 1)[-1]
+            if raw_response.endswith('```'):
+                raw_response = raw_response[:-3].strip()
+
+        # Parse the response
+        try:
+            parsed = json_module.loads(raw_response)
+            # Handle both {"results": [...]} and direct [...] formats
+            if isinstance(parsed, dict):
+                results = parsed.get('results', parsed.get('offers', parsed.get('data', [])))
+                if not isinstance(results, list):
+                    # Try to find any list value in the dict
+                    for v in parsed.values():
+                        if isinstance(v, list):
+                            results = v
+                            break
+                    else:
+                        results = []
+            elif isinstance(parsed, list):
+                results = parsed
+            else:
+                results = []
+        except json_module.JSONDecodeError:
+            logging.error(f"Failed to parse Groq response: {raw_response[:500]}")
+            return jsonify({'error': 'AI returned invalid JSON', 'raw': raw_response[:500]}), 500
+
+        # Map results back to offer IDs
+        extractions = {}
+        for i, o in enumerate(offers):
+            offer_id = o.get('offer_id', f'unknown_{i}')
+            if i < len(results):
+                r = results[i]
+                extractions[offer_id] = {
+                    'brand': str(r.get('brand', '')),
+                    'amount': str(r.get('amount', '')),
+                    'geo': str(r.get('geo', '')),
+                    'optin': str(r.get('optin', '')),
+                    'model': str(r.get('model', '')),
+                    'incent': str(r.get('incent', '')),
+                    'proof': str(r.get('proof', '')),
+                    'extra': str(r.get('extra', '')),
+                    'inferred_model': bool(r.get('inferred_model', False)),
+                }
+            else:
+                extractions[offer_id] = {
+                    'brand': '', 'amount': '', 'geo': '', 'optin': '',
+                    'model': '', 'incent': '', 'proof': '', 'extra': '',
+                    'inferred_model': False,
+                }
+
+        return jsonify({'extractions': extractions}), 200
+
+    except Exception as e:
+        logging.error(f"AI extract parts error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'AI extraction failed: {str(e)}'}), 500
+
 @admin_offers_bp.route('/offers/bulk-rename', methods=['PUT'])
 @token_required
 @subadmin_or_admin_required('offers')
