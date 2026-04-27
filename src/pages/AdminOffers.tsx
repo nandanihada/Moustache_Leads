@@ -75,6 +75,7 @@ import ActionsDropdown from '@/components/ActionsDropdown';
 import FilterPanel from '@/components/FilterPanel';
 import HealthIcon from '@/components/HealthIcon';
 import HealthPopup from '@/components/HealthPopup';
+import { OfferRenamingModal } from '@/components/OfferRenamingModal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const AdminOffers = () => {
@@ -172,6 +173,11 @@ const AdminOffers = () => {
   // Percentage payout dialog state
   const [percentagePayoutDialogOpen, setPercentagePayoutDialogOpen] = useState(false);
   const [percentageValue, setPercentageValue] = useState('');
+
+  // Renaming modal state
+  const [renamingModalOpen, setRenamingModalOpen] = useState(false);
+  // Track recently renamed offers for visual feedback
+  const [recentlyRenamed, setRecentlyRenamed] = useState<Record<string, string>>({});
 
   // Inline price editing
   const [editingPriceOfferId, setEditingPriceOfferId] = useState<string | null>(null);
@@ -1020,6 +1026,30 @@ const AdminOffers = () => {
     }
 
     setPercentagePayoutDialogOpen(true);
+  };
+
+  const handleBulkRename = () => {
+    const ids = Array.from(selectedOffers);
+    if (ids.length === 0) {
+      toast({ title: "No Selection", description: "Please select offers to rename", variant: "destructive" });
+      return;
+    }
+    setRenamingModalOpen(true);
+  };
+
+  const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>) => {
+    const result = await adminOfferApi.bulkRenameOffers(renames);
+    toast({ title: "Renamed", description: result.message });
+
+    // Track renamed offers for visual feedback
+    const renamed: Record<string, string> = {};
+    for (const r of renames) {
+      renamed[r.offer_id] = r.original_name;
+    }
+    setRecentlyRenamed(prev => ({ ...prev, ...renamed }));
+
+    setSelectedOffers(new Set());
+    fetchOffers();
   };
 
   const executePercentagePayout = async () => {
@@ -1894,6 +1924,9 @@ const AdminOffers = () => {
                   <DropdownMenuItem onClick={() => handleBulkPin(false)}>
                     <span className="mr-2">❌</span> Unpin
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleBulkRename}>
+                    <span className="mr-2">✨</span> Smart Rename
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
@@ -2169,7 +2202,12 @@ const AdminOffers = () => {
                             </TableCell>
                             <TableCell className="font-mono text-xs text-muted-foreground">{offer.offer_id}</TableCell>
                             <TableCell>
-                              <span className="font-medium text-sm truncate max-w-[200px] block">{offer.name}</span>
+                              <div>
+                                <span className={`font-medium text-sm truncate max-w-[200px] block ${(offer as any).original_name ? 'text-blue-700' : ''}`}>{offer.name}</span>
+                                {(offer as any).original_name && (
+                                  <span className="text-[10px] text-muted-foreground">was: {(offer as any).original_name}</span>
+                                )}
+                              </div>
                             </TableCell>
                             <TableCell>
                               {(() => {
@@ -2734,8 +2772,20 @@ const AdminOffers = () => {
                       <div>
                         <div className="font-medium flex items-center gap-1">
                           {offer.is_pinned && <span title="Pinned to top" className="text-amber-500">📌</span>}
-                          {offer.name}
+                          {(offer.original_name || recentlyRenamed[offer.offer_id]) ? (
+                            <span className="text-blue-700">{offer.name}</span>
+                          ) : (
+                            offer.name
+                          )}
+                          {(offer.original_name || recentlyRenamed[offer.offer_id]) && (
+                            <Badge variant="outline" className="text-[9px] px-1 py-0 bg-blue-50 text-blue-600 border-blue-200 ml-1">updated</Badge>
+                          )}
                         </div>
+                        {(offer.original_name || recentlyRenamed[offer.offer_id]) && (
+                          <div className="text-[11px] text-muted-foreground">
+                            was: {offer.original_name || recentlyRenamed[offer.offer_id]}
+                          </div>
+                        )}
                         <div className="text-sm text-muted-foreground">
                           {offer.affiliates === 'all' || !offer.affiliates ? 'All Users' :
                             offer.affiliates === 'premium' ? 'Premium Only' : 
@@ -4366,6 +4416,14 @@ const AdminOffers = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Smart Rename Modal */}
+      <OfferRenamingModal
+        open={renamingModalOpen}
+        onOpenChange={setRenamingModalOpen}
+        selectedOffers={offers.filter(o => selectedOffers.has(o.offer_id))}
+        onApply={handleApplyRenames}
+      />
     </div>
   );
 };

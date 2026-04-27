@@ -1452,6 +1452,77 @@ def bulk_update_payout():
         logging.error(f"Bulk update payout error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to update payout: {str(e)}'}), 500
 
+@admin_offers_bp.route('/offers/bulk-rename', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_rename_offers():
+    """Rename multiple offers at once — stores original name for reference"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        renames = data.get('renames', [])
+        if not renames or not isinstance(renames, list) or len(renames) == 0:
+            return jsonify({'error': 'renames array is required with at least one entry'}), 400
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        from datetime import datetime
+
+        updated = 0
+        errors = []
+
+        for rename in renames:
+            offer_id = rename.get('offer_id')
+            new_name = rename.get('new_name', '').strip()
+            original_name = rename.get('original_name', '')
+
+            if not offer_id or not new_name:
+                errors.append({'offer_id': offer_id, 'error': 'Missing offer_id or new_name'})
+                continue
+
+            if len(new_name) > 500:
+                errors.append({'offer_id': offer_id, 'error': 'Name too long (max 500 chars)'})
+                continue
+
+            result = offers_collection.update_one(
+                {'offer_id': offer_id, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                {'$set': {
+                    'name': new_name,
+                    'original_name': original_name,
+                    'renamed_at': datetime.utcnow(),
+                    'updated_at': datetime.utcnow(),
+                }}
+            )
+            if result.modified_count > 0:
+                updated += 1
+
+        log_admin_activity(
+            action='bulk_rename',
+            category='offer',
+            admin_user=request.current_user,
+            details={
+                'updated_count': updated,
+                'requested_count': len(renames),
+                'errors': len(errors),
+            },
+            affected_count=updated,
+            request_obj=request
+        )
+
+        return jsonify({
+            'message': f'Renamed {updated} offer(s)',
+            'updated_count': updated,
+            'errors': errors if errors else None,
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Bulk rename error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to rename offers: {str(e)}'}), 500
+
 @admin_offers_bp.route('/offers/bulk-pin', methods=['PUT'])
 @token_required
 @subadmin_or_admin_required('offers')

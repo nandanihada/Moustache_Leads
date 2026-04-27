@@ -147,6 +147,8 @@ export interface Offer {
   is_pinned?: boolean;
   pinned_at?: string;
   pin_expires_at?: string;
+  original_name?: string;
+  renamed_at?: string;
 }
 
 export interface CreateOfferData {
@@ -686,6 +688,18 @@ class AdminOfferApi {
       method: 'PUT',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ percentage, offer_ids: offerIds }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async bulkRenameOffers(renames: Array<{ offer_id: string; new_name: string; original_name: string }>): Promise<{ message: string; updated_count: number; errors?: any[] }> {
+    if (!renames || renames.length === 0) {
+      throw new Error('No renames provided.');
+    }
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-rename`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ renames }),
     });
     return this.handleResponse(response);
   }
