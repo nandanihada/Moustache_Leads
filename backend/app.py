@@ -104,6 +104,7 @@ admin_notes_bp = safe_import_blueprint('routes.admin_notes', 'admin_notes_bp')
 admin_publisher_email_bp = safe_import_blueprint('routes.admin_publisher_email', 'admin_publisher_email_bp')
 admin_publisher_bulk_email_bp = safe_import_blueprint('routes.admin_publisher_bulk_email', 'admin_publisher_bulk_email_bp')
 admin_level_progression_bp = safe_import_blueprint('routes.admin_level_progression', 'admin_level_progression_bp')
+platform_settings_bp = safe_import_blueprint('routes.platform_settings', 'platform_settings_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -197,6 +198,7 @@ blueprints = [
     (admin_publisher_email_bp, ''),
     (admin_publisher_bulk_email_bp, ''),
     (admin_level_progression_bp, ''),
+    (platform_settings_bp, ''),
 ]
 
 def create_app():

@@ -14,9 +14,9 @@ LOGO_URL = 'https://moustacheleads.com/logo.png'
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
 
 # All possible fields admin can toggle
-ALL_FIELDS = ['name', 'payout', 'countries', 'category', 'image', 'offer_id', 'preview_url', 'clicks']
+ALL_FIELDS = ['name', 'payout', 'countries', 'category', 'network', 'image', 'offer_id', 'preview_url', 'clicks']
 
-DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'image', 'offer_id']
+DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'network', 'image', 'offer_id']
 
 
 def build_offer_email_html(
@@ -55,6 +55,7 @@ def build_offer_email_html(
             'name': o.get('name', 'Offer'),
             'payout': payout,
             'category': cat or '',
+            'network': o.get('network', ''),
             'countries': country_str,
             'image_url': img,
             'preview_url': o.get('preview_url', ''),
@@ -119,6 +120,7 @@ def _build_table_layout(offers, show):
     if show.get('image'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>'
     if show.get('name'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Offer</th>'
     if show.get('payout'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Payout</th>'
+    if show.get('network'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Network</th>'
     if show.get('countries'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Countries</th>'
     if show.get('category'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Category</th>'
     if show.get('preview_url'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>'
@@ -139,6 +141,8 @@ def _build_table_layout(offers, show):
             row += f'<td style="padding:10px 8px;vertical-align:middle;"><div style="font-size:13px;color:#111;font-weight:500;">{o["name"]}</div></td>'
         if show.get('payout'):
             row += f'<td style="padding:10px 8px;font-size:14px;color:#059669;font-weight:600;vertical-align:middle;white-space:nowrap;">${o["payout"]:.2f}</td>'
+        if show.get('network'):
+            row += f'<td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{o["network"]}</td>'
         if show.get('countries'):
             row += f'<td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{o["countries"]}</td>'
         if show.get('category'):
@@ -177,6 +181,8 @@ def _build_card_layout(offers, show, color):
             meta_parts.append(f'<span style="background:#fef3c7;color:#92400e;font-size:12px;font-weight:700;padding:2px 8px;border-radius:12px;">${o["payout"]:.2f}</span>')
         if show.get('category') and o['category']:
             meta_parts.append(f'<span style="font-size:11px;color:#6b7280;">{o["category"]}</span>')
+        if show.get('network') and o.get('network'):
+            meta_parts.append(f'<span style="font-size:11px;color:#6b7280;">{o["network"]}</span>')
         if show.get('countries'):
             meta_parts.append(f'<span style="font-size:11px;color:#6b7280;">{o["countries"]}</span>')
         if show.get('offer_id'):

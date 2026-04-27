@@ -11,7 +11,7 @@ import {
   Search, Users, AlertTriangle, AlertCircle, Sparkles, RefreshCw,
   Mail, MessageSquare, CheckCircle2, Inbox,
   ThumbsUp, ThumbsDown, Eye, Briefcase, UserCheck, TrendingUp,
-  ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock,
+  ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock, FileImage,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -133,7 +133,7 @@ export function rsk(level: string) {
 
 // ─── Tab Config ──────────────────────────────────────────────────────────────
 
-type TabId = 'all_requests' | 'approved' | 'rejected' | 'in_review' | 'direct_partner' | 'affiliate' | 'most_requested' | 'history';
+type TabId = 'all_requests' | 'approved' | 'rejected' | 'in_review' | 'direct_partner' | 'affiliate' | 'most_requested' | 'placement_proofs' | 'history';
 
 const TAB_CONFIG: { id: TabId; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: 'all_requests', label: 'All Requests', icon: Eye },
@@ -143,6 +143,7 @@ const TAB_CONFIG: { id: TabId; label: string; icon: React.ElementType; adminOnly
   { id: 'direct_partner', label: 'Direct Partner', icon: Briefcase },
   { id: 'affiliate', label: 'Affiliate', icon: UserCheck },
   { id: 'most_requested', label: 'Most Requested', icon: TrendingUp },
+  { id: 'placement_proofs', label: 'Placement Proofs', icon: FileImage },
   { id: 'history', label: 'Send History', icon: Inbox },
 ];
 
@@ -165,7 +166,7 @@ function AdminOfferAccessRequests() {
 
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [tabCounts, setTabCounts] = useState<Record<TabId, number>>({
-    all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, history: 0,
+    all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, placement_proofs: 0, history: 0,
   });
   const [tabBreakdowns, setTabBreakdowns] = useState<Record<string, { total: number; today: number; week: number }>>({});
   const [recentlyAdded, setRecentlyAdded] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
@@ -206,6 +207,7 @@ function AdminOfferAccessRequests() {
         direct_partner: getTotal(d.direct_partner),
         affiliate: getTotal(d.affiliate),
         most_requested: getTotal(d.most_requested),
+        placement_proofs: getTotal(d.placement_proofs),
         history: 0,
       });
       setTabBreakdowns({
@@ -216,6 +218,7 @@ function AdminOfferAccessRequests() {
         direct_partner: getBreakdown(d.direct_partner),
         affiliate: getBreakdown(d.affiliate),
         most_requested: getBreakdown(d.most_requested),
+        placement_proofs: getBreakdown(d.placement_proofs),
       });
       setRecentlyAdded(d.recently_added || []);
       setRecentlyEdited(d.recently_edited || []);

@@ -316,9 +316,6 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               Push Mail
-              <Badge variant="secondary" className="text-xs">
-                {offerIds.length} offer{offerIds.length !== 1 ? 's' : ''}
-              </Badge>
             </DialogTitle>
           </DialogHeader>
 
@@ -584,10 +581,9 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
 
           <DialogFooter className="flex items-center justify-between sm:justify-between">
             <span className="text-xs text-muted-foreground">
-              {offerIds.length} offer{offerIds.length !== 1 ? 's' : ''}
               {selectedPublishers.size > 0 &&
-                ' \u00B7 ' + selectedPublishers.size + ' publisher' + (selectedPublishers.size !== 1 ? 's' : '')}
-              {sendMode === 'one_by_one' && ' \u00B7 ' + intervalMinutes + 'min interval'}
+                selectedPublishers.size + ' publisher' + (selectedPublishers.size !== 1 ? 's' : '')}
+              {sendMode === 'one_by_one' && ' · ' + intervalMinutes + 'min interval'}
             </span>
             <Button
               onClick={handleSend}

@@ -13,12 +13,102 @@ import { API_BASE_URL } from '@/services/apiConfig';
 import OfferCard, { type TabOfferRequest } from './OfferCard';
 import SendScheduleModal from './SendScheduleModal';
 import PushMailModal from './PushMailModal';
+import { CheckCircle, XCircle, Loader2, FileImage, ExternalLink, Image } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 type GroupBy = 'all' | 'network' | 'vertical' | 'country' | 'user';
 
 interface TabContentProps {
   tab: string;
   isActive: boolean;
+}
+
+function ProofCard({ item, onRefresh }: { item: TabOfferRequest; onRefresh: () => void }) {
+  const [reviewing, setReviewing] = useState(false);
+  const [notes, setNotes] = useState(item.admin_notes || '');
+  const [fullImg, setFullImg] = useState<string | null>(null);
+  const token = localStorage.getItem('token');
+
+  const reviewProof = async (status: 'approved' | 'rejected') => {
+    setReviewing(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/placement-proofs/admin/${item._id}/review`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status, admin_notes: notes, score: status === 'approved' ? 10 : 0 }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success(`Proof ${status}`);
+      onRefresh();
+    } catch { toast.error('Failed to review proof'); }
+    finally { setReviewing(false); }
+  };
+
+  const imgUrls = (item.image_urls || []).map(u => u.startsWith('http') ? u : `${API_BASE_URL}${u}`);
+
+  return (
+    <>
+    <div className="border rounded-lg p-4 space-y-3 bg-card hover:shadow-sm transition-shadow">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm">{item.publisher_username || 'Unknown'}</span>
+            <span className="text-xs text-muted-foreground">{item.publisher_email}</span>
+            <Badge variant={item.status === 'approved' ? 'default' : item.status === 'rejected' ? 'destructive' : 'secondary'} className="text-[10px] px-1.5 py-0">
+              {item.status}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">{item.offer_name || item.offer_id}</span>
+            {item.offer_id && <span className="font-mono text-[10px]">{item.offer_id}</span>}
+          </div>
+          {item.description && <p className="text-xs text-muted-foreground mt-1">{item.description}</p>}
+          {item.placement_url && (
+            <a href={item.placement_url} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:underline flex items-center gap-1 mt-1">
+              <ExternalLink className="w-3 h-3" />{item.placement_url}
+            </a>
+          )}
+          {item.traffic_source && <span className="text-[10px] text-muted-foreground">Traffic: {item.traffic_source}</span>}
+          {item.requested_at && <span className="text-[10px] text-muted-foreground ml-2">{new Date(item.requested_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</span>}
+        </div>
+      </div>
+      {imgUrls.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {imgUrls.map((url, i) => (
+            <img key={i} src={url} alt={`Proof ${i + 1}`}
+              className="w-24 h-24 rounded-lg border object-cover cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
+              onClick={() => setFullImg(url)}
+              onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            />
+          ))}
+        </div>
+      )}
+      {item.status === 'pending' && (
+        <div className="flex items-center gap-2 pt-2 border-t">
+          <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Admin notes..." rows={1} className="text-xs flex-1 resize-none h-8 min-h-[32px]" />
+          <Button size="sm" className="h-8 px-3 text-xs gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => reviewProof('approved')} disabled={reviewing}>
+            {reviewing ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 px-3 text-xs gap-1 text-red-600 border-red-200" onClick={() => reviewProof('rejected')} disabled={reviewing}>
+            <XCircle className="w-3 h-3" />Reject
+          </Button>
+        </div>
+      )}
+      {item.admin_notes && item.status !== 'pending' && (
+        <div className="text-[10px] text-muted-foreground bg-muted/50 rounded px-2 py-1">Notes: {item.admin_notes}</div>
+      )}
+    </div>
+    {fullImg && (
+      <Dialog open={!!fullImg} onOpenChange={() => setFullImg(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle className="flex items-center gap-2 text-sm"><Image className="h-4 w-4" />Proof Image</DialogTitle></DialogHeader>
+          <img src={fullImg} alt="Proof" className="w-full rounded-lg" />
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
+  );
 }
 
 export default function TabContent({ tab, isActive }: TabContentProps) {
@@ -267,7 +357,20 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
       )}
 
       {/* Items */}
-      {tab === 'history' ? (
+      {tab === 'placement_proofs' ? (
+        /* ── Placement Proofs View ── */
+        loading ? (
+          <div className="flex items-center justify-center py-12"><RefreshCw className="h-6 w-6 animate-spin mr-2" /> Loading...</div>
+        ) : items.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">No placement proofs found</div>
+        ) : (
+          <div className="space-y-3">
+            {items.map(item => (
+              <ProofCard key={item._id} item={item} onRefresh={fetchData} />
+            ))}
+          </div>
+        )
+      ) : tab === 'history' ? (
         /* ── History View ── */
         <>
         <div className="flex gap-1 bg-muted/60 rounded-lg p-1 mb-3">

@@ -105,12 +105,24 @@ def get_publisher_profiles_with_requests():
         req_query = {}
         if status != 'all':
             if status == 'pending':
-                req_query['status'] = 'pending'
+                req_query['status'] = {'$in': ['pending', 'review']}
             else:
                 req_query['status'] = status
         
         # Get all matching requests
         all_requests = list(requests_collection.find(req_query).sort('requested_at', -1))
+        
+        # Deduplicate: for same user_id + offer_id, keep only the latest request
+        seen_user_offer = {}
+        deduped_requests = []
+        for req in all_requests:
+            uid = str(req.get('user_id', ''))
+            oid = req.get('offer_id', '')
+            key = f"{uid}:{oid}"
+            if key not in seen_user_offer:
+                seen_user_offer[key] = True
+                deduped_requests.append(req)
+        all_requests = deduped_requests
         
         # Group by user_id (convert ObjectId to string for consistent keys)
         user_requests_map = {}
@@ -605,6 +617,21 @@ def send_offers_to_publisher():
 
         # Get offers
         offers = list(offers_collection.find({'offer_id': {'$in': offer_ids}}))
+
+        # If default_image is provided, permanently save it to offers without images
+        if default_image:
+            for o in offers:
+                if not o.get('image_url') and not o.get('thumbnail_url'):
+                    try:
+                        offers_collection.update_one(
+                            {'_id': o['_id']},
+                            {'$set': {'image_url': default_image}}
+                        )
+                        o['image_url'] = default_image
+                        logging.info(f"📸 Set default image for offer {o.get('offer_id')}")
+                    except Exception as img_err:
+                        logging.warning(f"Failed to set default image for offer {o.get('offer_id')}: {img_err}")
+
         offer_list = [{'name': o.get('name'), 'payout': round(float(o.get('payout', 0) or 0) * 0.8, 2), 'offer_id': o.get('offer_id')} for o in offers]
 
         if not offer_list and not message_body:
@@ -1626,6 +1653,9 @@ def get_tab_counts():
         af_count = 0
         af_today = 0
         af_week = 0
+        pp_count = 0
+        pp_today = 0
+        pp_week = 0
         if collections_col is not None:
             dp_count = collections_col.count_documents({'collection_type': 'direct_partner'})
             dp_today = collections_col.count_documents({'collection_type': 'direct_partner', 'created_at': {'$gte': today_start}})
@@ -1633,6 +1663,12 @@ def get_tab_counts():
             af_count = collections_col.count_documents({'collection_type': 'affiliate'})
             af_today = collections_col.count_documents({'collection_type': 'affiliate', 'created_at': {'$gte': today_start}})
             af_week = collections_col.count_documents({'collection_type': 'affiliate', 'created_at': {'$gte': week_start}})
+
+        proofs_col = db_instance.get_collection('placement_proofs')
+        if proofs_col is not None:
+            pp_count = proofs_col.count_documents({})
+            pp_today = proofs_col.count_documents({'created_at': {'$gte': today_start}})
+            pp_week = proofs_col.count_documents({'created_at': {'$gte': week_start}})
 
         # Most requested — count distinct offer_ids with time breakdowns
         most_requested_total = len(requests_col.distinct('offer_id'))
@@ -1705,6 +1741,7 @@ def get_tab_counts():
             'direct_partner': {'total': dp_count, 'today': dp_today, 'week': dp_week},
             'affiliate': {'total': af_count, 'today': af_today, 'week': af_week},
             'most_requested': {'total': most_requested_total, 'today': most_requested_today, 'week': most_requested_week},
+            'placement_proofs': {'total': pp_count, 'today': pp_today, 'week': pp_week},
             'recently_added': recently_added,
             'recently_edited': recently_edited,
             'recently_deleted': recently_deleted,
@@ -1749,6 +1786,67 @@ def get_tab_data():
         proofs_col = db_instance.get_collection('placement_proofs')
 
         sort_val = 1 if sort_dir == 'asc' else -1
+
+        # ── Placement Proofs tab ──
+        if tab == 'placement_proofs':
+            proofs_col = db_instance.get_collection('placement_proofs')
+            if proofs_col is None:
+                return safe_json_response({'requests': [], 'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'pages': 0}})
+
+            pq = {}
+            if offer_name_filter:
+                pq['offer_name'] = {'$regex': offer_name_filter, '$options': 'i'}
+            if user_id_filter:
+                pq['user_id'] = user_id_filter
+
+            total = proofs_col.count_documents(pq)
+            proofs = list(proofs_col.find(pq).sort('created_at', sort_val).skip((page - 1) * per_page).limit(per_page))
+
+            # Enrich with user info
+            proof_user_ids = list({p.get('user_id', '') for p in proofs if p.get('user_id')})
+            user_map = {}
+            if proof_user_ids:
+                obj_uids = []
+                for uid in proof_user_ids:
+                    try:
+                        obj_uids.append(ObjectId(uid))
+                    except:
+                        pass
+                if obj_uids:
+                    for u in users_col.find({'_id': {'$in': obj_uids}}, {'username': 1, 'email': 1}):
+                        user_map[str(u['_id'])] = u
+
+            results = []
+            for p in proofs:
+                uid = p.get('user_id', '')
+                usr = user_map.get(uid, {})
+                # Look up offer name from offers collection if not stored
+                offer_name = p.get('offer_name', '')
+                if not offer_name and p.get('offer_id'):
+                    offer = offers_col.find_one({'offer_id': p['offer_id']}, {'name': 1})
+                    offer_name = offer.get('name', '') if offer else ''
+                results.append({
+                    '_id': str(p['_id']),
+                    'offer_id': p.get('offer_id', ''),
+                    'offer_name': offer_name,
+                    'status': p.get('status', 'pending'),
+                    'requested_at': p.get('created_at'),
+                    'publisher_id': uid,
+                    'publisher_username': usr.get('username', ''),
+                    'publisher_email': usr.get('email', ''),
+                    'image_urls': p.get('image_urls', []),
+                    'placement_url': p.get('placement_url', ''),
+                    'description': p.get('description', ''),
+                    'traffic_source': p.get('traffic_source', ''),
+                    'admin_notes': p.get('admin_notes', ''),
+                    'score': p.get('score', 0),
+                })
+
+            return safe_json_response({
+                'requests': results,
+                'pagination': {'page': page, 'per_page': per_page, 'total': total, 'pages': max(1, (total + per_page - 1) // per_page)},
+                'tab_stats': {'count': total},
+            })
 
         # ── Direct Partner / Affiliate tabs ──
         if tab in ('direct_partner', 'affiliate'):
@@ -2591,6 +2689,19 @@ def push_mail_v2():
         offers_col = db_instance.get_collection('offers')
         offers = list(offers_col.find({'offer_id': {'$in': offer_ids}}))
         offer_map = {o['offer_id']: o for o in offers}
+
+        # If default_image is provided, permanently save it to offers without images
+        if default_image:
+            for o in offers:
+                if not o.get('image_url') and not o.get('thumbnail_url'):
+                    try:
+                        offers_col.update_one(
+                            {'_id': o['_id']},
+                            {'$set': {'image_url': default_image}}
+                        )
+                        o['image_url'] = default_image
+                    except Exception:
+                        pass
 
         # Resolve recipient emails
         users_col = db_instance.get_collection('users')

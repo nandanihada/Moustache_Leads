@@ -47,6 +47,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [loadingHealth, setLoadingHealth] = useState<string | null>(null);
   const [selectedReqOffer, setSelectedReqOffer] = useState<string | null>(null);
   const [selectedRelated, setSelectedRelated] = useState<Set<string>>(new Set());
+  const [expandedOfferId, setExpandedOfferId] = useState<string | null>(null);
   const [selectMode, setSelectMode] = useState(false);
   const [proofRequestModal, setProofRequestModal] = useState<{ offerId: string; offerName: string } | null>(null);
   const [proofRequestMsg, setProofRequestMsg] = useState('');
@@ -57,6 +58,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [fullscreenImg, setFullscreenImg] = useState<string | null>(null);
   const token = localStorage.getItem('token');
   const risk = rsk(pub.risk_level);
+  const pendingReqs = pub.requests.filter(r => r.status === "pending" || r.status === "review");
 
   useEffect(() => {
     if (!isExpanded) return;
@@ -175,6 +177,16 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
 
   const initials = ((pub.first_name?.[0] || '') + (pub.last_name?.[0] || pub.username?.[1] || '')).toUpperCase() || '??';
 
+  const toggleExpandOffer = (offerId: string, offerName: string) => {
+    if (expandedOfferId === offerId) { setExpandedOfferId(null); setSelectedRelated(new Set()); }
+    else {
+      setExpandedOfferId(offerId); setSelectedRelated(new Set()); setLoadingInv(true);
+      fetch(`${API_BASE_URL}/api/admin/offer-access-requests/inventory-matches?offer_name=${encodeURIComponent(offerName)}&user_id=${pub.user_id}&limit=12`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(r => { if (!r.ok) throw new Error(); return r.json(); })
+        .then(d => setInventory(d.matches || [])).catch(() => {}).finally(() => setLoadingInv(false));
+    }
+  };
   const openProofRequest = (offerId: string, offerName: string) => {
     setProofRequestModal({ offerId, offerName });
     setProofRequestMsg(`Hi ${pub.first_name || pub.username},\n\nWe require placement proof for the offer "${offerName}" before we can proceed with approval.\n\nPlease reply to this email with a screenshot or URL showing where you are promoting this offer.\n\nBest regards,\nMoustache Leads Team`);
@@ -373,152 +385,132 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                           </div>
                         )}
                       </div>
-                    ) : (
-                      /* ── Single view dropdown mode ── */
-                    <select
-                      className="w-full border rounded-md px-3 py-2 text-sm bg-background"
-                      value={selectedReqOffer || ''}
-                      onChange={e => {
-                        const val = e.target.value || null;
-                        setSelectedReqOffer(val);
-                        setSelectedRelated(new Set());
-                        if (val) {
-                          const req = pub.requests.find(r => r.offer_id === val);
-                          if (req) {
-                            setLoadingInv(true);
-                            fetch(`${API_BASE_URL}/api/admin/offer-access-requests/inventory-matches?offer_name=${encodeURIComponent(req.offer_name)}&user_id=${pub.user_id}&limit=12`, {
-                              headers: { Authorization: `Bearer ${token}` },
-                            }).then(r => { if (!r.ok) throw new Error(); return r.json(); })
-                              .then(d => setInventory(d.matches || []))
-                              .catch(() => {})
-                              .finally(() => setLoadingInv(false));
-                          }
-                        }
-                      }}
-                    >
-                      <option value="">Select an offer to view details & actions...</option>
-                      {pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(req => (
-                        <option key={req.request_id} value={req.offer_id}>
-                          {req.offer_name} · {req.offer_network} · ${req.offer_payout.toFixed(2)}
-                          {req.offer_health?.status === 'unhealthy' ? ' · ⚠️ issues' : ''}
-                          {req.requested_at ? ' · ' + new Date(req.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) + ' IST' : ''}
-                        </option>
-                      ))}
-                    </select>
-                    )}
-
-                    {/* Selected offer detail card */}
-                    {selectedReqOffer && (() => {
-                      const selReq = pub.requests.find(r => r.offer_id === selectedReqOffer);
-                      if (!selReq) return null;
-                      return (
-                        <div className="rounded-lg border border-blue-200 bg-blue-50/50 dark:bg-blue-950/20 p-3 space-y-2.5">
-                          <div className="flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <p className="font-semibold text-sm truncate">{selReq.offer_name}</p>
-                                {selReq.offer_status === 'active' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">🟢 Active</Badge>}
-                                {selReq.offer_status === 'inactive' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-gray-50 text-gray-600 border-gray-200">⚫ Inactive</Badge>}
-                                {selReq.offer_status === 'running' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-700 border-emerald-200">🏃 Running</Badge>}
-                                {selReq.offer_status === 'paused' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-yellow-50 text-yellow-700 border-yellow-200">⏸ Paused</Badge>}
-                                {selReq.status === 'review' && <Badge className="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700">In Review</Badge>}
-                                {selReq.offer_health?.status === 'unhealthy' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-600 border-red-200"><AlertCircle className="w-2.5 h-2.5 mr-0.5" />{selReq.offer_health.failures.length} issues</Badge>}
-                                {selReq.offer_health?.status === 'healthy' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-200"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}
+                                        ) : (
+                    /* Offer cards - always visible, click arrow to expand */
+                    <div className="space-y-2">
+                      {pendingReqs.map(req => {
+                        const isCardExpanded = expandedOfferId === req.offer_id;
+                        return (
+                        <div key={req.request_id} className={`rounded-lg border transition-all ${isCardExpanded ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 shadow-sm' : 'border-gray-200 dark:border-gray-700 hover:border-blue-200'}`}>
+                          <div className={`p-3 ${!selectMode ? 'cursor-pointer' : ''}`} onClick={() => { if (!selectMode) toggleExpandOffer(req.offer_id, req.offer_name); }}>
+                            <div className="flex items-start gap-2">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="font-semibold text-sm truncate">{req.offer_name}</p>
+                                  {req.offer_status === 'active' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200">Active</Badge>}
+                                  {req.offer_status === 'inactive' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-gray-50 text-gray-600 border-gray-200">Inactive</Badge>}
+                                  {req.offer_health?.status === 'unhealthy' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-red-50 text-red-600 border-red-200"><AlertCircle className="w-2.5 h-2.5 mr-0.5" />{req.offer_health.failures.length} issues</Badge>}
+                                  {req.offer_health?.status === 'healthy' && <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-emerald-50 text-emerald-600 border-emerald-200"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}
+                                </div>
+                                <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground flex-wrap">
+                                  <span>{req.offer_network}</span><span>·</span>
+                                  <span className="font-semibold text-foreground">${req.offer_payout.toFixed(2)}</span>
+                                  {req.offer_countries && req.offer_countries.length > 0 && (<><span>·</span><span>{req.offer_countries.slice(0, 5).join(', ')}</span></>)}
+                                  {req.requested_at && (<><span>·</span><span className="flex items-center gap-0.5"><Calendar className="w-3 h-3" />{new Date(req.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST</span></>)}
+                                </div>
+                                {req.offer_stats && (
+                                  <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground flex-wrap">
+                                    <span className="flex items-center gap-0.5"><MousePointerClick className="w-3 h-3 text-blue-500" />{(req.offer_stats.total_clicks || 0).toLocaleString()} clicks</span>
+                                    <span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle className="w-3 h-3" />{req.offer_stats.approved_count || 0} approved</span>
+                                    <span className="flex items-center gap-0.5 text-red-500"><XCircle className="w-3 h-3" />{req.offer_stats.rejected_count || 0} rejected</span>
+                                    <span className="flex items-center gap-0.5 text-amber-500"><AlertTriangle className="w-3 h-3" />{req.offer_stats.pending_count || 0} pending</span>
+                                  </div>
+                                )}
+                                {req.offer_health?.failures && req.offer_health.failures.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-1">{req.offer_health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}</span>))}</div>
+                                )}
                               </div>
-                              <p className="text-xs text-muted-foreground">{selReq.offer_network} · {(selReq.offer_countries || []).join(', ') || 'Global'}</p>
-                              {selReq.requested_at && (
-                                <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                                  <Calendar className="w-3 h-3" />
-                                  Requested: {new Date(selReq.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
-                                </p>
-                              )}
-                            </div>
-                            <p className="text-lg font-bold shrink-0">${selReq.offer_payout.toFixed(2)}</p>
-                          </div>
-                          {selReq.offer_stats && (<div className="flex items-center gap-4 text-[10px] text-muted-foreground"><span className="flex items-center gap-0.5"><MousePointerClick className="w-3 h-3 text-blue-500" />Clicks {(selReq.offer_stats.total_clicks || 0).toLocaleString()}</span><span className="flex items-center gap-0.5 text-emerald-600"><CheckCircle className="w-3 h-3" />Approved {selReq.offer_stats.approved_count || 0}</span><span className="flex items-center gap-0.5 text-red-500"><XCircle className="w-3 h-3" />Rejected {selReq.offer_stats.rejected_count || 0}</span><span className="flex items-center gap-0.5 text-amber-500"><AlertTriangle className="w-3 h-3" />Pending {selReq.offer_stats.pending_count || 0}</span>{pub.has_proofs && <span className="flex items-center gap-0.5 text-emerald-600 font-semibold cursor-pointer hover:underline" onClick={() => window.open(`/admin/placement-proofs?user_id=${pub.user_id}`, '_blank')}><FileImage className="w-3.5 h-3.5" />📎 Has Placement Proof</span>}</div>)}
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1" onClick={() => navigator.clipboard.writeText(selReq.offer_name).then(() => toast.success('Copied'))}>Copy name</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: selReq.offer_id, request_id: selReq.request_id, collection_type: 'direct_partner' }) }); toast.success('Added to DP'); } catch { toast.error('Failed'); } }}>DP</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-violet-600 border-violet-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: selReq.offer_id, request_id: selReq.request_id, collection_type: 'affiliate' }) }); toast.success('Added to AF'); } catch { toast.error('Failed'); } }}>AF</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => handleEditOffer(selReq.offer_id)} disabled={loadingEdit === selReq.offer_id}>{loadingEdit === selReq.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}Edit</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-amber-600 border-amber-300" onClick={() => markForReview(selReq.request_id)}><AlertTriangle className="w-3 h-3" />Review</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200" onClick={() => rejectReq(selReq.request_id)} disabled={rejecting === selReq.request_id}>{rejecting === selReq.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject</Button>
-                            <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => approveReq(selReq.request_id)} disabled={approving === selReq.request_id}>{approving === selReq.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => onSendOffers(pub, [{_id: '', offer_id: selReq.offer_id, name: selReq.offer_name, network: selReq.offer_network, payout: selReq.offer_payout, match_strength: ''}])}><Send className="w-3 h-3" />Suggest ↗</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-purple-600 border-purple-200" onClick={() => openProofRequest(selReq.offer_id, selReq.offer_name)}><Camera className="w-3 h-3" />Request Proof</Button>
-                          </div>
-                          {selReq.offer_health?.failures && selReq.offer_health.failures.length > 0 && (<div className="flex flex-wrap gap-1.5">{selReq.offer_health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-1 text-[10px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400" />{f.criterion.replace('_', ' ')}</span>))}</div>)}
-                        </div>
-                      );
-                    })()}
-
-                    {/* Related offers with multi-select */}
-                    {selectedReqOffer && (loadingInv ? (
-                      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" />Loading related offers...</div>
-                    ) : inventory.filter(inv => inv.offer_id !== selectedReqOffer).length > 0 && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between flex-wrap gap-1">
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Related Offers</p>
-                          {selectedRelated.size > 0 && (
-                            <div className="flex items-center gap-1 flex-wrap">
-                              <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{selectedRelated.size} selected</Badge>
-                              <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => {
-                                const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => {
-                                  const req = pub.requests.find(r => r.offer_id === inv.offer_id);
-                                  return req?.request_id;
-                                }).filter(Boolean) as string[];
-                                if (!ids.length) { toast.info('No matching requests to approve'); return; }
-                                try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids }) }); toast.success(`Approved ${ids.length}`); onRefreshList(); } catch { toast.error('Failed'); }
-                              }}><CheckCircle className="w-2.5 h-2.5" />Approve</Button>
-                              <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-red-600 border-red-200" onClick={async () => {
-                                const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => {
-                                  const req = pub.requests.find(r => r.offer_id === inv.offer_id);
-                                  return req?.request_id;
-                                }).filter(Boolean) as string[];
-                                if (!ids.length) { toast.info('No matching requests'); return; }
-                                try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-reject`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids, reason: 'Bulk rejected' }) }); toast.success(`Rejected ${ids.length}`); onRefreshList(); } catch { toast.error('Failed'); }
-                              }}><XCircle className="w-2.5 h-2.5" />Reject</Button>
-                              <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-amber-600 border-amber-200" onClick={async () => {
-                                const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => {
-                                  const req = pub.requests.find(r => r.offer_id === inv.offer_id);
-                                  return req?.request_id;
-                                }).filter(Boolean) as string[];
-                                if (!ids.length) { toast.info('No matching requests'); return; }
-                                try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/mark-review`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids }) }); toast.success(`Marked ${ids.length} for review`); onRefreshList(); } catch { toast.error('Failed'); }
-                              }}><AlertTriangle className="w-2.5 h-2.5" />Review</Button>
-                              <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onSendOffers(pub, inventory.filter(inv => selectedRelated.has(inv.offer_id)))}><Send className="w-2.5 h-2.5" />Mail {selectedRelated.size}</Button>
-                            </div>
-                          )}
-                        </div>
-                        {inventory.filter(inv => inv.offer_id !== selectedReqOffer).slice(0, 8).map(inv => (
-                          <div key={inv.offer_id} className={`rounded-lg border px-3 py-2 text-xs space-y-1.5 ${selectedRelated.has(inv.offer_id) ? 'border-blue-300 bg-blue-50/50' : 'border-gray-200 bg-gray-50 dark:bg-gray-900/30'}`}>
-                            <div className="flex items-center gap-2">
-                              <input type="checkbox" className="rounded border-gray-300 w-3.5 h-3.5 cursor-pointer shrink-0" checked={selectedRelated.has(inv.offer_id)} onChange={() => setSelectedRelated(prev => { const n = new Set(prev); n.has(inv.offer_id) ? n.delete(inv.offer_id) : n.add(inv.offer_id); return n; })} />
-                              <div className="flex-1 min-w-0"><div className="flex items-center gap-1.5"><p className="font-medium text-foreground/80 truncate">{inv.name}</p>{inv.already_sent && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-200 shrink-0">✉ Already sent</Badge>}{inv.visibility === 'active' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-green-50 text-green-700 border-green-200 shrink-0">🟢 Active</Badge>}{inv.visibility === 'inactive' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-gray-50 text-gray-600 border-gray-200 shrink-0">⚫ Inactive</Badge>}{inv.visibility === 'running' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-emerald-50 text-emerald-700 border-emerald-200 shrink-0">🏃 Running</Badge>}{inv.visibility === 'rotating' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-blue-50 text-blue-700 border-blue-200 shrink-0">🔄 Rotating</Badge>}{(inv.grant_count || 0) > 0 && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-orange-50 text-orange-700 border-orange-200 shrink-0">🎯 {inv.grant_count}</Badge>}{inv.health?.status === 'unhealthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-red-50 text-red-600 border-red-200 shrink-0"><AlertCircle className="w-2.5 h-2.5 mr-0.5" />{inv.health.failures.length} issues</Badge>}{inv.health?.status === 'healthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-emerald-50 text-emerald-600 border-emerald-200 shrink-0"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}</div><p className="text-[10px] text-muted-foreground">${inv.payout.toFixed(2)} · {inv.match_strength}</p></div>
-                              {inv.request_status && <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">{inv.request_status}</Badge>}
-                            </div>
-                            <div className="flex items-center gap-1 flex-wrap">
-                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5" onClick={() => navigator.clipboard.writeText(inv.name).then(() => toast.success('Copied'))}>Copy name</Button>
-                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5" onClick={() => { if ((inv as any).target_url) window.open((inv as any).target_url, '_blank'); else toast.info('No target URL'); }}>Open</Button>
-                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600 border-blue-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: inv.offer_id, collection_type: 'direct_partner' }) }); toast.success('Added to DP'); } catch { toast.error('Failed'); } }}>DP</Button>
-                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-violet-600 border-violet-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: inv.offer_id, collection_type: 'affiliate' }) }); toast.success('Added to AF'); } catch { toast.error('Failed'); } }}>AF</Button>
-                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => handleEditOffer(inv.offer_id)} disabled={loadingEdit === inv.offer_id}>{loadingEdit === inv.offer_id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Edit className="w-2.5 h-2.5" />}Edit</Button>
-                              <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => onSendOffers(pub, [inv])}><Send className="w-2.5 h-2.5" />Suggest ↗</Button>
-                            </div>
-                            {inv.health?.failures && inv.health.failures.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {inv.health.failures.map(f => (
-                                  <span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5">
-                                    <span className="w-1 h-1 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}{f.detail ? `: ${f.detail}` : ''}
-                                  </span>
-                                ))}
+                              <div className="flex items-center gap-1 shrink-0">
+                                <p className="text-lg font-bold">${req.offer_payout.toFixed(2)}</p>
+                                {!selectMode && <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isCardExpanded ? 'rotate-180' : ''}`} />}
                               </div>
+                            </div>
+                          </div>
+                          <div className="px-3 pb-2 flex items-center gap-1.5 flex-wrap" onClick={e => e.stopPropagation()}>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1" onClick={() => navigator.clipboard.writeText(req.offer_name).then(() => toast.success('Copied'))}>Copy name</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600 border-blue-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: req.offer_id, request_id: req.request_id, collection_type: 'direct_partner' }) }); toast.success('Added to DP'); } catch { toast.error('Failed'); } }}>DP</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-violet-600 border-violet-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: req.offer_id, request_id: req.request_id, collection_type: 'affiliate' }) }); toast.success('Added to AF'); } catch { toast.error('Failed'); } }}>AF</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => handleEditOffer(req.offer_id)} disabled={loadingEdit === req.offer_id}>{loadingEdit === req.offer_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}Edit</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-amber-600 border-amber-300" onClick={() => markForReview(req.request_id)}><AlertTriangle className="w-3 h-3" />Review</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200" onClick={() => rejectReq(req.request_id)} disabled={rejecting === req.request_id}>{rejecting === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject</Button>
+                            <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => approveReq(req.request_id)} disabled={approving === req.request_id}>{approving === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => onSendOffers(pub, [{_id: '', offer_id: req.offer_id, name: req.offer_name, network: req.offer_network, payout: req.offer_payout, match_strength: ''}])}><Send className="w-3 h-3" />Suggest</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-purple-600 border-purple-200" onClick={() => openProofRequest(req.offer_id, req.offer_name)}><Camera className="w-3 h-3" />Request Proof</Button>
+                          </div>
+                          <AnimatePresence>
+                            {isCardExpanded && !selectMode && (
+                              <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+                                <div className="border-t mx-3 pt-2 pb-3 space-y-2">
+                                  {loadingInv ? (
+                                    <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" />Loading related offers...</div>
+                                  ) : inventory.filter(inv => inv.offer_id !== req.offer_id).length > 0 ? (
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between flex-wrap gap-1">
+                                        <div className="flex items-center gap-2">
+                                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Related Offers</p>
+                                          <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => { const ids = inventory.filter(inv => inv.offer_id !== req.offer_id).slice(0, 8).map(inv => inv.offer_id); setSelectedRelated(prev => prev.size === ids.length ? new Set() : new Set(ids)); }}>{selectedRelated.size === inventory.filter(inv => inv.offer_id !== req.offer_id).slice(0, 8).length ? 'Deselect All' : 'Select All'}</Button>
+                                        </div>
+                                        {selectedRelated.size > 0 && (
+                                          <div className="flex items-center gap-1 flex-wrap">
+                                            <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{selectedRelated.size} selected</Badge>
+                                            <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={async () => { const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => { const r2 = pub.requests.find(r => r.offer_id === inv.offer_id); return r2?.request_id; }).filter(Boolean); if (!ids.length) { toast.info('No matching requests'); return; } try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-approve`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids }) }); toast.success('Approved ' + ids.length); onRefreshList(); } catch { toast.error('Failed'); } }}><CheckCircle className="w-2.5 h-2.5" />Approve</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-red-600 border-red-200" onClick={async () => { const ids = inventory.filter(inv => selectedRelated.has(inv.offer_id)).map(inv => { const r2 = pub.requests.find(r => r.offer_id === inv.offer_id); return r2?.request_id; }).filter(Boolean); if (!ids.length) { toast.info('No matching requests'); return; } try { await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-reject`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ request_ids: ids, reason: 'Bulk rejected' }) }); toast.success('Rejected ' + ids.length); onRefreshList(); } catch { toast.error('Failed'); } }}><XCircle className="w-2.5 h-2.5" />Reject</Button>
+                                            <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => onSendOffers(pub, inventory.filter(inv => selectedRelated.has(inv.offer_id)))}><Send className="w-2.5 h-2.5" />Mail {selectedRelated.size}</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-indigo-600 border-indigo-200" onClick={() => onSendOffers(pub, inventory.filter(inv => selectedRelated.has(inv.offer_id)))}><Package className="w-2.5 h-2.5" />Schedule</Button>
+                                          </div>
+                                        )}
+                                      </div>
+                                      {inventory.filter(inv => inv.offer_id !== req.offer_id).slice(0, 8).map(inv => (
+                                        <div key={inv.offer_id} className={`rounded-lg border px-3 py-2 text-xs space-y-1.5 ${selectedRelated.has(inv.offer_id) ? 'border-blue-300 bg-blue-50/50' : 'border-gray-200 bg-gray-50 dark:bg-gray-900/30'}`}>
+                                          <div className="flex items-center gap-2">
+                                            <input type="checkbox" className="rounded border-gray-300 w-3.5 h-3.5 cursor-pointer shrink-0" checked={selectedRelated.has(inv.offer_id)} onChange={() => setSelectedRelated(prev => { const n = new Set(prev); n.has(inv.offer_id) ? n.delete(inv.offer_id) : n.add(inv.offer_id); return n; })} />
+                                            <div className="flex-1 min-w-0">
+                                              <div className="flex items-center gap-1.5 flex-wrap">
+                                                <p className="font-medium text-foreground/80 truncate">{inv.name}</p>
+                                                {inv.already_sent && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-200 shrink-0">Sent</Badge>}
+                                                {inv.visibility === 'active' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-green-50 text-green-700 border-green-200 shrink-0">Active</Badge>}
+                                                {inv.visibility === 'inactive' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-gray-50 text-gray-600 border-gray-200 shrink-0">Inactive</Badge>}
+                                                {inv.health?.status === 'unhealthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-red-50 text-red-600 border-red-200 shrink-0"><AlertCircle className="w-2.5 h-2.5 mr-0.5" />{inv.health.failures.length} issues</Badge>}
+                                                {inv.health?.status === 'healthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-emerald-50 text-emerald-600 border-emerald-200 shrink-0"><CheckCircle className="w-2.5 h-2.5 mr-0.5" />Healthy</Badge>}
+                                              </div>
+                                              <p className="text-[10px] text-muted-foreground">${inv.payout.toFixed(2)} · {inv.network || inv.match_strength}</p>
+                                            </div>
+                                            {inv.request_status && <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0">{inv.request_status}</Badge>}
+                                            <span className="text-sm font-bold shrink-0">${inv.payout.toFixed(2)}</span>
+                                          </div>
+                                          <div className="flex items-center gap-1 flex-wrap">
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5" onClick={() => navigator.clipboard.writeText(inv.name).then(() => toast.success('Copied'))}>Copy name</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5" onClick={() => { if (inv.target_url) window.open(inv.target_url, '_blank'); else toast.info('No target URL'); }}>Open</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600 border-blue-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: inv.offer_id, collection_type: 'direct_partner' }) }); toast.success('Added to DP'); } catch { toast.error('Failed'); } }}>DP</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-violet-600 border-violet-200" onClick={async () => { try { await fetch(`${API_BASE_URL}/api/admin/offer-collections/add`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ offer_id: inv.offer_id, collection_type: 'affiliate' }) }); toast.success('Added to AF'); } catch { toast.error('Failed'); } }}>AF</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => handleEditOffer(inv.offer_id)} disabled={loadingEdit === inv.offer_id}>{loadingEdit === inv.offer_id ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Edit className="w-2.5 h-2.5" />}Edit</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-blue-600" onClick={() => onSendOffers(pub, [inv])}><Send className="w-2.5 h-2.5" />Suggest</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-amber-600 border-amber-300" onClick={() => { const rq = pub.requests.find(r => r.offer_id === inv.offer_id); if (rq) markForReview(rq.request_id); else toast.info('No pending request'); }}><AlertTriangle className="w-2.5 h-2.5" />Review</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-destructive border-red-200" onClick={() => { const rq = pub.requests.find(r => r.offer_id === inv.offer_id); if (rq) rejectReq(rq.request_id); else toast.info('No pending request'); }}><XCircle className="w-2.5 h-2.5" />Reject</Button>
+                                            <Button size="sm" className="h-6 px-1.5 text-[9px] gap-0.5 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => { const rq = pub.requests.find(r => r.offer_id === inv.offer_id); if (rq) approveReq(rq.request_id); else toast.info('No pending request'); }}><CheckCircle className="w-2.5 h-2.5" />Approve</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-indigo-600 border-indigo-200" onClick={() => onSendOffers(pub, [inv])}><Calendar className="w-2.5 h-2.5" />Schedule</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-purple-600 border-purple-200" onClick={() => openProofRequest(inv.offer_id, inv.name)}><Camera className="w-2.5 h-2.5" />Request Proof</Button>
+                                          </div>
+                                          {inv.health?.failures && inv.health.failures.length > 0 && (
+                                            <div className="flex flex-wrap gap-1">{inv.health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1 h-1 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}{f.detail ? `: ${f.detail}` : ''}</span>))}</div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground py-2">No related offers found</p>
+                                  )}
+                                </div>
+                              </motion.div>
                             )}
-                          </div>
-                        ))}
-                      </div>
-                    ))}
+                          </AnimatePresence>
+                        </div>
+                        )
+                      })}
+                    </div>
+                    )}
                   </div>
+
                   {/* Bulk actions for all pending requests */}
                   <div className="flex items-center gap-2 pt-2 border-t">
                     <Button size="sm" className="h-7 px-3 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={bulkApprove} disabled={bulkApproving}>

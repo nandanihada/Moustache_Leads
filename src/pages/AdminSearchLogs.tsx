@@ -17,15 +17,17 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   RefreshCw, Search, Mail, Send, ChevronLeft, ChevronRight,
   AlertTriangle, CheckCircle, XCircle, Package, Filter, ChevronDown, ChevronUp, BarChart3,
-  Eye, MousePointer, Link, FileText, User,
+  Eye, MousePointer, Link, FileText, User, Settings,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer, type SearchSession } from '@/services/searchLogsApi';
+import { searchLogsApi, type SearchLog, type SearchLogsFilters, type RelatedOffer, type SearchSession, type SearchWizardSettings } from '@/services/searchLogsApi';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 
 const AdminSearchLogsContent: React.FC = () => {
   const { toast } = useToast();
@@ -952,6 +954,105 @@ const SearchSessionsTab: React.FC = () => {
   );
 };
 
+// ── WIZARD SETTINGS TAB ──
+const WizardSettingsTab: React.FC = () => {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [settings, setSettings] = useState<SearchWizardSettings>({
+    vertical_enabled: true,
+    geo_enabled: true,
+    payout_enabled: true,
+    placement_enabled: true,
+  });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await searchLogsApi.getWizardSettings();
+        setSettings(data);
+      } catch {
+        toast({ title: 'Error', description: 'Failed to load wizard settings', variant: 'destructive' });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleToggle = async (field: keyof SearchWizardSettings, value: boolean) => {
+    const prev = { ...settings };
+    setSettings(s => ({ ...s, [field]: value }));
+    setSaving(true);
+    try {
+      await searchLogsApi.updateWizardSettings({ [field]: value });
+      toast({ title: 'Saved', description: `${field.replace('_enabled', '').replace('_', ' ')} step ${value ? 'enabled' : 'disabled'}` });
+    } catch {
+      setSettings(prev);
+      toast({ title: 'Error', description: 'Failed to save setting', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const STEPS = [
+    { key: 'vertical_enabled' as const, label: 'Vertical', description: 'Ask publishers which vertical/niche they are looking for', icon: '📊' },
+    { key: 'geo_enabled' as const, label: 'Geo', description: 'Ask publishers which country/geo they want to target', icon: '🌍' },
+    { key: 'payout_enabled' as const, label: 'Target Payout', description: 'Ask publishers their minimum target payout amount', icon: '💰' },
+    { key: 'placement_enabled' as const, label: 'Placement Proof', description: 'Ask publishers if they have a placement and allow proof upload', icon: '📎' },
+  ];
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-muted-foreground">Loading wizard settings...</CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Settings className="h-5 w-5 text-purple-600" />
+            Search Wizard Steps
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Control which questions are shown to publishers when they search for offers. Disabled steps will be skipped automatically.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {STEPS.map(step => (
+            <div key={step.key} className="flex items-center justify-between p-4 rounded-lg border bg-card hover:bg-accent/50 transition-colors">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{step.icon}</span>
+                <div>
+                  <Label className="text-sm font-semibold">{step.label}</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">{step.description}</p>
+                </div>
+              </div>
+              <Switch
+                checked={settings[step.key]}
+                onCheckedChange={(val) => handleToggle(step.key, val)}
+                disabled={saving}
+              />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4">
+          <p className="text-xs text-muted-foreground">
+            <strong>Note:</strong> When all steps are disabled, publishers will see search results directly without any wizard questions.
+            Changes take effect immediately for all publishers.
+          </p>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
 const AdminSearchLogs: React.FC = () => (
   <AdminPageGuard requiredTab="search-logs">
     <div className="space-y-4 p-4">
@@ -963,12 +1064,16 @@ const AdminSearchLogs: React.FC = () => (
         <TabsList>
           <TabsTrigger value="logs" className="text-xs gap-1.5"><Search className="h-3 w-3" />Search Logs</TabsTrigger>
           <TabsTrigger value="sessions" className="text-xs gap-1.5"><FileText className="h-3 w-3" />Wizard Sessions</TabsTrigger>
+          <TabsTrigger value="wizard-settings" className="text-xs gap-1.5"><Settings className="h-3 w-3" />Wizard Settings</TabsTrigger>
         </TabsList>
         <TabsContent value="logs" className="mt-4">
           <AdminSearchLogsContent />
         </TabsContent>
         <TabsContent value="sessions" className="mt-4">
           <SearchSessionsTab />
+        </TabsContent>
+        <TabsContent value="wizard-settings" className="mt-4">
+          <WizardSettingsTab />
         </TabsContent>
       </Tabs>
     </div>

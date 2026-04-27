@@ -98,6 +98,13 @@ export interface SearchSession {
   updated_at: string;
 }
 
+export interface SearchWizardSettings {
+  vertical_enabled: boolean;
+  geo_enabled: boolean;
+  payout_enabled: boolean;
+  placement_enabled: boolean;
+}
+
 export const searchLogsApi = {
   async getLogs(filters: SearchLogsFilters = {}): Promise<SearchLogsResponse> {
     const params = new URLSearchParams();
@@ -224,6 +231,24 @@ export const searchLogsApi = {
   async getMissingSignals(): Promise<{ success: boolean; signals: any[]; total: number }> {
     const res = await fetch(`${API}/api/admin/search-sessions/missing-signals`, { headers: headers() });
     if (!res.ok) throw new Error('Failed to fetch missing signals');
+    return res.json();
+  },
+
+  // ── Search Wizard Settings ──
+
+  async getWizardSettings(): Promise<SearchWizardSettings> {
+    const res = await fetch(`${API}/api/admin/platform-settings/search-wizard`, { headers: headers() });
+    if (!res.ok) throw new Error('Failed to fetch wizard settings');
+    return res.json();
+  },
+
+  async updateWizardSettings(settings: Partial<SearchWizardSettings>): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API}/api/admin/platform-settings/search-wizard`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify(settings),
+    });
+    if (!res.ok) throw new Error('Failed to update wizard settings');
     return res.json();
   },
 };

@@ -47,6 +47,13 @@ export interface TabOfferRequest {
   collection_type?: string;
   added_by_username?: string;
   created_at?: string;
+  // Placement proof fields
+  image_urls?: string[];
+  placement_url?: string;
+  description?: string;
+  traffic_source?: string;
+  admin_notes?: string;
+  score?: number;
 }
 
 interface OfferCardProps {
