@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   ChevronDown, CheckCircle, XCircle, Loader2, AlertTriangle, AlertCircle,
   TrendingUp, MousePointerClick, Target, DollarSign, ExternalLink, Calendar,
-  Shield, Zap, Send, Package, Eye, Link2, Edit, FileImage, Camera, Image
+  Shield, Zap, Send, Package, Eye, Link2, Edit, FileImage, Camera, Image, Settings2
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -48,10 +48,14 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [selectedReqOffer, setSelectedReqOffer] = useState<string | null>(null);
   const [selectedRelated, setSelectedRelated] = useState<Set<string>>(new Set());
   const [expandedOfferId, setExpandedOfferId] = useState<string | null>(null);
-  const [selectMode, setSelectMode] = useState(false);
-  const [proofRequestModal, setProofRequestModal] = useState<{ offerId: string; offerName: string } | null>(null);
+  const [proofRequestModal, setProofRequestModal] = useState<{ offerId: string; offerName: string; network?: string; payout?: number; countries?: string[] } | null>(null);
   const [proofRequestMsg, setProofRequestMsg] = useState('');
   const [sendingProofReq, setSendingProofReq] = useState(false);
+  const [proofTemplateOpen, setProofTemplateOpen] = useState(false);
+  const [proofFields, setProofFields] = useState<Record<string, boolean>>(() => {
+    try { const s = localStorage.getItem('ml_proof_request_fields'); return s ? JSON.parse(s) : { offer_name: true, network: false, payout: false, countries: false }; }
+    catch { return { offer_name: true, network: false, payout: false, countries: false }; }
+  });
   const [proofViewerOpen, setProofViewerOpen] = useState(false);
   const [proofImages, setProofImages] = useState<string[]>([]);
   const [loadingProofs, setLoadingProofs] = useState(false);
@@ -187,15 +191,39 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
         .then(d => setInventory(d.matches || [])).catch(() => {}).finally(() => setLoadingInv(false));
     }
   };
-  const openProofRequest = (offerId: string, offerName: string) => {
-    setProofRequestModal({ offerId, offerName });
-    setProofRequestMsg(`Hi ${pub.first_name || pub.username},\n\nWe require placement proof for the offer "${offerName}" before we can proceed with approval.\n\nPlease reply to this email with a screenshot or URL showing where you are promoting this offer.\n\nBest regards,\nMoustache Leads Team`);
+  // Strip network tags like [INHOUSE], [NETWORK_NAME] from offer names for clean display
+  const cleanOfferName = (name: string) => name.replace(/\s*\[(?:INHOUSE|[A-Z][A-Za-z0-9_ ]*)\]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+
+  const buildProofMessage = (offerName: string, fields: Record<string, boolean>, req?: { offer_network?: string; offer_payout?: number; offer_countries?: string[] }) => {
+    const name = pub.first_name || pub.username;
+    const displayName = fields.offer_name !== false ? (fields.network ? offerName : cleanOfferName(offerName)) : '';
+    let offerLine = displayName ? `"${displayName}"` : 'the requested offer';
+    const details: string[] = [];
+    if (fields.payout && req?.offer_payout) details.push(`Payout: $${req.offer_payout.toFixed(2)}`);
+    if (fields.countries && req?.offer_countries?.length) details.push(`Countries: ${req.offer_countries.slice(0, 5).join(', ')}`);
+    const detailBlock = details.length > 0 ? `\n${details.join(' | ')}` : '';
+    return `Hi ${name},\n\nWe require placement proof for the offer ${offerLine} before we can proceed with approval.${detailBlock}\n\nPlease reply to this email with a screenshot or URL showing where you are promoting this offer.\n\nBest regards,\nMoustache Leads Team`;
+  };
+
+  const openProofRequest = (offerId: string, offerName: string, reqData?: { offer_network?: string; offer_payout?: number; offer_countries?: string[] }) => {
+    setProofRequestModal({ offerId, offerName, network: reqData?.offer_network, payout: reqData?.offer_payout, countries: reqData?.offer_countries });
+    setProofRequestMsg(buildProofMessage(offerName, proofFields, reqData));
   };
 
   const sendProofRequest = async () => {
     if (!proofRequestModal) return;
     setSendingProofReq(true);
     try {
+      // Build visible_fields for the offer table based on template settings
+      const vf: string[] = ['name']; // always show name
+      if (proofFields.payout) vf.push('payout');
+      if (proofFields.network) vf.push('network');
+      if (proofFields.countries) vf.push('countries');
+
+      const cleanSubject = proofFields.network
+        ? proofRequestModal.offerName
+        : cleanOfferName(proofRequestModal.offerName);
+
       const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/send-offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -204,7 +232,8 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
           offer_ids: [proofRequestModal.offerId],
           send_via: 'email',
           message_body: proofRequestMsg,
-          subject: `Placement Proof Required — ${proofRequestModal.offerName}`,
+          subject: `Placement Proof Required — ${cleanSubject}`,
+          visible_fields: vf,
         }),
       });
       if (!res.ok) throw new Error();
@@ -320,80 +349,56 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                     )}
                   </h4>
 
-                  {/* Requested Offer — Single view dropdown OR Multi-select checklist */}
+                  {/* Requested Offer — Cards with inline checkboxes */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Requested Offer</label>
-                      <Button size="sm" variant={selectMode ? 'default' : 'outline'} className="h-6 px-2 text-[10px] gap-1"
-                        onClick={() => { setSelectMode(!selectMode); if (!selectMode) setSelectedReqs(new Set()); }}>
-                        {selectMode ? <><CheckCircle className="w-3 h-3" />Done</> : <><Checkbox className="w-3 h-3" />Select Multiple</>}
-                      </Button>
+                      {pendingReqs.length > 1 && (
+                        <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] gap-1" onClick={() => {
+                          const allIds = pendingReqs.map(r => r.request_id);
+                          setSelectedReqs(prev => prev.size === allIds.length ? new Set() : new Set(allIds));
+                        }}>
+                          {selectedReqs.size === pendingReqs.length ? 'Deselect All' : 'Select All'}
+                        </Button>
+                      )}
                     </div>
 
-                    {selectMode ? (
-                      /* ── Multi-select checklist mode ── */
-                      <div className="space-y-2">
-                        <div className="border rounded-lg max-h-48 overflow-y-auto divide-y">
-                          {pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(req => (
-                            <label key={req.request_id} className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-muted/50 transition-colors ${selectedReqs.has(req.request_id) ? 'bg-blue-50 dark:bg-blue-950/20' : ''}`}>
-                              <input type="checkbox" className="rounded border-gray-300 w-4 h-4 accent-blue-600"
-                                checked={selectedReqs.has(req.request_id)}
-                                onChange={() => toggleReqSelect(req.request_id)} />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-sm font-medium truncate">{req.offer_name}</span>
-                                  {req.offer_status === 'active' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-green-50 text-green-700">Active</Badge>}
-                                  {req.offer_status === 'inactive' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-gray-50 text-gray-600">Inactive</Badge>}
-                                  {req.status === 'review' && <Badge className="text-[9px] px-1 py-0 bg-blue-100 text-blue-700">Review</Badge>}
-                                  {req.offer_health?.status === 'unhealthy' && <Badge variant="outline" className="text-[9px] px-1 py-0 bg-red-50 text-red-600">⚠️ {req.offer_health.failures.length}</Badge>}
-                                </div>
-                                <div className="text-[10px] text-muted-foreground">
-                                  {req.offer_network} · ${req.offer_payout.toFixed(2)}
-                                  {req.requested_at ? ' · ' + new Date(req.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) + ' IST' : ''}
-                                </div>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                        {/* Bulk action bar */}
-                        {selectedReqs.size > 0 && (
-                          <div className="flex items-center gap-1.5 flex-wrap p-2 bg-muted/50 rounded-lg border">
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{selectedReqs.size} selected</Badge>
-                            <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => bulkRequestAction('approve')} disabled={bulkActing}>
-                              <CheckCircle className="w-2.5 h-2.5" />Approve
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-red-600 border-red-200" onClick={() => bulkRequestAction('reject')} disabled={bulkActing}>
-                              <XCircle className="w-2.5 h-2.5" />Reject
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-amber-600 border-amber-200" onClick={() => bulkRequestAction('review')} disabled={bulkActing}>
-                              <AlertTriangle className="w-2.5 h-2.5" />Review
-                            </Button>
-                            <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-blue-600 border-blue-200" onClick={() => {
-                              const offers = pub.requests.filter(r => selectedReqs.has(r.request_id)).map(r => ({
-                                _id: '', offer_id: r.offer_id, name: r.offer_name, network: r.offer_network, payout: r.offer_payout, match_strength: ''
-                              }));
-                              onSendOffers(pub, offers);
-                            }}>
-                              <Send className="w-2.5 h-2.5" />Mail {selectedReqs.size}
-                            </Button>
-                            <Button size="sm" variant="ghost" className="h-6 px-2 text-[9px]" onClick={() => {
-                              const allIds = pub.requests.filter(r => r.status === 'pending' || r.status === 'review').map(r => r.request_id);
-                              setSelectedReqs(prev => prev.size === allIds.length ? new Set() : new Set(allIds));
-                            }}>
-                              {selectedReqs.size === pub.requests.filter(r => r.status === 'pending' || r.status === 'review').length ? 'Deselect All' : 'Select All'}
-                            </Button>
-                          </div>
-                        )}
+                    {/* Bulk action bar — shown when any cards are selected */}
+                    {selectedReqs.size > 0 && (
+                      <div className="flex items-center gap-1.5 flex-wrap p-2 bg-muted/50 rounded-lg border">
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{selectedReqs.size} selected</Badge>
+                        <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => bulkRequestAction('approve')} disabled={bulkActing}>
+                          <CheckCircle className="w-2.5 h-2.5" />Approve
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-red-600 border-red-200" onClick={() => bulkRequestAction('reject')} disabled={bulkActing}>
+                          <XCircle className="w-2.5 h-2.5" />Reject
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-amber-600 border-amber-200" onClick={() => bulkRequestAction('review')} disabled={bulkActing}>
+                          <AlertTriangle className="w-2.5 h-2.5" />Review
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-blue-600 border-blue-200" onClick={() => {
+                          const offers = pub.requests.filter(r => selectedReqs.has(r.request_id)).map(r => ({
+                            _id: '', offer_id: r.offer_id, name: r.offer_name, network: r.offer_network, payout: r.offer_payout, match_strength: ''
+                          }));
+                          onSendOffers(pub, offers);
+                        }}>
+                          <Send className="w-2.5 h-2.5" />Mail {selectedReqs.size}
+                        </Button>
                       </div>
-                                        ) : (
-                    /* Offer cards - always visible, click arrow to expand */
+                    )}
+
+                    {/* Offer cards — always with checkboxes */}
                     <div className="space-y-2">
                       {pendingReqs.map(req => {
                         const isCardExpanded = expandedOfferId === req.offer_id;
                         return (
-                        <div key={req.request_id} className={`rounded-lg border transition-all ${isCardExpanded ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 shadow-sm' : 'border-gray-200 dark:border-gray-700 hover:border-blue-200'}`}>
-                          <div className={`p-3 ${!selectMode ? 'cursor-pointer' : ''}`} onClick={() => { if (!selectMode) toggleExpandOffer(req.offer_id, req.offer_name); }}>
+                        <div key={req.request_id} className={`rounded-lg border transition-all ${selectedReqs.has(req.request_id) ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 shadow-sm' : isCardExpanded ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20 shadow-sm' : 'border-gray-200 dark:border-gray-700 hover:border-blue-200'}`}>
+                          <div className="p-3 cursor-pointer" onClick={() => toggleExpandOffer(req.offer_id, req.offer_name)}>
                             <div className="flex items-start gap-2">
+                              <input type="checkbox" className="rounded border-gray-300 w-4 h-4 accent-blue-600 mt-1 shrink-0 cursor-pointer"
+                                checked={selectedReqs.has(req.request_id)}
+                                onClick={e => e.stopPropagation()}
+                                onChange={() => toggleReqSelect(req.request_id)} />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
                                   <p className="font-semibold text-sm truncate">{req.offer_name}</p>
@@ -419,10 +424,16 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                                 {req.offer_health?.failures && req.offer_health.failures.length > 0 && (
                                   <div className="flex flex-wrap gap-1 mt-1">{req.offer_health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}</span>))}</div>
                                 )}
+                                {req.offer_target_url && (
+                                  <a href={req.offer_target_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                                    className="block mt-1 text-[10px] text-blue-500 hover:text-blue-700 hover:underline truncate max-w-[400px]" title={req.offer_target_url}>
+                                    {req.offer_target_url}
+                                  </a>
+                                )}
                               </div>
                               <div className="flex items-center gap-1 shrink-0">
                                 <p className="text-lg font-bold">${req.offer_payout.toFixed(2)}</p>
-                                {!selectMode && <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isCardExpanded ? 'rotate-180' : ''}`} />}
+                                <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${isCardExpanded ? 'rotate-180' : ''}`} />
                               </div>
                             </div>
                           </div>
@@ -435,10 +446,10 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-destructive border-red-200" onClick={() => rejectReq(req.request_id)} disabled={rejecting === req.request_id}>{rejecting === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}Reject</Button>
                             <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => approveReq(req.request_id)} disabled={approving === req.request_id}>{approving === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</Button>
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => onSendOffers(pub, [{_id: '', offer_id: req.offer_id, name: req.offer_name, network: req.offer_network, payout: req.offer_payout, match_strength: ''}])}><Send className="w-3 h-3" />Suggest</Button>
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-purple-600 border-purple-200" onClick={() => openProofRequest(req.offer_id, req.offer_name)}><Camera className="w-3 h-3" />Request Proof</Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-purple-600 border-purple-200" onClick={() => openProofRequest(req.offer_id, req.offer_name, { offer_network: req.offer_network, offer_payout: req.offer_payout, offer_countries: req.offer_countries })}><Camera className="w-3 h-3" />Request Proof</Button>
                           </div>
                           <AnimatePresence>
-                            {isCardExpanded && !selectMode && (
+                            {isCardExpanded && (
                               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
                                 <div className="border-t mx-3 pt-2 pb-3 space-y-2">
                                   {loadingInv ? (
@@ -489,7 +500,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                                             <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-destructive border-red-200" onClick={() => { const rq = pub.requests.find(r => r.offer_id === inv.offer_id); if (rq) rejectReq(rq.request_id); else toast.info('No pending request'); }}><XCircle className="w-2.5 h-2.5" />Reject</Button>
                                             <Button size="sm" className="h-6 px-1.5 text-[9px] gap-0.5 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => { const rq = pub.requests.find(r => r.offer_id === inv.offer_id); if (rq) approveReq(rq.request_id); else toast.info('No pending request'); }}><CheckCircle className="w-2.5 h-2.5" />Approve</Button>
                                             <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-indigo-600 border-indigo-200" onClick={() => onSendOffers(pub, [inv])}><Calendar className="w-2.5 h-2.5" />Schedule</Button>
-                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-purple-600 border-purple-200" onClick={() => openProofRequest(inv.offer_id, inv.name)}><Camera className="w-2.5 h-2.5" />Request Proof</Button>
+                                            <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-purple-600 border-purple-200" onClick={() => openProofRequest(inv.offer_id, inv.name, { offer_network: inv.network, offer_payout: inv.payout })}><Camera className="w-2.5 h-2.5" />Request Proof</Button>
                                           </div>
                                           {inv.health?.failures && inv.health.failures.length > 0 && (
                                             <div className="flex flex-wrap gap-1">{inv.health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1 h-1 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}{f.detail ? `: ${f.detail}` : ''}</span>))}</div>
@@ -508,7 +519,6 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                         )
                       })}
                     </div>
-                    )}
                   </div>
 
                   {/* Bulk actions for all pending requests */}
@@ -726,6 +736,41 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
               <span className="text-muted-foreground">Offer:</span> <span className="font-medium">{proofRequestModal?.offerName}</span>
               <br /><span className="text-muted-foreground">Publisher:</span> <span className="font-medium">{pub.username} ({pub.email})</span>
             </div>
+
+            {/* Template field toggles */}
+            <div className="space-y-1.5">
+              <button onClick={() => setProofTemplateOpen(!proofTemplateOpen)} className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors">
+                <Settings2 className="w-3 h-3" />
+                Template Settings
+                <ChevronDown className={`w-3 h-3 transition-transform ${proofTemplateOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {proofTemplateOpen && (
+                <div className="flex flex-wrap gap-2 p-2 bg-muted/30 rounded-lg border">
+                  {[
+                    { key: 'offer_name', label: 'Offer Name' },
+                    { key: 'network', label: 'Network Name' },
+                    { key: 'payout', label: 'Payout' },
+                    { key: 'countries', label: 'Countries' },
+                  ].map(f => (
+                    <label key={f.key} className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="checkbox" className="rounded border-gray-300 w-3.5 h-3.5 accent-purple-600"
+                        checked={proofFields[f.key] ?? false}
+                        onChange={() => {
+                          const updated = { ...proofFields, [f.key]: !proofFields[f.key] };
+                          setProofFields(updated);
+                          localStorage.setItem('ml_proof_request_fields', JSON.stringify(updated));
+                          if (proofRequestModal) {
+                            setProofRequestMsg(buildProofMessage(proofRequestModal.offerName, updated, { offer_network: proofRequestModal.network, offer_payout: proofRequestModal.payout, offer_countries: proofRequestModal.countries }));
+                          }
+                        }}
+                      />
+                      <span className="text-[11px]">{f.label}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <Textarea value={proofRequestMsg} onChange={e => setProofRequestMsg(e.target.value)} rows={6} className="text-sm" />
           </div>
           <DialogFooter>

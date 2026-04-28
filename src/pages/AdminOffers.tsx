@@ -41,6 +41,8 @@ import {
   FileSpreadsheet,
   Check,
   Gift,
+  Rows3,
+  Maximize2,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -131,6 +133,9 @@ const AdminOffers = () => {
   const [networks, setNetworks] = useState<string[]>([]);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [healthFilter, setHealthFilter] = useState<string>('all');
+  const [compactMode, setCompactMode] = useState<boolean>(() => {
+    try { return localStorage.getItem('ml_offers_compact') === 'true'; } catch { return false; }
+  });
   const [healthPopupOffer, setHealthPopupOffer] = useState<Offer | null>(null);
   const [rawOffers, setRawOffers] = useState<Offer[]>([]);
 
@@ -2605,6 +2610,8 @@ const AdminOffers = () => {
           {/* Offers Table */}
           <Card>
             <CardHeader>
+              <div className="flex items-center justify-between">
+              <div>
               <CardTitle>
                 Offers ({offers.length})
                 {(healthFilter !== 'all' || selectedCategories !== 'all') && offers.length !== rawOffers.length && (
@@ -2616,6 +2623,22 @@ const AdminOffers = () => {
               <CardDescription>
                 Manage your offers with full tracking and masking capabilities
               </CardDescription>
+              </div>
+              <Button
+                variant={compactMode ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5 shrink-0"
+                onClick={() => {
+                  const next = !compactMode;
+                  setCompactMode(next);
+                  localStorage.setItem('ml_offers_compact', String(next));
+                }}
+                title={compactMode ? 'Switch to normal view' : 'Switch to compact view'}
+              >
+                {compactMode ? <Maximize2 className="h-3.5 w-3.5" /> : <Rows3 className="h-3.5 w-3.5" />}
+                {compactMode ? 'Normal' : 'Compact'}
+              </Button>
+              </div>
             </CardHeader>
         <CardContent className="p-0">
           {bulkDeleting ? (
@@ -2662,7 +2685,7 @@ const AdminOffers = () => {
             </div>
           ) : (
             <div className="overflow-x-auto w-full">
-            <Table className="min-w-[1200px]">
+            <Table className={`min-w-[1200px] ${compactMode ? 'text-xs [&_td]:py-1 [&_td]:px-2 [&_th]:py-1 [&_th]:px-2' : ''}`}>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10 sticky left-0 bg-background z-10">
@@ -2728,7 +2751,7 @@ const AdminOffers = () => {
                             <img
                               src={getOfferImage(offer as any)}
                               alt={offer.name}
-                              className="w-12 h-12 object-cover rounded border"
+                              className={`${compactMode ? 'w-7 h-7' : 'w-12 h-12'} object-cover rounded border`}
                               onError={(e) => {
                                 const target = e.target as HTMLImageElement;
                                 target.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="%23e5e7eb" width="48" height="48"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%239ca3af" font-size="10">No Img</text></svg>';
@@ -2738,7 +2761,7 @@ const AdminOffers = () => {
                         } else if (creativeType === 'html' && (offer as any).html_code) {
                           return (
                             <div
-                              className="w-12 h-12 rounded border overflow-hidden text-xs"
+                              className={`${compactMode ? 'w-7 h-7' : 'w-12 h-12'} rounded border overflow-hidden text-xs`}
                               dangerouslySetInnerHTML={{ __html: (offer as any).html_code }}
                               style={{ transform: 'scale(0.2)', transformOrigin: 'top left', width: '240px', height: '240px' }}
                             />
@@ -2746,14 +2769,14 @@ const AdminOffers = () => {
                         } else if (creativeType === 'email' && (offer as any).email_template) {
                           return (
                             <div
-                              className="w-12 h-12 rounded border overflow-hidden text-xs"
+                              className={`${compactMode ? 'w-7 h-7' : 'w-12 h-12'} rounded border overflow-hidden text-xs`}
                               dangerouslySetInnerHTML={{ __html: (offer as any).email_template }}
                               style={{ transform: 'scale(0.2)', transformOrigin: 'top left', width: '240px', height: '240px' }}
                             />
                           );
                         } else {
                           return (
-                            <div className="w-12 h-12 bg-gray-100 rounded border flex items-center justify-center">
+                            <div className={`${compactMode ? 'w-7 h-7' : 'w-12 h-12'} bg-gray-100 rounded border flex items-center justify-center`}>
                               <span className="text-xs text-gray-400">
                                 {creativeType === 'html' ? 'HTML' : creativeType === 'email' ? 'Email' : 'No Image'}
                               </span>
@@ -2782,11 +2805,11 @@ const AdminOffers = () => {
                           )}
                         </div>
                         {(offer.original_name || recentlyRenamed[offer.offer_id]) && (
-                          <div className="text-[11px] text-muted-foreground">
+                          <div className={`text-[11px] text-muted-foreground ${compactMode ? 'hidden' : ''}`}>
                             was: {offer.original_name || recentlyRenamed[offer.offer_id]}
                           </div>
                         )}
-                        <div className="text-sm text-muted-foreground">
+                        <div className={`text-sm text-muted-foreground ${compactMode ? 'hidden' : ''}`}>
                           {offer.affiliates === 'all' || !offer.affiliates ? 'All Users' :
                             offer.affiliates === 'premium' ? 'Premium Only' : 
                             offer.affiliates === 'selected' ? 'Selected Users' : 'All Users'}

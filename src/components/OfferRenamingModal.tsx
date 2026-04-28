@@ -21,6 +21,8 @@ import {
   Sparkles,
   Eye,
   RotateCcw,
+  Lock,
+  Trash2,
 } from 'lucide-react';
 import { Offer, adminOfferApi } from '@/services/adminOfferApi';
 
@@ -84,6 +86,12 @@ const PART_COLORS: Record<PartKey, string> = {
 // ─── localStorage keys ───────────────────────────────────────────────
 const LS_TEMPLATE_KEY = 'offer_rename_template';
 const LS_PRESETS_KEY = 'offer_rename_presets';
+const LS_GLOBAL_VARS_KEY = 'offer_rename_global_vars';
+
+interface GlobalVariable {
+  field: PartKey;
+  value: string;
+}
 
 // ─── AI Extraction (client-side pattern matching) ────────────────────
 
@@ -350,6 +358,12 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
   // Applying state
   const [applying, setApplying] = useState(false);
 
+  // Global Variables — override/force specific fields across all offers
+  const [globalVars, setGlobalVars] = useState<GlobalVariable[]>(() => {
+    try { const s = localStorage.getItem(LS_GLOBAL_VARS_KEY); return s ? JSON.parse(s) : []; }
+    catch { return []; }
+  });
+
   function createEmptyTokens(): Record<PartKey, TokenState> {
     return PART_KEYS.reduce((acc, key) => {
       acc[key] = { value: '', enabled: true };
@@ -366,6 +380,11 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
   useEffect(() => {
     localStorage.setItem(LS_PRESETS_KEY, JSON.stringify(presets));
   }, [presets]);
+
+  // Save global vars to localStorage
+  useEffect(() => {
+    localStorage.setItem(LS_GLOBAL_VARS_KEY, JSON.stringify(globalVars));
+  }, [globalVars]);
 
   // Reset state when modal opens with new offers
   useEffect(() => {
@@ -480,6 +499,25 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
   }, [open, selectedOffers, extracted, runExtraction]);
 
   // ─── Composed names (live preview) ───────────────────────────────
+  // Build a map of global variable overrides
+  const globalOverrides = useMemo(() => {
+    const map: Partial<Record<PartKey, string>> = {};
+    for (const gv of globalVars) {
+      if (gv.value.trim()) map[gv.field] = gv.value.trim();
+    }
+    return map;
+  }, [globalVars]);
+
+  // Apply global vars to a token set — returns a new token set with overrides applied
+  const applyGlobalVars = useCallback((tokens: Record<PartKey, TokenState>): Record<PartKey, TokenState> => {
+    if (Object.keys(globalOverrides).length === 0) return tokens;
+    const result = { ...tokens };
+    for (const [key, value] of Object.entries(globalOverrides)) {
+      result[key as PartKey] = { value: value!, enabled: true, inferred: false };
+    }
+    return result;
+  }, [globalOverrides]);
+
   const previewList = useMemo(() => {
     return selectedOffers.map(offer => {
       const offerId = offer.offer_id;
@@ -493,10 +531,13 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
         };
       }
 
-      const tokens = mode === 'bulk' ? bulkTokens : offerTokensMap[offerId]?.tokens;
+      let tokens = mode === 'bulk' ? bulkTokens : offerTokensMap[offerId]?.tokens;
       if (!tokens) {
         return { offerId, originalName: offer.name, composedName: '' };
       }
+
+      // Apply global variable overrides
+      tokens = applyGlobalVars(tokens);
 
       return {
         offerId,
@@ -504,7 +545,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
         composedName: composeNameFromTemplate(template, tokens),
       };
     });
-  }, [selectedOffers, mode, bulkTokens, offerTokensMap, template, manualOverrides]);
+  }, [selectedOffers, mode, bulkTokens, offerTokensMap, template, manualOverrides, applyGlobalVars]);
 
   // ─── Token actions ───────────────────────────────────────────────
   const toggleToken = (key: PartKey, offerId?: string) => {
@@ -660,11 +701,13 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
 
   // ─── Render helpers ──────────────────────────────────────────────
   const renderTokenChips = (tokens: Record<PartKey, TokenState>, offerId?: string) => {
-    const activeTokens = PART_KEYS.filter(k => tokens[k].value);
-    const missingTokens = PART_KEYS.filter(k => !tokens[k].value);
+    // Merge global overrides for display purposes
+    const effectiveTokens = applyGlobalVars(tokens);
+    const activeTokens = PART_KEYS.filter(k => effectiveTokens[k].value);
+    const missingTokens = PART_KEYS.filter(k => !effectiveTokens[k].value && !globalOverrides[k]);
 
     // Split multi-value GEO into individual items for rendering
-    const geoValues = tokens.geo?.value ? tokens.geo.value.split(/[,\s]+/).filter(Boolean).map(g => g.trim()) : [];
+    const geoValues = effectiveTokens.geo?.value ? effectiveTokens.geo.value.split(/[,\s]+/).filter(Boolean).map(g => g.trim()) : [];
     const hasMultiGeo = geoValues.length > 1;
 
     // Track which individual geo codes are disabled (stored as comma-separated in a special state)
@@ -674,8 +717,9 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
     return (
       <div className="flex flex-wrap gap-1.5 items-center">
         {activeTokens.map(key => {
-          const token = tokens[key];
+          const token = effectiveTokens[key];
           const isEditing = editingToken?.key === key && editingToken?.offerId === offerId;
+          const isGlobal = !!globalOverrides[key];
 
           if (isEditing) {
             return (
@@ -696,13 +740,16 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
 
           // For GEO with multiple values, render each country as a separate chip
           if (key === 'geo' && hasMultiGeo) {
+            const isGeoGlobal = !!globalOverrides.geo;
             return geoValues.map((geoCode, gi) => (
               <div
                 key={`geo-${gi}`}
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-all ${
+                  isGeoGlobal ? 'bg-violet-100 text-violet-800 border-violet-400 ring-1 ring-violet-300' :
                   token.enabled ? PART_COLORS.geo : 'bg-gray-50 text-gray-400 border-gray-200 line-through opacity-60'
                 }`}
               >
+                {isGeoGlobal && <Lock className="h-2.5 w-2.5 text-violet-600" />}
                 <span className="font-medium text-[10px] uppercase opacity-70">GEO:</span>
                 <span>{geoCode}</span>
                 <button
@@ -736,12 +783,15 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
             <div
               key={key}
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-all ${
+                isGlobal ? 'bg-violet-100 text-violet-800 border-violet-400 ring-1 ring-violet-300' :
                 token.enabled ? PART_COLORS[key] : 'bg-gray-50 text-gray-400 border-gray-200 line-through opacity-60'
               }`}
             >
+              {isGlobal && <Lock className="h-2.5 w-2.5 text-violet-600" />}
               <span className="font-medium text-[10px] uppercase opacity-70">{PART_LABELS[key]}:</span>
               <span>{token.value}</span>
-              {token.inferred && <span className="text-[9px] opacity-50">(inferred)</span>}
+              {token.inferred && !isGlobal && <span className="text-[9px] opacity-50">(inferred)</span>}
+              {!isGlobal && (<>
               <button
                 onClick={() => toggleToken(key, offerId)}
                 className="ml-0.5 hover:opacity-70"
@@ -767,6 +817,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
               >
                 <X className="h-3 w-3" />
               </button>
+              </>)}
             </div>
           );
         })}
@@ -815,7 +866,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] max-h-[95vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-amber-500" />
@@ -824,7 +875,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
         </DialogHeader>
 
         {/* Mode Toggle */}
-        <div className="flex items-center gap-3 pb-2 border-b">
+        <div className="flex items-center gap-3 pb-2 border-b shrink-0">
           <span className="text-sm font-medium">Mode:</span>
           <button
             onClick={() => { setMode('bulk'); setExtracted(false); }}
@@ -844,6 +895,8 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
           </button>
         </div>
 
+        {/* Scrollable content area */}
+        <div className="flex-1 overflow-y-auto min-h-0">
         {/* Extraction Section */}
         {!extracted ? (
           <div className="flex flex-col items-center gap-3 py-8">
@@ -870,6 +923,51 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                 <RefreshCw className="h-3 w-3 mr-1" />
                 Re-extract
               </Button>
+            </div>
+
+            {/* Global Variables */}
+            <div className="space-y-2 border rounded-lg p-3 bg-violet-50/30 dark:bg-violet-950/10">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5 text-violet-600" />
+                  Global Variables
+                  <span className="text-[10px] text-muted-foreground font-normal">(override all offers)</span>
+                </Label>
+                <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-1 border-violet-300 text-violet-700 hover:bg-violet-100"
+                  onClick={() => setGlobalVars(prev => [...prev, { field: 'model', value: '' }])}>
+                  <Plus className="h-3 w-3" />Add Variable
+                </Button>
+              </div>
+              {globalVars.length > 0 && (
+                <div className="space-y-1.5">
+                  {globalVars.map((gv, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <select
+                        value={gv.field}
+                        onChange={e => setGlobalVars(prev => prev.map((v, i) => i === idx ? { ...v, field: e.target.value as PartKey } : v))}
+                        className="h-7 rounded border border-violet-300 bg-white dark:bg-gray-900 text-xs px-2 w-28"
+                      >
+                        {PART_KEYS.filter(k => k !== 'brand').map(k => (
+                          <option key={k} value={k}>{PART_LABELS[k]}</option>
+                        ))}
+                      </select>
+                      <Input
+                        value={gv.value}
+                        onChange={e => setGlobalVars(prev => prev.map((v, i) => i === idx ? { ...v, value: e.target.value } : v))}
+                        placeholder={`Enter ${PART_LABELS[gv.field]} value`}
+                        className="h-7 text-xs flex-1 border-violet-300"
+                      />
+                      <button onClick={() => setGlobalVars(prev => prev.filter((_, i) => i !== idx))}
+                        className="text-gray-400 hover:text-red-500 shrink-0">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {globalVars.length === 0 && (
+                <p className="text-[11px] text-muted-foreground">No global variables set. Add one to force a field value across all offers.</p>
+              )}
             </div>
 
             {/* Token Editor — Bulk mode */}
@@ -1097,6 +1195,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
             </div>
           </div>
         )}
+        </div>{/* end scrollable */}
       </DialogContent>
     </Dialog>
   );

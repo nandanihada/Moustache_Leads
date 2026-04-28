@@ -34,6 +34,7 @@ export interface OfferReq {
   offer_category: string;
   offer_status: string;
   offer_countries: string[];
+  offer_target_url?: string;
   status: string;
   requested_at: string;
   message: string;

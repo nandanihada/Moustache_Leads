@@ -258,6 +258,7 @@ def get_publisher_profiles_with_requests():
                     'offer_category': (offer.get('category') or offer.get('vertical', '')) if offer else '',
                     'offer_status': offer.get('status', '') if offer else '',
                     'offer_countries': offer.get('countries', []) if offer else [],
+                    'offer_target_url': offer.get('target_url', '') if offer else '',
                     'status': req.get('status'),
                     'requested_at': req.get('requested_at'),
                     'message': req.get('message', ''),
