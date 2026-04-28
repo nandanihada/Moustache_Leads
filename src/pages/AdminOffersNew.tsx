@@ -174,7 +174,6 @@ const AdminOffers = () => {
     { id: 'FREE_TRIAL', name: 'Free Trial', icon: '🎁' },
     { id: 'INSTALLS', name: 'Installs', icon: '📲' },
     { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
-    { id: 'OTHER', name: 'Other', icon: '📦' },
   ];
 
   const getStatusColor = (status: string) => {
@@ -260,7 +259,6 @@ const AdminOffers = () => {
     'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
     'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
     'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-    'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
   };
 
   // Client-side filtering via useMemo — no re-fetch needed

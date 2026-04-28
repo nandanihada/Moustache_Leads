@@ -18,6 +18,10 @@ import type { PProf, PSt, Inv } from '@/pages/AdminOfferAccessRequests';
 import { fd, rsk } from '@/pages/AdminOfferAccessRequests';
 import { EditOfferModal } from '@/components/EditOfferModal';
 import { adminOfferApi } from '@/services/adminOfferApi';
+import { ImagePickerComponent } from '@/components/ImagePickerComponent';
+import { ImageIcon } from 'lucide-react';
+import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
+import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
 
 interface PublisherRowProps {
   pub: PProf;
@@ -60,6 +64,9 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [proofImages, setProofImages] = useState<string[]>([]);
   const [loadingProofs, setLoadingProofs] = useState(false);
   const [fullscreenImg, setFullscreenImg] = useState<string | null>(null);
+  const [imagePickerOffer, setImagePickerOffer] = useState<string | null>(null);
+  const [descPickerOffer, setDescPickerOffer] = useState<string | null>(null);
+  const [verticalPickerOffer, setVerticalPickerOffer] = useState<string | null>(null); // offer_id for which image picker is open
   const token = localStorage.getItem('token');
   const risk = rsk(pub.risk_level);
   const pendingReqs = pub.requests.filter(r => r.status === "pending" || r.status === "review");
@@ -450,7 +457,63 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                             <Button size="sm" className="h-7 px-2 text-[10px] gap-1 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => approveReq(req.request_id)} disabled={approving === req.request_id}>{approving === req.request_id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3" />}Approve</Button>
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-blue-600" onClick={() => onSendOffers(pub, [{_id: '', offer_id: req.offer_id, name: req.offer_name, network: req.offer_network, payout: req.offer_payout, match_strength: ''}])}><Send className="w-3 h-3" />Suggest</Button>
                             <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-purple-600 border-purple-200" onClick={() => openProofRequest(req.offer_id, req.offer_name, { offer_network: req.offer_network, offer_payout: req.offer_payout, offer_countries: req.offer_countries })}><Camera className="w-3 h-3" />Request Proof</Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-1.5 hover:bg-transparent hover:scale-110 transition-transform" onClick={() => setImagePickerOffer(imagePickerOffer === req.offer_id ? null : req.offer_id)}><img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="Image" className="w-5 h-5 object-contain" /></Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-1.5 hover:bg-transparent hover:scale-110 transition-transform" onClick={() => setDescPickerOffer(descPickerOffer === req.offer_id ? null : req.offer_id)}><img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="Description" className="w-5 h-5 object-contain" /></Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-1.5 hover:bg-transparent hover:scale-110 transition-transform" onClick={() => setVerticalPickerOffer(verticalPickerOffer === req.offer_id ? null : req.offer_id)}><img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="Vertical" className="w-5 h-5 object-contain" /></Button>
                           </div>
+                          {/* Inline image picker for this offer */}
+                          {imagePickerOffer === req.offer_id && (
+                            <div className="mx-3 mb-2 p-2 border rounded-lg bg-muted/30">
+                              <ImagePickerComponent
+                                offerName={req.offer_name}
+                                vertical={req.offer_category}
+                                onImageSelected={async (url, source) => {
+                                  try {
+                                    await adminOfferApi.updateOffer(req.offer_id, { image_url: url });
+                                    adminOfferApi.logImageUpdate(req.offer_id, req.offer_name, url, source).catch(() => {});
+                                    toast.success('Image updated');
+                                    setImagePickerOffer(null);
+                                    onRefreshList();
+                                  } catch { toast.error('Failed to update image'); }
+                                }}
+                              />
+                            </div>
+                          )}
+                          {/* Inline description generator */}
+                          {descPickerOffer === req.offer_id && (
+                            <div className="mx-3 mb-2 p-2 border rounded-lg bg-muted/30">
+                              <DescriptionGeneratorComponent
+                                offerName={req.offer_name}
+                                existingDescription=""
+                                vertical={req.offer_category}
+                                onDescriptionSaved={async (newDesc) => {
+                                  try {
+                                    await adminOfferApi.updateOffer(req.offer_id, { description: newDesc } as any);
+                                    toast.success('Description updated');
+                                    setDescPickerOffer(null);
+                                  } catch { toast.error('Failed to update description'); }
+                                }}
+                              />
+                            </div>
+                          )}
+                          {/* Inline vertical suggester */}
+                          {verticalPickerOffer === req.offer_id && (
+                            <div className="mx-3 mb-2 p-2 border rounded-lg bg-muted/30">
+                              <VerticalSuggesterComponent
+                                offerName={req.offer_name}
+                                description=""
+                                currentVertical={req.offer_category}
+                                onVerticalSaved={async (newVertical) => {
+                                  try {
+                                    await adminOfferApi.updateOffer(req.offer_id, { vertical: newVertical, category: newVertical } as any);
+                                    toast.success('Vertical updated');
+                                    setVerticalPickerOffer(null);
+                                    onRefreshList();
+                                  } catch { toast.error('Failed to update vertical'); }
+                                }}
+                              />
+                            </div>
+                          )}
                           <AnimatePresence>
                             {isCardExpanded && (
                               <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
@@ -504,7 +567,57 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                                             <Button size="sm" className="h-6 px-1.5 text-[9px] gap-0.5 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => { const rq = pub.requests.find(r => r.offer_id === inv.offer_id); if (rq) approveReq(rq.request_id); else toast.info('No pending request'); }}><CheckCircle className="w-2.5 h-2.5" />Approve</Button>
                                             <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-indigo-600 border-indigo-200" onClick={() => onSendOffers(pub, [inv])}><Calendar className="w-2.5 h-2.5" />Schedule</Button>
                                             <Button size="sm" variant="outline" className="h-6 px-1.5 text-[9px] gap-0.5 text-purple-600 border-purple-200" onClick={() => openProofRequest(inv.offer_id, inv.name, { offer_network: inv.network, offer_payout: inv.payout })}><Camera className="w-2.5 h-2.5" />Request Proof</Button>
+                                            <Button size="sm" variant="ghost" className="h-6 px-1 hover:bg-transparent hover:scale-110 transition-transform" onClick={() => setImagePickerOffer(imagePickerOffer === inv.offer_id ? null : inv.offer_id)}><img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="Image" className="w-4 h-4 object-contain" /></Button>
+                                            <Button size="sm" variant="ghost" className="h-6 px-1 hover:bg-transparent hover:scale-110 transition-transform" onClick={() => setDescPickerOffer(descPickerOffer === inv.offer_id ? null : inv.offer_id)}><img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="Desc" className="w-4 h-4 object-contain" /></Button>
+                                            <Button size="sm" variant="ghost" className="h-6 px-1 hover:bg-transparent hover:scale-110 transition-transform" onClick={() => setVerticalPickerOffer(verticalPickerOffer === inv.offer_id ? null : inv.offer_id)}><img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="Vertical" className="w-4 h-4 object-contain" /></Button>
                                           </div>
+                                          {/* Inline image picker for related offer */}
+                                          {imagePickerOffer === inv.offer_id && (
+                                            <div className="mt-1 p-2 border rounded-lg bg-muted/30">
+                                              <ImagePickerComponent
+                                                offerName={inv.name}
+                                                onImageSelected={async (url, source) => {
+                                                  try {
+                                                    await adminOfferApi.updateOffer(inv.offer_id, { image_url: url });
+                                                    adminOfferApi.logImageUpdate(inv.offer_id, inv.name, url, source).catch(() => {});
+                                                    toast.success('Image updated');
+                                                    setImagePickerOffer(null);
+                                                  } catch { toast.error('Failed to update image'); }
+                                                }}
+                                              />
+                                            </div>
+                                          )}
+                                          {/* Inline description generator for related offer */}
+                                          {descPickerOffer === inv.offer_id && (
+                                            <div className="mt-1 p-2 border rounded-lg bg-muted/30">
+                                              <DescriptionGeneratorComponent
+                                                offerName={inv.name}
+                                                onDescriptionSaved={async (newDesc) => {
+                                                  try {
+                                                    await adminOfferApi.updateOffer(inv.offer_id, { description: newDesc } as any);
+                                                    toast.success('Description updated');
+                                                    setDescPickerOffer(null);
+                                                  } catch { toast.error('Failed'); }
+                                                }}
+                                              />
+                                            </div>
+                                          )}
+                                          {/* Inline vertical suggester for related offer */}
+                                          {verticalPickerOffer === inv.offer_id && (
+                                            <div className="mt-1 p-2 border rounded-lg bg-muted/30">
+                                              <VerticalSuggesterComponent
+                                                offerName={inv.name}
+                                                currentVertical=""
+                                                onVerticalSaved={async (newVertical) => {
+                                                  try {
+                                                    await adminOfferApi.updateOffer(inv.offer_id, { vertical: newVertical, category: newVertical } as any);
+                                                    toast.success('Vertical updated');
+                                                    setVerticalPickerOffer(null);
+                                                  } catch { toast.error('Failed'); }
+                                                }}
+                                              />
+                                            </div>
+                                          )}
                                           {inv.health?.failures && inv.health.failures.length > 0 && (
                                             <div className="flex flex-wrap gap-1">{inv.health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1 h-1 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}{f.detail ? `: ${f.detail}` : ''}</span>))}</div>
                                           )}

@@ -869,6 +869,42 @@ class AdminOfferApi {
     });
     return this.handleResponse(response);
   }
+
+  async logImageUpdate(offerId: string, offerName: string, imageUrl: string, source: 'ai' | 'upload' | 'stock' | 'bulk'): Promise<{ success: boolean }> {
+    const response = await fetch(`${API_BASE_URL}/offers/log-image-update`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offer_id: offerId, offer_name: offerName, image_url: imageUrl, source }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async generateDescription(offerName: string, existingDescription: string, vertical: string, mode: 'name_and_desc' | 'name_only'): Promise<{ success: boolean; description: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/generate-description`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offer_name: offerName, existing_description: existingDescription, vertical, mode }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async suggestVertical(offerName: string, description: string): Promise<{ success: boolean; vertical: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/suggest-vertical`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offer_name: offerName, description }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async restoreOriginalFields(offerId: string, fields: string[]): Promise<{ success: boolean; restored: string[]; message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/${offerId}/restore-original`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ fields }),
+    });
+    return this.handleResponse(response);
+  }
 }
 
 export const adminOfferApi = new AdminOfferApi();

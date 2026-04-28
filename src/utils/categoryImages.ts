@@ -29,8 +29,8 @@ export const CATEGORY_IMAGES: Record<string, string> = {
   'INSTALLS': installsImg,
   'GAMES_INSTALL': gamesInstallImg,
   'GAMES INSTALL': gamesInstallImg,
-  'OTHER': otherImg,
-  'GENERAL': otherImg,
+  'OTHER': sweepstakesImg,
+  'GENERAL': sweepstakesImg,
   // Lowercase variants
   'health': healthImg,
   'survey': surveyImg,
@@ -43,8 +43,8 @@ export const CATEGORY_IMAGES: Record<string, string> = {
   'free_trial': freeTrialImg,
   'installs': installsImg,
   'games_install': gamesInstallImg,
-  'other': otherImg,
-  'general': otherImg,
+  'other': sweepstakesImg,
+  'general': sweepstakesImg,
   // Legacy/alternative names
   'Lifestyle': otherImg,
   'lifestyle': otherImg,

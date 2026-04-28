@@ -290,7 +290,6 @@ const Offerwall: React.FC<OfferwallProps> = ({
       'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
       'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
       'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-      'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
     };
 
     // Category filter (multi-select) - supports new categories array

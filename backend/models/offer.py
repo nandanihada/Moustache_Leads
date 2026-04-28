@@ -194,9 +194,9 @@ def detect_categories_from_text(name, description=''):
     if campaign_type_match:
         campaign_type = campaign_type_match.group(1).strip()
         campaign_type_mapping = {
-            'entertainment': 'OTHER', 'food delivery': 'OTHER', 'food': 'OTHER',
-            'ecommerce': 'OTHER', 'e-commerce': 'OTHER', 'shopping': 'OTHER',
-            'travel': 'OTHER', 'lifestyle': 'OTHER', 'utilities': 'OTHER',
+            'entertainment': 'SWEEPSTAKES', 'food delivery': 'INSTALLS', 'food': 'INSTALLS',
+            'ecommerce': 'INSTALLS', 'e-commerce': 'INSTALLS', 'shopping': 'INSTALLS',
+            'travel': 'INSTALLS', 'lifestyle': 'SWEEPSTAKES', 'utilities': 'INSTALLS',
             'finance': 'FINANCE', 'banking': 'FINANCE', 'investment': 'FINANCE', 'crypto': 'FINANCE',
             'loan': 'LOAN', 'lending': 'LOAN', 'credit': 'LOAN',
             'insurance': 'INSURANCE', 'health': 'HEALTH', 'healthcare': 'HEALTH',

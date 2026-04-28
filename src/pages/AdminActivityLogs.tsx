@@ -33,6 +33,7 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  ImageIcon,
 } from "lucide-react";
 
 const CATEGORY_TABS = [
@@ -43,6 +44,7 @@ const CATEGORY_TABS = [
   { key: "email", label: "Email Logs", icon: Mail },
   { key: "promo_code", label: "Promo Codes", icon: Zap },
   { key: "gift_card", label: "Gift Cards", icon: Gift },
+  { key: "image_update", label: "Image Updation", icon: ImageIcon },
 ];
 
 const ACTION_LABELS: Record<string, string> = {
@@ -56,6 +58,11 @@ const ACTION_LABELS: Record<string, string> = {
   rotation_batch_activated: "Rotation Batch",
   promo_code_created: "Promo Code Created",
   gift_card_created: "Gift Card Created",
+  image_update: "Image Updated",
+  image_update_ai: "Image Updated (AI)",
+  image_update_upload: "Image Updated (Upload)",
+  image_update_stock: "Image Updated (Stock)",
+  image_update_bulk: "Image Updated (Bulk)",
 };
 
 const ACTION_COLORS: Record<string, string> = {
@@ -69,6 +76,11 @@ const ACTION_COLORS: Record<string, string> = {
   rotation_batch_activated: "bg-purple-100 text-purple-800",
   promo_code_created: "bg-indigo-100 text-indigo-800",
   gift_card_created: "bg-pink-100 text-pink-800",
+  image_update: "bg-teal-100 text-teal-800",
+  image_update_ai: "bg-violet-100 text-violet-800",
+  image_update_upload: "bg-cyan-100 text-cyan-800",
+  image_update_stock: "bg-emerald-100 text-emerald-800",
+  image_update_bulk: "bg-amber-100 text-amber-800",
 };
 
 const PER_PAGE_OPTIONS = [10, 25, 50, 100];
@@ -1065,6 +1077,25 @@ function LogDetails({ log }: { log: ActivityLog }) {
         <div className="text-xs space-y-0.5">
           <div className="font-medium text-foreground">{d.name}</div>
           <div className="text-muted-foreground">Code: {d.code} | ${d.amount} | Max: {d.max_redemptions}</div>
+        </div>
+      );
+    case "image_update":
+    case "image_update_ai":
+    case "image_update_upload":
+    case "image_update_stock":
+    case "image_update_bulk":
+      return (
+        <div className="text-xs space-y-1">
+          <div className="font-medium text-foreground">{d.offer_name || 'Unknown offer'}</div>
+          <div className="flex items-center gap-2">
+            {d.source && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-medium">
+              {d.source === 'ai' ? '🤖 AI Generated' : d.source === 'upload' ? '📁 Uploaded' : d.source === 'stock' ? '🖼️ Stock Image' : d.source}
+            </span>}
+            {d.offer_id && <span className="text-muted-foreground font-mono">{d.offer_id}</span>}
+          </div>
+          {d.image_url && (
+            <img src={d.image_url} alt="" className="w-16 h-16 rounded border object-cover mt-1" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+          )}
         </div>
       );
     default:

@@ -255,7 +255,6 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
     { id: 'FREE_TRIAL', name: 'Free Trials', icon: '🎁' },
     { id: 'INSTALLS', name: 'Installs', icon: '📲' },
     { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
-    { id: 'OTHER', name: 'Other', icon: '📦' },
   ];
 
   useEffect(() => {
@@ -322,7 +321,6 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
       'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
       'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
       'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-      'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
     };
 
     if (selectedCategory !== 'all') {

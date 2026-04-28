@@ -134,7 +134,7 @@ const PublisherOffersContent = () => {
     'trial': 'FREE_TRIAL', 'free trial': 'FREE_TRIAL', 'freetrial': 'FREE_TRIAL',
     'install': 'INSTALLS', 'installs': 'INSTALLS', 'app': 'INSTALLS', 'download': 'INSTALLS',
   };
-  const ALL_VERTICALS = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL', 'OTHER'];
+  const ALL_VERTICALS = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL'];
 
   const resolveVertical = (input: string): string => {
     const lower = input.trim().toLowerCase();

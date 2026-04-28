@@ -28,6 +28,12 @@ import {
 } from 'lucide-react';
 import { Offer, adminOfferApi } from '@/services/adminOfferApi';
 import { ImagePickerComponent } from '@/components/ImagePickerComponent';
+import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
+import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
+
+// Icons for collapsible sections
+const DESC_ICON_URL = 'https://i.postimg.cc/XB0zjj5r/description.png';
+const CAT_ICON_URL = 'https://i.postimg.cc/bw1GTwsg/categorization.png';
 
 // ─── Types ───────────────────────────────────────────────────────────
 export interface ExtractedParts {
@@ -313,12 +319,12 @@ interface OfferRenamingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedOffers: Offer[];
-  onApply: (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string) => Promise<void>;
+  onApply: (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string, perOfferImages?: Record<string, string>, perOfferDescs?: Record<string, string>, perOfferVerticals?: Record<string, string>) => Promise<void>;
 }
 
 export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply }: OfferRenamingModalProps) {
-  // Mode: bulk vs per-offer
-  const [mode, setMode] = useState<'bulk' | 'per-offer'>('bulk');
+  // Mode: always per-offer
+  const mode = 'per-offer' as const;
 
   // Template
   const [template, setTemplate] = useState(() => {
@@ -363,7 +369,17 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
 
   // Image picker state
   const [imageOpen, setImageOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null); // bulk image for all
+  const [perOfferImages, setPerOfferImages] = useState<Record<string, string>>({}); // per-offer images
+  const [perOfferImagePicker, setPerOfferImagePicker] = useState<string | null>(null); // which offer's picker is open
+
+  // Description generator state
+  const [descOpen, setDescOpen] = useState(false);
+  const [perOfferDescs, setPerOfferDescs] = useState<Record<string, string>>({});
+
+  // Vertical suggester state
+  const [verticalOpen, setVerticalOpen] = useState(false);
+  const [perOfferVerticals, setPerOfferVerticals] = useState<Record<string, string>>({});
 
   // Global Variables — override/force specific fields across all offers
   const [globalVars, setGlobalVars] = useState<GlobalVariable[]>(() => {
@@ -697,7 +713,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
         return;
       }
 
-      await onApply(renames, selectedImage || undefined);
+      await onApply(renames, selectedImage || undefined, perOfferImages, perOfferDescs, perOfferVerticals);
       onOpenChange(false);
     } catch {
       // Error handled by parent
@@ -881,27 +897,6 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
           </DialogTitle>
         </DialogHeader>
 
-        {/* Mode Toggle */}
-        <div className="flex items-center gap-3 pb-2 border-b shrink-0">
-          <span className="text-sm font-medium">Mode:</span>
-          <button
-            onClick={() => { setMode('bulk'); setExtracted(false); }}
-            className={`px-3 py-1 rounded-full text-sm transition-colors ${
-              mode === 'bulk' ? 'bg-blue-100 text-blue-800 font-medium' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Bulk (same name)
-          </button>
-          <button
-            onClick={() => { setMode('per-offer'); setExtracted(false); }}
-            className={`px-3 py-1 rounded-full text-sm transition-colors ${
-              mode === 'per-offer' ? 'bg-blue-100 text-blue-800 font-medium' : 'text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Per-Offer (individual)
-          </button>
-        </div>
-
         {/* Scrollable content area */}
         <div className="flex-1 overflow-y-auto min-h-0">
         {/* Extraction Section */}
@@ -977,17 +972,8 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
               )}
             </div>
 
-            {/* Token Editor — Bulk mode */}
-            {mode === 'bulk' && (
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Extracted Parts (applied to all offers)</Label>
-                {renderTokenChips(bulkTokens)}
-              </div>
-            )}
-
-            {/* Token Editor — Per-offer mode */}
-            {mode === 'per-offer' && (
-              <div className="space-y-3">
+            {/* Token Editor — Per-offer */}
+            <div className="space-y-3">
                 <Label className="text-sm font-medium">Extracted Parts (per offer)</Label>
                 <div className="space-y-2 max-h-48 overflow-y-auto">
                   {selectedOffers.map(offer => {
@@ -1001,8 +987,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                     );
                   })}
                 </div>
-              </div>
-            )}
+            </div>
 
             {/* Template Section */}
             <div className="space-y-2 border-t pt-3">
@@ -1170,22 +1155,56 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                             <RotateCcw className="h-3 w-3" />
                           </button>
                         )}
+                        {/* Per-offer image indicator */}
+                        <button
+                          onClick={() => setPerOfferImagePicker(perOfferImagePicker === item.offerId ? null : item.offerId)}
+                          className={`shrink-0 rounded-lg p-1 transition-all duration-200 ${
+                            perOfferImages[item.offerId]
+                              ? 'ring-2 ring-green-400 hover:ring-green-500'
+                              : selectedImage
+                                ? 'ring-1 ring-blue-200 opacity-70 hover:opacity-100'
+                                : 'hover:scale-110 hover:shadow-md'
+                          }`}
+                          title={perOfferImages[item.offerId] ? 'Image assigned (click to change)' : 'Add image for this offer'}
+                        >
+                          {perOfferImages[item.offerId] ? (
+                            <img src={perOfferImages[item.offerId]} alt="" className="w-7 h-7 rounded object-cover" />
+                          ) : selectedImage ? (
+                            <img src={selectedImage} alt="" className="w-7 h-7 rounded object-cover" />
+                          ) : (
+                            <img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="Add image" className="w-7 h-7 object-contain" />
+                          )}
+                        </button>
                       </div>
+                      {/* Per-offer image picker (inline) */}
+                      {perOfferImagePicker === item.offerId && (
+                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
+                          <ImagePickerComponent
+                            offerName={item.originalName}
+                            vertical={selectedOffers.find(o => o.offer_id === item.offerId)?.vertical || selectedOffers.find(o => o.offer_id === item.offerId)?.category}
+                            onImageSelected={(url, _source) => {
+                              setPerOfferImages(prev => ({ ...prev, [item.offerId]: url }));
+                              setPerOfferImagePicker(null);
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Add Image — collapsible */}
+            {/* Add Image — collapsible (bulk: applies to all offers without individual image) */}
             <div className="border-t pt-3">
               <button
                 onClick={() => setImageOpen(!imageOpen)}
                 className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
               >
                 <ImageIcon className="h-4 w-4" />
-                Add Image
+                Add Image {mode === 'per-offer' ? '(default for all)' : '(all offers)'}
                 {selectedImage && <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200 ml-1">✓ Selected</Badge>}
+                {Object.keys(perOfferImages).length > 0 && <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-blue-50 text-blue-700 border-blue-200 ml-1">{Object.keys(perOfferImages).length} individual</Badge>}
                 <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${imageOpen ? 'rotate-180' : ''}`} />
               </button>
               {imageOpen && (
@@ -1194,8 +1213,74 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                     offerName={selectedOffers[0]?.name || ''}
                     description={selectedOffers[0]?.description}
                     vertical={selectedOffers[0]?.vertical || selectedOffers[0]?.category}
-                    onImageSelected={url => setSelectedImage(url)}
+                    onImageSelected={(url, _source) => setSelectedImage(url)}
                   />
+                </div>
+              )}
+            </div>
+
+            {/* Generate Description — collapsible */}
+            <div className="border-t pt-3">
+              <button
+                onClick={() => setDescOpen(!descOpen)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <img src={DESC_ICON_URL} alt="" className="h-4 w-4 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                Generate Description
+                {Object.keys(perOfferDescs).length > 0 && <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200 ml-1">{Object.keys(perOfferDescs).length} updated</Badge>}
+                <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${descOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {descOpen && (
+                <div className="mt-3 space-y-3">
+                  {selectedOffers.map(offer => (
+                    <div key={offer.offer_id} className="p-2 border rounded-lg bg-muted/20">
+                      <p className="text-xs font-medium truncate mb-2">{offer.name}</p>
+                      <DescriptionGeneratorComponent
+                        offerName={offer.name}
+                        existingDescription={offer.description || ''}
+                        vertical={offer.vertical || offer.category}
+                        onDescriptionSaved={async (newDesc) => {
+                          setPerOfferDescs(prev => ({ ...prev, [offer.offer_id]: newDesc }));
+                          try {
+                            await adminOfferApi.updateOffer(offer.offer_id, { description: newDesc } as any);
+                          } catch {}
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Suggest Vertical — collapsible */}
+            <div className="border-t pt-3">
+              <button
+                onClick={() => setVerticalOpen(!verticalOpen)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <img src={CAT_ICON_URL} alt="" className="h-4 w-4 object-contain" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                Suggest Vertical
+                {Object.keys(perOfferVerticals).length > 0 && <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-violet-50 text-violet-700 border-violet-200 ml-1">{Object.keys(perOfferVerticals).length} updated</Badge>}
+                <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${verticalOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {verticalOpen && (
+                <div className="mt-3 space-y-3">
+                  {selectedOffers.map(offer => (
+                    <div key={offer.offer_id} className="p-2 border rounded-lg bg-muted/20">
+                      <p className="text-xs font-medium truncate mb-2">{offer.name}</p>
+                      <VerticalSuggesterComponent
+                        offerName={offer.name}
+                        description={offer.description || ''}
+                        currentVertical={offer.vertical || offer.category || ''}
+                        onVerticalSaved={async (newVertical) => {
+                          setPerOfferVerticals(prev => ({ ...prev, [offer.offer_id]: newVertical }));
+                          try {
+                            await adminOfferApi.updateOffer(offer.offer_id, { vertical: newVertical, category: newVertical } as any);
+                          } catch {}
+                        }}
+                      />
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

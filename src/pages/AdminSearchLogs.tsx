@@ -28,6 +28,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { ImagePickerComponent } from '@/components/ImagePickerComponent';
+import { ImageIcon } from 'lucide-react';
+import { adminOfferApi } from '@/services/adminOfferApi';
+import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
+import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
 
 const AdminSearchLogsContent: React.FC = () => {
   const { toast } = useToast();
@@ -67,6 +72,9 @@ const AdminSearchLogsContent: React.FC = () => {
   const [editingOffers, setEditingOffers] = useState<Array<{ offer_id: string; name: string; image_url: string; target_url: string; payout: number; selected: boolean }>>([]);
   const [inventoryEmailSettings, setInventoryEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const [generalEmailSettings, setGeneralEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
+  const [imagePickerOfferId, setImagePickerOfferId] = useState<string | null>(null);
+  const [descPickerOfferId, setDescPickerOfferId] = useState<string | null>(null);
+  const [verticalPickerOfferId, setVerticalPickerOfferId] = useState<string | null>(null);
 
   const openInventoryEmail = async (log: SearchLog) => {
     setInventoryEmailLog(log);
@@ -722,15 +730,74 @@ const AdminSearchLogsContent: React.FC = () => {
                           <img
                             src={offer.image_url}
                             alt=""
-                            className="w-12 h-12 rounded object-cover border"
+                            className="w-12 h-12 rounded object-cover border cursor-pointer"
+                            onClick={() => setImagePickerOfferId(imagePickerOfferId === offer.offer_id ? null : offer.offer_id)}
+                            title="Click to change image"
                             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
                         ) : (
-                          <div className="w-12 h-12 rounded border-2 border-dashed border-amber-300 bg-amber-50 flex items-center justify-center text-amber-500 text-xs font-medium">
-                            No img
-                          </div>
+                          <button
+                            onClick={() => setImagePickerOfferId(imagePickerOfferId === offer.offer_id ? null : offer.offer_id)}
+                            className="w-12 h-12 rounded-lg flex items-center justify-center hover:scale-110 transition-transform cursor-pointer"
+                            title="Add image"
+                          >
+                            <img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="Add image" className="w-10 h-10 object-contain" />
+                          </button>
                         )}
                       </div>
+                      {/* Inline image picker */}
+                      {imagePickerOfferId === offer.offer_id && (
+                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
+                          <ImagePickerComponent
+                            offerName={offer.name}
+                            onImageSelected={(url, source) => {
+                              updateEditingOffer(idx, 'image_url', url);
+                              setImagePickerOfferId(null);
+                              adminOfferApi.logImageUpdate(offer.offer_id, offer.name, url, source).catch(() => {});
+                            }}
+                          />
+                        </div>
+                      )}
+                      {/* Desc + Vertical icon buttons */}
+                      <div className="flex items-center gap-1 mt-1">
+                        <button onClick={() => setDescPickerOfferId(descPickerOfferId === offer.offer_id ? null : offer.offer_id)} className="hover:scale-110 transition-transform" title="Generate description">
+                          <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="Desc" className="w-5 h-5 object-contain" />
+                        </button>
+                        <button onClick={() => setVerticalPickerOfferId(verticalPickerOfferId === offer.offer_id ? null : offer.offer_id)} className="hover:scale-110 transition-transform" title="Suggest vertical">
+                          <img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="Vertical" className="w-5 h-5 object-contain" />
+                        </button>
+                      </div>
+                      {/* Inline description generator */}
+                      {descPickerOfferId === offer.offer_id && (
+                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
+                          <DescriptionGeneratorComponent
+                            offerName={offer.name}
+                            onDescriptionSaved={async (newDesc) => {
+                              try {
+                                await adminOfferApi.updateOffer(offer.offer_id, { description: newDesc } as any);
+                                toast({ title: 'Description updated' });
+                                setDescPickerOfferId(null);
+                              } catch { toast({ title: 'Failed', variant: 'destructive' }); }
+                            }}
+                          />
+                        </div>
+                      )}
+                      {/* Inline vertical suggester */}
+                      {verticalPickerOfferId === offer.offer_id && (
+                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
+                          <VerticalSuggesterComponent
+                            offerName={offer.name}
+                            currentVertical=""
+                            onVerticalSaved={async (newVertical) => {
+                              try {
+                                await adminOfferApi.updateOffer(offer.offer_id, { vertical: newVertical, category: newVertical } as any);
+                                toast({ title: 'Vertical updated' });
+                                setVerticalPickerOfferId(null);
+                              } catch { toast({ title: 'Failed', variant: 'destructive' }); }
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

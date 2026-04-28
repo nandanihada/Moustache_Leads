@@ -1037,6 +1037,22 @@ def update_offer(offer_id):
         promo_code_id = data.get('promo_code_id')
         old_offer = offer_model.get_offer_by_id(offer_id)
         old_promo_code_id = old_offer.get('promo_code_id') if old_offer else None
+
+        # Preserve original description/vertical before overwriting (only save once)
+        if old_offer:
+            offers_col = db_instance.get_collection('offers')
+            preserve_updates = {}
+            if 'description' in data and data['description'] != old_offer.get('description', ''):
+                if not old_offer.get('original_description'):
+                    preserve_updates['original_description'] = old_offer.get('description', '')
+            if 'vertical' in data and data['vertical'] != old_offer.get('vertical', ''):
+                if not old_offer.get('original_vertical'):
+                    preserve_updates['original_vertical'] = old_offer.get('vertical', '')
+            if 'category' in data and data['category'] != old_offer.get('category', ''):
+                if not old_offer.get('original_category'):
+                    preserve_updates['original_category'] = old_offer.get('category', '')
+            if preserve_updates and offers_col is not None:
+                offers_col.update_one({'offer_id': offer_id}, {'$set': preserve_updates})
         
         # If promo code is being assigned, fetch its details and add to update data
         if promo_code_id:
@@ -1502,6 +1518,184 @@ def generate_offer_image():
 
     except Exception as e:
         logging.error(f"Generate image error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/log-image-update', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def log_image_update():
+    """Log an image update to the activity logs for tracking."""
+    try:
+        data = request.get_json()
+        offer_id = data.get('offer_id', '')
+        offer_name = data.get('offer_name', '')
+        image_url = data.get('image_url', '')
+        source = data.get('source', 'unknown')  # ai, upload, stock, bulk
+
+        action = f'image_update_{source}' if source in ('ai', 'upload', 'stock', 'bulk') else 'image_update'
+
+        log_admin_activity(
+            action=action,
+            category='image_update',
+            admin_user=request.current_user,
+            details={
+                'offer_id': offer_id,
+                'offer_name': offer_name,
+                'image_url': image_url,
+                'source': source,
+            },
+            affected_items=[{'offer_id': offer_id, 'name': offer_name}],
+            request_obj=request,
+        )
+
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logging.error(f"Log image update error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/<offer_id>/restore-original', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def restore_original_fields(offer_id):
+    """Restore original description and/or vertical for an offer."""
+    try:
+        data = request.get_json() or {}
+        fields = data.get('fields', [])  # ['description', 'vertical'] or subset
+
+        offers_col = db_instance.get_collection('offers')
+        offer = offers_col.find_one({'offer_id': offer_id})
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        restore_updates = {}
+        unset_fields = {}
+
+        if 'description' in fields and offer.get('original_description'):
+            restore_updates['description'] = offer['original_description']
+            unset_fields['original_description'] = ''
+
+        if 'vertical' in fields:
+            if offer.get('original_vertical'):
+                restore_updates['vertical'] = offer['original_vertical']
+                restore_updates['category'] = offer.get('original_category', offer['original_vertical'])
+                unset_fields['original_vertical'] = ''
+                unset_fields['original_category'] = ''
+
+        if not restore_updates:
+            return jsonify({'error': 'No original values to restore'}), 400
+
+        update_ops = {'$set': restore_updates}
+        if unset_fields:
+            update_ops['$unset'] = unset_fields
+
+        offers_col.update_one({'offer_id': offer_id}, update_ops)
+
+        return jsonify({
+            'success': True,
+            'restored': list(restore_updates.keys()),
+            'message': f'Restored {", ".join(restore_updates.keys())} to original values',
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Restore original error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/generate-description', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def generate_offer_description():
+    """Generate an offer description using Groq AI."""
+    try:
+        from config import Config
+        from groq import Groq
+
+        api_key = Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        data = request.get_json()
+        offer_name = data.get('offer_name', '')
+        existing_desc = data.get('existing_description', '')
+        vertical = data.get('vertical', '')
+        mode = data.get('mode', 'name_and_desc')  # 'name_and_desc' or 'name_only'
+
+        if not offer_name:
+            return jsonify({'error': 'offer_name is required'}), 400
+
+        user_prompt = f"Offer name: {offer_name}"
+        if vertical:
+            user_prompt += f"\nVertical: {vertical}"
+        if mode == 'name_and_desc' and existing_desc:
+            user_prompt += f"\nExisting description: {existing_desc}"
+
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are an affiliate network manager. Write a concise 1-2 sentence offer description. Be factual, clear, mention the GEO and conversion action if known. No hype, no emojis."},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.3,
+            max_tokens=200,
+        )
+
+        description = completion.choices[0].message.content.strip()
+        return jsonify({'success': True, 'description': description}), 200
+
+    except Exception as e:
+        logging.error(f"Generate description error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/suggest-vertical', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def suggest_offer_vertical():
+    """Suggest the best vertical/category for an offer using Groq AI."""
+    try:
+        from config import Config
+        from groq import Groq
+
+        api_key = Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        data = request.get_json()
+        offer_name = data.get('offer_name', '')
+        description = data.get('description', '')
+
+        if not offer_name:
+            return jsonify({'error': 'offer_name is required'}), 400
+
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "You categorize affiliate marketing offers. Return ONLY one category from this list: HEALTH, SURVEY, SWEEPSTAKES, EDUCATION, INSURANCE, LOAN, FINANCE, DATING, FREE_TRIAL, INSTALLS, GAMES_INSTALL. No explanation, just the category name."},
+                {"role": "user", "content": f"Offer: {offer_name}\nDescription: {description}"},
+            ],
+            temperature=0.1,
+            max_tokens=20,
+        )
+
+        suggested = completion.choices[0].message.content.strip().upper()
+        valid = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL']
+        if suggested not in valid:
+            # Try to extract from response
+            for v in valid:
+                if v in suggested:
+                    suggested = v
+                    break
+            else:
+                suggested = 'SWEEPSTAKES'
+
+        return jsonify({'success': True, 'vertical': suggested}), 200
+
+    except Exception as e:
+        logging.error(f"Suggest vertical error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

@@ -11,6 +11,7 @@ import { adminOfferApi } from '@/services/adminOfferApi';
 
 // ─── Moustache Leads stock images ────────────────────────────────────
 const ML_IMAGES: { label: string; category: string; url: string }[] = [
+  { label: 'Moustache Leads', category: 'LOGO', url: '/logo.png' },
   { label: 'Health', category: 'HEALTH', url: '/category-images/health.png' },
   { label: 'Survey', category: 'SURVEY', url: '/category-images/survey.png' },
   { label: 'Sweepstakes', category: 'SWEEPSTAKES', url: '/category-images/sweepstakes.png' },
@@ -22,7 +23,6 @@ const ML_IMAGES: { label: string; category: string; url: string }[] = [
   { label: 'Free Trial', category: 'FREE_TRIAL', url: '/category-images/free_trial.png' },
   { label: 'Installs', category: 'INSTALLS', url: '/category-images/installs.png' },
   { label: 'Games', category: 'GAMES_INSTALL', url: '/category-images/games_install.png' },
-  { label: 'Other', category: 'OTHER', url: '/category-images/other.png' },
 ];
 
 // ─── Props ───────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ interface ImagePickerProps {
   offerName: string;
   description?: string;
   vertical?: string;
-  onImageSelected: (url: string) => void;
+  onImageSelected: (url: string, source: 'ai' | 'upload' | 'stock') => void;
 }
 
 type Tab = 'ai' | 'upload' | 'stock';
@@ -91,7 +91,10 @@ export function ImagePickerComponent({ offerName, description, vertical, onImage
 
   // ─── Confirm ─────────────────────────────────────────────────────
   const handleConfirm = () => {
-    if (selectedUrl) onImageSelected(selectedUrl);
+    if (selectedUrl) {
+      const source: 'ai' | 'upload' | 'stock' = tab === 'ai' ? 'ai' : tab === 'upload' ? 'upload' : 'stock';
+      onImageSelected(selectedUrl, source);
+    }
   };
 
   const filteredStock = stockSearch

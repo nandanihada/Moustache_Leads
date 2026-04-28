@@ -215,7 +215,6 @@ const AdminOffers = () => {
     { id: 'FREE_TRIAL', name: 'Free Trial', icon: '🎁' },
     { id: 'INSTALLS', name: 'Installs', icon: '📲' },
     { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
-    { id: 'OTHER', name: 'Other', icon: '📦' },
   ];
 
   const getStatusColor = (status: string) => {
@@ -308,7 +307,6 @@ const AdminOffers = () => {
     'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
     'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
     'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-    'OTHER': ['OTHER', 'LIFESTYLE', 'ENTERTAINMENT', 'TRAVEL', 'UTILITIES', 'E-COMMERCE', 'ECOMMERCE', 'SHOPPING', 'VIDEO', 'SIGNUP', 'GENERAL']
   };
 
   // Client-side filtering via useMemo — no re-fetch needed
@@ -1042,19 +1040,50 @@ const AdminOffers = () => {
     setRenamingModalOpen(true);
   };
 
-  const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string) => {
+  const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string, perOfferImages?: Record<string, string>, perOfferDescs?: Record<string, string>, perOfferVerticals?: Record<string, string>) => {
     const result = await adminOfferApi.bulkRenameOffers(renames);
     toast({ title: "Renamed", description: result.message });
 
-    // If an image was selected, update all renamed offers with the image
-    if (imageUrl) {
+    // Apply images: per-offer images take priority, then bulk image as fallback
+    const imageUpdates: Array<{ id: string; url: string }> = [];
+    for (const r of renames) {
+      const img = perOfferImages?.[r.offer_id] || imageUrl;
+      if (img) imageUpdates.push({ id: r.offer_id, url: img });
+    }
+    if (imageUpdates.length > 0) {
       try {
-        for (const r of renames) {
-          await adminOfferApi.updateOffer(r.offer_id, { image_url: imageUrl });
+        for (const u of imageUpdates) {
+          await adminOfferApi.updateOffer(u.id, { image_url: u.url });
+          const offerName = renames.find(r => r.offer_id === u.id)?.original_name || u.id;
+          adminOfferApi.logImageUpdate(u.id, offerName, u.url, 'bulk').catch(() => {});
         }
-        toast({ title: "Images Updated", description: `Applied image to ${renames.length} offer(s)` });
+        toast({ title: "Images Updated", description: `Applied images to ${imageUpdates.length} offer(s)` });
       } catch {
-        toast({ title: "Image update failed", description: "Names were renamed but image update failed", variant: "destructive" });
+        toast({ title: "Image update failed", description: "Names were renamed but some image updates failed", variant: "destructive" });
+      }
+    }
+
+    // Apply descriptions
+    if (perOfferDescs && Object.keys(perOfferDescs).length > 0) {
+      try {
+        for (const [offerId, desc] of Object.entries(perOfferDescs)) {
+          await adminOfferApi.updateOffer(offerId, { description: desc } as any);
+        }
+        toast({ title: "Descriptions Updated", description: `Updated ${Object.keys(perOfferDescs).length} description(s)` });
+      } catch {
+        toast({ title: "Description update failed", variant: "destructive" });
+      }
+    }
+
+    // Apply verticals
+    if (perOfferVerticals && Object.keys(perOfferVerticals).length > 0) {
+      try {
+        for (const [offerId, vertical] of Object.entries(perOfferVerticals)) {
+          await adminOfferApi.updateOffer(offerId, { vertical, category: vertical } as any);
+        }
+        toast({ title: "Verticals Updated", description: `Updated ${Object.keys(perOfferVerticals).length} vertical(s)` });
+      } catch {
+        toast({ title: "Vertical update failed", variant: "destructive" });
       }
     }
 
