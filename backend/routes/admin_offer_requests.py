@@ -265,7 +265,13 @@ def get_publisher_profiles_with_requests():
                     'request_count': request_count,
                     'offer_stats': offer_stats.get(req.get('offer_id'), {}),
                     'offer_health': offer_health.get(req.get('offer_id'), {'status': 'unknown', 'failures': []}),
-                    'clicks': 0, 'conversions': 0, 'conv_rate': 0, 'last_conversion': None
+                    'clicks': 0, 'conversions': 0, 'conv_rate': 0, 'last_conversion': None,
+                    'approved_at': req.get('approved_at'),
+                    'rejected_at': req.get('rejected_at'),
+                    'marked_for_review_at': req.get('marked_for_review_at'),
+                    'approved_by_username': req.get('approved_by_username', ''),
+                    'rejected_by_username': req.get('rejected_by_username', ''),
+                    'marked_for_review_by': req.get('marked_for_review_by', ''),
                 })
             
             profile = {
@@ -570,7 +576,7 @@ def mark_requests_for_review():
                 {'$or': [{'request_id': rid}, {'_id': rid}]},
                 {'$set': {
                     'status': 'review',
-                    'marked_for_review_by': str(user['_id']),
+                    'marked_for_review_by': user.get('username', str(user['_id'])),
                     'marked_for_review_at': datetime.utcnow(),
                     'updated_at': datetime.utcnow()
                 }}
@@ -2085,6 +2091,14 @@ def get_tab_data():
             if tab == 'rejected':
                 item['rejection_reason'] = r.get('rejection_reason', '')
                 item['rejection_category'] = r.get('rejection_category', '')
+
+            # Add action timestamps for all tabs
+            item['approved_at'] = r.get('approved_at')
+            item['rejected_at'] = r.get('rejected_at')
+            item['marked_for_review_at'] = r.get('marked_for_review_at')
+            item['approved_by_username'] = r.get('approved_by_username', '')
+            item['rejected_by_username'] = r.get('rejected_by_username', '')
+            item['marked_for_review_by'] = r.get('marked_for_review_by', '')
 
             results.append(item)
 

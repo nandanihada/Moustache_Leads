@@ -23,8 +23,11 @@ import {
   RotateCcw,
   Lock,
   Trash2,
+  ChevronDown,
+  ImageIcon,
 } from 'lucide-react';
 import { Offer, adminOfferApi } from '@/services/adminOfferApi';
+import { ImagePickerComponent } from '@/components/ImagePickerComponent';
 
 // ─── Types ───────────────────────────────────────────────────────────
 export interface ExtractedParts {
@@ -310,7 +313,7 @@ interface OfferRenamingModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedOffers: Offer[];
-  onApply: (renames: Array<{ offer_id: string; new_name: string; original_name: string }>) => Promise<void>;
+  onApply: (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string) => Promise<void>;
 }
 
 export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply }: OfferRenamingModalProps) {
@@ -357,6 +360,10 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
 
   // Applying state
   const [applying, setApplying] = useState(false);
+
+  // Image picker state
+  const [imageOpen, setImageOpen] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   // Global Variables — override/force specific fields across all offers
   const [globalVars, setGlobalVars] = useState<GlobalVariable[]>(() => {
@@ -690,7 +697,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
         return;
       }
 
-      await onApply(renames);
+      await onApply(renames, selectedImage || undefined);
       onOpenChange(false);
     } catch {
       // Error handled by parent
@@ -1168,6 +1175,29 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                   );
                 })}
               </div>
+            </div>
+
+            {/* Add Image — collapsible */}
+            <div className="border-t pt-3">
+              <button
+                onClick={() => setImageOpen(!imageOpen)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <ImageIcon className="h-4 w-4" />
+                Add Image
+                {selectedImage && <Badge variant="outline" className="text-[9px] px-1.5 py-0 bg-green-50 text-green-700 border-green-200 ml-1">✓ Selected</Badge>}
+                <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${imageOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {imageOpen && (
+                <div className="mt-3">
+                  <ImagePickerComponent
+                    offerName={selectedOffers[0]?.name || ''}
+                    description={selectedOffers[0]?.description}
+                    vertical={selectedOffers[0]?.vertical || selectedOffers[0]?.category}
+                    onImageSelected={url => setSelectedImage(url)}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Apply Button */}

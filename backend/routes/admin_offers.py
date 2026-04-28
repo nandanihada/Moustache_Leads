@@ -1452,6 +1452,59 @@ def bulk_update_payout():
         logging.error(f"Bulk update payout error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to update payout: {str(e)}'}), 500
 
+
+@admin_offers_bp.route('/offers/generate-image', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def generate_offer_image():
+    """Generate an offer image using fal.ai FLUX.1 Schnell model."""
+    try:
+        from config import Config
+        import requests as http_requests
+
+        api_key = Config.FAL_API_KEY
+        if not api_key:
+            return jsonify({'error': 'FAL_API_KEY not configured'}), 500
+
+        data = request.get_json()
+        prompt = data.get('prompt', '')
+        if not prompt:
+            return jsonify({'error': 'prompt is required'}), 400
+
+        # Call fal.ai FLUX.1 Schnell
+        response = http_requests.post(
+            'https://fal.run/fal-ai/flux/schnell',
+            headers={
+                'Authorization': f'Key {api_key}',
+                'Content-Type': 'application/json',
+            },
+            json={
+                'prompt': prompt,
+                'image_size': 'square_hd',
+                'num_inference_steps': 4,
+                'num_images': 1,
+                'enable_safety_checker': True,
+            },
+            timeout=60,
+        )
+
+        if response.status_code != 200:
+            logging.error(f"fal.ai error {response.status_code}: {response.text[:500]}")
+            return jsonify({'error': f'Image generation failed: {response.status_code}'}), 500
+
+        result = response.json()
+        images = result.get('images', [])
+        if not images:
+            return jsonify({'error': 'No image returned from AI'}), 500
+
+        image_url = images[0].get('url', '')
+        return jsonify({'success': True, 'image_url': image_url}), 200
+
+    except Exception as e:
+        logging.error(f"Generate image error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @admin_offers_bp.route('/offers/ai-extract-parts', methods=['POST'])
 @token_required
 @subadmin_or_admin_required('offers')

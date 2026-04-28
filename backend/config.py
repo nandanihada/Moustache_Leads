@@ -23,3 +23,6 @@ class Config:
 
     # Groq API key for AI-powered offer name extraction
     GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+
+    # fal.ai API key for AI image generation
+    FAL_API_KEY = os.getenv('FAL_API_KEY', '')

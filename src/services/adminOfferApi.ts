@@ -860,6 +860,15 @@ class AdminOfferApi {
     });
     return this.handleResponse(response);
   }
+
+  async generateImage(prompt: string): Promise<{ success: boolean; image_url: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/generate-image`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ prompt }),
+    });
+    return this.handleResponse(response);
+  }
 }
 
 export const adminOfferApi = new AdminOfferApi();

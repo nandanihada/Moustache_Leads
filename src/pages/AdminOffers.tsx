@@ -1042,9 +1042,21 @@ const AdminOffers = () => {
     setRenamingModalOpen(true);
   };
 
-  const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>) => {
+  const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string) => {
     const result = await adminOfferApi.bulkRenameOffers(renames);
     toast({ title: "Renamed", description: result.message });
+
+    // If an image was selected, update all renamed offers with the image
+    if (imageUrl) {
+      try {
+        for (const r of renames) {
+          await adminOfferApi.updateOffer(r.offer_id, { image_url: imageUrl });
+        }
+        toast({ title: "Images Updated", description: `Applied image to ${renames.length} offer(s)` });
+      } catch {
+        toast({ title: "Image update failed", description: "Names were renamed but image update failed", variant: "destructive" });
+      }
+    }
 
     // Track renamed offers for visual feedback
     const renamed: Record<string, string> = {};

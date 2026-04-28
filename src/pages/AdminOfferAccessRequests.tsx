@@ -51,6 +51,12 @@ export interface OfferReq {
   conversions: number;
   conv_rate: number;
   last_conversion: string | null;
+  approved_at?: string;
+  rejected_at?: string;
+  marked_for_review_at?: string;
+  approved_by_username?: string;
+  rejected_by_username?: string;
+  marked_for_review_by?: string;
 }
 
 export interface PProf {

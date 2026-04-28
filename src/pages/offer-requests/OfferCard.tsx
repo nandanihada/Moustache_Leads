@@ -36,6 +36,13 @@ export interface TabOfferRequest {
   is_in_collection?: { direct_partner: boolean; affiliate: boolean };
   has_placement_proof?: boolean;
   placement_proof_id?: string;
+  // Action timestamps
+  approved_at?: string;
+  rejected_at?: string;
+  marked_for_review_at?: string;
+  approved_by_username?: string;
+  rejected_by_username?: string;
+  marked_for_review_by?: string;
   // Most Requested fields
   total_requests?: number;
   unique_users?: number;
@@ -162,9 +169,39 @@ export default function OfferCard({ item, tab, isSelected, onToggleSelect, onCol
             {countries.length > 0 && <span className="flex items-center gap-1"><Globe className="w-3 h-3" />{countries.join(', ')}{(item.offer_countries?.length || 0) > 5 ? '…' : ''}</span>}
             {item.publisher_username && <span className="flex items-center gap-1"><UserCheck className="w-3 h-3" />{item.publisher_username}</span>}
             {item.requested_at && (
-              <span className="flex items-center gap-1" title="Request date (IST)">
+              <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400" title="Request arrived (IST)">
                 <Clock className="w-3 h-3" />
-                {new Date(item.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                Requested: {new Date(item.requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+              </span>
+            )}
+            {/* Action date based on status */}
+            {item.status === 'approved' && item.approved_at && (
+              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium" title={`Approved by ${item.approved_by_username || 'admin'}`}>
+                <CheckCircle className="w-3 h-3" />
+                Approved: {new Date(item.approved_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                {item.approved_by_username && <span className="text-[10px] opacity-75 ml-0.5">by {item.approved_by_username}</span>}
+              </span>
+            )}
+            {item.status === 'rejected' && item.rejected_at && (
+              <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium" title={`Rejected by ${item.rejected_by_username || 'admin'}`}>
+                <XCircle className="w-3 h-3" />
+                Rejected: {new Date(item.rejected_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                {item.rejected_by_username && <span className="text-[10px] opacity-75 ml-0.5">by {item.rejected_by_username}</span>}
+              </span>
+            )}
+            {(item.status === 'review' || item.status === 'pending') && item.marked_for_review_at && (
+              <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium" title={`Marked for review by ${item.marked_for_review_by || 'admin'}`}>
+                <AlertCircle className="w-3 h-3" />
+                In Review: {new Date(item.marked_for_review_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                {item.marked_for_review_by && <span className="text-[10px] opacity-75 ml-0.5">by {item.marked_for_review_by}</span>}
+              </span>
+            )}
+            {/* DP/AF collection added date */}
+            {(tab === 'direct_partner' || tab === 'affiliate') && item.created_at && (
+              <span className="flex items-center gap-1 text-violet-600 dark:text-violet-400 font-medium" title={`Added to collection by ${item.added_by_username || 'admin'}`}>
+                <Calendar className="w-3 h-3" />
+                Added: {new Date(item.created_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                {item.added_by_username && <span className="text-[10px] opacity-75 ml-0.5">by {item.added_by_username}</span>}
               </span>
             )}
             {item.has_placement_proof && (
@@ -184,6 +221,12 @@ export default function OfferCard({ item, tab, isSelected, onToggleSelect, onCol
               <span className="flex items-center gap-1 text-emerald-600"><CheckCircle className="w-3 h-3" />{item.approved_count}</span>
               <span className="flex items-center gap-1 text-red-500"><XCircle className="w-3 h-3" />{item.rejected_count}</span>
               <span className="flex items-center gap-1 text-amber-500"><AlertCircle className="w-3 h-3" />{item.pending_count}</span>
+              {item.last_requested_at && (
+                <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400">
+                  <Clock className="w-3 h-3" />
+                  Last: {new Date(item.last_requested_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })} IST
+                </span>
+              )}
             </div>
           )}
 
