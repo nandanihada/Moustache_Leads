@@ -2428,6 +2428,10 @@ def schedule_send():
         message_body = data.get('message_body', '')
         subject = data.get('subject', 'Offers from Moustache Leads')
         source_tab = data.get('source_tab', '')
+        template_style = data.get('template_style', 'table')
+        visible_fields = data.get('visible_fields')
+        default_image = data.get('default_image', '')
+        payout_type = data.get('payout_type', 'publisher')
         admin_user = request.current_user
 
         if not offer_ids and not message_body:
@@ -2459,7 +2463,7 @@ def schedule_send():
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
-        html_body = _build_email_html(message_body, frontend_url, offers=offers)
+        html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
