@@ -48,6 +48,7 @@ partner_postback_logs_bp = safe_import_blueprint('routes.partner_postback_logs',
 diagnostic_bp = safe_import_blueprint('routes.diagnostic', 'diagnostic_bp')
 user_reports_bp = safe_import_blueprint('routes.user_reports', 'user_reports_bp')
 simple_tracking_bp = safe_import_blueprint('routes.simple_tracking', 'simple_tracking_bp')
+preview_tracking_bp = safe_import_blueprint('routes.preview_tracking', 'preview_tracking_bp')
 publisher_offers_bp = safe_import_blueprint('routes.publisher_offers', 'publisher_offers_bp')
 test_postback_bp = safe_import_blueprint('routes.test_postback', 'test_postback_bp')
 admin_publishers_simple_bp = safe_import_blueprint('routes.admin_publishers_simple', 'admin_publishers_simple_bp')
@@ -142,6 +143,7 @@ blueprints = [
     (partner_postback_logs_bp, ''),
     (diagnostic_bp, ''),
     (simple_tracking_bp, ''),
+    (preview_tracking_bp, ''),
     (setup_bp, ''),
     (publisher_offers_bp, '/api/publisher'),
     (admin_publishers_simple_bp, '/api/admin'),

@@ -143,8 +143,15 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
             recipient_ids: recipientIds,
             template_style: emailSettings.templateStyle,
             visible_fields: emailSettings.visibleFields,
+            see_more_fields: emailSettings.seeMoreFields,
             default_image: emailSettings.defaultImage,
             payout_type: emailSettings.payoutType,
+            mask_preview_links: emailSettings.maskPreviewLinks,
+            payment_terms: emailSettings.paymentTerms,
+            custom_preview_url: emailSettings.customPreviewMode === 'all' ? emailSettings.customPreviewUrl : '',
+            custom_preview_urls: emailSettings.customPreviewMode === 'individual' ? emailSettings.customPreviewUrls : {},
+            preview_in_email: emailSettings.previewInEmail,
+            custom_preview_in_email: emailSettings.customPreviewInEmail,
           }),
         });
         const d = await res.json(); if (!res.ok) throw new Error(d.error);
@@ -159,8 +166,15 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
             send_frequency: sendFrequency, message_body: messageBody, subject, source_tab: sourceTab,
             template_style: emailSettings.templateStyle,
             visible_fields: emailSettings.visibleFields,
+            see_more_fields: emailSettings.seeMoreFields,
             default_image: emailSettings.defaultImage,
             payout_type: emailSettings.payoutType,
+            mask_preview_links: emailSettings.maskPreviewLinks,
+            payment_terms: emailSettings.paymentTerms,
+            custom_preview_url: emailSettings.customPreviewMode === 'all' ? emailSettings.customPreviewUrl : '',
+            custom_preview_urls: emailSettings.customPreviewMode === 'individual' ? emailSettings.customPreviewUrls : {},
+            preview_in_email: emailSettings.previewInEmail,
+            custom_preview_in_email: emailSettings.customPreviewInEmail,
           }),
         });
         const d = await res.json(); if (!res.ok) throw new Error(d.error);
@@ -240,7 +254,7 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
             {customEmails.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{customEmails.map(e => (<Badge key={e} variant="outline" className="text-xs gap-1">{e}<button onClick={() => setCustomEmails(prev => prev.filter(x => x !== e))} className="hover:text-destructive"><X className="w-3 h-3" /></button></Badge>))}</div>}
           </div>
           <div><Label className="text-xs">Subject</Label><Input value={subject} onChange={e => setSubject(e.target.value)} className="mt-1" /></div>
-          <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
+          <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact offerIds={offerIds} />
           <div><Label className="text-xs">Message Preview</Label><Textarea value={messageBody} onChange={e => setMessageBody(e.target.value)} rows={10} className="mt-1 text-sm font-mono resize-y" /></div>
         </div>
         <DialogFooter className="flex items-center justify-between sm:justify-between">

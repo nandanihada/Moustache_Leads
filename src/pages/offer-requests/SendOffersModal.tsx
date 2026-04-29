@@ -67,7 +67,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
       const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/send-offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ user_id: publisher.user_id, offer_ids: Array.from(selected), send_via: sendVia, custom_message: customMsg, message_body: messageBody, template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType }),
+        body: JSON.stringify({ user_id: publisher.user_id, offer_ids: Array.from(selected), send_via: sendVia, custom_message: customMsg, message_body: messageBody, template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, see_more_fields: emailSettings.seeMoreFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType, mask_preview_links: emailSettings.maskPreviewLinks, payment_terms: emailSettings.paymentTerms, custom_preview_url: emailSettings.customPreviewMode === 'all' ? emailSettings.customPreviewUrl : '', custom_preview_urls: emailSettings.customPreviewMode === 'individual' ? emailSettings.customPreviewUrls : {}, preview_in_email: emailSettings.previewInEmail, custom_preview_in_email: emailSettings.customPreviewInEmail }),
       });
       if (!res.ok) throw new Error();
       toast.success(`Sent ${selected.size} offer(s) via ${sendVia}`);
@@ -166,7 +166,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
                 </div>
 
                 {/* Email template settings */}
-                <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
+                <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact offerIds={Array.from(selected)} />
 
                 {/* Custom note */}
                 <div className="space-y-1.5">

@@ -37,13 +37,8 @@ def _parse_ist_to_utc(scheduled_at):
         return datetime.utcnow()
 
 
-def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='publisher', template_style='table', visible_fields=None, default_image=''):
-    """Build a branded HTML email with logo and unsubscribe link.
-    If offers list is provided, renders them using the shared template builder.
-    payout_type: 'publisher' (80% of admin) or 'admin' (full amount)
-    template_style: 'table' or 'card'
-    visible_fields: list of fields to show (name, payout, countries, category, image, offer_id, preview_url)
-    default_image: URL to use for offers without images"""
+def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='publisher', template_style='table', visible_fields=None, default_image='', see_more_fields=None, mask_preview_links=False, recipient_email='', batch_id='', payment_terms='', per_offer_payment_terms=None, custom_preview_url='', custom_preview_urls=None, preview_in_email='both', custom_preview_in_email='both'):
+    """Build a branded HTML email with logo and unsubscribe link."""
     import os
     if not frontend_url:
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
@@ -51,14 +46,31 @@ def _build_email_html(body_text, frontend_url=None, offers=None, payout_type='pu
     # If offers provided, use the shared template builder
     if offers and len(offers) > 0:
         from utils.email_template_builder import build_offer_email_html
+        # Build custom_preview_urls dict
+        # custom_preview_urls (dict per offer) takes priority over custom_preview_url (single for all)
+        final_custom_urls = {}
+        if custom_preview_urls and isinstance(custom_preview_urls, dict):
+            final_custom_urls = custom_preview_urls
+        elif custom_preview_url:
+            for o in offers:
+                final_custom_urls[o.get('offer_id', '')] = custom_preview_url
         return build_offer_email_html(
             offers=offers,
             recipient_name='',
             custom_message=body_text if isinstance(body_text, str) else '',
             template_style=template_style,
             visible_fields=visible_fields,
+            see_more_fields=see_more_fields,
             payout_type=payout_type,
             default_image=default_image,
+            mask_preview_links=mask_preview_links,
+            recipient_email=recipient_email,
+            batch_id=batch_id,
+            payment_terms=payment_terms,
+            per_offer_payment_terms=per_offer_payment_terms,
+            custom_preview_urls=final_custom_urls,
+            preview_in_email=preview_in_email,
+            custom_preview_in_email=custom_preview_in_email,
         )
 
     # Fallback: no offers, just body text
@@ -613,8 +625,16 @@ def send_offers_to_publisher():
         template_type = data.get('template_type', 'recommend')  # recommend or approval
         template_style = data.get('template_style', 'table')  # 'table' or 'card'
         visible_fields = data.get('visible_fields')  # list of field names or None for defaults
+        see_more_fields = data.get('see_more_fields')  # list of fields for "See More" section
         default_image = data.get('default_image', '')  # URL for offers without images
         payout_type = data.get('payout_type', 'publisher')  # 'publisher' or 'admin'
+        mask_preview_links = data.get('mask_preview_links', False)
+        payment_terms = data.get('payment_terms', '')
+        custom_preview_url = data.get('custom_preview_url', '')
+        custom_preview_urls = data.get('custom_preview_urls', {})
+        preview_in_email = data.get('preview_in_email', 'both')
+        custom_preview_in_email = data.get('custom_preview_in_email', 'both')
+        per_offer_payment_terms = data.get('per_offer_payment_terms', {})
 
         if (not user_ids and not custom_emails) or (not offer_ids and not message_body):
             return jsonify({'error': 'At least one recipient and either offer_ids or message_body are required'}), 400
@@ -685,7 +705,7 @@ Moustache Leads"""
                     email_service = get_email_service()
                     body = build_body('')
                     html_body = body.replace('\n', '<br>')
-                    html_content = _build_email_html(body, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+                    html_content = _build_email_html(body, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, per_offer_payment_terms=per_offer_payment_terms)
                     
                     logging.info(f"📧 Sending BCC email to {len(all_emails)} recipients")
                     
@@ -2220,8 +2240,15 @@ def push_mail():
         recipient_ids = data.get('recipient_ids', [])  # Optional: filter to specific users
         template_style = data.get('template_style', 'table')
         visible_fields = data.get('visible_fields')
+        see_more_fields = data.get('see_more_fields')
         default_image = data.get('default_image', '')
         payout_type = data.get('payout_type', 'publisher')
+        mask_preview_links = data.get('mask_preview_links', False)
+        payment_terms = data.get('payment_terms', '')
+        custom_preview_url = data.get('custom_preview_url', '')
+        custom_preview_urls = data.get('custom_preview_urls', {})
+        preview_in_email = data.get('preview_in_email', 'both')
+        custom_preview_in_email = data.get('custom_preview_in_email', 'both')
         admin_user = request.current_user
 
         if not offer_ids:
@@ -2253,7 +2280,7 @@ def push_mail():
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
-        html_body = _build_email_html(body_text, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+        html_body = _build_email_html(body_text, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, custom_preview_url=custom_preview_url, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -2430,8 +2457,15 @@ def schedule_send():
         source_tab = data.get('source_tab', '')
         template_style = data.get('template_style', 'table')
         visible_fields = data.get('visible_fields')
+        see_more_fields = data.get('see_more_fields')
         default_image = data.get('default_image', '')
         payout_type = data.get('payout_type', 'publisher')
+        mask_preview_links = data.get('mask_preview_links', False)
+        payment_terms = data.get('payment_terms', '')
+        custom_preview_url = data.get('custom_preview_url', '')
+        custom_preview_urls = data.get('custom_preview_urls', {})
+        preview_in_email = data.get('preview_in_email', 'both')
+        custom_preview_in_email = data.get('custom_preview_in_email', 'both')
         admin_user = request.current_user
 
         if not offer_ids and not message_body:
@@ -2463,7 +2497,7 @@ def schedule_send():
 
         import os
         frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
-        html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+        html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, custom_preview_url=custom_preview_url, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
 
         if send_type == 'schedule' and scheduled_at:
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -2695,8 +2729,15 @@ def push_mail_v2():
         source_tab = data.get('source_tab', '')
         template_style = data.get('template_style', 'table')
         visible_fields = data.get('visible_fields')
+        see_more_fields = data.get('see_more_fields')
         default_image = data.get('default_image', '')
         payout_type = data.get('payout_type', 'publisher')
+        mask_preview_links = data.get('mask_preview_links', False)
+        payment_terms = data.get('payment_terms', '')
+        custom_preview_url = data.get('custom_preview_url', '')
+        custom_preview_urls = data.get('custom_preview_urls', {})
+        preview_in_email = data.get('preview_in_email', 'both')
+        custom_preview_in_email = data.get('custom_preview_in_email', 'both')
         admin_user = request.current_user
 
         if not offer_ids:
@@ -2786,7 +2827,7 @@ def push_mail_v2():
             # If scheduled support, also schedule the email
             if scheduled_at:
                 sched_col = db_instance.get_collection('scheduled_emails')
-                html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+                html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, custom_preview_url=custom_preview_url, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
                 sched_col.insert_one({
                     'subject': subject, 'body': html_body, 'recipients': emails,
                     'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
@@ -2825,7 +2866,7 @@ def push_mail_v2():
                         body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${pub_payout}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, custom_preview_url=custom_preview_url, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
                     base_dt = _parse_ist_to_utc(scheduled_at)
                     offset_dt = base_dt + timedelta(minutes=interval_minutes * idx)
                     sched_col.insert_one({
@@ -2850,7 +2891,7 @@ def push_mail_v2():
                     import calendar as cal_mod
                     day_name = cal_mod.day_name[datetime.utcnow().weekday()]
                     message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nMoustache Leads Team\nMoustache Leads"
-                html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+                html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, custom_preview_url=custom_preview_url, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
                 result = sched_col.insert_one({
                     'subject': subject, 'body': html_body, 'recipients': emails,
                     'scheduled_at': _parse_ist_to_utc(scheduled_at), 'status': 'pending',
@@ -2900,7 +2941,7 @@ def push_mail_v2():
                         body = f"Happy {day_name}!\n\nPlease push more traffic on this offer\n\nThanks and have a great weekend\n\n📋 {o.get('name', '')}\n💰 Amount: ${pub_payout}\n📂 Category: {o.get('category', o.get('vertical', 'N/A'))}\n🚦 Traffic Source: {', '.join(o.get('allowed_traffic_sources', [])) or 'All'}\n🔍 Preview: {o.get('preview_url', 'Not available')}\n\n{o.get('description', '')}"
                     else:
                         body = message_body
-                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+                    html_body = _build_email_html(body, frontend_url, offers=[o], payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, custom_preview_url=custom_preview_url, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
                     # Send in BCC batches
                     for i in range(0, len(emails), 50):
                         batch = emails[i:i + 50]
@@ -2937,7 +2978,7 @@ def push_mail_v2():
                 import calendar as cal_mod
                 day_name = cal_mod.day_name[datetime.utcnow().weekday()]
                 message_body = f"Happy {day_name}!\n\nWe have some great offers for you. Check out the details below.\n\nThanks and have a great weekend!\n\nBest regards,\nMoustache Leads Team\nMoustache Leads"
-            html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image)
+            html_body = _build_email_html(message_body, frontend_url, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, custom_preview_url=custom_preview_url, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
 
             if history_col is not None:
                 history_col.insert_one({

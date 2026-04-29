@@ -261,8 +261,15 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
         source_tab: sourceTab,
         template_style: emailSettings.templateStyle,
         visible_fields: emailSettings.visibleFields,
+        see_more_fields: emailSettings.seeMoreFields,
         default_image: emailSettings.defaultImage,
         payout_type: emailSettings.payoutType,
+        mask_preview_links: emailSettings.maskPreviewLinks,
+        payment_terms: emailSettings.paymentTerms,
+        custom_preview_url: emailSettings.customPreviewMode === 'all' ? emailSettings.customPreviewUrl : '',
+        custom_preview_urls: emailSettings.customPreviewMode === 'individual' ? emailSettings.customPreviewUrls : {},
+        preview_in_email: emailSettings.previewInEmail,
+        custom_preview_in_email: emailSettings.customPreviewInEmail,
       };
 
       if (sendType === 'schedule') {
@@ -552,7 +559,7 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
             </div>
 
             {/* Email Template Settings */}
-            <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
+            <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact offerIds={offerIds} />
 
             {/* Message Body */}
             <div>
