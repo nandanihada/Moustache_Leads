@@ -1514,10 +1514,183 @@ def generate_offer_image():
             return jsonify({'error': 'No image returned from AI'}), 500
 
         image_url = images[0].get('url', '')
+
+        # Save to generated_images collection for reuse in Moustache Leads stock
+        save_to_stock = data.get('save_to_stock', False)
+        offer_name = data.get('offer_name', '')
+        if save_to_stock and image_url:
+            try:
+                gen_col = db_instance.get_collection('generated_images')
+                if gen_col is not None:
+                    gen_col.insert_one({
+                        'url': image_url,
+                        'prompt': prompt,
+                        'offer_name': offer_name,
+                        'created_at': datetime.utcnow(),
+                        'created_by': str(request.current_user.get('_id', '')),
+                    })
+            except Exception as save_err:
+                logging.warning(f"Failed to save generated image to stock: {save_err}")
+
         return jsonify({'success': True, 'image_url': image_url}), 200
 
     except Exception as e:
         logging.error(f"Generate image error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/generated-images', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_generated_images():
+    """Get all saved AI-generated images for the Moustache Leads stock gallery."""
+    try:
+        gen_col = db_instance.get_collection('generated_images')
+        if gen_col is None:
+            return jsonify({'images': []}), 200
+        images = list(gen_col.find({}).sort('created_at', -1).limit(100))
+        result = []
+        for img in images:
+            result.append({
+                'url': img.get('url', ''),
+                'prompt': img.get('prompt', ''),
+                'offer_name': img.get('offer_name', ''),
+                'created_at': img.get('created_at').isoformat() + 'Z' if img.get('created_at') else '',
+            })
+        return jsonify({'images': result}), 200
+    except Exception as e:
+        logging.error(f"Get generated images error: {e}", exc_info=True)
+        return jsonify({'images': []}), 200
+
+
+# ─── Image Rules CRUD ─────────────────────────────────────────────────
+@admin_offers_bp.route('/offers/image-rules', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_image_rules():
+    """Get all image rules."""
+    try:
+        col = db_instance.get_collection('image_rules')
+        if col is None:
+            return jsonify({'rules': []}), 200
+        rules = list(col.find({}).sort('created_at', -1))
+        result = []
+        for r in rules:
+            result.append({
+                'id': str(r['_id']),
+                'keyword': r.get('keyword', ''),
+                'image_url': r.get('image_url', ''),
+                'match_count': r.get('match_count', 0),
+                'created_at': r.get('created_at').isoformat() + 'Z' if r.get('created_at') else '',
+            })
+        return jsonify({'rules': result}), 200
+    except Exception as e:
+        logging.error(f"Get image rules error: {e}", exc_info=True)
+        return jsonify({'rules': []}), 200
+
+
+@admin_offers_bp.route('/offers/image-rules', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def create_image_rule():
+    """Create a new image rule (keyword → image)."""
+    try:
+        data = request.get_json()
+        keyword = (data.get('keyword', '') or '').strip().lower()
+        image_url = data.get('image_url', '')
+        if not keyword or not image_url:
+            return jsonify({'error': 'keyword and image_url are required'}), 400
+
+        col = db_instance.get_collection('image_rules')
+        if col is None:
+            return jsonify({'error': 'Database not available'}), 500
+
+        # Check for duplicate keyword
+        existing = col.find_one({'keyword': keyword})
+        if existing:
+            col.update_one({'_id': existing['_id']}, {'$set': {'image_url': image_url}})
+            return jsonify({'success': True, 'message': f'Rule updated for "{keyword}"'}), 200
+
+        col.insert_one({
+            'keyword': keyword,
+            'image_url': image_url,
+            'match_count': 0,
+            'created_at': datetime.utcnow(),
+            'created_by': str(request.current_user.get('_id', '')),
+        })
+        return jsonify({'success': True, 'message': f'Rule created for "{keyword}"'}), 201
+    except Exception as e:
+        logging.error(f"Create image rule error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/image-rules/<rule_id>', methods=['DELETE'])
+@token_required
+@subadmin_or_admin_required('offers')
+def delete_image_rule(rule_id):
+    """Delete an image rule."""
+    try:
+        from bson import ObjectId
+        col = db_instance.get_collection('image_rules')
+        if col is None:
+            return jsonify({'error': 'Database not available'}), 500
+        col.delete_one({'_id': ObjectId(rule_id)})
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        logging.error(f"Delete image rule error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/image-rules/apply', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def apply_image_rules():
+    """Apply all image rules to matching offers that don't have images."""
+    try:
+        rules_col = db_instance.get_collection('image_rules')
+        offers_col = db_instance.get_collection('offers')
+        if rules_col is None or offers_col is None:
+            return jsonify({'error': 'Database not available'}), 500
+
+        rules = list(rules_col.find({}))
+        if not rules:
+            return jsonify({'success': True, 'applied': 0, 'message': 'No rules to apply'}), 200
+
+        total_applied = 0
+        for rule in rules:
+            keyword = rule.get('keyword', '').lower()
+            image_url = rule.get('image_url', '')
+            if not keyword or not image_url:
+                continue
+
+            # Find offers matching keyword without an image (or with placeholder)
+            import re
+            regex = re.compile(re.escape(keyword), re.IGNORECASE)
+            matching = offers_col.find({
+                'name': {'$regex': regex},
+                '$or': [
+                    {'image_url': {'$exists': False}},
+                    {'image_url': ''},
+                    {'image_url': None},
+                    {'image_url': {'$regex': '^/category-images/'}},
+                ]
+            })
+
+            count = 0
+            for offer in matching:
+                offers_col.update_one(
+                    {'_id': offer['_id']},
+                    {'$set': {'image_url': image_url}}
+                )
+                count += 1
+
+            # Update match count
+            rules_col.update_one({'_id': rule['_id']}, {'$set': {'match_count': count}})
+            total_applied += count
+
+        return jsonify({'success': True, 'applied': total_applied, 'message': f'Applied rules to {total_applied} offers'}), 200
+    except Exception as e:
+        logging.error(f"Apply image rules error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

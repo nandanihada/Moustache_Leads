@@ -861,11 +861,50 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
-  async generateImage(prompt: string): Promise<{ success: boolean; image_url: string }> {
+  async generateImage(prompt: string, saveToStock = true, offerName = ''): Promise<{ success: boolean; image_url: string }> {
     const response = await fetch(`${API_BASE_URL}/offers/generate-image`, {
       method: 'POST',
       headers: this.getAuthHeaders(),
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, save_to_stock: saveToStock, offer_name: offerName }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async getGeneratedImages(): Promise<{ images: Array<{ url: string; prompt: string; offer_name: string; created_at: string }> }> {
+    const response = await fetch(`${API_BASE_URL}/offers/generated-images`, {
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async getImageRules(): Promise<{ rules: Array<{ id: string; keyword: string; image_url: string; match_count: number; created_at: string }> }> {
+    const response = await fetch(`${API_BASE_URL}/offers/image-rules`, {
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async createImageRule(keyword: string, imageUrl: string): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/image-rules`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ keyword, image_url: imageUrl }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async deleteImageRule(ruleId: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${API_BASE_URL}/offers/image-rules/${ruleId}`, {
+      method: 'DELETE',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async applyImageRules(): Promise<{ success: boolean; applied: number; message: string }> {
+    const response = await fetch(`${API_BASE_URL}/offers/image-rules/apply`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
     });
     return this.handleResponse(response);
   }

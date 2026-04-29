@@ -55,13 +55,26 @@ export function ImagePickerComponent({ offerName, description, vertical, onImage
 
   // Stock tab state
   const [stockSearch, setStockSearch] = useState('');
+  const [generatedImages, setGeneratedImages] = useState<Array<{ url: string; offer_name: string }>>([]);
+  const [loadingGenerated, setLoadingGenerated] = useState(false);
+
+  // Fetch generated images when stock tab is opened
+  const fetchGeneratedImages = async () => {
+    if (generatedImages.length > 0) return; // already loaded
+    setLoadingGenerated(true);
+    try {
+      const res = await adminOfferApi.getGeneratedImages();
+      setGeneratedImages(res.images || []);
+    } catch {}
+    setLoadingGenerated(false);
+  };
 
   // ─── AI Generate ─────────────────────────────────────────────────
   const handleGenerate = async () => {
     setGenerating(true);
     setAiError('');
     try {
-      const res = await adminOfferApi.generateImage(prompt);
+      const res = await adminOfferApi.generateImage(prompt, true, offerName);
       if (res.success && res.image_url) {
         setAiImageUrl(res.image_url);
         setSelectedUrl(res.image_url);
@@ -114,7 +127,7 @@ export function ImagePickerComponent({ offerName, description, vertical, onImage
         {tabs.map(t => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => { setTab(t.key); if (t.key === 'stock') fetchGeneratedImages(); }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t text-xs font-medium transition-colors ${
               tab === t.key ? 'bg-blue-100 text-blue-800 border-b-2 border-blue-600' : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
             }`}
@@ -225,6 +238,34 @@ export function ImagePickerComponent({ offerName, description, vertical, onImage
               </div>
             ))}
           </div>
+          {/* AI Generated images saved to stock */}
+          {generatedImages.length > 0 && (
+            <div className="mt-3">
+              <p className="text-[10px] font-medium text-muted-foreground mb-1.5">🤖 AI Generated ({generatedImages.length})</p>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-36 overflow-y-auto">
+                {generatedImages.filter(img => !stockSearch || img.offer_name.toLowerCase().includes(stockSearch.toLowerCase())).map((img, i) => (
+                  <div
+                    key={i}
+                    className={`relative rounded-lg border-2 overflow-hidden cursor-pointer transition-all ${
+                      selectedUrl === img.url ? 'border-blue-500 ring-2 ring-blue-300' : 'border-violet-200 hover:border-violet-400'
+                    }`}
+                    onClick={() => setSelectedUrl(img.url)}
+                  >
+                    <img src={img.url} alt="" className="w-full aspect-square object-cover" />
+                    {selectedUrl === img.url && (
+                      <div className="absolute top-1 right-1 bg-blue-600 rounded-full p-0.5">
+                        <Check className="h-3 w-3 text-white" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 inset-x-0 bg-violet-900/70 text-white text-[8px] text-center py-0.5 truncate px-1">
+                      {img.offer_name?.slice(0, 20) || 'AI'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {loadingGenerated && <p className="text-[10px] text-muted-foreground mt-2">Loading generated images...</p>}
         </div>
       )}
 

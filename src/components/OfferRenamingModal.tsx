@@ -30,6 +30,7 @@ import { Offer, adminOfferApi } from '@/services/adminOfferApi';
 import { ImagePickerComponent } from '@/components/ImagePickerComponent';
 import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
 import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
+import { ImageRulesComponent } from '@/components/ImageRulesComponent';
 
 // Icons for collapsible sections
 const DESC_ICON_URL = 'https://i.postimg.cc/XB0zjj5r/description.png';
@@ -197,19 +198,19 @@ function extractPartsFromOffer(offer: Offer): ExtractedParts {
     });
   }
 
-  // 7. Brand — first unused token(s) that look like a brand name (capitalized, not a known pattern)
+  // 7. Brand — first unused token(s) that look like a brand name
   const brandTokens: string[] = [];
   for (let i = 0; i < nameTokens.length; i++) {
     if (usedTokens.has(i)) continue;
     const t = nameTokens[i];
-    // Skip pure numbers
+    // Skip pure numbers (like "4131") but KEEP alphanumeric tokens (like "21KETO", "10Web", "12Go")
     if (/^\d+$/.test(t)) continue;
-    // If it looks like a word (starts with letter), it's likely brand
-    if (/^[A-Za-z]/.test(t) && !MODEL_PATTERNS.test(t) && !OPTIN_PATTERNS.test(t) && !INCENT_PATTERNS.test(t) && !PROOF_PATTERNS.test(t) && !COUNTRY_CODES.has(t.toUpperCase())) {
+    // Accept any token that contains at least one letter and isn't a known pattern match
+    if (/[A-Za-z]/.test(t) && !MODEL_PATTERNS.test(t) && !OPTIN_PATTERNS.test(t) && !INCENT_PATTERNS.test(t) && !PROOF_PATTERNS.test(t) && !COUNTRY_CODES.has(t.toUpperCase())) {
       brandTokens.push(t);
       usedTokens.add(i);
-      // Take up to 3 consecutive brand-like tokens
-      if (brandTokens.length >= 3) break;
+      // Take up to 4 consecutive brand-like tokens
+      if (brandTokens.length >= 4) break;
     } else if (brandTokens.length > 0) {
       break; // Stop collecting brand tokens once we hit a non-brand token
     }
@@ -372,6 +373,8 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
   const [selectedImage, setSelectedImage] = useState<string | null>(null); // bulk image for all
   const [perOfferImages, setPerOfferImages] = useState<Record<string, string>>({}); // per-offer images
   const [perOfferImagePicker, setPerOfferImagePicker] = useState<string | null>(null); // which offer's picker is open
+  const [previewDescPicker, setPreviewDescPicker] = useState<string | null>(null);
+  const [previewVerticalPicker, setPreviewVerticalPicker] = useState<string | null>(null);
 
   // Description generator state
   const [descOpen, setDescOpen] = useState(false);
@@ -380,6 +383,20 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
   // Vertical suggester state
   const [verticalOpen, setVerticalOpen] = useState(false);
   const [perOfferVerticals, setPerOfferVerticals] = useState<Record<string, string>>({});
+
+  // Bulk generation state
+  const [bulkDescGenerating, setBulkDescGenerating] = useState(false);
+  const [bulkDescProgress, setBulkDescProgress] = useState({ done: 0, total: 0 });
+  const [bulkImageGenerating, setBulkImageGenerating] = useState(false);
+  const [bulkImageProgress, setBulkImageProgress] = useState({ done: 0, total: 0 });
+  const [bulkImageSource, setBulkImageSource] = useState<'ai' | 'stock'>('stock');
+  const [bulkImageScope, setBulkImageScope] = useState<'all' | 'missing'>('missing');
+
+  // Preview filter state
+  const [previewFilter, setPreviewFilter] = useState<'all' | 'no_image' | 'has_image' | 'no_desc' | 'has_desc' | 'updated'>('all');
+
+  // Image Rules state
+  const [imageRulesOpen, setImageRulesOpen] = useState(false);
 
   // Global Variables — override/force specific fields across all offers
   const [globalVars, setGlobalVars] = useState<GlobalVariable[]>(() => {
@@ -720,6 +737,68 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
     } finally {
       setApplying(false);
     }
+  };
+
+  // ─── Bulk Generate All Descriptions ──────────────────────────────
+  const bulkGenerateDescriptions = async () => {
+    setBulkDescGenerating(true);
+    setBulkDescProgress({ done: 0, total: selectedOffers.length });
+    for (let i = 0; i < selectedOffers.length; i++) {
+      const offer = selectedOffers[i];
+      try {
+        const res = await adminOfferApi.generateDescription(
+          offer.name, offer.description || '', offer.vertical || offer.category || '', 'name_and_desc'
+        );
+        if (res.success && res.description) {
+          setPerOfferDescs(prev => ({ ...prev, [offer.offer_id]: res.description }));
+          await adminOfferApi.updateOffer(offer.offer_id, { description: res.description } as any);
+        }
+      } catch {}
+      setBulkDescProgress({ done: i + 1, total: selectedOffers.length });
+    }
+    setBulkDescGenerating(false);
+  };
+
+  // ─── Bulk Generate All Images ────────────────────────────────────
+  const bulkGenerateImages = async () => {
+    const offersToProcess = bulkImageScope === 'missing'
+      ? selectedOffers.filter(o => !o.image_url && !o.thumbnail_url && !perOfferImages[o.offer_id])
+      : selectedOffers;
+    if (offersToProcess.length === 0) return;
+    setBulkImageGenerating(true);
+    setBulkImageProgress({ done: 0, total: offersToProcess.length });
+    for (let i = 0; i < offersToProcess.length; i++) {
+      const offer = offersToProcess[i];
+      try {
+        let imageUrl = '';
+        if (bulkImageSource === 'ai') {
+          const brand = offer.name.replace(/\s*\[.*?\]\s*/g, ' ').replace(/\(.*?\)/g, '').trim();
+          const v = offer.vertical || offer.category || '';
+          const prompt = `Professional affiliate marketing banner for ${brand}, ${v} offer, clean modern flat design, no text, suitable as thumbnail`;
+          const res = await adminOfferApi.generateImage(prompt, true, offer.name);
+          if (res.success && res.image_url) imageUrl = res.image_url;
+        } else {
+          // Stock: auto-assign based on vertical/category
+          const v = (offer.vertical || offer.category || '').toUpperCase();
+          const stockMap: Record<string, string> = {
+            'HEALTH': '/category-images/health.png', 'SURVEY': '/category-images/survey.png',
+            'SWEEPSTAKES': '/category-images/sweepstakes.png', 'EDUCATION': '/category-images/education.png',
+            'INSURANCE': '/category-images/insurance.png', 'LOAN': '/category-images/loan.png',
+            'FINANCE': '/category-images/finance.png', 'DATING': '/category-images/dating.png',
+            'FREE_TRIAL': '/category-images/free_trial.png', 'INSTALLS': '/category-images/installs.png',
+            'GAMES_INSTALL': '/category-images/games_install.png',
+          };
+          imageUrl = stockMap[v] || '/category-images/sweepstakes.png';
+        }
+        if (imageUrl) {
+          setPerOfferImages(prev => ({ ...prev, [offer.offer_id]: imageUrl }));
+          await adminOfferApi.updateOffer(offer.offer_id, { image_url: imageUrl });
+          adminOfferApi.logImageUpdate(offer.offer_id, offer.name, imageUrl, bulkImageSource === 'ai' ? 'ai' : 'stock').catch(() => {});
+        }
+      } catch {}
+      setBulkImageProgress({ done: i + 1, total: offersToProcess.length });
+    }
+    setBulkImageGenerating(false);
   };
 
   // ─── Render helpers ──────────────────────────────────────────────
@@ -1063,11 +1142,42 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
 
             {/* Live Preview */}
             <div className="space-y-2 border-t pt-3">
-              <Label className="text-sm font-medium">
-                Preview ({validRenames.length} of {selectedOffers.length} will be renamed)
-              </Label>
-              <div className="space-y-1.5 max-h-64 overflow-y-auto">
-                {previewList.map(item => {
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <Label className="text-sm font-medium">
+                  Preview ({validRenames.length} of {selectedOffers.length} will be renamed)
+                </Label>
+                {/* Filter chips */}
+                <div className="flex flex-wrap gap-1">
+                  {([
+                    { key: 'all', label: 'All', count: selectedOffers.length },
+                    { key: 'no_image', label: '🖼️ No Image', count: selectedOffers.filter(o => !o.image_url && !o.thumbnail_url && !perOfferImages[o.offer_id]).length },
+                    { key: 'has_image', label: '🖼️ Has Image', count: selectedOffers.filter(o => o.image_url || o.thumbnail_url || perOfferImages[o.offer_id]).length },
+                    { key: 'no_desc', label: '📝 No Desc', count: selectedOffers.filter(o => !o.description && !perOfferDescs[o.offer_id]).length },
+                    { key: 'has_desc', label: '📝 Has Desc', count: selectedOffers.filter(o => o.description || perOfferDescs[o.offer_id]).length },
+                    { key: 'updated', label: '✨ Updated', count: selectedOffers.filter(o => perOfferDescs[o.offer_id] || perOfferImages[o.offer_id] || perOfferVerticals[o.offer_id]).length },
+                  ] as const).map(f => (
+                    <button key={f.key} onClick={() => setPreviewFilter(f.key)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+                        previewFilter === f.key ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                      }`}>
+                      {f.label} ({f.count})
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1.5 max-h-[50vh] overflow-y-auto">
+                {previewList.filter(item => {
+                  const offer = selectedOffers.find(o => o.offer_id === item.offerId);
+                  if (!offer) return false;
+                  if (previewFilter === 'no_image') return !offer.image_url && !offer.thumbnail_url && !perOfferImages[item.offerId];
+                  if (previewFilter === 'has_image') return !!(offer.image_url || offer.thumbnail_url || perOfferImages[item.offerId]);
+                  if (previewFilter === 'no_desc') return !offer.description && !perOfferDescs[item.offerId];
+                  if (previewFilter === 'has_desc') return !!(offer.description || perOfferDescs[item.offerId]);
+                  if (previewFilter === 'updated') return !!(perOfferDescs[item.offerId] || perOfferImages[item.offerId] || perOfferVerticals[item.offerId]);
+                  return true;
+                }).map(item => {
+                  const offer = selectedOffers.find(o => o.offer_id === item.offerId);
+                  if (!offer) return null;
                   const isEditingThis = editingComposed === item.offerId;
                   const hasChange = item.composedName && item.composedName !== item.originalName;
                   const isManuallyEdited = !!manualOverrides[item.offerId];
@@ -1155,26 +1265,58 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                             <RotateCcw className="h-3 w-3" />
                           </button>
                         )}
-                        {/* Per-offer image indicator */}
-                        <button
-                          onClick={() => setPerOfferImagePicker(perOfferImagePicker === item.offerId ? null : item.offerId)}
-                          className={`shrink-0 rounded-lg p-1 transition-all duration-200 ${
-                            perOfferImages[item.offerId]
-                              ? 'ring-2 ring-green-400 hover:ring-green-500'
-                              : selectedImage
-                                ? 'ring-1 ring-blue-200 opacity-70 hover:opacity-100'
-                                : 'hover:scale-110 hover:shadow-md'
-                          }`}
-                          title={perOfferImages[item.offerId] ? 'Image assigned (click to change)' : 'Add image for this offer'}
-                        >
-                          {perOfferImages[item.offerId] ? (
-                            <img src={perOfferImages[item.offerId]} alt="" className="w-7 h-7 rounded object-cover" />
-                          ) : selectedImage ? (
-                            <img src={selectedImage} alt="" className="w-7 h-7 rounded object-cover" />
-                          ) : (
-                            <img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="Add image" className="w-7 h-7 object-contain" />
-                          )}
-                        </button>
+                        {/* Per-offer tools: Image + Description + Vertical in one box */}
+                        <div className="flex items-center gap-0.5 shrink-0 border rounded-lg px-1 py-0.5 bg-muted/30">
+                          <button
+                            onClick={() => setPerOfferImagePicker(perOfferImagePicker === item.offerId ? null : item.offerId)}
+                            className="p-0.5 rounded hover:bg-white/80 hover:scale-110 transition-all"
+                            title="Image"
+                          >
+                            {perOfferImages[item.offerId] ? (
+                              <img src={perOfferImages[item.offerId]} alt="" className="w-6 h-6 rounded object-cover ring-1 ring-green-400" />
+                            ) : (
+                              <img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="Image" className="w-6 h-6 object-contain" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setPreviewDescPicker(previewDescPicker === item.offerId ? null : item.offerId)}
+                            className="p-0.5 rounded hover:bg-white/80 hover:scale-110 transition-all"
+                            title="Description"
+                          >
+                            <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="Desc" className="w-6 h-6 object-contain" />
+                          </button>
+                          <button
+                            onClick={() => setPreviewVerticalPicker(previewVerticalPicker === item.offerId ? null : item.offerId)}
+                            className="p-0.5 rounded hover:bg-white/80 hover:scale-110 transition-all"
+                            title="Vertical"
+                          >
+                            <img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="Vertical" className="w-6 h-6 object-contain" />
+                          </button>
+                        </div>
+                      </div>
+                      {/* Offer details: image, description, vertical — current + generated */}
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap text-[10px]">
+                        {/* Image status */}
+                        {(perOfferImages[item.offerId] || offer.image_url || offer.thumbnail_url) ? (
+                          <img src={perOfferImages[item.offerId] || offer.image_url || offer.thumbnail_url} alt="" className="w-8 h-8 rounded border object-cover shrink-0" onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-500 border border-red-200">No image</span>
+                        )}
+                        {perOfferImages[item.offerId] && <span className="px-1.5 py-0.5 rounded bg-green-50 text-green-700 border border-green-200">🖼️ new</span>}
+                        {/* Vertical */}
+                        <span className={`px-1.5 py-0.5 rounded border ${perOfferVerticals[item.offerId] ? 'bg-violet-50 text-violet-700 border-violet-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                          {perOfferVerticals[item.offerId] || offer.vertical || offer.category || '—'}
+                          {perOfferVerticals[item.offerId] && ' ✨'}
+                        </span>
+                        {/* Description status */}
+                        {(perOfferDescs[item.offerId] || offer.description) ? (
+                          <span className={`px-1.5 py-0.5 rounded border truncate max-w-[200px] ${perOfferDescs[item.offerId] ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-500 border-gray-200'}`}
+                            title={perOfferDescs[item.offerId] || offer.description}>
+                            {perOfferDescs[item.offerId] ? '📝 ' : ''}{(perOfferDescs[item.offerId] || offer.description || '').slice(0, 50)}{(perOfferDescs[item.offerId] || offer.description || '').length > 50 ? '...' : ''}
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-500 border border-red-200">No desc</span>
+                        )}
                       </div>
                       {/* Per-offer image picker (inline) */}
                       {perOfferImagePicker === item.offerId && (
@@ -1185,6 +1327,36 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                             onImageSelected={(url, _source) => {
                               setPerOfferImages(prev => ({ ...prev, [item.offerId]: url }));
                               setPerOfferImagePicker(null);
+                            }}
+                          />
+                        </div>
+                      )}
+                      {/* Per-offer description generator (inline) */}
+                      {previewDescPicker === item.offerId && (
+                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
+                          <DescriptionGeneratorComponent
+                            offerName={item.originalName}
+                            existingDescription={selectedOffers.find(o => o.offer_id === item.offerId)?.description || ''}
+                            vertical={selectedOffers.find(o => o.offer_id === item.offerId)?.vertical || selectedOffers.find(o => o.offer_id === item.offerId)?.category}
+                            onDescriptionSaved={async (newDesc) => {
+                              setPerOfferDescs(prev => ({ ...prev, [item.offerId]: newDesc }));
+                              try { await adminOfferApi.updateOffer(item.offerId, { description: newDesc } as any); } catch {}
+                              setPreviewDescPicker(null);
+                            }}
+                          />
+                        </div>
+                      )}
+                      {/* Per-offer vertical suggester (inline) */}
+                      {previewVerticalPicker === item.offerId && (
+                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
+                          <VerticalSuggesterComponent
+                            offerName={item.originalName}
+                            description={selectedOffers.find(o => o.offer_id === item.offerId)?.description || ''}
+                            currentVertical={selectedOffers.find(o => o.offer_id === item.offerId)?.vertical || selectedOffers.find(o => o.offer_id === item.offerId)?.category || ''}
+                            onVerticalSaved={async (newVertical) => {
+                              setPerOfferVerticals(prev => ({ ...prev, [item.offerId]: newVertical }));
+                              try { await adminOfferApi.updateOffer(item.offerId, { vertical: newVertical, category: newVertical } as any); } catch {}
+                              setPreviewVerticalPicker(null);
                             }}
                           />
                         </div>
@@ -1208,13 +1380,74 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
                 <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${imageOpen ? 'rotate-180' : ''}`} />
               </button>
               {imageOpen && (
-                <div className="mt-3">
+                <div className="mt-3 space-y-3">
+                  {/* Bulk generate all images */}
+                  <div className="p-3 border rounded-lg bg-gradient-to-r from-violet-50 to-pink-50 dark:from-violet-950/20 dark:to-pink-950/20 space-y-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <select value={bulkImageScope} onChange={e => setBulkImageScope(e.target.value as 'all' | 'missing')}
+                        className="h-7 rounded border text-xs px-2 bg-white dark:bg-gray-900">
+                        <option value="missing">Only without images ({selectedOffers.filter(o => !o.image_url && !o.thumbnail_url && !perOfferImages[o.offer_id]).length})</option>
+                        <option value="all">All offers ({selectedOffers.length})</option>
+                      </select>
+                      <select value={bulkImageSource} onChange={e => setBulkImageSource(e.target.value as 'ai' | 'stock')}
+                        className="h-7 rounded border text-xs px-2 bg-white dark:bg-gray-900">
+                        <option value="stock">Stock (by vertical)</option>
+                        <option value="ai">AI Generated</option>
+                      </select>
+                      <Button size="sm" onClick={bulkGenerateImages} disabled={bulkImageGenerating} className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white">
+                        {bulkImageGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                        {bulkImageGenerating ? `${bulkImageProgress.done}/${bulkImageProgress.total}` : 'Generate Images'}
+                      </Button>
+                    </div>
+                    {bulkImageGenerating && (
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div className="bg-violet-600 h-2 rounded-full transition-all duration-300" style={{ width: `${(bulkImageProgress.done / bulkImageProgress.total) * 100}%` }} />
+                      </div>
+                    )}
+                    {/* Generated images gallery */}
+                    {Object.keys(perOfferImages).length > 0 && (
+                      <div className="space-y-1.5">
+                        <p className="text-[10px] font-medium text-muted-foreground">{Object.keys(perOfferImages).length} images assigned:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(perOfferImages).map(([offerId, url]) => {
+                            const offer = selectedOffers.find(o => o.offer_id === offerId);
+                            return (
+                              <div key={offerId} className="relative group" title={offer?.name || offerId}>
+                                <img src={url} alt="" className="w-12 h-12 rounded border object-cover hover:ring-2 hover:ring-violet-400 transition-all cursor-pointer"
+                                  onClick={() => window.open(url, '_blank')} />
+                                <div className="absolute -bottom-1 -right-1 bg-white rounded-full shadow px-1 text-[8px] text-muted-foreground border opacity-0 group-hover:opacity-100 transition-opacity max-w-[80px] truncate">
+                                  {offer?.name?.slice(0, 15) || offerId}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   <ImagePickerComponent
                     offerName={selectedOffers[0]?.name || ''}
                     description={selectedOffers[0]?.description}
                     vertical={selectedOffers[0]?.vertical || selectedOffers[0]?.category}
                     onImageSelected={(url, _source) => setSelectedImage(url)}
                   />
+                </div>
+              )}
+            </div>
+
+            {/* Image Rules — collapsible */}
+            <div className="border-t pt-3">
+              <button
+                onClick={() => setImageRulesOpen(!imageRulesOpen)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="" className="h-4 w-4 object-contain" />
+                Image Rules (keyword → image)
+                <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${imageRulesOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {imageRulesOpen && (
+                <div className="mt-3">
+                  <ImageRulesComponent onRulesApplied={() => {}} />
                 </div>
               )}
             </div>
@@ -1232,6 +1465,20 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
               </button>
               {descOpen && (
                 <div className="mt-3 space-y-3">
+                  {/* Bulk generate all descriptions */}
+                  <div className="p-3 border rounded-lg bg-gradient-to-r from-blue-50 to-cyan-50 dark:from-blue-950/20 dark:to-cyan-950/20 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={bulkGenerateDescriptions} disabled={bulkDescGenerating} className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
+                        {bulkDescGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                        {bulkDescGenerating ? `${bulkDescProgress.done}/${bulkDescProgress.total}` : `Generate All ${selectedOffers.length} Descriptions`}
+                      </Button>
+                    </div>
+                    {bulkDescGenerating && (
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div className="bg-blue-600 h-2 rounded-full transition-all duration-300" style={{ width: `${(bulkDescProgress.done / bulkDescProgress.total) * 100}%` }} />
+                      </div>
+                    )}
+                  </div>
                   {selectedOffers.map(offer => (
                     <div key={offer.offer_id} className="p-2 border rounded-lg bg-muted/20">
                       <p className="text-xs font-medium truncate mb-2">{offer.name}</p>

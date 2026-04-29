@@ -37,12 +37,19 @@ def build_offer_email_html(
     year = datetime.utcnow().year
     show = {f: (f in visible_fields) for f in ALL_FIELDS}
 
+    # Convert default_image to absolute URL if relative
+    if default_image and default_image.startswith('/'):
+        default_image = FRONTEND_URL.rstrip('/') + default_image
+
     # Process offers — apply publisher payout and default image
     processed = []
     for o in offers:
         raw_payout = float(o.get('payout', 0) or 0)
         payout = round(raw_payout * 0.8, 2) if payout_type == 'publisher' else raw_payout
         img = o.get('image_url', '') or o.get('thumbnail_url', '') or default_image
+        # Convert relative image URLs to absolute for email rendering
+        if img and img.startswith('/'):
+            img = FRONTEND_URL.rstrip('/') + img
         countries = o.get('countries', o.get('allowed_countries', []))
         if isinstance(countries, str):
             countries = [c.strip() for c in countries.split(',') if c.strip()]
