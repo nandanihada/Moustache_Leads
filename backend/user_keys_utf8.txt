@@ -1,1 +1,0 @@
-["_id", "username", "email", "password", "role", "created_at", "updated_at", "is_active", "email_preferences", "balance", "company_name", "first_name", "last_name", "postback_method", "postback_url", "website", "referral_bonus_total", "referral_commission_pending", "total_points"]

@@ -31,6 +31,7 @@ import { Label } from '@/components/ui/label';
 import { ImagePickerComponent } from '@/components/ImagePickerComponent';
 import { ImageIcon } from 'lucide-react';
 import { adminOfferApi } from '@/services/adminOfferApi';
+import OfferActionIcons from '@/components/OfferActionIcons';
 import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
 import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
 
@@ -119,8 +120,11 @@ const AdminSearchLogsContent: React.FC = () => {
         message: inventoryMessage,
         template_style: inventoryEmailSettings.templateStyle,
         visible_fields: inventoryEmailSettings.visibleFields,
+        see_more_fields: inventoryEmailSettings.seeMoreFields,
         default_image: inventoryEmailSettings.defaultImage,
         payout_type: inventoryEmailSettings.payoutType,
+        mask_preview_links: inventoryEmailSettings.maskPreviewLinks,
+        payment_terms: inventoryEmailSettings.paymentTerms,
       });
       toast({ title: 'Sent', description: res.message });
       setInventoryEmailOpen(false);
@@ -198,8 +202,8 @@ const AdminSearchLogsContent: React.FC = () => {
     setSending(true);
     try {
       const data: any = sendToAll
-        ? { subject: emailSubject, message: emailMessage, send_to_all: true, template_style: generalEmailSettings.templateStyle, visible_fields: generalEmailSettings.visibleFields, default_image: generalEmailSettings.defaultImage, payout_type: generalEmailSettings.payoutType }
-        : { user_ids: Array.from(selectedIds), subject: emailSubject, message: emailMessage, template_style: generalEmailSettings.templateStyle, visible_fields: generalEmailSettings.visibleFields, default_image: generalEmailSettings.defaultImage, payout_type: generalEmailSettings.payoutType };
+        ? { subject: emailSubject, message: emailMessage, send_to_all: true, template_style: generalEmailSettings.templateStyle, visible_fields: generalEmailSettings.visibleFields, see_more_fields: generalEmailSettings.seeMoreFields, default_image: generalEmailSettings.defaultImage, payout_type: generalEmailSettings.payoutType, mask_preview_links: generalEmailSettings.maskPreviewLinks, payment_terms: generalEmailSettings.paymentTerms }
+        : { user_ids: Array.from(selectedIds), subject: emailSubject, message: emailMessage, template_style: generalEmailSettings.templateStyle, visible_fields: generalEmailSettings.visibleFields, see_more_fields: generalEmailSettings.seeMoreFields, default_image: generalEmailSettings.defaultImage, payout_type: generalEmailSettings.payoutType, mask_preview_links: generalEmailSettings.maskPreviewLinks, payment_terms: generalEmailSettings.paymentTerms };
       if (parsedCustom.length > 0) data.custom_emails = parsedCustom;
       const res = await searchLogsApi.sendEmail(data);
       toast({ title: 'Emails Sent', description: `${res.sent} sent, ${res.failed} failed` });
@@ -542,7 +546,7 @@ const AdminSearchLogsContent: React.FC = () => {
 
       {/* Email Dialog */}
       <Dialog open={emailOpen} onOpenChange={setEmailOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {sendToAll ? 'Send Email to All Searched Users' : `Send Email to ${selectedIds.size} Selected User(s)`}
@@ -591,7 +595,7 @@ const AdminSearchLogsContent: React.FC = () => {
 
       {/* Inventory Email Dialog - Send related offers to user */}
       <Dialog open={inventoryEmailOpen} onOpenChange={setInventoryEmailOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Mail className="h-5 w-5 text-orange-500" />
@@ -730,74 +734,22 @@ const AdminSearchLogsContent: React.FC = () => {
                           <img
                             src={offer.image_url}
                             alt=""
-                            className="w-12 h-12 rounded object-cover border cursor-pointer"
-                            onClick={() => setImagePickerOfferId(imagePickerOfferId === offer.offer_id ? null : offer.offer_id)}
-                            title="Click to change image"
+                            className="w-12 h-12 rounded object-cover border"
                             onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
-                        ) : (
-                          <button
-                            onClick={() => setImagePickerOfferId(imagePickerOfferId === offer.offer_id ? null : offer.offer_id)}
-                            className="w-12 h-12 rounded-lg flex items-center justify-center hover:scale-110 transition-transform cursor-pointer"
-                            title="Add image"
-                          >
-                            <img src="https://i.postimg.cc/rwr2vdT6/polaroid.png" alt="Add image" className="w-10 h-10 object-contain" />
-                          </button>
-                        )}
+                        ) : null}
                       </div>
-                      {/* Inline image picker */}
-                      {imagePickerOfferId === offer.offer_id && (
-                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
-                          <ImagePickerComponent
-                            offerName={offer.name}
-                            onImageSelected={(url, source) => {
-                              updateEditingOffer(idx, 'image_url', url);
-                              setImagePickerOfferId(null);
-                              adminOfferApi.logImageUpdate(offer.offer_id, offer.name, url, source).catch(() => {});
-                            }}
-                          />
-                        </div>
-                      )}
-                      {/* Desc + Vertical icon buttons */}
-                      <div className="flex items-center gap-1 mt-1">
-                        <button onClick={() => setDescPickerOfferId(descPickerOfferId === offer.offer_id ? null : offer.offer_id)} className="hover:scale-110 transition-transform" title="Generate description">
-                          <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="Desc" className="w-5 h-5 object-contain" />
-                        </button>
-                        <button onClick={() => setVerticalPickerOfferId(verticalPickerOfferId === offer.offer_id ? null : offer.offer_id)} className="hover:scale-110 transition-transform" title="Suggest vertical">
-                          <img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="Vertical" className="w-5 h-5 object-contain" />
-                        </button>
-                      </div>
-                      {/* Inline description generator */}
-                      {descPickerOfferId === offer.offer_id && (
-                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
-                          <DescriptionGeneratorComponent
-                            offerName={offer.name}
-                            onDescriptionSaved={async (newDesc) => {
-                              try {
-                                await adminOfferApi.updateOffer(offer.offer_id, { description: newDesc } as any);
-                                toast({ title: 'Description updated' });
-                                setDescPickerOfferId(null);
-                              } catch { toast({ title: 'Failed', variant: 'destructive' }); }
-                            }}
-                          />
-                        </div>
-                      )}
-                      {/* Inline vertical suggester */}
-                      {verticalPickerOfferId === offer.offer_id && (
-                        <div className="mt-2 p-2 border rounded-lg bg-muted/30">
-                          <VerticalSuggesterComponent
-                            offerName={offer.name}
-                            currentVertical=""
-                            onVerticalSaved={async (newVertical) => {
-                              try {
-                                await adminOfferApi.updateOffer(offer.offer_id, { vertical: newVertical, category: newVertical } as any);
-                                toast({ title: 'Vertical updated' });
-                                setVerticalPickerOfferId(null);
-                              } catch { toast({ title: 'Failed', variant: 'destructive' }); }
-                            }}
-                          />
-                        </div>
-                      )}
+                      {/* Action icons — LinkMasker, Image, Description, Vertical */}
+                      <OfferActionIcons
+                        offerId={offer.offer_id}
+                        offerName={offer.name}
+                        currentImageUrl={offer.image_url || ''}
+                        currentDescription=""
+                        currentCategory=""
+                        onOfferUpdated={(id, field, value) => {
+                          if (field === 'image') updateEditingOffer(idx, 'image_url', value);
+                        }}
+                      />
                     </div>
                   ))}
                 </div>

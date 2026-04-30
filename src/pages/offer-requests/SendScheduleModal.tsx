@@ -13,6 +13,7 @@ import { Loader2, Calendar, Send, MessageSquare, Plus, X, Search, Users, Chevron
 import { API_BASE_URL } from '@/services/apiConfig';
 import { adminOfferApi } from '@/services/adminOfferApi';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import OfferActionIcons from '@/components/OfferActionIcons';
 
 interface OfferDetail {
   offer_id: string;
@@ -254,6 +255,21 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
             {customEmails.length > 0 && <div className="flex flex-wrap gap-1.5 mt-2">{customEmails.map(e => (<Badge key={e} variant="outline" className="text-xs gap-1">{e}<button onClick={() => setCustomEmails(prev => prev.filter(x => x !== e))} className="hover:text-destructive"><X className="w-3 h-3" /></button></Badge>))}</div>}
           </div>
           <div><Label className="text-xs">Subject</Label><Input value={subject} onChange={e => setSubject(e.target.value)} className="mt-1" /></div>
+          {/* Offer list with action icons */}
+          {offers.length > 0 && offers[0].name !== offers[0].offer_id && (
+            <div className="border rounded-lg p-2 max-h-40 overflow-y-auto space-y-1">
+              <Label className="text-xs text-muted-foreground">Offers ({offers.length})</Label>
+              {offers.map(o => (
+                <div key={o.offer_id} className="flex items-center justify-between gap-2 py-1 px-1 rounded hover:bg-muted/30">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{o.name}</p>
+                    <p className="text-[10px] text-muted-foreground">${o.payout.toFixed(2)} · {o.network}</p>
+                  </div>
+                  <OfferActionIcons offerId={o.offer_id} offerName={o.name} currentCategory={o.category} currentDescription={o.description} />
+                </div>
+              ))}
+            </div>
+          )}
           <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact offerIds={offerIds} />
           <div><Label className="text-xs">Message Preview</Label><Textarea value={messageBody} onChange={e => setMessageBody(e.target.value)} rows={10} className="mt-1 text-sm font-mono resize-y" /></div>
         </div>

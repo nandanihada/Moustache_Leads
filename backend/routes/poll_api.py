@@ -265,19 +265,56 @@ def get_active_poll():
     target_users = active_poll.get('target_users', [])
     if target_users and isinstance(target_users, list) and len(target_users) > 0:
         if user_id not in target_users:
+            logging.info(f"Poll hidden: user {user_id} not in target_users list")
             return jsonify({'success': True, 'poll': None})
             
     target_countries = active_poll.get('target_countries', [])
     if target_countries and isinstance(target_countries, list) and len(target_countries) > 0:
+        # Get user country from multiple possible locations
         user_country = user.get('address', {}).get('country') or user.get('country') or ''
         
-        # basic fuzzy match mapping since users might type "United States" or "US"
-        country_map = {'UNITED STATES': 'US', 'USA': 'US', 'UNITED KINGDOM': 'GB', 'UK': 'GB', 'CANADA': 'CA', 'AUSTRALIA': 'AU', 'GERMANY': 'DE', 'FRANCE': 'FR', 'INDIA': 'IN', 'BRAZIL': 'BR', 'JAPAN': 'JP'}
+        # If user has no country set, don't show poll (can't verify targeting)
+        if not user_country or user_country.strip() == '':
+            logging.info(f"Poll hidden: user {user.get('username')} has no country set (required for targeting)")
+            return jsonify({'success': True, 'poll': None})
+        
+        logging.info(f"Poll country check - User: {user.get('username')}, User Country: '{user_country}', Target Countries: {target_countries}")
+        
+        # Expanded country mapping for better matching
+        country_map = {
+            'UNITED STATES': 'US', 'USA': 'US', 'AMERICA': 'US',
+            'UNITED KINGDOM': 'GB', 'UK': 'GB', 'BRITAIN': 'GB',
+            'CANADA': 'CA',
+            'AUSTRALIA': 'AU',
+            'GERMANY': 'DE', 'DEUTSCHLAND': 'DE',
+            'FRANCE': 'FR',
+            'INDIA': 'IN', 'BHARAT': 'IN',
+            'BRAZIL': 'BR', 'BRASIL': 'BR',
+            'JAPAN': 'JP',
+            'KOREA': 'KR', 'SOUTH KOREA': 'KR',
+            'NETHERLANDS': 'NL', 'HOLLAND': 'NL',
+            'ITALY': 'IT', 'ITALIA': 'IT',
+            'SPAIN': 'ES', 'ESPANA': 'ES',
+            'SWEDEN': 'SE',
+            'NORWAY': 'NO',
+            'DENMARK': 'DK',
+            'FINLAND': 'FI',
+            'SWITZERLAND': 'CH'
+        }
+        
         uc_upper = user_country.upper().strip()
         normalized_user_country = country_map.get(uc_upper, uc_upper)
-
+        
+        # Normalize target countries
         target_upper = [c.upper().strip() for c in target_countries]
-        if normalized_user_country not in target_upper and uc_upper not in target_upper:
+        
+        # Check if user's country matches any target country
+        country_match = normalized_user_country in target_upper or uc_upper in target_upper
+        
+        logging.info(f"Poll country match result - Normalized: '{normalized_user_country}', Original: '{uc_upper}', Match: {country_match}")
+        
+        if not country_match:
+            logging.info(f"Poll hidden: user country '{user_country}' not in target countries {target_countries}")
             return jsonify({'success': True, 'poll': None})
             
     require_placement = active_poll.get('require_placement')
@@ -287,9 +324,13 @@ def get_active_poll():
         has_placement = placement_count > 0
         
         if require_placement is True and not has_placement:
+            logging.info(f"Poll hidden: user {user_id} has no placement (required)")
             return jsonify({'success': True, 'poll': None})
         if require_placement is False and has_placement:
+            logging.info(f"Poll hidden: user {user_id} has placement (not allowed)")
             return jsonify({'success': True, 'poll': None})
+
+    logging.info(f"Poll shown to user {user.get('username')} ({user_id})")
 
     # Record view
     if user_id not in active_poll.get('viewed_users', []):

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { Plus, Trash2, Edit, CheckCircle2, BarChart3, HelpCircle, Users, Activity, Settings, Globe, Check, ChevronsUpDown } from 'lucide-react';
+import { Plus, Trash2, Edit, CheckCircle2, BarChart3, HelpCircle, Users, Activity, Settings, Globe, Check, ChevronsUpDown, X } from 'lucide-react';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { Switch } from '@/components/ui/switch';
@@ -16,8 +16,37 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 const AVAILABLE_COUNTRIES = [
-  "US", "GB", "CA", "AU", "DE", "FR", "NL", "IT", "ES", "SE", "NO", "DK", "FI", "CH", "IN", "BR", "JP", "KR"
+  "US", "GB", "CA", "AU", "DE", "FR", "NL", "IT", "ES", "SE", "NO", "DK", "FI", "CH", "IN", "BR", "JP", "KR",
+  "BD", "PK", "NG", "EG", "TR", "MX", "AR", "CO", "PE", "CL", "VE", "EC", "BO", "PY", "UY",
+  "ZA", "KE", "GH", "TZ", "UG", "ET", "MA", "DZ", "TN", "LY", "SD",
+  "ID", "MY", "TH", "VN", "PH", "SG", "MM", "KH", "LA", "BN",
+  "CN", "HK", "TW", "MO",
+  "RU", "UA", "PL", "RO", "CZ", "HU", "GR", "PT", "BE", "AT", "BG", "RS", "HR", "SK", "SI", "LT", "LV", "EE",
+  "AE", "SA", "IL", "JO", "LB", "KW", "QA", "BH", "OM", "IQ", "YE",
+  "NZ", "FJ", "PG"
 ];
+
+const COUNTRY_NAMES: Record<string, string> = {
+  "US": "United States", "GB": "United Kingdom", "CA": "Canada", "AU": "Australia",
+  "DE": "Germany", "FR": "France", "NL": "Netherlands", "IT": "Italy", "ES": "Spain",
+  "SE": "Sweden", "NO": "Norway", "DK": "Denmark", "FI": "Finland", "CH": "Switzerland",
+  "IN": "India", "BR": "Brazil", "JP": "Japan", "KR": "South Korea",
+  "BD": "Bangladesh", "PK": "Pakistan", "NG": "Nigeria", "EG": "Egypt", "TR": "Turkey",
+  "MX": "Mexico", "AR": "Argentina", "CO": "Colombia", "PE": "Peru", "CL": "Chile",
+  "VE": "Venezuela", "EC": "Ecuador", "BO": "Bolivia", "PY": "Paraguay", "UY": "Uruguay",
+  "ZA": "South Africa", "KE": "Kenya", "GH": "Ghana", "TZ": "Tanzania", "UG": "Uganda",
+  "ET": "Ethiopia", "MA": "Morocco", "DZ": "Algeria", "TN": "Tunisia", "LY": "Libya", "SD": "Sudan",
+  "ID": "Indonesia", "MY": "Malaysia", "TH": "Thailand", "VN": "Vietnam", "PH": "Philippines",
+  "SG": "Singapore", "MM": "Myanmar", "KH": "Cambodia", "LA": "Laos", "BN": "Brunei",
+  "CN": "China", "HK": "Hong Kong", "TW": "Taiwan", "MO": "Macau",
+  "RU": "Russia", "UA": "Ukraine", "PL": "Poland", "RO": "Romania", "CZ": "Czech Republic",
+  "HU": "Hungary", "GR": "Greece", "PT": "Portugal", "BE": "Belgium", "AT": "Austria",
+  "BG": "Bulgaria", "RS": "Serbia", "HR": "Croatia", "SK": "Slovakia", "SI": "Slovenia",
+  "LT": "Lithuania", "LV": "Latvia", "EE": "Estonia",
+  "AE": "UAE", "SA": "Saudi Arabia", "IL": "Israel", "JO": "Jordan", "LB": "Lebanon",
+  "KW": "Kuwait", "QA": "Qatar", "BH": "Bahrain", "OM": "Oman", "IQ": "Iraq", "YE": "Yemen",
+  "NZ": "New Zealand", "FJ": "Fiji", "PG": "Papua New Guinea"
+};
 
 const AdminPolls = () => {
   const { toast } = useToast();
@@ -39,10 +68,15 @@ const AdminPolls = () => {
   const [filterCountry, setFilterCountry] = useState<string>('all');
   const [filterPlacement, setFilterPlacement] = useState<string>('all');
   const [filterVertical, setFilterVertical] = useState<string>('all');
+  const [userSearchTerm, setUserSearchTerm] = useState<string>('');
+  const [countrySearchTerm, setCountrySearchTerm] = useState<string>('');
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingQuestion, setEditingQuestion] = useState('');
   const [editingOptions, setEditingOptions] = useState<any[]>([]);
+  const [editingCountries, setEditingCountries] = useState<string[]>([]);
+  const [editingUsers, setEditingUsers] = useState<string[]>([]);
+  const [editingPlacement, setEditingPlacement] = useState<string>('all');
 
   // Analytics states
   const [chartData, setChartData] = useState<any[]>([]);
@@ -104,6 +138,29 @@ const AdminPolls = () => {
     toast({ title: 'Filters Applied', description: `Target list updated to ${filtered.length} users.` });
   };
 
+  // Filter available users based on search term
+  const filteredAvailableUsers = useMemo(() => {
+    if (!userSearchTerm) return availableUsers;
+    const search = userSearchTerm.toLowerCase();
+    return availableUsers.filter(u => 
+      (u.username && u.username.toLowerCase().includes(search)) ||
+      (u.email && u.email.toLowerCase().includes(search)) ||
+      (u.country && u.country.toLowerCase().includes(search))
+    );
+  }, [availableUsers, userSearchTerm]);
+
+  // Filter countries based on search term
+  const filteredCountries = useMemo(() => {
+    if (!countrySearchTerm) return AVAILABLE_COUNTRIES;
+    const search = countrySearchTerm.toLowerCase();
+    return AVAILABLE_COUNTRIES.filter(c => c.toLowerCase().includes(search));
+  }, [countrySearchTerm]);
+
+  // Get selected user details
+  const selectedUserDetails = useMemo(() => {
+    return availableUsers.filter(u => targetUsers.includes(u.id));
+  }, [availableUsers, targetUsers]);
+
   const aggregatedPieData = useMemo(() => {
     let totalViews = 0;
     let totalResponses = 0;
@@ -137,7 +194,7 @@ const AdminPolls = () => {
         },
         body: JSON.stringify({ 
           question: newQuestion, 
-          is_active: false,
+          is_active: true,
           target_countries: targetCountries,
           target_users: targetUsers,
           require_placement: placementVal,
@@ -145,7 +202,7 @@ const AdminPolls = () => {
         })
       });
       if (!response.ok) throw new Error('Failed to create poll');
-      toast({ title: 'Success', description: 'Poll created successfully' });
+      toast({ title: 'Success', description: 'Poll created and activated successfully' });
       setNewQuestion('');
       setTargetCountries([]);
       setTargetUsers([]);
@@ -178,13 +235,21 @@ const AdminPolls = () => {
   const handleUpdateQuestion = async (pollId: string) => {
     if (!editingQuestion.trim()) return;
     try {
+      const placementVal = editingPlacement === 'all' ? null : editingPlacement === 'yes' ? true : false;
+      
       const response = await fetch(`${getApiBaseUrl()}/api/admin/polls/${pollId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('admin_token') || localStorage.getItem('token')}`
         },
-        body: JSON.stringify({ question: editingQuestion, options: editingOptions })
+        body: JSON.stringify({ 
+          question: editingQuestion, 
+          options: editingOptions,
+          target_countries: editingCountries,
+          target_users: editingUsers,
+          require_placement: placementVal
+        })
       });
       if (!response.ok) throw new Error('Failed to update poll');
       toast({ title: 'Success', description: 'Poll updated' });
@@ -327,16 +392,62 @@ const AdminPolls = () => {
                     <Button variant="outline" className="flex-1 justify-between text-left font-normal bg-background/50">
                       <span className="flex items-center truncate">
                         <Globe className="w-4 h-4 mr-2" />
-                        {targetCountries.length === 0 ? "All Countries" : `${targetCountries.length} Countries Selected`}
+                        {targetCountries.length === 0 ? "All Countries" : `${targetCountries.length} ${targetCountries.length === 1 ? 'Country' : 'Countries'}`}
                       </span>
                       <ChevronsUpDown className="w-4 h-4 opacity-50 ml-2 shrink-0" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[250px] p-0" align="start">
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <div className="p-3 border-b border-border space-y-2">
+                      <Input 
+                        placeholder="Search countries..."
+                        value={countrySearchTerm}
+                        onChange={(e) => setCountrySearchTerm(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                      <div className="flex gap-2">
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-7 text-xs flex-1"
+                          onClick={() => setTargetCountries([...AVAILABLE_COUNTRIES])}
+                        >
+                          Select All
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-7 text-xs flex-1 text-red-500 hover:text-red-600"
+                          onClick={() => {
+                            setTargetCountries([]);
+                            setCountrySearchTerm('');
+                          }}
+                        >
+                          Deselect All
+                        </Button>
+                      </div>
+                      {targetCountries.length > 0 && (
+                        <div className="bg-blue-500/10 border border-blue-500/20 rounded p-2">
+                          <p className="text-xs font-medium text-blue-600 mb-1">Selected: {targetCountries.length}</p>
+                          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                            {targetCountries.slice(0, 10).map(code => (
+                              <Badge key={code} variant="secondary" className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200">
+                                {COUNTRY_NAMES[code] || code}
+                              </Badge>
+                            ))}
+                            {targetCountries.length > 10 && (
+                              <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                                +{targetCountries.length - 10} more
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                     <ScrollArea className="h-64 rounded-md border-0">
                       <div className="p-4 space-y-3">
                         <h4 className="font-medium mb-1 text-sm text-muted-foreground">Select Targeted GEOs</h4>
-                        {AVAILABLE_COUNTRIES.map(country => (
+                        {filteredCountries.map(country => (
                           <div key={country} className="flex items-center space-x-2">
                             <Checkbox 
                               id={`c-${country}`} 
@@ -346,9 +457,14 @@ const AdminPolls = () => {
                                 else setTargetCountries(targetCountries.filter(c => c !== country));
                               }}
                             />
-                            <label htmlFor={`c-${country}`} className="text-sm cursor-pointer">{country}</label>
+                            <label htmlFor={`c-${country}`} className="text-sm cursor-pointer flex-1">
+                              {COUNTRY_NAMES[country] || country} <span className="text-xs text-muted-foreground">({country})</span>
+                            </label>
                           </div>
                         ))}
+                        {filteredCountries.length === 0 && (
+                          <div className="text-sm text-muted-foreground py-2 text-center">No countries found</div>
+                        )}
                       </div>
                     </ScrollArea>
                   </PopoverContent>
@@ -402,10 +518,60 @@ const AdminPolls = () => {
                       <Button onClick={applyUserFilters} size="sm" className="w-full h-8 text-xs bg-purple-600 hover:bg-purple-700">Apply Filters</Button>
                     </div>
                   
-                    <ScrollArea className="h-48 rounded-md border-0">
+                    <ScrollArea className="h-64 rounded-md border-0">
                       <div className="p-4 space-y-3">
-                        <h4 className="font-medium mb-1 text-sm text-muted-foreground">Select Individually</h4>
-                        {availableUsers.map(user => (
+                        <div className="flex items-center justify-between mb-3 gap-2">
+                          <h4 className="font-medium text-sm text-muted-foreground">Select Individually</h4>
+                          {targetUsers.length > 0 && (
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="h-6 text-xs text-red-500 hover:text-red-600"
+                              onClick={() => {
+                                setTargetUsers([]);
+                                setUserSearchTerm('');
+                              }}
+                            >
+                              Clear All
+                            </Button>
+                          )}
+                        </div>
+                        
+                        <Input 
+                          placeholder="Search by name, email, or country..."
+                          value={userSearchTerm}
+                          onChange={(e) => setUserSearchTerm(e.target.value)}
+                          className="h-8 text-sm"
+                        />
+                        
+                        {targetUsers.length > 0 && (
+                          <div className="bg-blue-500/10 border border-blue-500/20 rounded p-2 mb-2">
+                            <p className="text-xs font-medium text-blue-600 mb-1">Selected: {targetUsers.length}</p>
+                            <div className="flex flex-wrap gap-1">
+                              {selectedUserDetails.slice(0, 3).map(user => (
+                                <div key={user.id} className="flex items-center gap-1">
+                                  <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200">
+                                    {user.username}
+                                  </Badge>
+                                  <button
+                                    onClick={() => setTargetUsers(targetUsers.filter(id => id !== user.id))}
+                                    className="hover:text-red-500 transition-colors"
+                                    title={`Remove ${user.username}`}
+                                  >
+                                    <X className="w-3 h-3 text-blue-500" />
+                                  </button>
+                                </div>
+                              ))}
+                              {targetUsers.length > 3 && (
+                                <Badge variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                                  +{targetUsers.length - 3} more
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {filteredAvailableUsers.map(user => (
                           <div key={user.id} className="flex items-center space-x-2">
                             <Checkbox 
                               id={`u-${user.id}`} 
@@ -415,9 +581,9 @@ const AdminPolls = () => {
                                 else setTargetUsers(targetUsers.filter(id => id !== user.id));
                               }}
                             />
-                            <label htmlFor={`u-${user.id}`} className="text-sm cursor-pointer truncate flex flex-col">
-                              <span>{user.username} <span className="opacity-50 text-xs text-yellow-400">({user.country})</span></span>
-                              <span className="text-xs text-muted-foreground">{user.email}</span>
+                            <label htmlFor={`u-${user.id}`} className="text-sm cursor-pointer truncate flex flex-col flex-1 min-w-0">
+                              <span className="truncate">{user.username} <span className="opacity-50 text-xs text-yellow-400">({user.country})</span></span>
+                              <span className="text-xs text-muted-foreground truncate">{user.email}</span>
                             </label>
                           </div>
                         ))}
@@ -478,12 +644,13 @@ const AdminPolls = () => {
                             <Badge className="bg-purple-500 text-white hover:bg-purple-600">Active</Badge>
                           )}
                           {editingId === poll._id ? (
-                            <div className="flex flex-col gap-2 w-full max-w-xl">
+                            <div className="flex flex-col gap-3 w-full max-w-4xl">
                               <div className="flex items-center gap-2">
                                 <Input 
                                   value={editingQuestion}
                                   onChange={(e) => setEditingQuestion(e.target.value)}
                                   className="h-8 flex-1"
+                                  placeholder="Poll question"
                                   autoFocus
                                   onKeyDown={(e) => e.key === 'Enter' && handleUpdateQuestion(poll._id)}
                                 />
@@ -513,9 +680,115 @@ const AdminPolls = () => {
                                        u[idx].text = e.target.value;
                                        setEditingOptions(u);
                                     }}
+                                    placeholder={`Option ${idx + 1}`}
                                     className="h-7 text-xs max-w-[150px]"
                                   />
                                 ))}
+                              </div>
+                              <div className="flex gap-2 flex-wrap">
+                                {/* Countries Dropdown */}
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button variant="outline" size="sm" className="h-8 text-xs">
+                                      <Globe className="w-3 h-3 mr-1" />
+                                      {editingCountries.length === 0 ? "All Countries" : `${editingCountries.length} ${editingCountries.length === 1 ? 'Country' : 'Countries'}`}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[300px] p-0" align="start">
+                                    <div className="p-3 border-b border-border space-y-2">
+                                      <div className="flex gap-2">
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline" 
+                                          className="h-7 text-xs flex-1"
+                                          onClick={() => setEditingCountries([...AVAILABLE_COUNTRIES])}
+                                        >
+                                          Select All
+                                        </Button>
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline" 
+                                          className="h-7 text-xs flex-1 text-red-500"
+                                          onClick={() => setEditingCountries([])}
+                                        >
+                                          Clear
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    <ScrollArea className="h-48">
+                                      <div className="p-3 space-y-2">
+                                        {AVAILABLE_COUNTRIES.map(country => (
+                                          <div key={country} className="flex items-center space-x-2">
+                                            <Checkbox 
+                                              id={`edit-c-${country}`} 
+                                              checked={editingCountries.includes(country)}
+                                              onCheckedChange={(checked) => {
+                                                if (checked) setEditingCountries([...editingCountries, country]);
+                                                else setEditingCountries(editingCountries.filter(c => c !== country));
+                                              }}
+                                            />
+                                            <label htmlFor={`edit-c-${country}`} className="text-xs cursor-pointer">
+                                              {COUNTRY_NAMES[country] || country}
+                                            </label>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </ScrollArea>
+                                  </PopoverContent>
+                                </Popover>
+
+                                {/* Users Dropdown */}
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button variant="outline" size="sm" className="h-8 text-xs">
+                                      <Users className="w-3 h-3 mr-1" />
+                                      {editingUsers.length === 0 ? "All Users" : `${editingUsers.length} Users`}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[300px] p-0" align="start">
+                                    <div className="p-3 border-b border-border">
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline" 
+                                        className="h-7 text-xs w-full text-red-500"
+                                        onClick={() => setEditingUsers([])}
+                                      >
+                                        Clear All
+                                      </Button>
+                                    </div>
+                                    <ScrollArea className="h-48">
+                                      <div className="p-3 space-y-2">
+                                        {availableUsers.map(user => (
+                                          <div key={user.id} className="flex items-center space-x-2">
+                                            <Checkbox 
+                                              id={`edit-u-${user.id}`} 
+                                              checked={editingUsers.includes(user.id)}
+                                              onCheckedChange={(checked) => {
+                                                if (checked) setEditingUsers([...editingUsers, user.id]);
+                                                else setEditingUsers(editingUsers.filter(id => id !== user.id));
+                                              }}
+                                            />
+                                            <label htmlFor={`edit-u-${user.id}`} className="text-xs cursor-pointer">
+                                              {user.username}
+                                            </label>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </ScrollArea>
+                                  </PopoverContent>
+                                </Popover>
+
+                                {/* Placement Select */}
+                                <Select value={editingPlacement} onValueChange={setEditingPlacement}>
+                                  <SelectTrigger className="h-8 text-xs w-[180px]">
+                                    <SelectValue placeholder="Placement" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="all">Any Placement</SelectItem>
+                                    <SelectItem value="yes">Has Placement</SelectItem>
+                                    <SelectItem value="no">No Placement</SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </div>
                             </div>
                           ) : (
@@ -551,6 +824,12 @@ const AdminPolls = () => {
                                 setEditingId(poll._id);
                                 setEditingQuestion(poll.question);
                                 setEditingOptions(poll.options || [{id:'yes', text:'Yes'}, {id:'no', text:'No'}]);
+                                setEditingCountries(poll.target_countries || []);
+                                setEditingUsers(poll.target_users || []);
+                                setEditingPlacement(
+                                  poll.require_placement === null ? 'all' : 
+                                  poll.require_placement === true ? 'yes' : 'no'
+                                );
                               }}
                             >
                               <Edit className="w-4 h-4" />
@@ -568,26 +847,65 @@ const AdminPolls = () => {
                       </div>
 
                       {/* Targeting Settings Info */}
-                      {(poll.target_countries?.length > 0 || poll.target_users?.length > 0 || poll.require_placement !== null) && (
-                        <div className="flex flex-wrap items-center gap-3 mb-4 text-xs font-medium">
-                          <span className="text-muted-foreground"><Settings className="w-3 h-3 inline mr-1" /> Targeting:</span>
-                          {poll.target_countries?.length > 0 && (
-                            <span className="bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded border border-blue-500/20 shadow-sm">
-                               {poll.target_countries.length} Countries
+                      <div className="space-y-2 mb-4">
+                        {(poll.target_countries?.length > 0 || poll.target_users?.length > 0 || poll.require_placement !== null) && (
+                          <div className="flex flex-wrap items-center gap-3 text-xs font-medium">
+                            <span className="text-muted-foreground"><Settings className="w-3 h-3 inline mr-1" /> Targeting:</span>
+                            {poll.target_countries?.length > 0 && (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="bg-blue-500/10 text-blue-500 px-2 py-0.5 rounded border border-blue-500/20 shadow-sm hover:bg-blue-500/20 transition-colors cursor-pointer">
+                                    {poll.target_countries.length} {poll.target_countries.length === 1 ? 'Country' : 'Countries'}
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[300px] p-3" align="start">
+                                  <h4 className="font-medium text-sm mb-2 text-blue-600">Targeted Countries</h4>
+                                  <div className="flex flex-wrap gap-1 max-h-[200px] overflow-y-auto">
+                                    {poll.target_countries.map((code: string) => (
+                                      <Badge key={code} variant="secondary" className="text-xs bg-blue-100 text-blue-700">
+                                        {COUNTRY_NAMES[code] || code}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            )}
+                            {poll.target_users?.length > 0 && (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button className="bg-fuchsia-500/10 text-fuchsia-500 px-2 py-0.5 rounded border border-fuchsia-500/20 shadow-sm hover:bg-fuchsia-500/20 transition-colors cursor-pointer">
+                                    {poll.target_users.length} Specific Users
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[300px] p-3" align="start">
+                                  <h4 className="font-medium text-sm mb-2 text-fuchsia-600">Targeted Users</h4>
+                                  <div className="flex flex-wrap gap-1 max-h-[200px] overflow-y-auto">
+                                    {availableUsers
+                                      .filter(u => poll.target_users.includes(u.id))
+                                      .map(user => (
+                                        <Badge key={user.id} variant="secondary" className="text-xs bg-fuchsia-100 text-fuchsia-700">
+                                          {user.username}
+                                        </Badge>
+                                      ))}
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            )}
+                            {poll.require_placement !== null && (
+                              <span className="bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded border border-amber-500/20 shadow-sm">
+                                 Placements: {poll.require_placement ? 'Required' : 'None'}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {poll.created_at && (
+                          <div className="flex justify-end">
+                            <span className="bg-gray-500/10 text-gray-500 px-2 py-0.5 rounded border border-gray-500/20 shadow-sm text-xs">
+                              Created: {new Date(poll.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(poll.created_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                             </span>
-                          )}
-                          {poll.target_users?.length > 0 && (
-                            <span className="bg-fuchsia-500/10 text-fuchsia-500 px-2 py-0.5 rounded border border-fuchsia-500/20 shadow-sm">
-                               {poll.target_users.length} Specific Users
-                            </span>
-                          )}
-                          {poll.require_placement !== null && (
-                            <span className="bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded border border-amber-500/20 shadow-sm">
-                               Placements: {poll.require_placement ? 'Required' : 'None'}
-                            </span>
-                          )}
-                        </div>
-                      )}
+                          </div>
+                        )}
+                      </div>
                       
                       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 w-full">
                         {poll.options.map((opt: any) => {

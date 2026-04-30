@@ -7,6 +7,7 @@ import { dashboardApi, DashboardStats, ChartDataPoint, TopOffer } from "@/servic
 import { toast } from "sonner";
 import { API_BASE_URL } from "@/services/apiConfig";
 import { getAuthToken } from "@/utils/cookies";
+import PollWidget from "@/components/user/PollWidget";
 
 const POPUP_DISMISSED_KEY = 'gift_promo_popup_dismissed';
 const GC_POPUP_DISMISSED_KEY = 'gift_card_popup_dismissed';
@@ -553,6 +554,7 @@ const Dashboard = () => {
   return (
     <>
       <DashboardPopupWrapper />
+      <PollWidget />
       <PlacementRequired>
         <DashboardContent />
       </PlacementRequired>

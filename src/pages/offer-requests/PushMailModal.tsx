@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import OfferActionIcons from '@/components/OfferActionIcons';
 import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 
 interface PushMailModalProps {
@@ -557,6 +558,19 @@ export default function PushMailModal({ open, onClose, offerIds, sourceTab, onSu
                 className="mt-1"
               />
             </div>
+
+            {/* Offer list with action icons */}
+            {Object.keys(offerNames).length > 0 && (
+              <div className="border rounded-lg p-2 max-h-36 overflow-y-auto space-y-1">
+                <Label className="text-xs text-muted-foreground">Offers ({offerIds.length})</Label>
+                {offerIds.map(id => (
+                  <div key={id} className="flex items-center justify-between gap-2 py-1 px-1 rounded hover:bg-muted/30">
+                    <p className="text-xs font-medium truncate flex-1">{offerNames[id] || id}</p>
+                    <OfferActionIcons offerId={id} offerName={offerNames[id] || id} />
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Email Template Settings */}
             <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact offerIds={offerIds} />

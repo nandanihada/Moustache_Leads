@@ -543,8 +543,11 @@ def send_inventory_email():
         custom_message = data.get('message', '')
         template_style = data.get('template_style', 'table')
         visible_fields = data.get('visible_fields')
+        see_more_fields = data.get('see_more_fields')
         default_image = data.get('default_image', '')
         payout_type = data.get('payout_type', 'publisher')
+        mask_preview_links = data.get('mask_preview_links', False)
+        payment_terms = data.get('payment_terms', '')
 
         if not user_id:
             return jsonify({'error': 'user_id is required'}), 400
@@ -571,16 +574,43 @@ def send_inventory_email():
         frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
         subject = custom_subject or f'🔥 Offers matching "{keyword}" are available for you!'
 
-        # Use shared email template builder
+        # Use shared email template builder — enrich offers with DB data first
         from utils.email_template_builder import build_offer_email_html
+
+        # Fetch full offer data from DB to get preview_url_2, description, category, etc.
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is not None:
+            offer_ids_list = [o.get('offer_id', '') for o in offers_to_send if o.get('offer_id')]
+            if offer_ids_list:
+                db_offers = {o['offer_id']: o for o in offers_col.find({'offer_id': {'$in': offer_ids_list}})}
+                for o in offers_to_send:
+                    db_o = db_offers.get(o.get('offer_id', ''))
+                    if db_o:
+                        # Merge DB fields into the frontend offer data (frontend overrides for edited fields)
+                        if not o.get('preview_url') and db_o.get('preview_url'):
+                            o['preview_url'] = db_o['preview_url']
+                        if not o.get('preview_url_2') and db_o.get('preview_url_2'):
+                            o['preview_url_2'] = db_o['preview_url_2']
+                        if not o.get('description') and db_o.get('description'):
+                            o['description'] = db_o['description']
+                        if not o.get('category') and (db_o.get('category') or db_o.get('vertical')):
+                            o['category'] = db_o.get('category') or db_o.get('vertical', '')
+                        if not o.get('network') and db_o.get('network'):
+                            o['network'] = db_o['network']
+                        if not o.get('countries') and db_o.get('countries'):
+                            o['countries'] = db_o['countries']
+
         html_content = build_offer_email_html(
             offers=offers_to_send,
             recipient_name=username,
             custom_message=custom_message,
             template_style=template_style,
             visible_fields=visible_fields,
+            see_more_fields=see_more_fields,
             payout_type=payout_type,
             default_image=default_image,
+            mask_preview_links=mask_preview_links,
+            payment_terms=payment_terms,
         )
 
         # Send email

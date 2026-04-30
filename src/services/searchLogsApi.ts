@@ -124,6 +124,13 @@ export const searchLogsApi = {
     message: string;
     send_to_all?: boolean;
     custom_emails?: string[];
+    template_style?: string;
+    visible_fields?: string[];
+    see_more_fields?: string[];
+    default_image?: string;
+    payout_type?: string;
+    mask_preview_links?: boolean;
+    payment_terms?: string;
   }) {
     const res = await fetch(`${API}/api/admin/search-logs/send-email`, {
       method: 'POST',
@@ -190,8 +197,11 @@ export const searchLogsApi = {
     message?: string;
     template_style?: string;
     visible_fields?: string[];
+    see_more_fields?: string[];
     default_image?: string;
     payout_type?: string;
+    mask_preview_links?: boolean;
+    payment_terms?: string;
   }): Promise<{ success: boolean; message: string }> {
     const res = await fetch(`${API}/api/admin/search-logs/send-inventory-email`, {
       method: 'POST',

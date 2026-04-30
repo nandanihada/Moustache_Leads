@@ -122,7 +122,8 @@ class OfferwallTracker:
             'device_type': session.get('device_type') if session else None,
             'is_duplicate': is_duplicate,
             'is_invalid': False,
-            'fraud_score': 0
+            'fraud_score': 0,
+            'time_spent_seconds': 0
         }
         
         # Add click data if provided

@@ -909,6 +909,214 @@ def admin_export_report():
         logger.error(f"Error in admin_export_report: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+@admin_reports_bp.route('/api/admin/users/bulk-stats', methods=['POST'])
+@token_required
+def get_bulk_user_stats():
+    """Fetch stats for multiple users in one call - MUCH faster than individual calls"""
+    user = request.current_user
+    if user.get('role') not in ('admin', 'subadmin'):
+        return jsonify({'error': 'Admin access required'}), 403
+    
+    try:
+        data = request.get_json()
+        user_ids = data.get('user_ids', [])
+        
+        if not user_ids:
+            return jsonify({'error': 'No user_ids provided'}), 400
+        
+        logger.info(f"[BULK_STATS] Fetching stats for {len(user_ids)} users")
+        
+        users_col = db_instance.get_collection('users')
+        offer_requests = db_instance.get_collection('affiliate_requests')
+        clicks_col = db_instance.get_collection('clicks')
+        dashboard_col = db_instance.get_collection('dashboard_clicks')
+        offerwall_col = db_instance.get_collection('offerwall_clicks')
+        offerwall_detailed_col = db_instance.get_collection('offerwall_clicks_detailed')
+        offers_col = db_instance.get_collection('offers')
+        
+        # Convert user_ids to ObjectIds
+        valid_oids = []
+        for uid in user_ids:
+            if ObjectId.is_valid(uid):
+                valid_oids.append(ObjectId(uid))
+        
+        # Batch fetch all users
+        users_map = {}
+        for u in users_col.find({'_id': {'$in': valid_oids}}, {'_id': 1, 'username': 1, 'email': 1}):
+            users_map[str(u['_id'])] = {'username': u.get('username'), 'email': u.get('email')}
+        
+        # Batch fetch all offer requests - need to check user_id field (can be ObjectId or string)
+        requests_by_user = {}
+        approved_by_user = {}  # Track approved offers separately
+        # Query by user_id (ObjectId)
+        logger.info(f"[BULK_STATS] Querying affiliate_requests for {len(valid_oids)} users")
+        request_count = 0
+        approved_count = 0
+        # Try both ObjectId and string user_id
+        for req in offer_requests.find({'$or': [{'user_id': {'$in': valid_oids}}, {'user_id': {'$in': user_ids}}]}, {'user_id': 1, 'status': 1}):
+            uid = str(req.get('user_id'))
+            requests_by_user[uid] = requests_by_user.get(uid, 0) + 1
+            request_count += 1
+            
+            # Count approved separately
+            if req.get('status') == 'approved':
+                approved_by_user[uid] = approved_by_user.get(uid, 0) + 1
+                approved_count += 1
+        
+        logger.info(f"[BULK_STATS] Found {request_count} total requests ({approved_count} approved) for {len(requests_by_user)} users")
+        logger.info(f"[BULK_STATS] Sample requests_by_user: {dict(list(requests_by_user.items())[:5])}")
+        logger.info(f"[BULK_STATS] Sample approved_by_user: {dict(list(approved_by_user.items())[:5])}")
+        
+        # Fetch conversions from forwarded_postbacks
+        conversions_col = db_instance.get_collection('forwarded_postbacks')
+        conversions_by_user = {}
+        if conversions_col is not None:
+            logger.info(f"[BULK_STATS] Querying conversions for {len(user_ids)} users")
+            for conv in conversions_col.find({'publisher_id': {'$in': user_ids}}, {'publisher_id': 1}):
+                uid = conv.get('publisher_id')
+                if uid:
+                    conversions_by_user[uid] = conversions_by_user.get(uid, 0) + 1
+            logger.info(f"[BULK_STATS] Found conversions for {len(conversions_by_user)} users")
+        
+        # Batch fetch all clicks from all collections
+        clicks_by_user = {}
+        geo_by_user = {}
+        vertical_by_user = {}  # Track offer categories/verticals per user
+        time_by_user = {}
+        offer_ids_by_user = {}  # Track which offers each user clicked
+        
+        # Helper to process clicks
+        def process_click(user_id, country_code, offer_id, time_spent):
+            if user_id not in clicks_by_user:
+                clicks_by_user[user_id] = 0
+                geo_by_user[user_id] = {}
+                vertical_by_user[user_id] = {}
+                time_by_user[user_id] = 0
+                offer_ids_by_user[user_id] = set()
+            
+            clicks_by_user[user_id] += 1
+            
+            if country_code:
+                geo_by_user[user_id][country_code] = geo_by_user[user_id].get(country_code, 0) + 1
+            
+            if offer_id:
+                offer_ids_by_user[user_id].add(offer_id)
+            
+            if time_spent and time_spent > 0:
+                time_by_user[user_id] += float(time_spent)
+        
+        # Query all click collections - CHECK ALL POSSIBLE TIME FIELD NAMES
+        for c in clicks_col.find({'$or': [{'user_id': {'$in': user_ids}}, {'affiliate_id': {'$in': user_ids}}]}, 
+                                  {'user_id': 1, 'affiliate_id': 1, 'country_code': 1, 'country': 1, 'offer_id': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
+            uid = c.get('user_id') or c.get('affiliate_id')
+            cc = c.get('country_code') or c.get('country') or 'Unknown'
+            # Check multiple possible time field names
+            time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
+            process_click(uid, cc, c.get('offer_id'), time_spent)
+        
+        for c in dashboard_col.find({'user_id': {'$in': user_ids}}, 
+                                     {'user_id': 1, 'geo': 1, 'offer_id': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
+            uid = c.get('user_id')
+            geo = c.get('geo', {})
+            cc = geo.get('country_code') or geo.get('country') or 'Unknown'
+            # Check multiple possible time field names
+            time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
+            process_click(uid, cc, c.get('offer_id'), time_spent)
+        
+        for c in offerwall_col.find({'publisher_id': {'$in': user_ids}}, 
+                                     {'publisher_id': 1, 'country_code': 1, 'country': 1, 'offer_id': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
+            uid = c.get('publisher_id')
+            cc = c.get('country_code') or c.get('country') or 'Unknown'
+            # Check multiple possible time field names
+            time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
+            process_click(uid, cc, c.get('offer_id'), time_spent)
+        
+        for c in offerwall_detailed_col.find({'user_id': {'$in': user_ids}}, 
+                                              {'user_id': 1, 'geo': 1, 'offer_id': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
+            uid = c.get('user_id')
+            geo = c.get('geo', {})
+            cc = geo.get('country_code') or geo.get('country') or 'Unknown'
+            # Check multiple possible time field names
+            time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
+            process_click(uid, cc, c.get('offer_id'), time_spent)
+        
+        # Build response
+        results = {}
+        
+        # Batch load offer data for all clicked offers to get categories
+        all_offer_ids = set()
+        for user_id in user_ids:
+            if user_id in offer_ids_by_user:
+                all_offer_ids.update(offer_ids_by_user[user_id])
+        
+        # Fetch all offers in one query
+        offers_cache = {}
+        if all_offer_ids and offers_col is not None:
+            for offer in offers_col.find({'offer_id': {'$in': list(all_offer_ids)}}, {'offer_id': 1, 'category': 1, 'vertical': 1}):
+                offers_cache[offer['offer_id']] = offer
+        
+        for user_id in user_ids:
+            total_clicks = clicks_by_user.get(user_id, 0)
+            total_time = time_by_user.get(user_id, 0)
+            
+            # Calculate top vertical from clicked offers
+            top_vertical = 'N/A'
+            if user_id in offer_ids_by_user:
+                category_counts = {}
+                for offer_id in offer_ids_by_user[user_id]:
+                    offer = offers_cache.get(offer_id)
+                    if offer:
+                        category = offer.get('category') or offer.get('vertical', 'Uncategorized')
+                        if category and category not in ('N/A', 'Uncategorized', ''):
+                            category_counts[category] = category_counts.get(category, 0) + 1
+                
+                if category_counts:
+                    # Get the most common category
+                    top_vertical = max(category_counts.items(), key=lambda x: x[1])[0]
+            
+            # Format time
+            time_formatted = 'No data'
+            if total_time > 0:
+                hours = int(total_time) // 3600
+                mins = (int(total_time) % 3600) // 60
+                secs = int(total_time) % 60
+                if hours > 0:
+                    time_formatted = f"{hours}h {mins}m {secs}s"
+                elif mins > 0:
+                    time_formatted = f"{mins}m {secs}s"
+                else:
+                    time_formatted = f"{secs}s"
+            
+            # Top geo
+            top_geos = []
+            if user_id in geo_by_user:
+                sorted_geos = sorted(geo_by_user[user_id].items(), key=lambda x: x[1], reverse=True)[:1]
+                for country, count in sorted_geos:
+                    if country != 'Unknown' and country != '':
+                        top_geos.append({'country': country, 'count': count})
+            
+            results[user_id] = {
+                'total_clicks': total_clicks,
+                'offers_requested': requests_by_user.get(user_id, 0),
+                'approved_count': approved_by_user.get(user_id, 0),  # Now includes approved count!
+                'conversions': conversions_by_user.get(user_id, 0),  # Now includes actual conversions!
+                'top_geos': top_geos,
+                'avg_time_spent': time_formatted,
+                'total_time_spent_seconds': total_time,
+                'top_vertical': top_vertical,  # Now calculated from actual clicked offers!
+                'offers_viewed': 0,
+                'logins_7d': 0,
+                'suspicious': False
+            }
+        
+        logger.info(f"[BULK_STATS] Completed stats for {len(results)} users")
+        return jsonify({'success': True, 'stats': results}), 200
+        
+    except Exception as e:
+        logger.error(f"Error in bulk stats: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @admin_reports_bp.route('/api/admin/users/<publisher_id>/profile-stats', methods=['GET'])
 @token_required
 def get_user_profile_stats(publisher_id):
@@ -970,7 +1178,7 @@ def get_user_profile_stats(publisher_id):
         if clicks_col is not None:
             query = {'$or': [{'user_id': publisher_id}, {'affiliate_id': publisher_id}]}
             if username: query['$or'].append({'username': username})
-            for c in clicks_col.find(query, {'offer_id': 1, 'country': 1, 'country_code': 1, 'referer': 1, 'referrer': 1, 'time_spent_seconds': 1, 'time_spent': 1}):
+            for c in clicks_col.find(query, {'offer_id': 1, 'country': 1, 'country_code': 1, 'referer': 1, 'referrer': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
                 c_id = str(c['_id'])
                 if c_id in seen_click_ids: continue
                 seen_click_ids.add(c_id)
@@ -981,8 +1189,8 @@ def get_user_profile_stats(publisher_id):
                     unique_offers.add(offer_id)
                     offer_view_counts[offer_id] = offer_view_counts.get(offer_id, 0) + 1
                 
-                # Track time spent - check both fields
-                time_spent = c.get('time_spent_seconds') or c.get('time_spent')
+                # Track time spent - check ALL possible field names
+                time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
                 if time_spent and time_spent > 0:
                     total_time_spent += float(time_spent)
                     clicks_with_time += 1
@@ -1007,7 +1215,7 @@ def get_user_profile_stats(publisher_id):
             query = {'$or': [{'user_id': publisher_id}]}
             if email: query['$or'].append({'user_email': email})
             if username: query['$or'].append({'username': username})
-            for c in dashboard_col.find(query, {'offer_id': 1, 'geo': 1, 'referrer': 1, 'time_spent_seconds': 1, 'time_spent': 1}):
+            for c in dashboard_col.find(query, {'offer_id': 1, 'geo': 1, 'referrer': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
                 c_id = str(c['_id'])
                 if c_id in seen_click_ids: continue
                 seen_click_ids.add(c_id)
@@ -1018,8 +1226,8 @@ def get_user_profile_stats(publisher_id):
                     unique_offers.add(offer_id)
                     offer_view_counts[offer_id] = offer_view_counts.get(offer_id, 0) + 1
                 
-                # Track time spent
-                time_spent = c.get('time_spent_seconds') or c.get('time_spent')
+                # Track time spent - check ALL possible field names
+                time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
                 if time_spent and time_spent > 0:
                     total_time_spent += float(time_spent)
                     clicks_with_time += 1
@@ -1042,7 +1250,7 @@ def get_user_profile_stats(publisher_id):
         if offerwall_col is not None:
             query = {'$or': [{'publisher_id': publisher_id}]}
             if username: query['$or'].append({'username': username})
-            for c in offerwall_col.find(query, {'offer_id': 1, 'country': 1, 'country_code': 1, 'referrer': 1, 'data': 1, 'time_spent_seconds': 1, 'time_spent': 1}):
+            for c in offerwall_col.find(query, {'offer_id': 1, 'country': 1, 'country_code': 1, 'referrer': 1, 'data': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
                 c_id = str(c['_id'])
                 if c_id in seen_click_ids: continue
                 seen_click_ids.add(c_id)
@@ -1053,8 +1261,8 @@ def get_user_profile_stats(publisher_id):
                     unique_offers.add(offer_id)
                     offer_view_counts[offer_id] = offer_view_counts.get(offer_id, 0) + 1
                 
-                # Track time spent
-                time_spent = c.get('time_spent_seconds') or c.get('time_spent')
+                # Track time spent - check ALL possible field names
+                time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
                 if time_spent and time_spent > 0:
                     total_time_spent += float(time_spent)
                     clicks_with_time += 1
@@ -1077,7 +1285,7 @@ def get_user_profile_stats(publisher_id):
         if offerwall_detailed_col is not None:
             query = {'$or': [{'user_id': publisher_id}]}
             if username: query['$or'].append({'publisher_name': username})
-            for c in offerwall_detailed_col.find(query, {'offer_id': 1, 'geo': 1, 'time_spent_seconds': 1, 'time_spent': 1}):
+            for c in offerwall_detailed_col.find(query, {'offer_id': 1, 'geo': 1, 'time_spent_seconds': 1, 'time_spent': 1, 'duration': 1, 'time_on_page': 1}):
                 c_id = str(c['_id'])
                 if c_id in seen_click_ids: continue
                 seen_click_ids.add(c_id)
@@ -1088,8 +1296,8 @@ def get_user_profile_stats(publisher_id):
                     unique_offers.add(offer_id)
                     offer_view_counts[offer_id] = offer_view_counts.get(offer_id, 0) + 1
                 
-                # Track time spent
-                time_spent = c.get('time_spent_seconds') or c.get('time_spent')
+                # Track time spent - check ALL possible field names
+                time_spent = c.get('time_spent_seconds') or c.get('time_spent') or c.get('duration') or c.get('time_on_page') or 0
                 if time_spent and time_spent > 0:
                     total_time_spent += float(time_spent)
                     clicks_with_time += 1
@@ -1110,22 +1318,20 @@ def get_user_profile_stats(publisher_id):
                  
         offers_viewed = len(unique_offers)
         
-        # Calculate average time spent
-        avg_time_spent = 0
-        time_spent_formatted = 'No data'
-        if clicks_with_time > 0:
-            avg_time_spent = total_time_spent / clicks_with_time
-            # Format as minutes and seconds
-            mins = int(avg_time_spent) // 60
-            secs = int(avg_time_spent) % 60
-            if mins > 0:
-                time_spent_formatted = f"{mins}m {secs}s"
+        # Calculate total time spent (not average)
+        total_time_formatted = 'No data'
+        if total_time_spent > 0:
+            # Format total time as hours, minutes, and seconds
+            hours = int(total_time_spent) // 3600
+            mins = (int(total_time_spent) % 3600) // 60
+            secs = int(total_time_spent) % 60
+            
+            if hours > 0:
+                total_time_formatted = f"{hours}h {mins}m {secs}s"
+            elif mins > 0:
+                total_time_formatted = f"{mins}m {secs}s"
             else:
-                time_spent_formatted = f"{secs}s"
-        elif total_clicks > 0:
-            time_spent_formatted = '0s (no time data)'
-        
-        logger.info(f"[PROFILE_STATS] Total clicks: {total_clicks}, Clicks with time: {clicks_with_time}, Total time: {total_time_spent}s, Avg: {time_spent_formatted}")
+                total_time_formatted = f"{secs}s"
         
         # Get top 10 viewed offers and calculate top vertical
         top_viewed_offers = []
@@ -1162,7 +1368,13 @@ def get_user_profile_stats(publisher_id):
             if category_counts:
                 top_vertical = max(category_counts.items(), key=lambda x: x[1])[0]
         
-        logger.info(f"[PROFILE_STATS] Top viewed offers: {len(top_viewed_offers)} offers, Top vertical: {top_vertical}")
+        # Log all calculated values
+        logger.info(f"[PROFILE_STATS] Total clicks: {total_clicks}, Clicks with time: {clicks_with_time}, Total time: {total_time_spent}s, Formatted: {total_time_formatted}")
+        logger.info(f"[PROFILE_STATS] Geo counts: {geo_counts}")
+        logger.info(f"[PROFILE_STATS] Category counts: {category_counts}")
+        logger.info(f"[PROFILE_STATS] Top geos: {top_geos}")
+        logger.info(f"[PROFILE_STATS] Top vertical: {top_vertical}")
+        logger.info(f"[PROFILE_STATS] Top viewed offers: {len(top_viewed_offers)} offers")
             
         # Format Traffic Sources
         traffic_sources = []
@@ -1232,7 +1444,7 @@ def get_user_profile_stats(publisher_id):
                 'recommended_offers': recommended_offers,
                 'top_viewed_offers': top_viewed_offers,
                 'top_vertical': top_vertical,
-                'avg_time_spent': time_spent_formatted,
+                'avg_time_spent': total_time_formatted,  # Now shows total time, not average
                 'total_time_spent_seconds': total_time_spent
             }
         })
