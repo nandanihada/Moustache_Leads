@@ -13,7 +13,7 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://moustacheleads.com')
 
 ALL_FIELDS = [
     'name', 'payout', 'countries', 'category', 'network', 'image',
-    'offer_id', 'preview_url', 'clicks', 'payment_terms', 'description',
+    'offer_id', 'preview_url', 'preview_url_2', 'clicks', 'payment_terms', 'description',
 ]
 DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'network', 'image', 'offer_id']
 
@@ -82,44 +82,51 @@ def build_offer_email_html(
 
         offer_id = o.get('offer_id', '')
         default_preview = o.get('preview_url', '')
-        custom_preview = custom_preview_urls.get(offer_id, '')
+        preview_2 = o.get('preview_url_2', '') or custom_preview_urls.get(offer_id, '')
 
-        # Mask both preview links
+        # Mask preview links — but skip if already masked (contains /m/)
         masked_default = ''
-        masked_custom = ''
+        masked_preview_2 = ''
         if mask_preview_links:
             try:
                 from routes.preview_tracking import create_masked_preview_url
-                if default_preview:
+                if default_preview and '/m/' not in default_preview:
                     masked_default = create_masked_preview_url(
                         offer_id=offer_id, preview_url=default_preview,
                         recipient_email=recipient_email, source='email',
                         batch_id=batch_id, link_type='default',
                     )
-                if custom_preview:
-                    masked_custom = create_masked_preview_url(
-                        offer_id=offer_id, preview_url=custom_preview,
+                elif default_preview:
+                    masked_default = default_preview  # Already masked
+                if preview_2 and '/m/' not in preview_2:
+                    masked_preview_2 = create_masked_preview_url(
+                        offer_id=offer_id, preview_url=preview_2,
                         recipient_email=recipient_email, source='email',
-                        batch_id=batch_id, link_type='custom',
+                        batch_id=batch_id, link_type='preview_2',
                     )
+                elif preview_2:
+                    masked_preview_2 = preview_2  # Already masked
             except Exception:
                 masked_default = default_preview
-                masked_custom = custom_preview
+                masked_preview_2 = preview_2
         else:
             masked_default = default_preview
-            masked_custom = custom_preview
+            masked_preview_2 = preview_2
 
-        # Decide which preview links show in email vs on the page
-        email_default = masked_default if preview_in_email in ('email', 'both') else ''
-        email_custom = masked_custom if custom_preview_in_email in ('email', 'both') else ''
-        page_default = masked_default if preview_in_email in ('page', 'both') else ''
-        page_custom = masked_custom if custom_preview_in_email in ('page', 'both') else ''
+        # Determine which preview links show in email vs on the See More page
+        # "Table" (visible_fields) = show in email AND see-more page
+        # "See More" (see_more_fields) = show on see-more page only
+        # "Hidden" = don't show anywhere
+        email_default = masked_default if show_main.get('preview_url') else ''
+        email_preview_2 = masked_preview_2 if show_main.get('preview_url_2') else ''
+        page_default = masked_default if (show_more.get('preview_url') or show_main.get('preview_url')) else ''
+        page_preview_2 = masked_preview_2 if (show_more.get('preview_url_2') or show_main.get('preview_url_2')) else ''
 
         offer_payment = per_offer_payment_terms.get(offer_id, payment_terms)
 
         # Create "See More" page if there are see-more fields or page-only preview links
         see_more_url = ''
-        if has_see_more or page_default or page_custom:
+        if has_see_more or page_default or page_preview_2:
             try:
                 from routes.preview_tracking import create_offer_details_page
                 offer_data_for_page = {
@@ -135,7 +142,7 @@ def build_offer_email_html(
                     batch_id=batch_id,
                     recipient_email=recipient_email,
                     preview_url_for_page=page_default,
-                    custom_preview_url_for_page=page_custom,
+                    custom_preview_url_for_page=page_preview_2,
                 )
             except Exception:
                 pass
@@ -145,7 +152,7 @@ def build_offer_email_html(
             'category': cat, 'network': o.get('network', ''), 'countries': country_str,
             'image_url': img,
             'preview_url': email_default,
-            'custom_preview_url': email_custom,
+            'preview_url_2': email_preview_2,
             'see_more_url': see_more_url,
             'clicks': o.get('clicks', o.get('hits', 0)) or 0,
             'payment_terms': offer_payment,
@@ -196,21 +203,28 @@ def build_offer_email_html(
 </body></html>"""
 
 
-def _build_preview_links_html(offer):
-    """Build inline preview link buttons for an offer."""
+def _build_preview_links_html(offer, show_main=None):
+    """Build inline preview link buttons for an offer. Respects field visibility settings."""
+    if show_main is None:
+        show_main = {}
     links = []
-    if offer.get('preview_url'):
+    # Only show preview_url if the field is enabled AND the URL is non-empty
+    if offer.get('preview_url') and show_main.get('preview_url', True):
         links.append(f'<a href="{offer["preview_url"]}" style="color:#6366f1;text-decoration:none;font-size:12px;font-weight:500;" target="_blank">🔗 Preview</a>')
-    if offer.get('custom_preview_url'):
-        links.append(f'<a href="{offer["custom_preview_url"]}" style="color:#8b5cf6;text-decoration:none;font-size:12px;font-weight:500;" target="_blank">🔗 Preview 2</a>')
+    # Only show preview_url_2 if the field is enabled AND the URL is non-empty
+    if offer.get('preview_url_2') and show_main.get('preview_url_2', False):
+        links.append(f'<a href="{offer["preview_url_2"]}" style="color:#8b5cf6;text-decoration:none;font-size:12px;font-weight:500;" target="_blank">🔗 Preview</a>')
     return ' &nbsp; '.join(links)
 
 
 def _build_table_layout(offers, show_main, has_see_more):
     """Build offers in table format with See More link to web page."""
     col_count = sum(1 for f in ['offer_id', 'image', 'name', 'payout', 'payment_terms',
-                                 'network', 'countries', 'category', 'preview_url', 'clicks']
+                                 'network', 'countries', 'category', 'clicks']
                     if show_main.get(f))
+    # Preview column counts as 1 if either preview_url or preview_url_2 is enabled
+    if show_main.get('preview_url') or show_main.get('preview_url_2'):
+        col_count += 1
     if has_see_more:
         col_count += 1  # for See More column
 
@@ -223,7 +237,7 @@ def _build_table_layout(offers, show_main, has_see_more):
     if show_main.get('network'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Network</th>'
     if show_main.get('countries'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Countries</th>'
     if show_main.get('category'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Category</th>'
-    if show_main.get('preview_url'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>'
+    if show_main.get('preview_url') or show_main.get('preview_url_2'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;"></th>'
     if show_main.get('clicks'): headers += '<th style="padding:8px;text-align:left;font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;">Clicks</th>'
     if has_see_more: headers += '<th style="padding:8px;text-align:right;font-size:11px;color:#9ca3af;font-weight:600;"></th>'
 
@@ -253,8 +267,8 @@ def _build_table_layout(offers, show_main, has_see_more):
             row += f'<td style="padding:10px 8px;font-size:12px;color:#6b7280;vertical-align:middle;">{o["countries"]}</td>'
         if show_main.get('category'):
             row += f'<td style="padding:10px 8px;vertical-align:middle;"><span style="display:inline-block;padding:2px 8px;background:#f3f4f6;border-radius:4px;font-size:11px;color:#374151;">{o["category"]}</span></td>'
-        if show_main.get('preview_url'):
-            preview_html = _build_preview_links_html(o)
+        if show_main.get('preview_url') or show_main.get('preview_url_2'):
+            preview_html = _build_preview_links_html(o, show_main)
             row += f'<td style="padding:10px 8px;vertical-align:middle;">{preview_html}</td>'
         if show_main.get('clicks'):
             row += f'<td style="padding:10px 8px;font-size:13px;color:#6b7280;font-weight:500;vertical-align:middle;">{int(o.get("clicks", 0)):,}</td>'
@@ -303,8 +317,8 @@ def _build_card_layout(offers, show_main, has_see_more, color):
             meta.append(f'<span style="font-size:10px;color:#9ca3af;font-family:monospace;">{o["offer_id"]}</span>')
         if show_main.get('clicks') and o.get('clicks'):
             meta.append(f'<span style="font-size:11px;color:#6b7280;">{int(o["clicks"]):,} clicks</span>')
-        if show_main.get('preview_url'):
-            preview_html = _build_preview_links_html(o)
+        if show_main.get('preview_url') or show_main.get('preview_url_2'):
+            preview_html = _build_preview_links_html(o, show_main)
             if preview_html:
                 meta.append(preview_html)
         if meta:

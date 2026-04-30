@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   LayoutGrid, Table2, Image, Settings2, Eye, EyeOff, Link2, Plus, X,
-  CreditCard, ChevronDown, ChevronUp, ExternalLink,
+  CreditCard, ChevronDown, ChevronUp,
 } from 'lucide-react';
 
 const ALL_FIELDS = [
@@ -25,6 +25,7 @@ const ALL_FIELDS = [
   { key: 'image', label: 'Image', default: true },
   { key: 'offer_id', label: 'Offer ID', default: true },
   { key: 'preview_url', label: 'Preview URL', default: false },
+  { key: 'preview_url_2', label: 'Preview 2', default: false },
   { key: 'clicks', label: 'Clicks', default: false },
   { key: 'payment_terms', label: 'Payment Terms', default: false },
   { key: 'description', label: 'Description', default: false },
@@ -101,30 +102,10 @@ interface Props {
   offerNames?: Record<string, string>;
 }
 
-function VisibilityToggle({ value, onChange, label }: { value: PreviewVisibility; onChange: (v: PreviewVisibility) => void; label: string }) {
-  const opts: { v: PreviewVisibility; l: string }[] = [
-    { v: 'email', l: 'Email only' },
-    { v: 'page', l: 'Page only' },
-    { v: 'both', l: 'Both' },
-  ];
-  return (
-    <div className="flex items-center gap-1.5 mt-1">
-      <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}:</span>
-      {opts.map(o => (
-        <button key={o.v} type="button" onClick={() => onChange(o.v)}
-          className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-colors ${
-            value === o.v ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-gray-200 text-gray-400'
-          }`}>{o.l}</button>
-      ))}
-    </div>
-  );
-}
-
 export default function EmailSettingsPanel({ settings, onChange, compact, offerIds, offerNames }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [customTermInput, setCustomTermInput] = useState('');
   const [paymentExpanded, setPaymentExpanded] = useState(false);
-  const [previewExpanded, setPreviewExpanded] = useState(false);
 
   const handleChange = (newSettings: EmailSettings) => {
     onChange(newSettings);
@@ -234,85 +215,15 @@ export default function EmailSettingsPanel({ settings, onChange, compact, offerI
         )}
       </div>
 
-      {/* Preview Links Section */}
-      <div className="border rounded-md overflow-hidden">
-        <button type="button" onClick={() => setPreviewExpanded(v => !v)}
-          className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium hover:bg-muted/50 transition-colors">
-          <span className="flex items-center gap-1.5">
-            <ExternalLink className="h-3.5 w-3.5" />
-            Preview Links
-            {settings.maskPreviewLinks && <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Tracked</Badge>}
-          </span>
-          {previewExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      {/* Preview link controls */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button type="button" onClick={() => handleChange({ ...settings, maskPreviewLinks: !settings.maskPreviewLinks })}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors ${
+            settings.maskPreviewLinks ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
+          }`}>
+          <Link2 className="h-3.5 w-3.5" />
+          {settings.maskPreviewLinks ? '✓ Track preview clicks' : 'Track preview clicks'}
         </button>
-        {previewExpanded && (
-          <div className="border-t px-3 py-2 space-y-2.5">
-            {/* Track toggle */}
-            <button type="button" onClick={() => handleChange({ ...settings, maskPreviewLinks: !settings.maskPreviewLinks })}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors w-full justify-center ${
-                settings.maskPreviewLinks ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'
-              }`}>
-              <Link2 className="h-3.5 w-3.5" />
-              {settings.maskPreviewLinks ? '✓ Preview links masked & tracked' : 'Enable preview link tracking'}
-            </button>
-
-            {/* Default preview visibility */}
-            <div>
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase">Default Preview (from offer DB)</span>
-              <VisibilityToggle value={settings.previewInEmail} onChange={v => handleChange({ ...settings, previewInEmail: v })} label="Show in" />
-            </div>
-
-            {/* Custom preview URL */}
-            <div>
-              <span className="text-[10px] font-semibold text-muted-foreground uppercase">Custom Preview Link (send-time only, not saved)</span>
-              <div className="flex gap-2 mt-1">
-                <button type="button" onClick={() => handleChange({ ...settings, customPreviewMode: 'all' })}
-                  className={`px-2.5 py-1 rounded text-[10px] font-medium border transition-colors ${settings.customPreviewMode === 'all' ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-gray-200 text-gray-400'}`}>
-                  Same for all
-                </button>
-                {offerIds && offerIds.length > 1 && (
-                  <button type="button" onClick={() => handleChange({ ...settings, customPreviewMode: 'individual' })}
-                    className={`px-2.5 py-1 rounded text-[10px] font-medium border transition-colors ${settings.customPreviewMode === 'individual' ? 'bg-indigo-100 border-indigo-300 text-indigo-700' : 'bg-white border-gray-200 text-gray-400'}`}>
-                    Per offer
-                  </button>
-                )}
-              </div>
-
-              {settings.customPreviewMode === 'all' ? (
-                <Input
-                  value={settings.customPreviewUrl}
-                  onChange={e => handleChange({ ...settings, customPreviewUrl: e.target.value })}
-                  placeholder="https://example.com/offer-preview"
-                  className="h-7 text-xs mt-1.5"
-                />
-              ) : (
-                <div className="space-y-1.5 mt-1.5">
-                  {(offerIds || []).map(id => (
-                    <div key={id} className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground w-24 truncate shrink-0" title={offerNames?.[id] || id}>
-                        {offerNames?.[id] || id}
-                      </span>
-                      <Input
-                        value={settings.customPreviewUrls[id] || ''}
-                        onChange={e => handleChange({
-                          ...settings,
-                          customPreviewUrls: { ...settings.customPreviewUrls, [id]: e.target.value },
-                        })}
-                        placeholder="Preview URL for this offer"
-                        className="h-6 text-[10px] flex-1"
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {(settings.customPreviewUrl || Object.values(settings.customPreviewUrls).some(v => v)) && (
-                <VisibilityToggle value={settings.customPreviewInEmail} onChange={v => handleChange({ ...settings, customPreviewInEmail: v })} label="Show in" />
-              )}
-              <p className="text-[10px] text-muted-foreground mt-1">This link is added at send time only — not saved to the offer permanently.</p>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Payment Terms */}

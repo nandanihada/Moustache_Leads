@@ -705,7 +705,7 @@ Moustache Leads"""
                     email_service = get_email_service()
                     body = build_body('')
                     html_body = body.replace('\n', '<br>')
-                    html_content = _build_email_html(body, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, per_offer_payment_terms=per_offer_payment_terms)
+                    html_content = _build_email_html(body, offers=offers, payout_type=payout_type, template_style=template_style, visible_fields=visible_fields, default_image=default_image, see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, payment_terms=payment_terms, per_offer_payment_terms=per_offer_payment_terms, custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, custom_preview_in_email=custom_preview_in_email)
                     
                     logging.info(f"📧 Sending BCC email to {len(all_emails)} recipients")
                     
@@ -812,6 +812,44 @@ Moustache Leads"""
                 })
         except Exception as log_err:
             logging.warning(f"Failed to log send history: {log_err}")
+
+        # Update masked links for these offers with recipient info
+        try:
+            masked_col = db_instance.get_collection('masked_links')
+            if masked_col is not None:
+                recipient_emails = [u.get('email', '') for u in users if u.get('email')]
+                recipient_usernames = [u.get('username', '') for u in users if u.get('username')]
+                all_custom = list(custom_emails) if custom_emails else []
+                all_recipients = recipient_emails + all_custom
+                for oid in offer_ids:
+                    masked_col.update_many(
+                        {'offer_id': oid, 'is_active': True},
+                        {'$addToSet': {
+                            'sent_to_emails': {'$each': all_recipients},
+                            'sent_to_usernames': {'$each': recipient_usernames},
+                        }}
+                    )
+        except Exception as ml_err:
+            logging.warning(f"Failed to update masked links with recipients: {ml_err}")
+
+        # Also update email_offer_pages (See More pages) with recipient info
+        try:
+            pages_col = db_instance.get_collection('email_offer_pages')
+            if pages_col is not None:
+                recipient_emails_list = [u.get('email', '') for u in users if u.get('email')]
+                recipient_usernames_list = [u.get('username', '') for u in users if u.get('username')]
+                all_custom_list = list(custom_emails) if custom_emails else []
+                all_recipients_list = recipient_emails_list + all_custom_list
+                for oid in offer_ids:
+                    pages_col.update_many(
+                        {'offer_id': oid},
+                        {'$addToSet': {
+                            'sent_to_emails': {'$each': all_recipients_list},
+                            'sent_to_usernames': {'$each': recipient_usernames_list},
+                        }}
+                    )
+        except Exception as sp_err:
+            logging.warning(f"Failed to update see-more pages with recipients: {sp_err}")
 
         return jsonify({
             'success': results['sent'] > 0,

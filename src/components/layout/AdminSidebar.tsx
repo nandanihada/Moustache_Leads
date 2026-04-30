@@ -31,7 +31,8 @@ import {
   Layers,
   Activity,
   HelpCircle,
-  StickyNote
+  StickyNote,
+  Link2
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -104,6 +105,7 @@ const adminMenuStructure = [
 
       { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },
       { title: "Reactivation", url: "/admin/reactivation", icon: RefreshCw, tab: "reactivation" },
+      { title: "Masked Links", url: "/admin/masked-links", icon: Link2, tab: "masked-links" },
     ]
   },
   {

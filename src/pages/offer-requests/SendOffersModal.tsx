@@ -11,6 +11,7 @@ import { Loader2, Mail, MessageSquare, Bell, Send, AlertTriangle, User } from 'l
 import { API_BASE_URL } from '@/services/apiConfig';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
+import OfferActionIcons from '@/components/OfferActionIcons';
 import type { PProf, Inv } from '@/pages/AdminOfferAccessRequests';
 
 interface SendOffersModalProps {
@@ -67,7 +68,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
       const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/send-offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ user_id: publisher.user_id, offer_ids: Array.from(selected), send_via: sendVia, custom_message: customMsg, message_body: messageBody, template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, see_more_fields: emailSettings.seeMoreFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType, mask_preview_links: emailSettings.maskPreviewLinks, payment_terms: emailSettings.paymentTerms, custom_preview_url: emailSettings.customPreviewMode === 'all' ? emailSettings.customPreviewUrl : '', custom_preview_urls: emailSettings.customPreviewMode === 'individual' ? emailSettings.customPreviewUrls : {}, preview_in_email: emailSettings.previewInEmail, custom_preview_in_email: emailSettings.customPreviewInEmail }),
+        body: JSON.stringify({ user_id: publisher.user_id, offer_ids: Array.from(selected), send_via: sendVia, custom_message: customMsg, message_body: messageBody, template_style: emailSettings.templateStyle, visible_fields: emailSettings.visibleFields, see_more_fields: emailSettings.seeMoreFields, default_image: emailSettings.defaultImage, payout_type: emailSettings.payoutType, mask_preview_links: emailSettings.maskPreviewLinks, payment_terms: emailSettings.paymentTerms, preview_in_email: emailSettings.previewInEmail, custom_preview_in_email: emailSettings.customPreviewInEmail }),
       });
       if (!res.ok) throw new Error();
       toast.success(`Sent ${selected.size} offer(s) via ${sendVia}`);
@@ -87,7 +88,7 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-[95vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             Send Offers
@@ -120,28 +121,56 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
                 )}
 
                 {/* Offer list */}
-                <div className="space-y-1.5 max-h-48 overflow-y-auto border rounded-lg p-2">
+                <div className="space-y-1.5 max-h-64 overflow-y-auto border rounded-lg p-2">
                   {offers.length === 0 && <p className="text-sm text-muted-foreground text-center py-4">No matching offers found</p>}
                   {offers.map(o => (
-                    <label key={o.offer_id} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors">
+                    <div key={o.offer_id} className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors">
                       <Checkbox checked={selected.has(o.offer_id)} onCheckedChange={() => toggle(o.offer_id)} />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{o.name}</p>
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs text-muted-foreground">${o.payout.toFixed(2)}</span>
                           {(o as any).already_sent && <span className="text-[10px] px-1.5 py-0 rounded-full bg-amber-100 text-amber-700 font-medium">✉ Already sent</span>}
-                          {(o as any).visibility === 'active' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-green-100 text-green-700 font-medium">🟢 Active for all</span>}
+                          {(o as any).visibility === 'active' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-green-100 text-green-700 font-medium">🟢 Active</span>}
                           {(o as any).visibility === 'running' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-emerald-100 text-emerald-700 font-medium">🏃 Running</span>}
-                          {(o as any).visibility === 'rotating' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-100 text-blue-700 font-medium">🔄 In Rotation</span>}
+                          {(o as any).visibility === 'rotating' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-100 text-blue-700 font-medium">🔄 Rotating</span>}
                           {(o as any).visibility === 'inactive' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-gray-100 text-gray-600 font-medium">⚫ Inactive</span>}
-                          {(o as any).grant_count > 0 && <span className="text-[10px] px-1.5 py-0 rounded-full bg-orange-100 text-orange-700 font-medium">🎯 Granted to {(o as any).grant_count}</span>}
                           {!(o as any).image_url && !(o as any).thumbnail_url ? <span className="text-[10px] text-amber-500">⚠️ No image</span> : null}
                         </div>
                       </div>
+                      {/* Action icons — link masker, image, description, category */}
+                      <OfferActionIcons
+                        offerId={o.offer_id}
+                        offerName={o.name}
+                        currentImageUrl={(o as any).image_url || (o as any).thumbnail_url || ''}
+                        currentDescription={(o as any).description || ''}
+                        currentCategory={(o as any).category || ''}
+                        currentPreviewUrl2={(o as any).preview_url_2 || ''}
+                        showApplyToAll={selected.size > 1}
+                        onApplyPreviewToAll={async (maskedUrl) => {
+                          // Apply preview_url_2 to all selected offers
+                          const token = localStorage.getItem('token');
+                          for (const id of Array.from(selected)) {
+                            if (id === o.offer_id) continue; // Already saved for this one
+                            try {
+                              await fetch(`${API_BASE_URL}/api/admin/offers/${id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                                body: JSON.stringify({ preview_url_2: maskedUrl }),
+                              });
+                            } catch {}
+                          }
+                          setOffers(prev => prev.map(x => selected.has(x.offer_id) ? { ...x, preview_url_2: maskedUrl } as any : x));
+                          toast.success(`Preview link applied to all ${selected.size} offers`);
+                        }}
+                        onOfferUpdated={(id, field, value) => {
+                          setOffers(prev => prev.map(x => x.offer_id === id ? { ...x, [field === 'image' ? 'image_url' : field]: value } as any : x));
+                        }}
+                      />
                       <Badge variant={o.match_strength === 'Strong' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
                         {o.match_strength}
                       </Badge>
-                    </label>
+                    </div>
                   ))}
                 </div>
 

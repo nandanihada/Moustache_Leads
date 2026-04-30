@@ -67,6 +67,7 @@ import AdminSearchLogs from "./pages/AdminSearchLogs";
 import AdminActivityLogs from "./pages/AdminActivityLogs";
 import AdminReportsTracking from "./pages/AdminReportsTracking";
 import AdminReactivation from "./pages/AdminReactivation";
+import AdminMaskedLinks from "./pages/AdminMaskedLinks";
 import AdminReferrals from "./pages/AdminReferrals";
 import AdminSurveyGateway from "./pages/AdminSurveyGateway";
 import Referrals from "./pages/Referrals";
@@ -216,6 +217,7 @@ const App = () => (
                 <Route path="search-logs" element={<AdminSearchLogs />} />
                 <Route path="tracking-reports" element={<AdminReportsTracking />} />
                 <Route path="reactivation" element={<AdminReactivation />} />
+                <Route path="masked-links" element={<AdminMaskedLinks />} />
                 <Route path="referrals" element={<AdminReferrals />} />
                 <Route path="payments" element={<AdminPayments />} />
                 <Route path="survey-gateway" element={<AdminSurveyGateway />} />

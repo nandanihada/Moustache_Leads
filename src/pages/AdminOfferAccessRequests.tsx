@@ -11,7 +11,7 @@ import {
   Search, Users, AlertTriangle, AlertCircle, Sparkles, RefreshCw,
   Mail, MessageSquare, CheckCircle2, Inbox,
   ThumbsUp, ThumbsDown, Eye, Briefcase, UserCheck, TrendingUp,
-  ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock, FileImage,
+  ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock, FileImage, MousePointerClick,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -191,6 +191,7 @@ function AdminOfferAccessRequests() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [summary, setSummary] = useState<Summary>({ total_publishers: 0, high_risk: 0, warn: 0, new: 0, none: 0 });
+  const [emailStats, setEmailStats] = useState({ total_mails_sent: 0, today_mails_sent: 0, total_publishers_mailed: 0, today_publishers_mailed: 0, total_interactions: 0, today_interactions: 0, offers_interacted_total: 0, offers_interacted_today: 0, total_clicks: 0, today_clicks: 0 });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sendModal, setSendModal] = useState<{ pub: PProf; offers?: Inv[] } | null>(null);
@@ -256,6 +257,15 @@ function AdminOfferAccessRequests() {
       setProfiles(data.profiles || []);
       setTotalPages(data.pagination?.pages || 1);
       setSummary(data.summary || { total_publishers: 0, high_risk: 0, warn: 0, new: 0, none: 0 });
+
+      // Fetch email stats
+      try {
+        const statsRes = await fetch(`${API_BASE_URL}/api/admin/email-send-stats`, { headers: { Authorization: `Bearer ${token}` } });
+        if (statsRes.ok) {
+          const statsData = await statsRes.json();
+          setEmailStats(statsData);
+        }
+      } catch {}
     } catch {
       toast.error('Failed to load publisher profiles');
     } finally {
@@ -377,7 +387,7 @@ function AdminOfferAccessRequests() {
         <TabsContent value="all_requests">
           <div className="space-y-5 mt-4">
             {/* Summary Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-3">
               {[
                 { label: 'Total Publishers', value: summary.total_publishers, icon: Users, color: 'text-foreground' },
                 { label: 'High Risk', value: summary.high_risk, icon: AlertTriangle, color: 'text-red-500' },
@@ -393,6 +403,47 @@ function AdminOfferAccessRequests() {
                   <p className="text-xl font-bold">{s.value}</p>
                 </Card>
               ))}
+              {/* Email Stats Boxes */}
+              <Card className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Mail className="h-4 w-4 text-violet-500" />
+                  <span className="text-xs text-muted-foreground">Mails Sent</span>
+                </div>
+                <p className="text-xl font-bold">{emailStats.total_mails_sent}</p>
+                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_mails_sent}</p>
+              </Card>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <UserCheck className="h-4 w-4 text-indigo-500" />
+                  <span className="text-xs text-muted-foreground">Publishers Mailed</span>
+                </div>
+                <p className="text-xl font-bold">{emailStats.total_publishers_mailed}</p>
+                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_publishers_mailed}</p>
+              </Card>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <MousePointerClick className="h-4 w-4 text-orange-500" />
+                  <span className="text-xs text-muted-foreground">Users Interacted</span>
+                </div>
+                <p className="text-xl font-bold">{emailStats.total_interactions}</p>
+                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_interactions}</p>
+              </Card>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <Briefcase className="h-4 w-4 text-cyan-500" />
+                  <span className="text-xs text-muted-foreground">Offers Interacted</span>
+                </div>
+                <p className="text-xl font-bold">{emailStats.offers_interacted_total}</p>
+                <p className="text-[10px] text-green-600 font-medium">today {emailStats.offers_interacted_today}</p>
+              </Card>
+              <Card className="p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="h-4 w-4 text-pink-500" />
+                  <span className="text-xs text-muted-foreground">Total Clicks</span>
+                </div>
+                <p className="text-xl font-bold">{emailStats.total_clicks}</p>
+                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_clicks}</p>
+              </Card>
             </div>
 
             {/* Filters */}

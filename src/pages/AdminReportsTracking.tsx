@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Download, RefreshCw, Search, Eye, FileText, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, BarChart3, Globe, Wifi, Shield, ChevronDown, ChevronRight, MousePointerClick, ChevronsUpDown, Check } from 'lucide-react';
+import { Download, RefreshCw, Search, Eye, FileText, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, BarChart3, Globe, Wifi, Shield, ChevronDown, ChevronRight, MousePointerClick, ChevronsUpDown, Check, Link2 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -20,6 +20,7 @@ import { AffiliateComparison } from '@/components/reports/AffiliateComparison';
 import { AffiliateIntelligence } from '@/components/reports/AffiliateIntelligence';
 import { GeoAnalytics } from '@/components/reports/GeoAnalytics';
 import { AdminActionsLog } from '@/components/reports/AdminActionsLog';
+import { MaskedLinkTracking } from '@/components/reports/MaskedLinkTracking';
 import { actionsApi } from '@/services/trafficIntelligenceApi';
 
 const PERF_COLUMNS: ColumnDefinition[] = [
@@ -728,7 +729,7 @@ function ClickTrackingTab() {
 }
 
 function AdminReportsTrackingContent() {
-  const [activeTab, setActiveTab] = useState<'performance' | 'conversion' | 'clicks' | 'funnel' | 'affiliates' | 'geo' | 'actions' | 'intelligence'>('performance');
+  const [activeTab, setActiveTab] = useState<'performance' | 'conversion' | 'clicks' | 'funnel' | 'affiliates' | 'geo' | 'actions' | 'intelligence' | 'masked_links'>('performance');
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -743,8 +744,9 @@ function AdminReportsTrackingContent() {
         <button onClick={() => setActiveTab('geo')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'geo' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Globe className="h-4 w-4" />Geo</button>
         <button onClick={() => setActiveTab('actions')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'actions' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Eye className="h-4 w-4" />Admin Actions</button>
         <button onClick={() => setActiveTab('intelligence')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'intelligence' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Shield className="h-4 w-4" />Intelligence</button>
+        <button onClick={() => setActiveTab('masked_links')} className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === 'masked_links' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}><Link2 className="h-4 w-4" />Masked Links</button>
       </div>
-      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : activeTab === 'funnel' ? <EventFunnel /> : activeTab === 'affiliates' ? <AffiliateComparison /> : activeTab === 'geo' ? <GeoAnalytics /> : activeTab === 'actions' ? <AdminActionsLog /> : activeTab === 'intelligence' ? <AffiliateIntelligence /> : <ClickTrackingTab />}
+      {activeTab === 'performance' ? <PerformanceTab /> : activeTab === 'conversion' ? <ConversionTab /> : activeTab === 'funnel' ? <EventFunnel /> : activeTab === 'affiliates' ? <AffiliateComparison /> : activeTab === 'geo' ? <GeoAnalytics /> : activeTab === 'actions' ? <AdminActionsLog /> : activeTab === 'intelligence' ? <AffiliateIntelligence /> : activeTab === 'masked_links' ? <MaskedLinkTracking /> : <ClickTrackingTab />}
     </div>
   );
 }

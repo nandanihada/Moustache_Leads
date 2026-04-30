@@ -45,7 +45,7 @@ def create_masked_preview_url(offer_id, preview_url, recipient_email='', source=
             'clicked': False,
             'click_count': 0,
         })
-    return f"{TRACKING_BASE}/preview/{tracking_id}"
+    return f"{TRACKING_BASE}/m/{tracking_id}"
 
 
 def create_offer_details_page(offer_data, see_more_fields, batch_id='', recipient_email='',
@@ -74,44 +74,8 @@ def create_offer_details_page(offer_data, see_more_fields, batch_id='', recipien
     return f"{TRACKING_BASE}/offer-details/{page_id}"
 
 
-# ── Preview link click handler ──
-@preview_tracking_bp.route('/preview/<tracking_id>', methods=['GET'])
-def handle_preview_click(tracking_id):
-    try:
-        col = db_instance.get_collection('email_preview_links')
-        if col is None:
-            return redirect('https://moustacheleads.com', code=302)
-        link = col.find_one({'tracking_id': tracking_id})
-        if not link:
-            return redirect('https://moustacheleads.com', code=302)
-
-        # If the stored preview_url is empty, redirect to homepage
-        if not link.get('preview_url'):
-            return redirect('https://moustacheleads.com', code=302)
-
-        clicks_col = db_instance.get_collection('email_preview_clicks')
-        if clicks_col is not None:
-            clicks_col.insert_one({
-                'tracking_id': tracking_id,
-                'offer_id': link.get('offer_id', ''),
-                'preview_url': link.get('preview_url', ''),
-                'recipient_email': link.get('recipient_email', ''),
-                'source': link.get('source', 'email'),
-                'link_type': link.get('link_type', 'default'),
-                'batch_id': link.get('batch_id', ''),
-                'ip': request.remote_addr,
-                'user_agent': request.headers.get('User-Agent', ''),
-                'clicked_at': datetime.utcnow(),
-            })
-        col.update_one(
-            {'tracking_id': tracking_id},
-            {'$set': {'clicked': True, 'last_clicked_at': datetime.utcnow()},
-             '$inc': {'click_count': 1}}
-        )
-        return redirect(link['preview_url'], code=302)
-    except Exception as e:
-        logging.error(f"Preview tracking error: {e}")
-        return redirect('https://moustacheleads.com', code=302)
+# ── Old /preview/ route removed — all masked links use /m/{id} now ──
+# The /preview/<offer_id> route is handled by offer_serving_bp for actual offer previews
 
 
 # ── Offer details "See More" page ──
@@ -129,18 +93,19 @@ def offer_details_page(page_id):
         # Track the view
         col.update_one({'page_id': page_id}, {'$inc': {'view_count': 1}})
 
-        # Log to clicks collection
-        clicks_col = db_instance.get_collection('email_preview_clicks')
-        if clicks_col is not None:
-            clicks_col.insert_one({
-                'tracking_id': page_id,
+        # Log to see_more_clicks collection with full details
+        see_more_clicks_col = db_instance.get_collection('see_more_clicks')
+        if see_more_clicks_col is not None:
+            see_more_clicks_col.insert_one({
+                'page_id': page_id,
                 'offer_id': page.get('offer_id', ''),
+                'offer_name': page.get('offer_data', {}).get('name', ''),
                 'recipient_email': page.get('recipient_email', ''),
-                'source': 'see_more_page',
-                'link_type': 'see_more',
                 'batch_id': page.get('batch_id', ''),
                 'ip': request.remote_addr,
                 'user_agent': request.headers.get('User-Agent', ''),
+                'referer': request.headers.get('Referer', ''),
+                'accept_language': request.headers.get('Accept-Language', ''),
                 'clicked_at': datetime.utcnow(),
             })
 
@@ -172,9 +137,9 @@ def offer_details_page(page_id):
         preview_section = ''
         preview_links = []
         if preview_url:
-            preview_links.append(('🔗 Preview Offer', preview_url))
+            preview_links.append(('🔗 Preview Link', preview_url))
         if custom_preview_url:
-            preview_links.append(('🔗 Additional Preview', custom_preview_url))
+            preview_links.append(('🔗 Preview Link', custom_preview_url))
 
         if preview_links:
             links_html = ''
@@ -270,4 +235,515 @@ def get_email_preview_clicks():
         })
     except Exception as e:
         logging.error(f"Email preview clicks error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ══════════════════════════════════════════════════════════════
+# Link Masking System — reusable masked links with full tracking
+# ══════════════════════════════════════════════════════════════
+
+@preview_tracking_bp.route('/api/admin/mask-link', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def create_masked_link():
+    """Create a masked link from any URL. Returns a moustacheleads.com/m/{id} link.
+    The masked link tracks every click with full details.
+    """
+    try:
+        data = request.get_json() or {}
+        original_url = (data.get('url') or '').strip()
+        offer_id = data.get('offer_id', '')
+        offer_name = data.get('offer_name', '')
+        label = data.get('label', '')  # optional label like "Preview", "Landing Page"
+        admin_user = request.current_user
+
+        if not original_url:
+            return jsonify({'error': 'url is required'}), 400
+
+        # Validate URL format
+        if not original_url.startswith('http://') and not original_url.startswith('https://'):
+            original_url = 'https://' + original_url
+
+        link_id = uuid.uuid4().hex[:10]
+        col = db_instance.get_collection('masked_links')
+        if col is None:
+            return jsonify({'error': 'Database not available'}), 500
+
+        doc = {
+            'link_id': link_id,
+            'original_url': original_url,
+            'offer_id': offer_id,
+            'offer_name': offer_name,
+            'label': label,
+            'created_by': admin_user.get('username', 'admin'),
+            'created_at': datetime.utcnow(),
+            'click_count': 0,
+            'is_active': True,
+        }
+        col.insert_one(doc)
+
+        masked_url = f"{TRACKING_BASE}/m/{link_id}"
+
+        return jsonify({
+            'success': True,
+            'masked_url': masked_url,
+            'link_id': link_id,
+            'original_url': original_url,
+        })
+
+    except Exception as e:
+        logging.error(f"Create masked link error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@preview_tracking_bp.route('/m/<link_id>', methods=['GET'])
+def handle_masked_link_click(link_id):
+    """Handle a masked link click — checks both masked_links and email_preview_links collections."""
+    try:
+        logging.info(f"🔗 Masked link click: /m/{link_id}")
+
+        # First check masked_links (created via LinkMasker)
+        col = db_instance.get_collection('masked_links')
+        link = None
+        link_source = 'masked'
+        if col is not None:
+            link = col.find_one({'link_id': link_id, 'is_active': True})
+            if link:
+                logging.info(f"🔗 Found in masked_links: {link.get('original_url', '')[:50]}")
+
+        # Fallback: check email_preview_links (created by email template builder)
+        if not link:
+            preview_col = db_instance.get_collection('email_preview_links')
+            if preview_col is not None:
+                link = preview_col.find_one({'tracking_id': link_id})
+                if link:
+                    link_source = 'email_preview'
+                    link['original_url'] = link.get('preview_url', '')
+                    link['offer_name'] = ''
+                    logging.info(f"🔗 Found in email_preview_links: {link.get('original_url', '')[:50]}")
+
+        if not link or not link.get('original_url'):
+            logging.warning(f"🔗 Link not found for ID: {link_id}")
+            return redirect('https://moustacheleads.com', code=302)
+
+        # Log the click with full details
+        clicks_col = db_instance.get_collection('masked_link_clicks')
+        if clicks_col is not None:
+            clicks_col.insert_one({
+                'link_id': link_id,
+                'original_url': link['original_url'],
+                'offer_id': link.get('offer_id', ''),
+                'offer_name': link.get('offer_name', ''),
+                'label': link.get('label', ''),
+                'link_source': link_source,
+                'ip': request.remote_addr,
+                'user_agent': request.headers.get('User-Agent', ''),
+                'referer': request.headers.get('Referer', ''),
+                'accept_language': request.headers.get('Accept-Language', ''),
+                'clicked_at': datetime.utcnow(),
+            })
+
+        # Increment click count on the source collection
+        if link_source == 'masked' and col is not None:
+            col.update_one({'link_id': link_id}, {'$inc': {'click_count': 1}, '$set': {'last_clicked_at': datetime.utcnow()}})
+        elif link_source == 'email_preview':
+            preview_col = db_instance.get_collection('email_preview_links')
+            if preview_col is not None:
+                preview_col.update_one({'tracking_id': link_id}, {'$set': {'clicked': True, 'last_clicked_at': datetime.utcnow()}, '$inc': {'click_count': 1}})
+
+        return redirect(link['original_url'], code=302)
+
+    except Exception as e:
+        logging.error(f"Masked link click error: {e}")
+        return redirect('https://moustacheleads.com', code=302)
+
+
+@preview_tracking_bp.route('/api/admin/masked-links', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_masked_links():
+    """Get all masked links with click counts and filters."""
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(int(request.args.get('per_page', 50)), 200)
+        offer_id = request.args.get('offer_id', '')
+        search = request.args.get('search', '')
+        created_by = request.args.get('created_by', '')
+
+        col = db_instance.get_collection('masked_links')
+        if col is None:
+            return safe_json_response({'links': [], 'total': 0})
+
+        query = {}
+        if offer_id:
+            query['offer_id'] = offer_id
+        if created_by:
+            query['created_by'] = created_by
+        if search:
+            query['$or'] = [
+                {'offer_name': {'$regex': search, '$options': 'i'}},
+                {'offer_id': {'$regex': search, '$options': 'i'}},
+                {'original_url': {'$regex': search, '$options': 'i'}},
+                {'label': {'$regex': search, '$options': 'i'}},
+            ]
+
+        total = col.count_documents(query)
+        links = list(col.find(query).sort('created_at', -1).skip((page - 1) * per_page).limit(per_page))
+        for l in links:
+            l['_id'] = str(l['_id'])
+            l['masked_url'] = f"{TRACKING_BASE}/m/{l.get('link_id', '')}"
+            if l.get('created_at') and hasattr(l['created_at'], 'isoformat'):
+                l['created_at'] = l['created_at'].isoformat() + 'Z'
+            if l.get('last_clicked_at') and hasattr(l['last_clicked_at'], 'isoformat'):
+                l['last_clicked_at'] = l['last_clicked_at'].isoformat() + 'Z'
+
+        return safe_json_response({
+            'links': links, 'total': total,
+            'pagination': {'page': page, 'per_page': per_page, 'pages': max(1, (total + per_page - 1) // per_page)},
+        })
+    except Exception as e:
+        logging.error(f"Get masked links error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@preview_tracking_bp.route('/api/admin/masked-link-clicks/<link_id>', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_masked_link_clicks(link_id):
+    """Get click details for a specific masked link with user enrichment and filters."""
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(int(request.args.get('per_page', 50)), 200)
+        search = request.args.get('search', '')
+        unique_only = request.args.get('unique', '') == 'true'
+        date_from = request.args.get('date_from', '')
+        date_to = request.args.get('date_to', '')
+
+        clicks_col = db_instance.get_collection('masked_link_clicks')
+        if clicks_col is None:
+            return safe_json_response({'clicks': [], 'total': 0})
+
+        query = {'link_id': link_id}
+        if search:
+            query['$or'] = [
+                {'ip': {'$regex': search, '$options': 'i'}},
+                {'offer_name': {'$regex': search, '$options': 'i'}},
+                {'user_agent': {'$regex': search, '$options': 'i'}},
+            ]
+        if date_from:
+            try:
+                query.setdefault('clicked_at', {})['$gte'] = datetime.fromisoformat(date_from.replace('Z', ''))
+            except Exception:
+                pass
+        if date_to:
+            try:
+                query.setdefault('clicked_at', {})['$lte'] = datetime.fromisoformat(date_to.replace('Z', ''))
+            except Exception:
+                pass
+
+        if unique_only:
+            pipeline = [
+                {'$match': query},
+                {'$group': {'_id': '$ip', 'doc': {'$first': '$$ROOT'}}},
+                {'$replaceRoot': {'newRoot': '$doc'}},
+                {'$sort': {'clicked_at': -1}},
+                {'$skip': (page - 1) * per_page},
+                {'$limit': per_page},
+            ]
+            clicks = list(clicks_col.aggregate(pipeline))
+            total = len(list(clicks_col.aggregate([{'$match': query}, {'$group': {'_id': '$ip'}}])))
+        else:
+            total = clicks_col.count_documents(query)
+            clicks = list(clicks_col.find(query).sort('clicked_at', -1).skip((page - 1) * per_page).limit(per_page))
+
+        for c in clicks:
+            c['_id'] = str(c['_id'])
+            if c.get('clicked_at') and hasattr(c['clicked_at'], 'isoformat'):
+                c['clicked_at'] = c['clicked_at'].isoformat() + 'Z'
+
+        # Get the link info
+        links_col = db_instance.get_collection('masked_links')
+        link_info = None
+        if links_col is not None:
+            link_info = links_col.find_one({'link_id': link_id})
+            if link_info:
+                link_info['_id'] = str(link_info['_id'])
+                link_info['masked_url'] = f"{TRACKING_BASE}/m/{link_id}"
+                if link_info.get('created_at') and hasattr(link_info['created_at'], 'isoformat'):
+                    link_info['created_at'] = link_info['created_at'].isoformat() + 'Z'
+
+        # Stats
+        unique_ips = len(list(clicks_col.aggregate([{'$match': {'link_id': link_id}}, {'$group': {'_id': '$ip'}}])))
+
+        # Get sent-to recipients from the link record
+        sent_to_emails = []
+        sent_to_usernames = []
+        if link_info:
+            sent_to_emails = link_info.get('sent_to_emails', [])
+            sent_to_usernames = link_info.get('sent_to_usernames', [])
+
+        return safe_json_response({
+            'link': link_info,
+            'clicks': clicks, 'total': total,
+            'unique_clicks': unique_ips,
+            'sent_to_emails': sent_to_emails,
+            'sent_to_usernames': sent_to_usernames,
+            'pagination': {'page': page, 'per_page': per_page, 'pages': max(1, (total + per_page - 1) // per_page)},
+        })
+    except Exception as e:
+        logging.error(f"Get masked link clicks error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ── See More Clicks Analytics ──
+@preview_tracking_bp.route('/api/admin/see-more-clicks', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_see_more_clicks():
+    """Get See More page click analytics with filters."""
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(int(request.args.get('per_page', 50)), 200)
+        offer_id = request.args.get('offer_id', '')
+        search = request.args.get('search', '')
+        days = int(request.args.get('days', 30))
+        unique_only = request.args.get('unique', '') == 'true'
+
+        col = db_instance.get_collection('see_more_clicks')
+        if col is None:
+            return safe_json_response({'clicks': [], 'total': 0, 'summary': []})
+
+        query = {}
+        if offer_id:
+            query['offer_id'] = offer_id
+        if search:
+            query['$or'] = [
+                {'ip': {'$regex': search, '$options': 'i'}},
+                {'offer_name': {'$regex': search, '$options': 'i'}},
+                {'recipient_email': {'$regex': search, '$options': 'i'}},
+            ]
+        if days:
+            query['clicked_at'] = {'$gte': datetime.utcnow() - timedelta(days=days)}
+
+        if unique_only:
+            # Get unique by IP
+            pipeline = [
+                {'$match': query},
+                {'$group': {'_id': '$ip', 'doc': {'$first': '$$ROOT'}}},
+                {'$replaceRoot': {'newRoot': '$doc'}},
+                {'$sort': {'clicked_at': -1}},
+                {'$skip': (page - 1) * per_page},
+                {'$limit': per_page},
+            ]
+            clicks = list(col.aggregate(pipeline))
+            total = len(list(col.aggregate([{'$match': query}, {'$group': {'_id': '$ip'}}])))
+        else:
+            total = col.count_documents(query)
+            clicks = list(col.find(query).sort('clicked_at', -1).skip((page - 1) * per_page).limit(per_page))
+
+        for c in clicks:
+            c['_id'] = str(c['_id'])
+            if c.get('clicked_at') and hasattr(c['clicked_at'], 'isoformat'):
+                c['clicked_at'] = c['clicked_at'].isoformat() + 'Z'
+
+        # Enrich clicks with recipient info from email_offer_pages
+        pages_col = db_instance.get_collection('email_offer_pages')
+        if pages_col is not None:
+            page_ids = list(set(c.get('page_id', '') for c in clicks if c.get('page_id')))
+            if page_ids:
+                pages_map = {}
+                for p in pages_col.find({'page_id': {'$in': page_ids}}, {'page_id': 1, 'sent_to_emails': 1, 'sent_to_usernames': 1, 'recipient_email': 1}):
+                    pages_map[p['page_id']] = p
+                for c in clicks:
+                    pg = pages_map.get(c.get('page_id', ''))
+                    if pg:
+                        sent_emails = pg.get('sent_to_emails', [])
+                        sent_users = pg.get('sent_to_usernames', [])
+                        c['sent_to_emails'] = sent_emails
+                        c['sent_to_usernames'] = sent_users
+                        if not c.get('recipient_email') and sent_emails:
+                            c['recipient_email'] = ', '.join(sent_emails[:3])
+                            if len(sent_emails) > 3:
+                                c['recipient_email'] += f' +{len(sent_emails) - 3}'
+
+        # Summary by offer
+        summary_pipeline = [
+            {'$match': query if not unique_only else {k: v for k, v in query.items() if k != '$or'}},
+            {'$group': {
+                '_id': '$offer_id',
+                'offer_name': {'$first': '$offer_name'},
+                'total_views': {'$sum': 1},
+                'unique_ips': {'$addToSet': '$ip'},
+                'unique_emails': {'$addToSet': '$recipient_email'},
+            }},
+            {'$project': {
+                'offer_id': '$_id',
+                'offer_name': 1,
+                'total_views': 1,
+                'unique_visitors': {'$size': '$unique_ips'},
+                'unique_recipients': {'$size': '$unique_emails'},
+            }},
+            {'$sort': {'total_views': -1}},
+            {'$limit': 20},
+        ]
+        summary = list(col.aggregate(summary_pipeline))
+
+        return safe_json_response({
+            'clicks': clicks,
+            'total': total,
+            'summary': summary,
+            'pagination': {'page': page, 'per_page': per_page, 'pages': max(1, (total + per_page - 1) // per_page)},
+        })
+    except Exception as e:
+        logging.error(f"See more clicks error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Email Stats for Offer Access Requests page ──
+@preview_tracking_bp.route('/api/admin/email-send-stats', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_email_send_stats():
+    """Get email sending stats: total mails sent, unique publishers mailed, publisher interactions."""
+    try:
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # 1. Total mails sent (from offer_send_history + push_mail_history)
+        total_mails = 0
+        today_mails = 0
+        try:
+            send_col = db_instance.get_collection('offer_send_history')
+            if send_col is not None:
+                total_mails += send_col.count_documents({})
+                today_mails += send_col.count_documents({'created_at': {'$gte': today_start}})
+            push_col = db_instance.get_collection('push_mail_history')
+            if push_col is not None:
+                total_mails += push_col.count_documents({})
+                today_mails += push_col.count_documents({'created_at': {'$gte': today_start}})
+        except Exception:
+            pass
+
+        # 2. Total unique publishers mailed (from offer_send_history recipient_user_ids + push_mail_history recipient_ids)
+        total_publishers_mailed = 0
+        today_publishers_mailed = 0
+        try:
+            all_user_ids = set()
+            today_user_ids = set()
+
+            send_col = db_instance.get_collection('offer_send_history')
+            if send_col is not None:
+                for doc in send_col.find({}, {'recipient_user_ids': 1, 'recipient_emails': 1, 'created_at': 1}):
+                    uids = doc.get('recipient_user_ids') or []
+                    emails = doc.get('recipient_emails') or []
+                    items = uids if uids else emails
+                    all_user_ids.update(items)
+                    if doc.get('created_at') and doc['created_at'] >= today_start:
+                        today_user_ids.update(items)
+
+            push_col = db_instance.get_collection('push_mail_history')
+            if push_col is not None:
+                for doc in push_col.find({}, {'recipient_ids': 1, 'recipient_emails': 1, 'created_at': 1}):
+                    uids = doc.get('recipient_ids') or []
+                    emails = doc.get('recipient_emails') or []
+                    items = uids if uids else emails
+                    all_user_ids.update(items)
+                    if doc.get('created_at') and doc['created_at'] >= today_start:
+                        today_user_ids.update(items)
+
+            total_publishers_mailed = len(all_user_ids)
+            today_publishers_mailed = len(today_user_ids)
+        except Exception:
+            pass
+
+        # 3. Publisher interactions (unique IPs from masked_link_clicks + see_more_clicks)
+        total_interactions = 0
+        today_interactions = 0
+        try:
+            masked_clicks_col = db_instance.get_collection('masked_link_clicks')
+            if masked_clicks_col is not None:
+                total_interactions += len(list(masked_clicks_col.aggregate([{'$group': {'_id': '$ip'}}])))
+                today_interactions += len(list(masked_clicks_col.aggregate([
+                    {'$match': {'clicked_at': {'$gte': today_start}}},
+                    {'$group': {'_id': '$ip'}}
+                ])))
+
+            see_more_col = db_instance.get_collection('see_more_clicks')
+            if see_more_col is not None:
+                # Add unique IPs not already counted
+                see_more_ips = set(d['_id'] for d in see_more_col.aggregate([{'$group': {'_id': '$ip'}}]))
+                masked_ips = set()
+                if masked_clicks_col is not None:
+                    masked_ips = set(d['_id'] for d in masked_clicks_col.aggregate([{'$group': {'_id': '$ip'}}]))
+                total_interactions = len(see_more_ips | masked_ips)
+
+                see_more_today_ips = set(d['_id'] for d in see_more_col.aggregate([
+                    {'$match': {'clicked_at': {'$gte': today_start}}},
+                    {'$group': {'_id': '$ip'}}
+                ]))
+                masked_today_ips = set()
+                if masked_clicks_col is not None:
+                    masked_today_ips = set(d['_id'] for d in masked_clicks_col.aggregate([
+                        {'$match': {'clicked_at': {'$gte': today_start}}},
+                        {'$group': {'_id': '$ip'}}
+                    ]))
+                today_interactions = len(see_more_today_ips | masked_today_ips)
+        except Exception:
+            pass
+
+        # 4. Offers interacted — unique offer_ids that got at least 1 click
+        offers_interacted_total = 0
+        offers_interacted_today = 0
+        try:
+            all_offer_ids = set()
+            today_offer_ids = set()
+            masked_clicks_col = db_instance.get_collection('masked_link_clicks')
+            if masked_clicks_col is not None:
+                for d in masked_clicks_col.aggregate([{'$group': {'_id': '$offer_id'}}]):
+                    if d['_id']:
+                        all_offer_ids.add(d['_id'])
+                for d in masked_clicks_col.aggregate([{'$match': {'clicked_at': {'$gte': today_start}}}, {'$group': {'_id': '$offer_id'}}]):
+                    if d['_id']:
+                        today_offer_ids.add(d['_id'])
+            see_more_col = db_instance.get_collection('see_more_clicks')
+            if see_more_col is not None:
+                for d in see_more_col.aggregate([{'$group': {'_id': '$offer_id'}}]):
+                    if d['_id']:
+                        all_offer_ids.add(d['_id'])
+                for d in see_more_col.aggregate([{'$match': {'clicked_at': {'$gte': today_start}}}, {'$group': {'_id': '$offer_id'}}]):
+                    if d['_id']:
+                        today_offer_ids.add(d['_id'])
+            offers_interacted_total = len(all_offer_ids)
+            offers_interacted_today = len(today_offer_ids)
+        except Exception:
+            pass
+
+        # 5. Total clicks — raw count, no uniqueness
+        total_clicks = 0
+        today_clicks = 0
+        try:
+            masked_clicks_col = db_instance.get_collection('masked_link_clicks')
+            if masked_clicks_col is not None:
+                total_clicks += masked_clicks_col.count_documents({})
+                today_clicks += masked_clicks_col.count_documents({'clicked_at': {'$gte': today_start}})
+            see_more_col = db_instance.get_collection('see_more_clicks')
+            if see_more_col is not None:
+                total_clicks += see_more_col.count_documents({})
+                today_clicks += see_more_col.count_documents({'clicked_at': {'$gte': today_start}})
+        except Exception:
+            pass
+
+        return jsonify({
+            'total_mails_sent': total_mails,
+            'today_mails_sent': today_mails,
+            'total_publishers_mailed': total_publishers_mailed,
+            'today_publishers_mailed': today_publishers_mailed,
+            'total_interactions': total_interactions,
+            'today_interactions': today_interactions,
+            'offers_interacted_total': offers_interacted_total,
+            'offers_interacted_today': offers_interacted_today,
+            'total_clicks': total_clicks,
+            'today_clicks': today_clicks,
+        })
+    except Exception as e:
+        logging.error(f"Email send stats error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
