@@ -49,13 +49,17 @@ def create_masked_preview_url(offer_id, preview_url, recipient_email='', source=
 
 
 def create_offer_details_page(offer_data, see_more_fields, batch_id='', recipient_email='',
-                              preview_url_for_page='', custom_preview_url_for_page=''):
+                              preview_url_for_page='', custom_preview_url_for_page='',
+                              visible_fields=None):
     """Create a "See More" details page for an offer. Returns the masked URL.
     offer_data: dict with offer fields (name, payout, category, etc.)
     see_more_fields: list of field keys to show on the page
+    visible_fields: list of field keys that were visible in the email (used for header display)
     preview_url_for_page: default preview URL to show on the page (if not shown in email)
     custom_preview_url_for_page: admin-added preview URL to show on the page
     """
+    if visible_fields is None:
+        visible_fields = []
     page_id = generate_preview_tracking_id()
     col = db_instance.get_collection('email_offer_pages')
     if col is not None:
@@ -64,6 +68,7 @@ def create_offer_details_page(offer_data, see_more_fields, batch_id='', recipien
             'offer_id': offer_data.get('offer_id', ''),
             'offer_data': offer_data,
             'see_more_fields': see_more_fields,
+            'visible_fields': visible_fields,
             'preview_url_for_page': preview_url_for_page,
             'custom_preview_url_for_page': custom_preview_url_for_page,
             'batch_id': batch_id,
@@ -111,6 +116,8 @@ def offer_details_page(page_id):
 
         offer = page.get('offer_data', {})
         fields = page.get('see_more_fields', [])
+        # Also check visible_fields to determine what was shown in the email
+        visible_fields = page.get('visible_fields', [])
         preview_url = page.get('preview_url_for_page', '')
         custom_preview_url = page.get('custom_preview_url_for_page', '')
 
@@ -147,10 +154,11 @@ def offer_details_page(page_id):
                 links_html += f'<a href="{url}" target="_blank" style="display:inline-block;margin:0 8px 8px 0;padding:10px 24px;background:#6366f1;color:#fff;text-decoration:none;border-radius:8px;font-size:13px;font-weight:600;">{label}</a>'
             preview_section = f'<div style="margin-top:20px;padding-top:16px;border-top:1px solid #e5e7eb;">{links_html}</div>'
 
-        # Offer header
+        # Offer header — only show network if it's in visible or see-more fields
         offer_name = offer.get('name', 'Offer Details')
         offer_img = offer.get('image_url', '')
         img_html = f'<img src="{offer_img}" alt="" style="width:80px;height:80px;border-radius:12px;object-fit:cover;margin-right:20px;" />' if offer_img else ''
+        network_html = f'<span style="font-size:13px;color:#6b7280;">{offer.get("network", "")}</span>' if ('network' in fields or 'network' in visible_fields) and offer.get('network') else ''
 
         year = datetime.utcnow().year
         html = f"""<!DOCTYPE html>
@@ -170,7 +178,7 @@ def offer_details_page(page_id):
 {img_html}
 <div>
 <h2 style="margin:0 0 4px;font-size:20px;color:#1f2937;">{offer_name}</h2>
-<span style="font-size:13px;color:#6b7280;">{offer.get('network', '')}</span>
+{network_html}
 </div>
 </div>
 {details_html}

@@ -139,6 +139,7 @@ def build_offer_email_html(
                 see_more_url = create_offer_details_page(
                     offer_data=offer_data_for_page,
                     see_more_fields=see_more_fields,
+                    visible_fields=visible_fields,
                     batch_id=batch_id,
                     recipient_email=recipient_email,
                     preview_url_for_page=page_default,
