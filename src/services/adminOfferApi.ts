@@ -1025,6 +1025,15 @@ class AdminOfferApi {
     });
     return this.handleResponse(response);
   }
+
+  async classifyImages(offers: Array<{ offer_id: string; image_url?: string; thumbnail_url?: string }>): Promise<{ success: boolean; classifications: Record<string, 'ai_generated' | 'stock_moustache' | 'offer_image' | 'no_image'> }> {
+    const response = await fetch(`${API_BASE_URL}/offers/classify-images`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offers }),
+    });
+    return this.handleResponse(response);
+  }
 }
 
 export const adminOfferApi = new AdminOfferApi();

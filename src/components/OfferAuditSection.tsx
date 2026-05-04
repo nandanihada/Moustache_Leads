@@ -111,13 +111,11 @@ export function OfferAuditSection({
   const [verticalSuggestions, setVerticalSuggestions] = useState<Record<string, string>>({});
   const [descSuggestions, setDescSuggestions] = useState<Record<string, string>>({});
 
-  // ─── Image type classifier (by URL pattern) ──────────────────────
+  // ─── Image type classifier — now uses backend for accurate DB-based classification ──
+  // (classifyImageType is kept as a quick fallback only)
   const classifyImageType = useCallback((url: string): 'ai_generated' | 'stock_moustache' | 'offer_image' | 'no_image' => {
     if (!url || !url.trim()) return 'no_image';
-    const lower = url.toLowerCase();
-    if (lower.includes('fal.run') || lower.includes('fal-cdn') || lower.includes('fal.ai')) return 'ai_generated';
-    if (lower.includes('unsplash.com')) return 'stock_moustache';
-    return 'offer_image';
+    return 'offer_image'; // fallback — real classification comes from backend
   }, []);
 
   // ─── Run Full Audit ──────────────────────────────────────────────
@@ -136,22 +134,24 @@ export function OfferAuditSection({
       }));
       const res = await adminOfferApi.runFullAudit(payload);
       if (res.success && res.audit) {
-        // Enrich results with image_type classification (frontend-side, by URL pattern)
+        // Backend now provides image_type from DB cross-reference; fallback to URL-based if missing
         const enrichedOffers = (res.audit.offers || []).map((r: any) => {
-          const offer = offers.find(o => o.offer_id === r.offer_id);
-          const imgUrl = offer?.image_url || offer?.thumbnail_url || '';
-          return { ...r, image_type: classifyImageType(imgUrl), clean_name: r.clean_name || '' };
+          if (!r.image_type) {
+            const offer = offers.find(o => o.offer_id === r.offer_id);
+            const imgUrl = offer?.image_url || offer?.thumbnail_url || '';
+            r.image_type = classifyImageType(imgUrl);
+          }
+          return { ...r, clean_name: r.clean_name || '' };
         });
         setAuditResults(enrichedOffers);
-        // Compute extended summary with image sub-types and name sub-types
+        // Use backend-provided summary which includes image sub-type counts
+        const backendSummary = res.audit.summary || {};
         const extSummary = {
-          ...(res.audit.summary || {}),
-          image_ai_generated: enrichedOffers.filter((o: any) => o.image_type === 'ai_generated').length,
-          image_stock_moustache: enrichedOffers.filter((o: any) => o.image_type === 'stock_moustache').length,
-          image_offer_image: enrichedOffers.filter((o: any) => o.image_type === 'offer_image').length,
-          image_has: enrichedOffers.filter((o: any) => o.image_status === 'has_image').length,
-          image_missing: enrichedOffers.filter((o: any) => o.image_status === 'no_image').length,
-          name_same_after_clean: enrichedOffers.filter((o: any) => o.name_status === 'same_after_clean').length,
+          ...backendSummary,
+          image_ai_generated: backendSummary.image_ai_generated ?? enrichedOffers.filter((o: any) => o.image_type === 'ai_generated').length,
+          image_stock_moustache: backendSummary.image_stock_moustache ?? enrichedOffers.filter((o: any) => o.image_type === 'stock_moustache').length,
+          image_offer_image: backendSummary.image_offer_image ?? enrichedOffers.filter((o: any) => o.image_type === 'offer_image').length,
+          name_same_after_clean: backendSummary.name_same_after_clean ?? enrichedOffers.filter((o: any) => o.name_status === 'same_after_clean').length,
         };
         setSummary(extSummary as AuditSummary);
         setPriorityFixes(res.audit.priority_fixes || []);

@@ -4981,8 +4981,65 @@ Offers:
         if 'offers' not in audit_result:
             audit_result = {'offers': [], 'summary': {}, 'priority_fixes': []}
 
-        # Build summary if AI didn't provide accurate counts
+        # ─── Image type classification (DB-backed) ───────────────────
+        # Build sets of known AI-generated and stock image URLs
+        ai_image_urls = set()
+        try:
+            gen_col = db_instance.get_collection('generated_images')
+            if gen_col is not None:
+                for doc in gen_col.find({}, {'url': 1}):
+                    url = doc.get('url', '')
+                    if url:
+                        ai_image_urls.add(url.strip())
+        except Exception as e:
+            logging.warning(f"Failed to load generated_images for audit: {e}")
+
+        stock_image_urls = set()
+        for category_images in PLACEHOLDER_IMAGES.values():
+            for url in category_images:
+                stock_image_urls.add(url.strip())
+
+        # Also check image_rules collection for rule-assigned images
+        rule_image_urls = set()
+        try:
+            rules_col = db_instance.get_collection('image_rules')
+            if rules_col is not None:
+                for doc in rules_col.find({}, {'image_url': 1}):
+                    url = doc.get('image_url', '')
+                    if url:
+                        rule_image_urls.add(url.strip())
+        except Exception:
+            pass
+
+        # Build a map of offer_id → image_url from the request data
+        offer_image_map = {}
+        for o in offers:
+            oid = o.get('offer_id', '')
+            img = (o.get('image_url', '') or o.get('thumbnail_url', '') or '').strip()
+            offer_image_map[oid] = img
+
+        # Classify each offer's image and inject image_type into results
         offer_results = audit_result.get('offers', [])
+        for r in offer_results:
+            oid = r.get('offer_id', '')
+            img_url = offer_image_map.get(oid, '')
+            if not img_url:
+                r['image_type'] = 'no_image'
+            elif img_url in ai_image_urls or 'fal.run' in img_url or 'fal-cdn' in img_url or 'fal.media' in img_url or 'fal.ai' in img_url:
+                r['image_type'] = 'ai_generated'
+            elif (img_url in stock_image_urls
+                  or img_url in rule_image_urls
+                  or 'unsplash.com' in img_url
+                  or '/category-images/' in img_url
+                  or 'picsum.photos' in img_url
+                  or 'via.placeholder' in img_url
+                  or 'placeholder' in img_url.lower()
+                  or 'postimg.cc' in img_url):
+                r['image_type'] = 'stock_moustache'
+            else:
+                r['image_type'] = 'offer_image'
+
+        # Build summary if AI didn't provide accurate counts
         summary = {
             'vertical_correct': sum(1 for o in offer_results if o.get('vertical_status') == 'correct'),
             'vertical_wrong': sum(1 for o in offer_results if o.get('vertical_status') == 'wrong'),
@@ -4993,6 +5050,9 @@ Offers:
             'desc_missing_vertical_too': sum(1 for o in offer_results if o.get('description_status') == 'missing_vertical_too'),
             'image_has': sum(1 for o in offer_results if o.get('image_status') == 'has_image'),
             'image_missing': sum(1 for o in offer_results if o.get('image_status') == 'no_image'),
+            'image_ai_generated': sum(1 for o in offer_results if o.get('image_type') == 'ai_generated'),
+            'image_stock_moustache': sum(1 for o in offer_results if o.get('image_type') == 'stock_moustache'),
+            'image_offer_image': sum(1 for o in offer_results if o.get('image_type') == 'offer_image'),
             'name_clean': sum(1 for o in offer_results if o.get('name_status') == 'clean'),
             'name_messy': sum(1 for o in offer_results if o.get('name_status') == 'messy'),
             'name_needs_confirmation': sum(1 for o in offer_results if o.get('name_status') == 'needs_confirmation'),
@@ -5297,4 +5357,82 @@ def bulk_apply_descriptions():
 
     except Exception as e:
         logging.error(f"Bulk apply descriptions error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/classify-images', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def classify_offer_images():
+    """
+    Classify image sources for a batch of offers.
+    Checks against generated_images collection, placeholder URLs, and image_rules.
+    Returns: { offer_id: 'ai_generated' | 'stock_moustache' | 'offer_image' | 'no_image' }
+    """
+    try:
+        data = request.get_json()
+        offers = data.get('offers', [])
+        if not offers:
+            return jsonify({'error': 'offers array is required'}), 400
+
+        # Build set of all known AI-generated image URLs
+        ai_urls = set()
+        gen_col = db_instance.get_collection('generated_images')
+        if gen_col is not None:
+            try:
+                for doc in gen_col.find({}, {'url': 1}):
+                    url = doc.get('url', '')
+                    if url:
+                        ai_urls.add(url.strip())
+            except Exception:
+                pass
+
+        # Build set of all known placeholder/stock URLs (Unsplash)
+        stock_urls = set()
+        for category_images in PLACEHOLDER_IMAGES.values():
+            for url in category_images:
+                stock_urls.add(url.strip())
+
+        # Also check image_rules collection for rule-based images
+        rule_urls = set()
+        rules_col = db_instance.get_collection('image_rules')
+        if rules_col is not None:
+            try:
+                for doc in rules_col.find({}, {'image_url': 1}):
+                    url = doc.get('image_url', '')
+                    if url:
+                        rule_urls.add(url.strip())
+            except Exception:
+                pass
+
+        # Classify each offer
+        classifications = {}
+        for o in offers:
+            offer_id = o.get('offer_id', '')
+            image_url = (o.get('image_url', '') or o.get('thumbnail_url', '') or '').strip()
+
+            if not image_url:
+                classifications[offer_id] = 'no_image'
+            elif image_url in ai_urls:
+                classifications[offer_id] = 'ai_generated'
+            elif image_url in stock_urls:
+                classifications[offer_id] = 'stock_moustache'
+            elif image_url in rule_urls:
+                classifications[offer_id] = 'stock_moustache'
+            else:
+                # Additional URL pattern checks as fallback
+                lower = image_url.lower()
+                if 'fal.run' in lower or 'fal-cdn' in lower or 'fal.ai' in lower:
+                    classifications[offer_id] = 'ai_generated'
+                elif 'unsplash.com' in lower:
+                    classifications[offer_id] = 'stock_moustache'
+                elif 'postimg' in lower:
+                    classifications[offer_id] = 'stock_moustache'
+                else:
+                    classifications[offer_id] = 'offer_image'
+
+        return jsonify({'success': True, 'classifications': classifications}), 200
+
+    except Exception as e:
+        logging.error(f"Classify images error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed: {str(e)}'}), 500
