@@ -65,6 +65,7 @@ import AdminOfferAnalytics from "./pages/AdminOfferAnalytics";
 import AdminDetailedAnalytics from "./pages/AdminDetailedAnalytics";
 import AdminSearchLogs from "./pages/AdminSearchLogs";
 import AdminActivityLogs from "./pages/AdminActivityLogs";
+import AdminRecentActivity from "./pages/AdminRecentActivity";
 import AdminReportsTracking from "./pages/AdminReportsTracking";
 import AdminReactivation from "./pages/AdminReactivation";
 import AdminMaskedLinks from "./pages/AdminMaskedLinks";
@@ -204,6 +205,7 @@ const App = () => (
                 <Route path="active-users" element={<AdminActiveUsers />} />
                 <Route path="fraud-management" element={<AdminFraudManagement />} />
                 <Route path="activity-logs" element={<AdminActivityLogs />} />
+                <Route path="recent-activity" element={<AdminRecentActivity />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="partners" element={<Partners />} />
                 <Route path="postback" element={<PostbackReceiver />} />

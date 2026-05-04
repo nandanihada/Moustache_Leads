@@ -168,3 +168,121 @@ def get_users_by_level():
     except Exception as e:
         logging.error(f"Get users by level error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ── Roopa's new endpoints for Recent Activity / User Intelligence ──
+
+@admin_activity_logs_bp.route('/user-signals/<user_id>', methods=['GET'])
+@token_required
+def get_user_signals(user_id):
+    try:
+        from database import db_instance
+        db = db_instance.get_db()
+        signals = {
+            'signal_breakdown': {'requests': 0, 'views': 0},
+            'top_categories': [],
+            'top_geos': []
+        }
+        
+        # Requests count
+        if 'affiliate_requests' in db.list_collection_names():
+            signals['signal_breakdown']['requests'] = db.affiliate_requests.count_documents({'user_id': user_id})
+            
+        # Views count
+        if 'offer_views' in db.list_collection_names():
+            signals['signal_breakdown']['views'] = db.offer_views.count_documents({'user_id': user_id})
+            
+        # Calculate Top Categories and Geos from tracking_events
+        category_counts = {}
+        geo_counts = {}
+        
+        if 'tracking_events' in db.list_collection_names():
+            events = list(db.tracking_events.find({'user_id': user_id}).limit(100))
+            for event in events:
+                loc = event.get('location', {})
+                country = loc.get('country_code') or loc.get('country')
+                if country and country != 'Unknown':
+                    geo_counts[country] = geo_counts.get(country, 0) + 1
+                    
+                offer_id = event.get('offer_id')
+                if offer_id:
+                    offer = db.offers.find_one({'offer_id': offer_id})
+                    if offer and offer.get('category'):
+                        cat = offer.get('category')
+                        category_counts[cat] = category_counts.get(cat, 0) + 1
+        
+        top_cats = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        signals['top_categories'] = [c[0] for c in top_cats]
+        
+        top_geos = sorted(geo_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        signals['top_geos'] = [g[0] for g in top_geos]
+        
+        if not signals['top_categories']:
+            signals['top_categories'] = ['GAMES', 'INSTALL', 'INSURANCE']
+        if not signals['top_geos']:
+            signals['top_geos'] = ['US', 'UK', 'CA']
+            
+        return jsonify(signals), 200
+    except Exception as e:
+        logging.error(f"Error getting user signals: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_activity_logs_bp.route('/scheduled-activity', methods=['GET'])
+@token_required
+def get_scheduled_activity():
+    try:
+        user_id = request.args.get('user_id')
+        from database import db_instance
+        db = db_instance.get_db()
+        
+        query = {}
+        if user_id:
+            from models.user import User
+            user = User().get_by_id(user_id)
+            if user:
+                query['recipients'] = user.get('email')
+                
+        activities = []
+        if 'scheduled_emails' in db.list_collection_names():
+            docs = list(db.scheduled_emails.find(query).sort('scheduled_at', -1).limit(20))
+            for doc in docs:
+                activities.append({
+                    '_id': str(doc['_id']),
+                    'type': 'email',
+                    'subject': doc.get('subject', ''),
+                    'status': doc.get('status', ''),
+                    'scheduled_at': doc.get('scheduled_at').isoformat() + 'Z' if doc.get('scheduled_at') else None
+                })
+        return jsonify({'activities': activities}), 200
+    except Exception as e:
+        logging.error(f"Error getting scheduled activity: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_activity_logs_bp.route('/user-automations/<user_id>', methods=['GET', 'POST'])
+@token_required
+def handle_user_automations(user_id):
+    try:
+        from database import db_instance
+        db = db_instance.get_db()
+        
+        if request.method == 'GET':
+            if 'user_automations' in db.list_collection_names():
+                auto = db.user_automations.find_one({'user_id': user_id})
+                if auto:
+                    auto['_id'] = str(auto['_id'])
+                    return jsonify(auto), 200
+            return jsonify({}), 200
+            
+        elif request.method == 'POST':
+            data = request.get_json()
+            db.user_automations.update_one(
+                {'user_id': user_id},
+                {'$set': data},
+                upsert=True
+            )
+            return jsonify({'success': True}), 200
+    except Exception as e:
+        logging.error(f"Error handling automations: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
