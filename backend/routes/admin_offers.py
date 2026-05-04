@@ -4836,3 +4836,465 @@ def get_recommended_offers():
     except Exception as e:
         logging.error(f"Get recommended offers error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# OFFER AUDIT ENDPOINTS
+# ============================================================
+
+@admin_offers_bp.route('/offers/run-full-audit', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def run_full_audit():
+    """
+    AI-powered full audit of offers. Analyses verticals, descriptions, images, and names.
+    Accepts offer data from frontend (to avoid re-fetching) and returns structured audit results.
+    """
+    try:
+        from config import Config
+        from groq import Groq
+        import json as json_module
+
+        api_key = Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        offers = data.get('offers', [])
+        if not offers or not isinstance(offers, list):
+            return jsonify({'error': 'offers array is required'}), 400
+
+        # Cap at 50 offers per audit call
+        offers = offers[:50]
+
+        # Build offer summary for AI
+        offer_lines = []
+        for i, o in enumerate(offers):
+            name = o.get('name', '')
+            desc = (o.get('description', '') or '')[:150]
+            vertical = o.get('vertical', '') or o.get('category', '') or ''
+            image = o.get('image_url', '') or o.get('thumbnail_url', '') or ''
+            has_image = bool(image and image.strip())
+            countries = ', '.join((o.get('countries', []) or [])[:5])
+            offer_lines.append(
+                f"#{i+1} id={o.get('offer_id','')} name=\"{name}\" "
+                f"vertical=\"{vertical}\" desc=\"{desc}\" "
+                f"has_image={has_image} geo=\"{countries}\""
+            )
+
+        offers_block = '\n'.join(offer_lines)
+
+        prompt = f"""You are an affiliate network quality auditor. Analyse these {len(offers)} offers and return a JSON audit report.
+
+For each offer, evaluate:
+1. VERTICAL: Is the assigned vertical correct based on the offer name and description? 
+   - "correct" if vertical matches the offer content
+   - "wrong" if vertical exists but doesn't match (suggest the right one)
+   - "missing" if no vertical is set
+2. DESCRIPTION: Rate the description quality
+   - "full" if description is meaningful (>20 chars, describes the offer)
+   - "one_word" if description is 1-3 words only
+   - "empty" if no description at all
+   - "missing_vertical_too" if BOTH description is empty AND vertical is missing/wrong
+3. IMAGE: Based on the has_image flag
+   - "has_image" if has_image=true
+   - "no_image" if has_image=false
+4. NAME: Rate the offer name quality
+   - "clean" if name is well-formatted (Brand + Amount/GEO pattern)
+   - "messy" if name has junk characters, excessive caps, or poor formatting
+   - "needs_confirmation" if name looks auto-generated or unclear
+   - "same_after_clean" if after removing junk characters the name would be a duplicate of another offer in this list
+
+Also provide:
+- suggested_vertical: the correct vertical for wrong/missing ones (from: HEALTH, SURVEY, SWEEPSTAKES, EDUCATION, INSURANCE, LOAN, FINANCE, DATING, FREE_TRIAL, INSTALLS, GAMES_INSTALL)
+- name_issues: brief description of what's wrong with messy names
+- clean_name: for messy/same_after_clean names, what the cleaned version would be
+- priority_fixes: top 3 most impactful things to fix first across all offers
+
+IMPORTANT: Never suggest OTHER or GENERAL as a vertical. If the current vertical is OTHER or GENERAL, always mark it as "wrong" and suggest the correct one.
+
+Return ONLY valid JSON in this exact format:
+{{
+  "offers": [
+    {{
+      "offer_id": "...",
+      "vertical_status": "correct|wrong|missing",
+      "suggested_vertical": "FINANCE",
+      "description_status": "full|one_word|empty|missing_vertical_too",
+      "image_status": "has_image|no_image",
+      "name_status": "clean|messy|needs_confirmation|same_after_clean",
+      "name_issues": "",
+      "clean_name": ""
+    }}
+  ],
+  "summary": {{
+    "vertical_correct": 0,
+    "vertical_wrong": 0,
+    "vertical_missing": 0,
+    "desc_full": 0,
+    "desc_one_word": 0,
+    "desc_empty": 0,
+    "desc_missing_vertical_too": 0,
+    "image_has": 0,
+    "image_missing": 0,
+    "name_clean": 0,
+    "name_messy": 0,
+    "name_needs_confirmation": 0,
+    "name_same_after_clean": 0
+  }},
+  "priority_fixes": [
+    {{"action": "...", "reason": "...", "offer_ids": ["..."], "impact": "high|medium|low"}}
+  ]
+}}
+
+Offers:
+{offers_block}"""
+
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are a precise data auditor. Return only valid JSON. No markdown, no explanation, no code fences."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=4000,
+        )
+
+        raw_response = completion.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        if raw_response.startswith('```'):
+            raw_response = raw_response.split('\n', 1)[-1]
+            if raw_response.endswith('```'):
+                raw_response = raw_response[:-3].strip()
+
+        try:
+            audit_result = json_module.loads(raw_response)
+        except json_module.JSONDecodeError:
+            logging.error(f"Failed to parse audit response: {raw_response[:500]}")
+            return jsonify({'error': 'AI returned invalid JSON', 'raw': raw_response[:500]}), 500
+
+        # Ensure structure
+        if 'offers' not in audit_result:
+            audit_result = {'offers': [], 'summary': {}, 'priority_fixes': []}
+
+        # Build summary if AI didn't provide accurate counts
+        offer_results = audit_result.get('offers', [])
+        summary = {
+            'vertical_correct': sum(1 for o in offer_results if o.get('vertical_status') == 'correct'),
+            'vertical_wrong': sum(1 for o in offer_results if o.get('vertical_status') == 'wrong'),
+            'vertical_missing': sum(1 for o in offer_results if o.get('vertical_status') == 'missing'),
+            'desc_full': sum(1 for o in offer_results if o.get('description_status') == 'full'),
+            'desc_one_word': sum(1 for o in offer_results if o.get('description_status') == 'one_word'),
+            'desc_empty': sum(1 for o in offer_results if o.get('description_status') == 'empty'),
+            'desc_missing_vertical_too': sum(1 for o in offer_results if o.get('description_status') == 'missing_vertical_too'),
+            'image_has': sum(1 for o in offer_results if o.get('image_status') == 'has_image'),
+            'image_missing': sum(1 for o in offer_results if o.get('image_status') == 'no_image'),
+            'name_clean': sum(1 for o in offer_results if o.get('name_status') == 'clean'),
+            'name_messy': sum(1 for o in offer_results if o.get('name_status') == 'messy'),
+            'name_needs_confirmation': sum(1 for o in offer_results if o.get('name_status') == 'needs_confirmation'),
+            'name_same_after_clean': sum(1 for o in offer_results if o.get('name_status') == 'same_after_clean'),
+        }
+        audit_result['summary'] = summary
+
+        return jsonify({'success': True, 'audit': audit_result}), 200
+
+    except Exception as e:
+        logging.error(f"Run full audit error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Audit failed: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/bulk-suggest-verticals', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_suggest_verticals():
+    """Suggest verticals for multiple offers in one AI call."""
+    try:
+        from config import Config
+        from groq import Groq
+        import json as json_module
+
+        api_key = Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        data = request.get_json()
+        offers = data.get('offers', [])
+        if not offers:
+            return jsonify({'error': 'offers array is required'}), 400
+
+        offers = offers[:30]  # Cap at 30
+
+        offer_lines = []
+        for i, o in enumerate(offers):
+            name = o.get('name', '')
+            desc = (o.get('description', '') or '')[:100]
+            offer_lines.append(f"#{i+1} id={o.get('offer_id','')} name=\"{name}\" desc=\"{desc}\"")
+
+        prompt = f"""Categorize these {len(offers)} affiliate offers. For each, return the best vertical from: HEALTH, SURVEY, SWEEPSTAKES, EDUCATION, INSURANCE, LOAN, FINANCE, DATING, FREE_TRIAL, INSTALLS, GAMES_INSTALL.
+
+Return ONLY a JSON array like: [{{"offer_id": "...", "vertical": "FINANCE"}}]
+
+{chr(10).join(offer_lines)}"""
+
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "Return only valid JSON arrays. No markdown, no explanation."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=2000,
+        )
+
+        raw = completion.choices[0].message.content.strip()
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[-1]
+            if raw.endswith('```'):
+                raw = raw[:-3].strip()
+
+        try:
+            results = json_module.loads(raw)
+            if isinstance(results, dict):
+                results = results.get('results', results.get('offers', []))
+            if not isinstance(results, list):
+                results = []
+        except json_module.JSONDecodeError:
+            return jsonify({'error': 'AI returned invalid JSON'}), 500
+
+        # Map back to offer IDs
+        suggestions = {}
+        valid_verticals = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL']
+        for r in results:
+            oid = r.get('offer_id', '')
+            vert = str(r.get('vertical', '')).upper().strip()
+            if vert in valid_verticals and oid:
+                suggestions[oid] = vert
+
+        return jsonify({'success': True, 'suggestions': suggestions}), 200
+
+    except Exception as e:
+        logging.error(f"Bulk suggest verticals error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/bulk-generate-descriptions', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_generate_descriptions():
+    """Generate descriptions for multiple offers in one AI call."""
+    try:
+        from config import Config
+        from groq import Groq
+        import json as json_module
+
+        api_key = Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        data = request.get_json()
+        offers = data.get('offers', [])
+        if not offers:
+            return jsonify({'error': 'offers array is required'}), 400
+
+        offers = offers[:20]  # Cap at 20
+
+        offer_lines = []
+        for i, o in enumerate(offers):
+            name = o.get('name', '')
+            vertical = o.get('vertical', '') or o.get('category', '') or ''
+            countries = ', '.join((o.get('countries', []) or [])[:5])
+            offer_lines.append(f"#{i+1} id={o.get('offer_id','')} name=\"{name}\" vertical=\"{vertical}\" geo=\"{countries}\"")
+
+        prompt = f"""Write concise 1-2 sentence descriptions for these {len(offers)} affiliate offers. Be factual, mention GEO and conversion action if known. No hype, no emojis.
+
+Return ONLY a JSON array like: [{{"offer_id": "...", "description": "..."}}]
+
+{chr(10).join(offer_lines)}"""
+
+        client = Groq(api_key=api_key)
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are an affiliate network manager. Return only valid JSON arrays. No markdown, no explanation."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=3000,
+        )
+
+        raw = completion.choices[0].message.content.strip()
+        if raw.startswith('```'):
+            raw = raw.split('\n', 1)[-1]
+            if raw.endswith('```'):
+                raw = raw[:-3].strip()
+
+        try:
+            results = json_module.loads(raw)
+            if isinstance(results, dict):
+                results = results.get('results', results.get('offers', []))
+            if not isinstance(results, list):
+                results = []
+        except json_module.JSONDecodeError:
+            return jsonify({'error': 'AI returned invalid JSON'}), 500
+
+        descriptions = {}
+        for r in results:
+            oid = r.get('offer_id', '')
+            desc = str(r.get('description', '')).strip()
+            if oid and desc:
+                descriptions[oid] = desc
+
+        return jsonify({'success': True, 'descriptions': descriptions}), 200
+
+    except Exception as e:
+        logging.error(f"Bulk generate descriptions error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/bulk-apply-verticals', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_apply_verticals():
+    """Apply vertical changes to multiple offers at once."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        changes = data.get('changes', [])
+        if not changes or not isinstance(changes, list):
+            return jsonify({'error': 'changes array is required'}), 400
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        valid_verticals = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL']
+        updated = 0
+        errors = []
+
+        for change in changes:
+            offer_id = change.get('offer_id')
+            new_vertical = str(change.get('vertical', '')).upper().strip()
+
+            if not offer_id or new_vertical not in valid_verticals:
+                errors.append({'offer_id': offer_id, 'error': 'Invalid offer_id or vertical'})
+                continue
+
+            # Try matching by offer_id first, then by campaign_id as fallback
+            query = {'offer_id': offer_id, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+            result = offers_collection.update_one(
+                query,
+                {'$set': {
+                    'vertical': new_vertical,
+                    'category': new_vertical,
+                    'categories': [new_vertical],
+                    'updated_at': datetime.utcnow(),
+                }}
+            )
+            if result.modified_count > 0:
+                updated += 1
+                logging.info(f"Applied vertical {new_vertical} to offer {offer_id}")
+            elif result.matched_count == 0:
+                # Try campaign_id as fallback
+                query2 = {'campaign_id': offer_id, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+                result2 = offers_collection.update_one(
+                    query2,
+                    {'$set': {
+                        'vertical': new_vertical,
+                        'category': new_vertical,
+                        'categories': [new_vertical],
+                        'updated_at': datetime.utcnow(),
+                    }}
+                )
+                if result2.modified_count > 0:
+                    updated += 1
+                    logging.info(f"Applied vertical {new_vertical} to offer (by campaign_id) {offer_id}")
+                else:
+                    errors.append({'offer_id': offer_id, 'error': f'Offer not found (matched={result2.matched_count})'})
+                    logging.warning(f"Failed to apply vertical to offer {offer_id}: not found")
+
+        log_admin_activity(
+            action='bulk_apply_verticals',
+            category='offer',
+            admin_user=request.current_user,
+            details={'updated_count': updated, 'requested_count': len(changes), 'errors': len(errors)},
+            affected_count=updated,
+            request_obj=request
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Updated verticals for {updated} offer(s)',
+            'updated_count': updated,
+            'errors': errors if errors else None,
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Bulk apply verticals error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/bulk-apply-descriptions', methods=['PUT'])
+@token_required
+@subadmin_or_admin_required('offers')
+def bulk_apply_descriptions():
+    """Apply description changes to multiple offers at once."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body is required'}), 400
+
+        changes = data.get('changes', [])
+        if not changes or not isinstance(changes, list):
+            return jsonify({'error': 'changes array is required'}), 400
+
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        updated = 0
+        errors = []
+
+        for change in changes:
+            offer_id = change.get('offer_id')
+            new_desc = str(change.get('description', '')).strip()
+
+            if not offer_id or not new_desc:
+                errors.append({'offer_id': offer_id, 'error': 'Invalid offer_id or empty description'})
+                continue
+
+            result = offers_collection.update_one(
+                {'offer_id': offer_id, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                {'$set': {
+                    'description': new_desc,
+                    'updated_at': datetime.utcnow(),
+                }}
+            )
+            if result.modified_count > 0:
+                updated += 1
+
+        log_admin_activity(
+            action='bulk_apply_descriptions',
+            category='offer',
+            admin_user=request.current_user,
+            details={'updated_count': updated, 'requested_count': len(changes), 'errors': len(errors)},
+            affected_count=updated,
+            request_obj=request
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f'Updated descriptions for {updated} offer(s)',
+            'updated_count': updated,
+            'errors': errors if errors else None,
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Bulk apply descriptions error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed: {str(e)}'}), 500

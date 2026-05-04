@@ -31,6 +31,7 @@ import { ImagePickerComponent } from '@/components/ImagePickerComponent';
 import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
 import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
 import { ImageRulesComponent } from '@/components/ImageRulesComponent';
+import { OfferAuditSection } from '@/components/OfferAuditSection';
 
 // Icons for collapsible sections
 const DESC_ICON_URL = 'https://i.postimg.cc/XB0zjj5r/description.png';
@@ -326,6 +327,9 @@ interface OfferRenamingModalProps {
 export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply }: OfferRenamingModalProps) {
   // Mode: always per-offer
   const mode = 'per-offer' as const;
+
+  // View mode: rename (existing) or audit (new)
+  const [viewMode, setViewMode] = useState<'rename' | 'audit'>('rename');
 
   // Template
   const [template, setTemplate] = useState(() => {
@@ -974,10 +978,56 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
             <Sparkles className="h-5 w-5 text-amber-500" />
             Smart Rename — {selectedOffers.length} Offer{selectedOffers.length !== 1 ? 's' : ''}
           </DialogTitle>
+          {/* Mode Toggle */}
+          <div className="flex gap-1 ml-4">
+            <button
+              onClick={() => setViewMode('rename')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                viewMode === 'rename'
+                  ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                  : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              Rename Mode
+            </button>
+            <button
+              onClick={() => setViewMode('audit')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                viewMode === 'audit'
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+                  : 'text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              Audit Mode
+            </button>
+          </div>
         </DialogHeader>
 
         {/* Scrollable content area */}
         <div className="flex-1 overflow-y-auto min-h-0">
+
+        {/* ─── AUDIT MODE ─── */}
+        {viewMode === 'audit' && (
+          <div className="p-2">
+            <OfferAuditSection
+              offers={selectedOffers}
+              onSwitchToRename={(offerIds) => {
+                // Switch to rename mode — the selected offers are already loaded
+                setViewMode('rename');
+              }}
+              perOfferVerticals={perOfferVerticals}
+              setPerOfferVerticals={setPerOfferVerticals}
+              perOfferDescs={perOfferDescs}
+              setPerOfferDescs={setPerOfferDescs}
+              perOfferImages={perOfferImages}
+              setPerOfferImages={setPerOfferImages}
+            />
+          </div>
+        )}
+
+        {/* ─── RENAME MODE ─── */}
+        {viewMode === 'rename' && (
+        <>
         {/* Extraction Section */}
         {!extracted ? (
           <div className="flex flex-col items-center gap-3 py-8">
@@ -1556,6 +1606,8 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
               </Button>
             </div>
           </div>
+        )}
+        </>
         )}
         </div>{/* end scrollable */}
       </DialogContent>

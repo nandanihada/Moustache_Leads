@@ -944,6 +944,87 @@ class AdminOfferApi {
     });
     return this.handleResponse(response);
   }
+
+  // ─── Audit Endpoints ─────────────────────────────────────────────
+  async runFullAudit(offers: Array<{ offer_id: string; name: string; description?: string; vertical?: string; category?: string; image_url?: string; thumbnail_url?: string; countries?: string[] }>): Promise<{
+    success: boolean;
+    audit: {
+      offers: Array<{
+        offer_id: string;
+        vertical_status: 'correct' | 'wrong' | 'missing';
+        suggested_vertical: string;
+        description_status: 'full' | 'one_word' | 'empty' | 'missing_vertical_too';
+        image_status: 'has_image' | 'no_image';
+        name_status: 'clean' | 'messy' | 'needs_confirmation' | 'same_after_clean';
+        name_issues: string;
+        clean_name: string;
+      }>;
+      summary: {
+        vertical_correct: number;
+        vertical_wrong: number;
+        vertical_missing: number;
+        desc_full: number;
+        desc_one_word: number;
+        desc_empty: number;
+        desc_missing_vertical_too: number;
+        image_has: number;
+        image_missing: number;
+        name_clean: number;
+        name_messy: number;
+        name_needs_confirmation: number;
+        name_same_after_clean: number;
+      };
+      priority_fixes: Array<{
+        action: string;
+        reason: string;
+        offer_ids: string[];
+        impact: 'high' | 'medium' | 'low';
+      }>;
+    };
+  }> {
+    const response = await fetch(`${API_BASE_URL}/offers/run-full-audit`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offers }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async bulkSuggestVerticals(offers: Array<{ offer_id: string; name: string; description?: string }>): Promise<{ success: boolean; suggestions: Record<string, string> }> {
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-suggest-verticals`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offers }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async bulkGenerateDescriptions(offers: Array<{ offer_id: string; name: string; vertical?: string; category?: string; countries?: string[] }>): Promise<{ success: boolean; descriptions: Record<string, string> }> {
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-generate-descriptions`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ offers }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async bulkApplyVerticals(changes: Array<{ offer_id: string; vertical: string }>): Promise<{ success: boolean; message: string; updated_count: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-apply-verticals`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ changes }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async bulkApplyDescriptions(changes: Array<{ offer_id: string; description: string }>): Promise<{ success: boolean; message: string; updated_count: number }> {
+    const response = await fetch(`${API_BASE_URL}/offers/bulk-apply-descriptions`, {
+      method: 'PUT',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify({ changes }),
+    });
+    return this.handleResponse(response);
+  }
 }
 
 export const adminOfferApi = new AdminOfferApi();
