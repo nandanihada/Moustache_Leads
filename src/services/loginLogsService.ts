@@ -883,6 +883,11 @@ class LoginLogsService {
     return response.data;
   }
 
+  async updateScheduledActivity(activityId: string, data: any): Promise<any> {
+    const response = await api.put(`/api/admin/scheduled-activity/${activityId}`, data);
+    return response.data;
+  }
+
   async getUserSignals(userId: string): Promise<any> {
     const response = await api.get(`/api/admin/user-signals/${userId}`);
     return response.data;

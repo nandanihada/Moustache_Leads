@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { BulkMailScheduler, QueueItem } from '@/components/BulkMailScheduler';
 import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus } from 'lucide-react';
 import loginLogsService, { LoginLog } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
@@ -749,44 +750,55 @@ const AdminRecentActivity: React.FC = () => {
                 <AlertTriangle className="w-3 h-3 mr-2" /> Warn
               </Button>
 
-              <Dialog open={scheduleMailOpen} onOpenChange={setScheduleMailOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm" variant="outline" className="h-8 bg-background" disabled={bulkMailSending}>
-                    <CalendarClock className="w-3 h-3 mr-2" /> Schedule
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Schedule Bulk Mail</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Mail Template</label>
-                      <Select value={scheduleType} onValueChange={(v: any) => setScheduleType(v)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select template" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="welcome">Welcome Mail</SelectItem>
-                          <SelectItem value="referral">Referral Mail</SelectItem>
-                          <SelectItem value="welcome_referral">Welcome + Referral Mail</SelectItem>
-                          <SelectItem value="warning">Warning Mail</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium">Schedule Time</label>
-                      <Input type="datetime-local" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setScheduleMailOpen(false)}>Cancel</Button>
-                    <Button onClick={() => handleBulkMail(scheduleType, scheduleTime)} disabled={!scheduleTime || bulkMailSending}>
-                      Confirm Schedule
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+              <Button size="sm" variant="outline" className="h-8 bg-background" disabled={bulkMailSending} onClick={() => setScheduleMailOpen(true)}>
+                <CalendarClock className="w-3 h-3 mr-2" /> Schedule
+              </Button>
+              <BulkMailScheduler 
+                open={scheduleMailOpen} 
+                onOpenChange={setScheduleMailOpen} 
+                selectedUsers={users.filter(u => selectedUserIds.has(u.user_id))}
+                onConfirmSchedule={async (queue: QueueItem[]) => {
+                  setBulkMailSending(true);
+                  let successCount = 0;
+                  try {
+                    for (const q of queue) {
+                      let subject = '';
+                      let body = '';
+                      if (q.type === 'welcome') {
+                        subject = 'Welcome to Moustache Leads! 🚀';
+                        body = `Hey there! Welcome ${q.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                      } else if (q.type === 'referral') {
+                        subject = 'Have you seen our Referral Program?';
+                        body = `Hey ${q.username}<br/><br/>Hope you're doing well 🙂<br/><br/>Just wanted to check — have you had a chance to look at our referral program?<br/><br/>If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to your response!<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                      } else if (q.type === 'warning') {
+                        subject = 'Important Notice Regarding Your Account Activity';
+                        body = `Hey ${q.username},<br/><br/>We have detected some unusual activity on your account recently.<br/>Please review your account security and ensure your postbacks are set up correctly.<br/>If you have any questions or believe this is an error, please reach out to support immediately.<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                      } else if (q.type === 'welcome_referral') {
+                        subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
+                        body = `Hey there! Welcome ${q.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                      }
+
+                      try {
+                        const scheduleIso = new Date(q.scheduledTime).toISOString();
+                        await loginLogsService.sendCustomMail([q.email], subject, body, scheduleIso);
+                        successCount++;
+                      } catch (e) {
+                        console.error(`Failed to send mail to ${q.email}`, e);
+                      }
+                    }
+                    toast({
+                      title: 'Bulk Mail Scheduled',
+                      description: `Successfully scheduled ${successCount} out of ${queue.length} mails.`
+                    });
+                    loadData();
+                    return true;
+                  } catch (e) {
+                    return false;
+                  } finally {
+                    setBulkMailSending(false);
+                  }
+                }}
+              />
             </div>
           )}
           <Select value={timeFilter} onValueChange={setTimeFilter}>

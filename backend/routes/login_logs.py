@@ -842,17 +842,17 @@ def get_inventory_matched_offers(current_user, user_id):
         if offers_col is None:
             return jsonify({}), 200
             
-        # Get offers already sent in last 30 days
-        email_logs_col = db_instance.get_collection('email_logs')
+        # Get offers already sent or skipped in last 30 days
+        history_col = db_instance.get_collection('offer_send_history')
         sent_offer_ids = set()
-        if email_logs_col is not None:
+        if history_col is not None:
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-            logs = email_logs_col.find({
-                'to_user_id': user_id,
-                'sent_at': {'$gte': thirty_days_ago}
+            logs = history_col.find({
+                '$or': [{'user_id': user_id}, {'recipient_user_ids': user_id}],
+                'created_at': {'$gte': thirty_days_ago}
             })
             for log in logs:
-                for oid in log.get('offers_sent', []):
+                for oid in log.get('offer_ids', []):
                     sent_offer_ids.add(oid)
                     
         base_query = {'status': {'$in': ['active', 'running']}}

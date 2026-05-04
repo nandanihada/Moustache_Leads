@@ -366,6 +366,45 @@ def get_scheduled_activity():
         return jsonify({'error': str(e)}), 500
 
 
+@admin_activity_logs_bp.route('/scheduled-activity/<activity_id>', methods=['DELETE'])
+@token_required
+def delete_scheduled_activity(activity_id):
+    try:
+        from bson import ObjectId
+        from database import db_instance
+        db = db_instance.get_db()
+        result = db.scheduled_emails.delete_one({'_id': ObjectId(activity_id)})
+        if result.deleted_count > 0:
+            return jsonify({'success': True}), 200
+        return jsonify({'error': 'Not found'}), 404
+    except Exception as e:
+        logging.error(f"Error deleting scheduled activity: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@admin_activity_logs_bp.route('/scheduled-activity/<activity_id>', methods=['PUT'])
+@token_required
+def update_scheduled_activity(activity_id):
+    try:
+        from bson import ObjectId
+        from database import db_instance
+        from datetime import datetime, timezone
+        db = db_instance.get_db()
+        data = request.get_json()
+        if 'scheduled_at' in data:
+            scheduled_datetime = datetime.fromisoformat(data['scheduled_at'].replace('Z', '+00:00'))
+            if scheduled_datetime.tzinfo is not None:
+                scheduled_datetime = scheduled_datetime.astimezone(timezone.utc).replace(tzinfo=None)
+            data['scheduled_at'] = scheduled_datetime
+            
+        result = db.scheduled_emails.update_one({'_id': ObjectId(activity_id)}, {'$set': data})
+        if result.modified_count > 0 or result.matched_count > 0:
+            return jsonify({'success': True}), 200
+        return jsonify({'error': 'Not found'}), 404
+    except Exception as e:
+        logging.error(f"Error updating scheduled activity: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
 @admin_activity_logs_bp.route('/user-automations/<user_id>', methods=['GET', 'POST'])
 @token_required
 def handle_user_automations(user_id):

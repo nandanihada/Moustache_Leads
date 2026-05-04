@@ -158,8 +158,8 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
     if (!localHistory || localHistory.length === 0) return [];
     return localHistory.slice(0, 5).map((v: any) => {
         const dateStr = v.created_at || v.sent_at || v.timestamp || v.scheduled_at ? new Date(v.created_at || v.sent_at || v.timestamp || v.scheduled_at).toLocaleString('en-US', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'Unknown Date';
-        let status = (v.status === 'scheduled' || v.status === 'pending') ? 'Scheduled' : 'Sent';
-        
+        let status = (v.status === 'scheduled' || v.status === 'pending') ? 'Scheduled' : 
+                     (v.status?.toLowerCase() === 'skipped' || v.subject?.toLowerCase().includes('skipped')) ? 'Skipped' : 'Sent';        
         let title = (v.offer_names && v.offer_names.length > 0) 
             ? `${status}: ${v.offer_names.join(', ')}` 
             : v.offer_count ? `${status} ${v.offer_count} offer(s)` : (v.subject || v.type || 'Email Sent');
@@ -252,18 +252,23 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
                                         }
                                     }
                                 }} disabled={sendingOffers} className="actn-btn primary" style={{ padding: '4px 10px', fontSize: '10px', background: '#185FA5', borderRadius: '4px', opacity: sendingOffers ? 0.5 : 1, color: '#fff', border: 'none' }}>Send now</button>
-                                <button onClick={() => {
-                                    const skipEvent = {
-                                        _id: Math.random().toString(),
-                                        type: 'email',
-                                        subject: `Skipped: ${offer.name || offer.offer_name || 'Offer'}`,
-                                        status: 'Skipped',
-                                        sent_at: new Date().toISOString(),
-                                        offer_names: [offer.name || offer.offer_name || 'Offer']
-                                    };
-                                    setLocalHistory(prev => [skipEvent, ...prev]);
-                                    setQueueOffers(prev => prev.filter((_, i) => i !== idx));
-                                }} className="actn-btn" style={{ padding: '4px 10px', fontSize: '10px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2' }}>Skip</button>
+                                <button onClick={async () => {
+                                    if (onSendOffers) {
+                                        const success = await onSendOffers([offer.offer_id || offer._id], 'skip');
+                                        if (success) {
+                                            const skipEvent = {
+                                                _id: Math.random().toString(),
+                                                type: 'email',
+                                                subject: `Skipped: ${offer.name || offer.offer_name || 'Offer'}`,
+                                                status: 'Skipped',
+                                                sent_at: new Date().toISOString(),
+                                                offer_names: [offer.name || offer.offer_name || 'Offer']
+                                            };
+                                            setLocalHistory(prev => [skipEvent, ...prev]);
+                                            setQueueOffers(prev => prev.filter((_, i) => i !== idx));
+                                        }
+                                    }
+                                }} disabled={sendingOffers} className="actn-btn" style={{ padding: '4px 10px', fontSize: '10px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2' }}>Skip</button>
                             </div>
                         </div>
                     </div>
@@ -574,9 +579,9 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
   const [sendingOffers, setSendingOffers] = useState(false);
 
-  const handleSendOffers = async (offerIds: string[], offerName?: string, scheduleTime?: string): Promise<boolean> => {
+  const handleSendOffers = async (offerIds: string[], sendVia: string = 'email', offerName?: string, scheduleTime?: string): Promise<boolean> => {
     if (!offerIds || offerIds.length === 0) {
-      toast({ title: 'Error', description: 'No offers to send', variant: 'destructive' });
+      toast({ title: 'Error', description: 'No offers to process', variant: 'destructive' });
       return false;
     }
     
@@ -587,7 +592,7 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
       const payload: any = {
         user_ids: [log.user_id || log._id],
         offer_ids: offerIds,
-        send_via: 'email',
+        send_via: sendVia,
         template_type: 'recommend'
       };
       
@@ -610,7 +615,9 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
       
       const data = await res.json();
       if (data.success) {
-        toast({ title: 'Success', description: `Successfully sent ${offerIds.length} offer(s) to ${log.username}` });
+        if (sendVia !== 'skip') {
+          toast({ title: 'Success', description: `Successfully sent ${offerIds.length} offer(s) to ${log.username}` });
+        }
         return true;
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to send offers', variant: 'destructive' });
