@@ -123,6 +123,7 @@ const adminMenuStructure = [
     subtabs: [
       { title: "Fraud Management", url: "/admin/fraud-management", icon: AlertTriangle, tab: "fraud-management" },
       { title: "Activity Logs", url: "/admin/activity-logs", icon: ClipboardList, tab: "activity-logs" },
+      { title: "Recent Activity", url: "/admin/recent-activity", icon: Activity, tab: "recent-activity" },
       { title: "Login Logs", url: "/admin/login-logs", icon: LogIn, tab: "login-logs" },
       { title: "Active Users", url: "/admin/active-users", icon: UserCog, tab: "active-users" },
     ]
