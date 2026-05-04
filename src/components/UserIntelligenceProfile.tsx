@@ -117,11 +117,21 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
                 const id = o.offer_id || o._id;
                 if (!seenIds.has(id)) {
                     seenIds.add(id);
+                    let matchScore = Math.max(50, baseScore - (idx * 4));
+                    if (verticalData && verticalData.length > 0 && verticalData[0].name !== 'Unknown') {
+                        const topCats = verticalData.slice(0, 2).map((v:any) => v.name.toLowerCase());
+                        const offerCat = (o.category || '').toLowerCase();
+                        if (offerCat && topCats.includes(offerCat)) {
+                            matchScore = Math.min(99, matchScore + 15);
+                        } else if (offerCat && verticalData.some((v:any) => v.name.toLowerCase() === offerCat)) {
+                            matchScore = Math.min(99, matchScore + 5);
+                        }
+                    }
                     allOffers.push({
                         ...o,
                         source: sourceLabel,
                         type: typeLabel,
-                        matchScore: Math.max(50, baseScore - (idx * 4))
+                        matchScore: matchScore
                     });
                 }
             });
@@ -150,7 +160,9 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
         const dateStr = v.created_at || v.sent_at || v.timestamp || v.scheduled_at ? new Date(v.created_at || v.sent_at || v.timestamp || v.scheduled_at).toLocaleString('en-US', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'Unknown Date';
         let status = (v.status === 'scheduled' || v.status === 'pending') ? 'Scheduled' : 'Sent';
         
-        let title = v.offer_count ? `${status} ${v.offer_count} offer(s)` : (v.subject || v.type || 'Email Sent');
+        let title = (v.offer_names && v.offer_names.length > 0) 
+            ? `${status}: ${v.offer_names.join(', ')}` 
+            : v.offer_count ? `${status} ${v.offer_count} offer(s)` : (v.subject || v.type || 'Email Sent');
         
         return {
             id: v._id || Math.random().toString(),
@@ -219,8 +231,39 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, paddingLeft: '10px' }}>
                             <span style={{ fontSize: '11px', fontWeight: '600', color: '#1D9E75', background: '#E1F5EE', padding: '2px 6px', borderRadius: '4px' }}>{offer.matchScore}% match</span>
                             <div style={{ display: 'flex', gap: '6px' }}>
-                                <button onClick={() => onSendOffers && onSendOffers([offer.offer_id || offer._id])} disabled={sendingOffers} className="actn-btn primary" style={{ padding: '4px 10px', fontSize: '10px', background: '#185FA5', borderRadius: '4px', opacity: sendingOffers ? 0.5 : 1 }}>Send now</button>
-                                <button onClick={() => setQueueOffers(prev => prev.filter((_, i) => i !== idx))} className="actn-btn" style={{ padding: '4px 10px', fontSize: '10px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2' }}>Skip</button>
+                                <button onClick={async () => {
+                                    if (onSendOffers) {
+                                        const success = await onSendOffers([offer.offer_id || offer._id]);
+                                        if (success) {
+                                            const sentEvent = {
+                                                _id: Math.random().toString(),
+                                                type: 'email',
+                                                subject: `Sent: ${offer.name || offer.offer_name || 'Offer'}`,
+                                                status: 'Sent',
+                                                sent_at: new Date().toISOString(),
+                                                offer_names: [offer.name || offer.offer_name || 'Offer']
+                                            };
+                                            setLocalHistory(prev => [sentEvent, ...prev]);
+                                            setQueueOffers(prev => prev.filter((_, i) => i !== idx));
+                                            try {
+                                                const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
+                                                // We rely on local state first to avoid DB delay, but we merge if freshData comes back
+                                            } catch (e) {}
+                                        }
+                                    }
+                                }} disabled={sendingOffers} className="actn-btn primary" style={{ padding: '4px 10px', fontSize: '10px', background: '#185FA5', borderRadius: '4px', opacity: sendingOffers ? 0.5 : 1, color: '#fff', border: 'none' }}>Send now</button>
+                                <button onClick={() => {
+                                    const skipEvent = {
+                                        _id: Math.random().toString(),
+                                        type: 'email',
+                                        subject: `Skipped: ${offer.name || offer.offer_name || 'Offer'}`,
+                                        status: 'Skipped',
+                                        sent_at: new Date().toISOString(),
+                                        offer_names: [offer.name || offer.offer_name || 'Offer']
+                                    };
+                                    setLocalHistory(prev => [skipEvent, ...prev]);
+                                    setQueueOffers(prev => prev.filter((_, i) => i !== idx));
+                                }} className="actn-btn" style={{ padding: '4px 10px', fontSize: '10px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2' }}>Skip</button>
                             </div>
                         </div>
                     </div>
@@ -231,15 +274,47 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
 
              {/* Footer Action Buttons */}
              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #F4F3EF' }}>
-                <button onClick={() => onSendOffers && onSendOffers(queueOffers.slice(0, 3).map((o: any) => o.offer_id || o._id).filter(Boolean))} disabled={sendingOffers || queueOffers.length === 0} className="actn-btn" style={{ background: '#E1F5EE', color: '#085041', borderColor: '#1D9E75', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', borderRadius: '4px', padding: '4px 8px', opacity: (sendingOffers || queueOffers.length === 0) ? 0.5 : 1 }}>
+                <button onClick={async () => {
+                    if (onSendOffers) {
+                        const topOffers = queueOffers.slice(0, 3);
+                        const offerIds = topOffers.map((o: any) => o.offer_id || o._id).filter(Boolean);
+                        const success = await onSendOffers(offerIds);
+                        if (success) {
+                            const sentEvent = {
+                                _id: Math.random().toString(),
+                                type: 'email',
+                                subject: `Combined Send: ${offerIds.length} offers`,
+                                status: 'Sent',
+                                sent_at: new Date().toISOString(),
+                                offer_names: topOffers.map((o: any) => o.name || o.offer_name || 'Offer')
+                            };
+                            setLocalHistory(prev => [sentEvent, ...prev]);
+                            setQueueOffers(prev => prev.slice(3));
+                            try {
+                                const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
+                            } catch (e) {}
+                        }
+                    }
+                }} disabled={sendingOffers || queueOffers.length === 0} className="actn-btn" style={{ background: '#E1F5EE', color: '#085041', borderColor: '#1D9E75', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', borderRadius: '4px', padding: '4px 8px', opacity: (sendingOffers || queueOffers.length === 0) ? 0.5 : 1 }}>
                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13"></path><path d="M22 2L15 22L11 13L2 9L22 2Z"></path></svg>
                    Send Top 3 Combined
                 </button>
-                <button onClick={() => setIsScheduleDialogOpen(true)} disabled={sendingOffers || queueOffers.length === 0} className="actn-btn primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#378ADD', borderColor: '#378ADD', fontSize: '10px', borderRadius: '4px', padding: '4px 8px', opacity: (sendingOffers || queueOffers.length === 0) ? 0.5 : 1 }}>
+                <button onClick={() => setIsScheduleDialogOpen(true)} disabled={sendingOffers || queueOffers.length === 0} className="actn-btn primary" style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#378ADD', borderColor: '#378ADD', fontSize: '10px', borderRadius: '4px', padding: '4px 8px', opacity: (sendingOffers || queueOffers.length === 0) ? 0.5 : 1, color: '#fff' }}>
                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
                    Schedule All
                 </button>
-                <button onClick={() => setQueueOffers([])} className="actn-btn" style={{ marginLeft: 'auto', background: '#fff', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', borderRadius: '4px', padding: '4px 8px' }}>
+                <button onClick={() => {
+                    const skipEvent = {
+                        _id: Math.random().toString(),
+                        type: 'email',
+                        subject: `Cleared Queue: ${queueOffers.length} offers skipped`,
+                        status: 'Skipped',
+                        sent_at: new Date().toISOString(),
+                        offer_names: queueOffers.map((o: any) => o.name || o.offer_name || 'Offer')
+                    };
+                    setLocalHistory(prev => [skipEvent, ...prev]);
+                    setQueueOffers([]);
+                }} className="actn-btn" style={{ marginLeft: 'auto', background: '#fff', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', borderRadius: '4px', padding: '4px 8px' }}>
                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                    Clear Queue
                 </button>
@@ -365,7 +440,17 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
                         >
                             {isSavingConfig ? 'Saving...' : 'Save & Activate'}
                         </button>
-                        <button onClick={() => { if(queueOffers.length > 0) onSendOffers([queueOffers[0].offer_id || queueOffers[0]._id]) }} disabled={sendingOffers || queueOffers.length === 0} className="actn-btn" style={{ width: '100%', padding: '8px', fontSize: '11px', background: '#fff', borderRadius: '6px', border: '1px solid #dddbd2', color: '#1a1a18', opacity: (sendingOffers || queueOffers.length === 0) ? 0.5 : 1 }}>✨ Test Send</button>
+                        <button onClick={async () => {
+                            if(queueOffers.length > 0 && onSendOffers) {
+                                const success = await onSendOffers([queueOffers[0].offer_id || queueOffers[0]._id]);
+                                if (success) {
+                                    try {
+                                        const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
+                                        setLocalHistory(freshData?.scheduled_activity || freshData?.activities || (Array.isArray(freshData) ? freshData : []));
+                                    } catch (e) {}
+                                }
+                            }
+                        }} disabled={sendingOffers || queueOffers.length === 0} className="actn-btn" style={{ width: '100%', padding: '8px', fontSize: '11px', background: '#fff', borderRadius: '6px', border: '1px solid #dddbd2', color: '#1a1a18', opacity: (sendingOffers || queueOffers.length === 0) ? 0.5 : 1 }}>✨ Test Send</button>
                     </div>
                 </div>
             </div>
@@ -428,7 +513,7 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
               </div>
             )}
           </div>
-          <DialogFooter>
+           <DialogFooter>
             <Button variant="outline" onClick={() => setIsScheduleDialogOpen(false)}>Cancel</Button>
             <Button onClick={async () => {
                    if (!scheduleDate) {
@@ -439,10 +524,18 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
                    const offerIds = queueOffers.map(o => o.offer_id || o._id).filter(Boolean);
                    if (offerIds.length > 0 && onSendOffers) {
                      await onSendOffers(offerIds, undefined, scheduleDate);
+                     const scheduledEvent = {
+                         _id: Math.random().toString(),
+                         type: 'email',
+                         subject: `Scheduled Send: ${offerIds.length} offers`,
+                         status: 'Scheduled',
+                         scheduled_at: new Date(scheduleDate).toISOString(),
+                         offer_names: queueOffers.map(o => o.name || o.offer_name || 'Offer')
+                     };
+                     setLocalHistory(prev => [scheduledEvent, ...prev]);
                    }
                    try {
                      const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
-                     setLocalHistory(freshData?.scheduled_activity || freshData?.activities || (Array.isArray(freshData) ? freshData : []));
                    } catch (e) {
                      console.error("Failed to refresh history", e);
                    }
@@ -470,6 +563,8 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 }) => {
   const [internalActiveTab, setInternalActiveTab] = useState(allowedTabs && allowedTabs.length > 0 ? allowedTabs[0] : 'login');
   const [recoMode, setRecoMode] = useState<'combined' | '1-by-1'>('combined');
+  const [browsingSendIdx, setBrowsingSendIdx] = useState<Record<string, number>>({});
+  const [recoSendIdx, setRecoSendIdx] = useState<Record<string, number>>({});
   const { toast } = useToast();
   const activeTab = externalActiveTab !== undefined ? externalActiveTab : internalActiveTab;
   const setActiveTab = (tab: string) => {
@@ -479,10 +574,10 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
   const [sendingOffers, setSendingOffers] = useState(false);
 
-  const handleSendOffers = async (offerIds: string[], offerName?: string, scheduleTime?: string) => {
+  const handleSendOffers = async (offerIds: string[], offerName?: string, scheduleTime?: string): Promise<boolean> => {
     if (!offerIds || offerIds.length === 0) {
       toast({ title: 'Error', description: 'No offers to send', variant: 'destructive' });
-      return;
+      return false;
     }
     
     setSendingOffers(true);
@@ -516,11 +611,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
       const data = await res.json();
       if (data.success) {
         toast({ title: 'Success', description: `Successfully sent ${offerIds.length} offer(s) to ${log.username}` });
+        return true;
       } else {
         toast({ title: 'Error', description: data.error || 'Failed to send offers', variant: 'destructive' });
+        return false;
       }
     } catch (err) {
       toast({ title: 'Error', description: 'An error occurred while sending offers', variant: 'destructive' });
+      return false;
     } finally {
       setSendingOffers(false);
     }
@@ -538,8 +636,9 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
   const formatDevice = (dev: any) => {
     if (!dev) return 'Unknown';
-    if (typeof dev === 'string') return dev;
-    return [dev.browser, dev.os].filter(Boolean).join(' on ') || 'Unknown';
+    if (typeof dev === 'string') return dev.toLowerCase() === 'unknown' ? 'Unknown' : dev;
+    const parts = [dev.browser, dev.os].filter(p => p && p.toLowerCase() !== 'unknown');
+    return parts.length > 0 ? parts.join(' on ') : 'Unknown';
   };
 
   const formatTimeAgo = (date: string) => {
@@ -563,16 +662,11 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
   const requested = userSignals?.signal_breakdown?.requests || 0;
   const approved = userSignals?.signal_breakdown?.approvals || 0;
-  const views = offerViews?.filter(v => v.view_type !== 'clicked').length || userSignals?.signal_breakdown?.views || 0;
-  const clicks = offerViews?.filter(v => v.view_type === 'clicked').length || 0;
-
-  // Chart Data
-  const verticalData = Array.isArray(userSignals?.preferences) && userSignals.preferences.length > 0
-    ? userSignals.preferences.slice(0, 5).map((p: any) => ({ name: p.category, value: p.percentage }))
-    : [{ name: 'Unknown', value: 100 }];
+  const views = userSignals?.signal_breakdown?.views || offerViews?.filter(v => v.view_type !== 'clicked').length || 0;
+  const clicks = userSignals?.signal_breakdown?.clicks || offerViews?.filter(v => v.view_type === 'clicked').length || 0;
 
   const currentSessionVerticals = React.useMemo(() => {
-    if (!safeOfferViews || safeOfferViews.length === 0) return verticalData;
+    if (!safeOfferViews || safeOfferViews.length === 0) return null;
     const counts: Record<string, number> = {};
     let total = 0;
     safeOfferViews.forEach((v: any) => {
@@ -582,12 +676,25 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
         total++;
       }
     });
-    if (total === 0) return verticalData;
+    if (total === 0) return null;
     return Object.entries(counts)
       .map(([name, count]) => ({ name, value: Math.round((count / total) * 100) }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 5);
-  }, [safeOfferViews, verticalData]);
+  }, [safeOfferViews]);
+
+  // Chart Data
+  let verticalData: { name: string, value: number }[] = [];
+  if (currentSessionVerticals && currentSessionVerticals.length > 0) {
+    verticalData = currentSessionVerticals;
+  } else if (userSignals?.top_categories && userSignals.top_categories.length > 0) {
+    const weight = Math.floor(100 / userSignals.top_categories.length);
+    verticalData = userSignals.top_categories.map((cat: string) => ({ name: cat, value: weight }));
+    const totalWeight = verticalData.reduce((acc, curr) => acc + curr.value, 0);
+    if (totalWeight < 100 && verticalData.length > 0) {
+      verticalData[0].value += (100 - totalWeight);
+    }
+  }
 
   const currentSessionGeo = React.useMemo(() => {
     if (!safeOfferViews || safeOfferViews.length === 0) return null;
@@ -612,18 +719,27 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
       .slice(0, 5);
   }, [safeOfferViews]);
 
-  // Real Geo preferences based on aggregated login locations or offer views
-  const geoData = currentSessionGeo || (Array.isArray(userSignals?.geo_preferences) && userSignals.geo_preferences.length > 0
-    ? userSignals.geo_preferences.slice(0, 5).map((p: any) => ({ name: p.country, value: p.percentage }))
-    : log?.location && formatLocation(log.location) !== 'Unknown' 
-      ? [{ name: formatLocation(log.location), value: 100 }] 
-      : [{ name: 'Unknown', value: 100 }]);
+  let geoData: { name: string, value: number }[] = [];
+  if (currentSessionGeo && currentSessionGeo.length > 0) {
+    geoData = currentSessionGeo;
+  } else if (userSignals?.top_geos && userSignals.top_geos.length > 0) {
+    const weight = Math.floor(100 / userSignals.top_geos.length);
+    geoData = userSignals.top_geos.map((geo: string) => ({ name: geo, value: weight }));
+    const totalWeight = geoData.reduce((acc, curr) => acc + curr.value, 0);
+    if (totalWeight < 100 && geoData.length > 0) {
+      geoData[0].value += (100 - totalWeight);
+    }
+  } else if (log?.location && formatLocation(log.location) !== 'Unknown') {
+    geoData = [{ name: formatLocation(log.location), value: 100 }];
+  }
 
-  const userCountry = currentSessionGeo ? currentSessionGeo[0].name : ((userSignals?.geo_preferences && userSignals.geo_preferences.length > 0) 
-    ? userSignals.geo_preferences[0].country 
-    : (log?.location && formatLocation(log.location) !== 'Unknown') 
-      ? formatLocation(log.location) 
-      : 'Unknown');
+  const userCountry = (currentSessionGeo && currentSessionGeo.length > 0) 
+    ? currentSessionGeo[0].name 
+    : ((userSignals?.top_geos && userSignals.top_geos.length > 0) 
+      ? userSignals.top_geos[0] 
+      : (log?.location && formatLocation(log.location) !== 'Unknown') 
+        ? formatLocation(log.location) 
+        : 'Unknown');
 
   // Compile Recent Activity (mixed timeline)
   const recentActivity = [
@@ -725,16 +841,21 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                   <div>
                     <div className="text-xs text-gray-500 mb-1.5">Vertical</div>
                     <div className="flex flex-wrap gap-1.5">
-                      {Array.isArray(userSignals?.top_categories) && userSignals.top_categories.length > 0 ?
-                        userSignals.top_categories.map((c: string, i: number) => <Badge key={i} variant="secondary" className="font-normal bg-slate-100">{c}</Badge>)
-                        : <span className="text-xs text-gray-400">No data</span>
-                      }
+                      {log.verticals && log.verticals.length > 0 ? (
+                        log.verticals.map((v: string, i: number) => <Badge key={i} variant="secondary" className="font-normal bg-slate-100">{v}</Badge>)
+                      ) : verticalData.length > 0 ? (
+                        verticalData.map((c: any, i: number) => <Badge key={i} variant="secondary" className="font-normal bg-slate-100">{c.name}</Badge>)
+                      ) : <span className="text-xs text-gray-400">No data</span>}
                     </div>
                   </div>
                   <div>
-                    <div className="text-xs text-gray-500 mb-1.5">Geography</div>
+                    <div className="text-xs text-gray-500 mb-1.5">Target Locations</div>
                     <div className="flex flex-wrap gap-1.5">
-                      {log.location && formatLocation(log.location) !== 'Unknown' ? <Badge variant="secondary" className="font-normal bg-slate-100">{formatLocation(log.location)}</Badge> : (userCountry !== 'Unknown' ? <Badge variant="secondary" className="font-normal bg-slate-100">{userCountry}</Badge> : <span className="text-xs text-gray-400">Unknown</span>)}
+                      {log.geoPreferences && log.geoPreferences.length > 0 ? (
+                         log.geoPreferences.map((g: string, i: number) => <Badge key={i} variant="secondary" className="font-normal bg-slate-100">{g}</Badge>)
+                      ) : log.location && formatLocation(log.location) !== 'Unknown' ? (
+                        <Badge variant="secondary" className="font-normal bg-slate-100">{formatLocation(log.location)}</Badge>
+                      ) : (userCountry !== 'Unknown' ? <Badge variant="secondary" className="font-normal bg-slate-100">{userCountry}</Badge> : <span className="text-xs text-gray-400">Unknown</span>)}
                     </div>
                   </div>
                 </div>
@@ -768,21 +889,27 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center gap-4">
                     <div className="w-16 h-16 relative flex-shrink-0">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={verticalData} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" stroke="none">
-                            {verticalData.map((entry: any, index: number) => (
-                              <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <RechartsTooltip contentStyle={{ fontSize: '10px', padding: '4px 8px' }} />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      {verticalData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={verticalData} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" stroke="none">
+                              {verticalData.map((entry: any, index: number) => (
+                                <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip contentStyle={{ fontSize: '10px', padding: '4px 8px' }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="w-full h-full rounded-full border-4 border-slate-200 flex items-center justify-center">
+                          <span className="text-[8px] text-slate-400">N/A</span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Vertical Preference</div>
                       <div className="space-y-1.5 text-[10px]">
-                        {verticalData.slice(0, 3).map((d: any, i: number) => (
+                        {verticalData.length > 0 ? verticalData.slice(0, 3).map((d: any, i: number) => (
                           <div key={i} className="flex justify-between items-center">
                             <div className="flex items-center gap-1.5 text-gray-600 truncate">
                               <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }}></div>
@@ -790,28 +917,36 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                             </div>
                             <span className="font-semibold">{d.value}%</span>
                           </div>
-                        ))}
+                        )) : (
+                          <div className="text-gray-400 italic">No activity yet</div>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 flex items-center gap-4">
                     <div className="w-16 h-16 relative flex-shrink-0">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={geoData} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" stroke="none">
-                            {geoData.map((entry: any, index: number) => (
-                              <Cell key={`cell-${index}`} fill={CHART_COLORS[(index + 3) % CHART_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <RechartsTooltip contentStyle={{ fontSize: '10px', padding: '4px 8px' }} />
-                        </PieChart>
-                      </ResponsiveContainer>
+                      {geoData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={geoData} cx="50%" cy="50%" innerRadius={20} outerRadius={30} dataKey="value" stroke="none">
+                              {geoData.map((entry: any, index: number) => (
+                                <Cell key={`cell-${index}`} fill={CHART_COLORS[(index + 3) % CHART_COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <RechartsTooltip contentStyle={{ fontSize: '10px', padding: '4px 8px' }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <div className="w-full h-full rounded-full border-4 border-slate-200 flex items-center justify-center">
+                          <span className="text-[8px] text-slate-400">N/A</span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-2">Geo Preference</div>
                       <div className="space-y-1.5 text-[10px]">
-                        {geoData.slice(0, 3).map((d: any, i: number) => (
+                        {geoData.length > 0 ? geoData.slice(0, 3).map((d: any, i: number) => (
                           <div key={i} className="flex justify-between items-center">
                             <div className="flex items-center gap-1.5 text-gray-600 truncate">
                               <div className="w-2 h-2 rounded-sm shrink-0" style={{ backgroundColor: CHART_COLORS[(i + 3) % CHART_COLORS.length] }}></div>
@@ -819,7 +954,9 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                             </div>
                             <span className="font-semibold">{d.value}%</span>
                           </div>
-                        ))}
+                        )) : (
+                          <div className="text-gray-400 italic">No activity yet</div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -963,7 +1100,7 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               <span style={{ fontSize: '11px', color: '#9c9a92' }}>Based on {safeOfferViews.length} browsing signals</span>
             </div>
 
-            {currentSessionVerticals.slice(0, 5).map((v: any, i: number) => {
+            {(currentSessionVerticals || []).slice(0, 5).map((v: any, i: number) => {
               const bgColors = ['#185FA5', '#534AB7', '#1D9E75', '#B86821', '#A63333'];
               const lightColors = ['#E6F1FB', '#EDEBF9', '#E1F5EE', '#FDF3EA', '#FCE9E9'];
               const textColors = ['#0C447C', '#2C2665', '#085041', '#66360C', '#5C1A1A'];
@@ -971,7 +1108,23 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               const lightColor = lightColors[i % lightColors.length];
               const textColor = textColors[i % textColors.length];
 
-              const categoryOffers = safeOfferViews.filter((o: any) => o.offer_details?.category === v.name || o.offer_name?.includes(v.name));
+              const categoryOffers = safeOfferViews.filter((o: any) => {
+                const cat = (o.offer_details?.category || '').toLowerCase();
+                const name = (o.offer_name || '').toLowerCase();
+                const vName = (v.name || '').toLowerCase();
+                if (!vName || vName === 'unknown') return false;
+                return cat.includes(vName) || vName.includes(cat) || name.includes(vName);
+              });
+              
+              const uniqueCategoryOffers: any[] = [];
+              const seenIds = new Set();
+              for (const o of categoryOffers) {
+                  const id = o.offer_id || o.offer_details?.offer_id || o._id;
+                  if (id && !seenIds.has(id)) {
+                      seenIds.add(id);
+                      uniqueCategoryOffers.push(o);
+                  }
+              }
               
               return (
               <div key={i} style={{ marginBottom: '10px' }}>
@@ -986,7 +1139,7 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                     <span className="vert-pct-badge" style={{ background: lightColor, color: textColor }}>{v.value}%</span>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {categoryOffers.length > 0 ? categoryOffers.slice(0,3).map((o: any, idx: number) => (
+                    {uniqueCategoryOffers.length > 0 ? uniqueCategoryOffers.slice(0,3).map((o: any, idx: number) => (
                       <div key={idx} className="offer-chip">
                         <span className="dot" style={{ background: color }}></span>
                         <span>{o.offer_details?.name || o.offer_name} {o.offer_details?.payout ? `· $${o.offer_details.payout}` : ''}</span>
@@ -998,15 +1151,17 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                   </div>
                   <button 
                     className="send-btn" 
-                    style={{ marginTop: '8px', opacity: categoryOffers.length === 0 || sendingOffers ? 0.5 : 1 }}
-                    disabled={categoryOffers.length === 0 || sendingOffers}
+                    style={{ marginTop: '8px', opacity: uniqueCategoryOffers.length === 0 || sendingOffers ? 0.5 : 1 }}
+                    disabled={uniqueCategoryOffers.length === 0 || sendingOffers}
                     onClick={() => {
-                      if (categoryOffers.length > 0) {
-                        const topOffer = categoryOffers[0];
+                      if (uniqueCategoryOffers.length > 0) {
+                        const currentIndex = browsingSendIdx[v.name] || 0;
+                        const topOffer = uniqueCategoryOffers[currentIndex % uniqueCategoryOffers.length];
                         const offerId = topOffer.offer_id || topOffer.offer_details?.offer_id || topOffer._id;
                         const offerName = topOffer.offer_details?.name || topOffer.offer_name || 'Top Pick';
                         if (offerId) {
                           handleSendOffers([offerId], offerName);
+                          setBrowsingSendIdx(prev => ({ ...prev, [v.name]: currentIndex + 1 }));
                         } else {
                           toast({ title: 'Error', description: 'Could not resolve offer ID', variant: 'destructive' });
                         }
@@ -1062,9 +1217,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                   className="send-btn" 
                   style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.newly_added?.length || sendingOffers) ? 0.5 : 1 }}
                   disabled={!safeTargeting.newly_added?.length || sendingOffers}
-                  onClick={() => handleSendOffers([safeTargeting.newly_added[0].offer_id || safeTargeting.newly_added[0]._id])}
+                  onClick={() => {
+                    const idx = recoSendIdx['newly_added'] || 0;
+                    const o = safeTargeting.newly_added[idx % safeTargeting.newly_added.length];
+                    handleSendOffers([o.offer_id || o._id]);
+                    setRecoSendIdx(prev => ({ ...prev, newly_added: idx + 1 }));
+                  }}
                 >
-                  Send 1 offer ↗
+                  Send next offer ↗
                 </button>
               )}
             </div>
@@ -1084,9 +1244,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                   className="send-btn" 
                   style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.most_approved?.length || sendingOffers) ? 0.5 : 1 }}
                   disabled={!safeTargeting.most_approved?.length || sendingOffers}
-                  onClick={() => handleSendOffers([safeTargeting.most_approved[0].offer_id || safeTargeting.most_approved[0]._id])}
+                  onClick={() => {
+                    const idx = recoSendIdx['most_approved'] || 0;
+                    const o = safeTargeting.most_approved[idx % safeTargeting.most_approved.length];
+                    handleSendOffers([o.offer_id || o._id]);
+                    setRecoSendIdx(prev => ({ ...prev, most_approved: idx + 1 }));
+                  }}
                 >
-                  Send 1 offer ↗
+                  Send next offer ↗
                 </button>
               )}
             </div>
@@ -1106,9 +1271,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                   className="send-btn" 
                   style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.highly_clicked?.length || sendingOffers) ? 0.5 : 1 }}
                   disabled={!safeTargeting.highly_clicked?.length || sendingOffers}
-                  onClick={() => handleSendOffers([safeTargeting.highly_clicked[0].offer_id || safeTargeting.highly_clicked[0]._id])}
+                  onClick={() => {
+                    const idx = recoSendIdx['highly_clicked'] || 0;
+                    const o = safeTargeting.highly_clicked[idx % safeTargeting.highly_clicked.length];
+                    handleSendOffers([o.offer_id || o._id]);
+                    setRecoSendIdx(prev => ({ ...prev, highly_clicked: idx + 1 }));
+                  }}
                 >
-                  Send 1 offer ↗
+                  Send next offer ↗
                 </button>
               )}
             </div>
@@ -1128,9 +1298,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                   className="send-btn" 
                   style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.recently_deleted?.length || sendingOffers) ? 0.5 : 1 }}
                   disabled={!safeTargeting.recently_deleted?.length || sendingOffers}
-                  onClick={() => handleSendOffers([safeTargeting.recently_deleted[0].offer_id || safeTargeting.recently_deleted[0]._id])}
+                  onClick={() => {
+                    const idx = recoSendIdx['recently_deleted'] || 0;
+                    const o = safeTargeting.recently_deleted[idx % safeTargeting.recently_deleted.length];
+                    handleSendOffers([o.offer_id || o._id]);
+                    setRecoSendIdx(prev => ({ ...prev, recently_deleted: idx + 1 }));
+                  }}
                 >
-                  Send replacement ↗
+                  Send next replacement ↗
                 </button>
               )}
             </div>
@@ -1150,9 +1325,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                   className="send-btn" 
                   style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.recently_edited?.length || sendingOffers) ? 0.5 : 1 }}
                   disabled={!safeTargeting.recently_edited?.length || sendingOffers}
-                  onClick={() => handleSendOffers([safeTargeting.recently_edited[0].offer_id || safeTargeting.recently_edited[0]._id])}
+                  onClick={() => {
+                    const idx = recoSendIdx['recently_edited'] || 0;
+                    const o = safeTargeting.recently_edited[idx % safeTargeting.recently_edited.length];
+                    handleSendOffers([o.offer_id || o._id]);
+                    setRecoSendIdx(prev => ({ ...prev, recently_edited: idx + 1 }));
+                  }}
                 >
-                  Send 1 offer ↗
+                  Send next offer ↗
                 </button>
               )}
             </div>

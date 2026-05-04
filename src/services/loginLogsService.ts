@@ -848,7 +848,7 @@ class LoginLogsService {
 
     if (userEmail) params.user_email = userEmail;
 
-    const response = await api.get('/api/admin/insights/email-history', { params });
+    const response = await api.get('/api/admin/mail-history', { params });
 
     return response.data;
 

@@ -50,6 +50,10 @@ class IPinfoService:
         if self._is_private_ip(ip_address):
             logger.debug(f"Private/localhost IP detected: {ip_address}")
             return self._get_default_data(ip_address)
+
+        if not self.enabled:
+            logger.debug("IPinfo token not found, falling back to free ip-api.com")
+            return self._lookup_ip_api_fallback(ip_address)
         
         # Check cache first
         cached_data = self._get_from_cache(ip_address)
@@ -160,6 +164,62 @@ class IPinfoService:
         
         return min(score, 100)
     
+    def _lookup_ip_api_fallback(self, ip_address):
+        """Fallback to ip-api.com if IPinfo is not configured."""
+        # Check cache first
+        cached_data = self._get_from_cache(ip_address)
+        if cached_data:
+            return cached_data
+            
+        try:
+            response = requests.get(
+                f'http://ip-api.com/json/{ip_address}?fields=status,country,countryCode,regionName,city,zip,lat,lon,isp,org,as,asname,proxy,vpn,hosting',
+                timeout=3
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    vpn_detection = {
+                        'is_vpn': data.get('vpn', False),
+                        'is_proxy': data.get('proxy', False),
+                        'is_tor': False,
+                        'is_datacenter': data.get('hosting', False),
+                        'is_relay': False,
+                        'provider': None,
+                        'service': None,
+                        'confidence': 'high' if (data.get('vpn') or data.get('proxy') or data.get('hosting')) else 'low',
+                        'isp': data.get('isp', 'Unknown')
+                    }
+                    
+                    ip_data = {
+                        'ip_address': ip_address,
+                        'hostname': None,
+                        'country': data.get('country'),
+                        'country_code': data.get('countryCode'),
+                        'region': data.get('regionName'),
+                        'city': data.get('city'),
+                        'latitude': data.get('lat', 0),
+                        'longitude': data.get('lon', 0),
+                        'zip_code': data.get('zip', ''),
+                        'time_zone': '',
+                        'isp': data.get('isp', 'Unknown'),
+                        'domain': '',
+                        'asn': data.get('as', ''),
+                        'org': data.get('org', ''),
+                        'vpn_detection': vpn_detection,
+                        'fraud_score': self.calculate_fraud_score({'vpn_detection': vpn_detection}),
+                        'risk_level': 'low',
+                        'company': {},
+                        'carrier': {},
+                        'abuse': {}
+                    }
+                    self._save_to_cache(ip_address, ip_data)
+                    return ip_data
+        except Exception as e:
+            logger.warning(f"Error from ip-api fallback: {e}")
+            
+        return self._get_default_data(ip_address)
+
     def _parse_response(self, data, ip_address):
         """Parse IPinfo API response into structured format"""
         

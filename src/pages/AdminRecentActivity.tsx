@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
-import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter } from 'lucide-react';
+import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus } from 'lucide-react';
 import loginLogsService, { LoginLog } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -57,7 +57,7 @@ interface AggregatedUser {
 
 
 
-const ExpandedUserDetails: React.FC<{ user: AggregatedUser }> = ({ user }) => {
+const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => void }> = ({ user, onMailSent }) => {
   const [pageVisits, setPageVisits] = useState<any[]>([]);
   const [offerViews, setOfferViews] = useState<any[]>([]);
   const [searchLogs, setSearchLogs] = useState<any[]>([]);
@@ -93,6 +93,9 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser }> = ({ user }) => {
     } else if (type === 'warning') {
       subject = 'Important Notice Regarding Your Account Activity';
       body = `Hey ${user.username},<br/><br/>We have detected some unusual activity on your account recently.<br/>Please review your account security and ensure your postbacks are set up correctly.<br/>If you have any questions or believe this is an error, please reach out to support immediately.<br/><br/>Best regards,<br/>Team Moustache Leads`;
+    } else if (type === 'welcome_referral') {
+      subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
+      body = `Hey there! Welcome ${user.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
     }
 
     try {
@@ -102,6 +105,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser }> = ({ user }) => {
         description: `Successfully ${time ? 'scheduled' : 'sent'} ${type} mail to ${user.username}.`
       });
       setScheduleMailOpen(false);
+      if (onMailSent) onMailSent();
     } catch (e) {
       console.error(`Failed to send mail to ${user.email}`, e);
       toast({ title: 'Error', description: 'Failed to send mail', variant: 'destructive' });
@@ -169,7 +173,21 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser }> = ({ user }) => {
             <div key={idx} className="flex justify-between items-center text-xs py-1.5 border-b last:border-0 border-slate-100">
               <span className="font-medium text-foreground">{new Date(log.login_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
               <span className="text-muted-foreground text-[11px]">{log.ip_address}</span>
-              <span className="text-muted-foreground text-[11px]">{log.location?.city || 'Unknown'}</span>
+              <span className="text-muted-foreground text-[11px]">
+                {log.ip_address === '127.0.0.1' || log.ip_address === '::1' ? 'Localhost' : (() => {
+                  if (typeof log.location === 'string') return log.location !== 'Unknown' ? log.location : (user.country || 'Unknown');
+                  const validCity = log.location?.city && log.location.city !== 'Unknown' ? log.location.city : null;
+                  const validCountry = log.location?.country && log.location.country !== 'Unknown' ? log.location.country : null;
+                  const validCountryCode = log.location?.country_code && log.location.country_code !== 'Unknown' ? log.location.country_code : null;
+                  
+                  if (validCity && validCountry) return `${validCity}, ${validCountry}`;
+                  if (validCity) return validCity;
+                  if (validCountry) return validCountry;
+                  if (validCountryCode) return validCountryCode;
+                  
+                  return user.country || 'Unknown Location';
+                })()}
+              </span>
             </div>
           ))}
         </div>
@@ -201,6 +219,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser }> = ({ user }) => {
                       <SelectContent>
                         <SelectItem value="welcome">Welcome Mail</SelectItem>
                         <SelectItem value="referral">Referral Mail</SelectItem>
+                        <SelectItem value="welcome_referral">Welcome + Referral Mail</SelectItem>
                         <SelectItem value="warning">Warning Mail</SelectItem>
                       </SelectContent>
                     </Select>
@@ -224,7 +243,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser }> = ({ user }) => {
 
       <div id="intelligence-dashboard" className="border-t border-slate-200 pt-6 mt-6">
         <UserIntelligenceProfile
-          log={mockLog}
+          log={{...mockLog, user_id: user.user_id, username: user.username, email: user.email, geoPreferences: user.geoPreferences, verticals: user.verticals}}
           userLogs={user.logs}
           pageVisits={pageVisits}
           offerViews={offerViews}
@@ -264,7 +283,9 @@ const AdminRecentActivity: React.FC = () => {
   const [scheduleType, setScheduleType] = useState<'welcome' | 'referral' | 'warning' | 'welcome_referral' | string>('welcome');
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 20]);
   const [mapZoom, setMapZoom] = useState(1);
+  const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
+  const [globalMailMetrics, setGlobalMailMetrics] = useState({ total: 0, today: 0 });
 
   const { toast } = useToast();
 
@@ -381,16 +402,24 @@ const AdminRecentActivity: React.FC = () => {
 
       // Process mail history
       const mailMap = new Map<string, { welcome: string | null, referral: string | null, total: number }>();
+      let mailsToday = 0;
+      const todayString = new Date().toDateString();
+
       mailRes.history?.forEach((h: any) => {
+        if (h.sent_at && new Date(h.sent_at).toDateString() === todayString) {
+           mailsToday += h.success_count || h.recipients_count || (h.to?.length || 1);
+        }
         h.to?.forEach((email: string) => {
-          if (!mailMap.has(email)) mailMap.set(email, { welcome: null, referral: null, total: 0 });
-          const m = mailMap.get(email)!;
+          const e = email.toLowerCase();
+          if (!mailMap.has(e)) mailMap.set(e, { welcome: null, referral: null, total: 0 });
+          const m = mailMap.get(e)!;
           m.total += 1;
           const subject = h.subject?.toLowerCase() || '';
           if (subject.includes('welcome') && !m.welcome) m.welcome = h.sent_at;
           if (subject.includes('referral') && !m.referral) m.referral = h.sent_at;
         });
       });
+      setGlobalMailMetrics({ total: mailRes.total || 0, today: mailsToday });
 
       // Process users for profiles
       const profileMap = new Map<string, any>();
@@ -439,7 +468,8 @@ const AdminRecentActivity: React.FC = () => {
 
         if (!userMap.has(key)) {
           const profile = profileMap.get(log.user_id) || profileMap.get(log.email) || {};
-          const mInfo = mailMap.get(log.email) || { welcome: null, referral: null, total: 0 };
+          const userEmail = (log.email || '').toLowerCase();
+          const mInfo = mailMap.get(userEmail) || { welcome: null, referral: null, total: 0 };
           const { lat, lng } = getLatLng(log.location, log);
           userMap.set(key, {
             user_id: key, // fallback to key so actions don't break
@@ -485,6 +515,33 @@ const AdminRecentActivity: React.FC = () => {
       }
 
       const sortedUsers = Array.from(userMap.values()).map(userAgg => {
+        const u = profileMap.get(userAgg.user_id) || profileMap.get(userAgg.email) || profileMap.get(userAgg.username);
+        
+        // Find a valid 2-letter country code for mapping
+        let mapCountryCode = undefined;
+        // Try logs first
+        for (const log of userAgg.logs) {
+          if (log.location?.country_code && log.location.country_code !== 'XX' && COUNTRY_COORDS[log.location.country_code]) {
+            mapCountryCode = log.location.country_code;
+            break;
+          }
+        }
+        
+        if (u) {
+          userAgg.first_name = u.first_name;
+          userAgg.last_name = u.last_name;
+          userAgg.verticals = u.verticals;
+          userAgg.geoPreferences = u.geos;
+          
+          // If no code from logs, use the user's primary geo preference
+          if (!mapCountryCode && u.geos && u.geos.length > 0 && COUNTRY_COORDS[u.geos[0]]) {
+            mapCountryCode = u.geos[0];
+          }
+        }
+        
+        // Default to US if completely unknown so they show on the map
+        userAgg.country = mapCountryCode || 'US';
+
         const uniqueCountries = new Set(userAgg.logs.map((l: any) => l.location?.country_code).filter(Boolean));
         const uniqueCities = new Set(userAgg.logs.map((l: any) => l.location?.city).filter(Boolean));
         const uniqueIps = new Set(userAgg.logs.map((l: any) => l.ip_address).filter(Boolean));
@@ -543,6 +600,9 @@ const AdminRecentActivity: React.FC = () => {
       } else if (type === 'warning') {
         subject = 'Important Notice Regarding Your Account Activity';
         body = `Hey ${u.username},<br/><br/>We have detected some unusual activity on your account recently.<br/>Please review your account security and ensure your postbacks are set up correctly.<br/>If you have any questions or believe this is an error, please reach out to support immediately.<br/><br/>Best regards,<br/>Team Moustache Leads`;
+      } else if (type === 'welcome_referral') {
+        subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
+        body = `Hey there! Welcome ${u.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
       }
 
       try {
@@ -562,7 +622,25 @@ const AdminRecentActivity: React.FC = () => {
     loadData(); // refresh to update mail tracking state
   };
 
-  const handleUserAction = (userId: string, action: string) => {
+  const handleUserAction = async (userId: string, action: string) => {
+    const userToActOn = allUsers.find(u => u.user_id === userId);
+
+    if (action === 'Send Welcome + Referral Mail' && userToActOn) {
+       try {
+         const subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
+         const body = `Hey there! Welcome ${userToActOn.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+         await loginLogsService.sendCustomMail([userToActOn.email], subject, body);
+         toast({ title: 'Mails Sent', description: `Welcome and Referral mails sent to ${userToActOn.username}.` });
+         setAllUsers(prevUsers => prevUsers.map(u => {
+           if (u.user_id !== userId) return u;
+           return { ...u, welcomeMailSentAt: new Date().toISOString(), referralMailSentAt: new Date().toISOString(), totalMails: u.totalMails + 2 };
+         }));
+       } catch (e) {
+         toast({ title: 'Error', description: 'Failed to send combined mail', variant: 'destructive' });
+       }
+       return;
+    }
+
     setAllUsers(prevUsers => prevUsers.map(u => {
       if (u.user_id !== userId) return u;
       const newU = { ...u };
@@ -580,11 +658,6 @@ const AdminRecentActivity: React.FC = () => {
         toast({ title: 'Unflagged', description: `User ${newU.username} is no longer suspicious.` });
       } else if (action === 'Send Warning') {
         toast({ title: 'Warning Sent', description: `Warning mail queued for ${newU.username}.` });
-      } else if (action === 'Send Welcome + Referral Mail') {
-        newU.welcomeMailSentAt = new Date().toISOString();
-        newU.referralMailSentAt = new Date().toISOString();
-        newU.totalMails += 2;
-        toast({ title: 'Mails Sent', description: `Welcome and Referral mails queued for ${newU.username}.` });
       } else if (action === 'View Profile') {
         toast({ title: 'View Profile', description: `Navigating to ${newU.username}'s profile.` });
       } else if (action === 'View Behavior') {
@@ -647,14 +720,8 @@ const AdminRecentActivity: React.FC = () => {
     noWelcome: users.filter(u => !u.welcomeMailSentAt).length,
     noReferral: users.filter(u => !u.referralMailSentAt).length,
     suspicious: users.filter(u => u.isSuspicious).length,
-    totalSent: users.reduce((acc, u) => acc + (u.totalMails || 0), 0),
-    sentToday: users.reduce((acc, u) => {
-      const today = new Date().toDateString();
-      let count = 0;
-      if (u.welcomeMailSentAt && new Date(u.welcomeMailSentAt).toDateString() === today) count++;
-      if (u.referralMailSentAt && new Date(u.referralMailSentAt).toDateString() === today) count++;
-      return acc + count;
-    }, 0)
+    totalSent: globalMailMetrics.total,
+    sentToday: globalMailMetrics.today
   };
 
   return (
@@ -852,6 +919,16 @@ const AdminRecentActivity: React.FC = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0 relative h-[400px] bg-[#111827] overflow-hidden rounded-b-xl" onMouseLeave={() => setTooltip(null)} onWheel={handleMapWheel}>
+            {/* Map Controls */}
+            <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
+              <Button size="icon" variant="secondary" className="w-8 h-8 rounded shadow-md bg-white/20 hover:bg-white/30 border border-white/20 text-white backdrop-blur-md" onClick={() => setMapZoom(prev => Math.min(prev * 1.5, 400))}>
+                <Plus className="w-4 h-4" />
+              </Button>
+              <Button size="icon" variant="secondary" className="w-8 h-8 rounded shadow-md bg-white/20 hover:bg-white/30 border border-white/20 text-white backdrop-blur-md" onClick={() => setMapZoom(prev => Math.max(prev / 1.5, 1))}>
+                <Minus className="w-4 h-4" />
+              </Button>
+            </div>
+            
             <ComposableMap projectionConfig={{ scale: 140, center: mapCenter }} style={{ width: '100%', height: '100%' }}>
               <ZoomableGroup zoom={mapZoom} center={mapCenter} onMoveEnd={({ coordinates, zoom: z }) => { setMapCenter(coordinates as [number, number]); setMapZoom(z); }}>
                 <Geographies geography={GEO_URL}>
@@ -862,6 +939,8 @@ const AdminRecentActivity: React.FC = () => {
                 {mapMarkers.map(u => (
                   <Marker key={u.user_id} coordinates={[u.lng!, u.lat!]} onClick={() => {
                     setExpandedId(u.user_id);
+                    setHighlightedRowId(u.user_id);
+                    setTimeout(() => setHighlightedRowId(null), 2500); // Clear highlight after flash
                     const element = document.getElementById(`user-row-${u.user_id}`);
                     if (element) {
                       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1005,13 +1084,15 @@ const AdminRecentActivity: React.FC = () => {
                 };
                 const { theme, badges } = getUserTheme();
 
+                const isHighlighted = highlightedRowId === user.user_id;
+
                 return (
                   <div key={user.user_id} id={`user-row-${user.user_id}`}>
                     <div
-                      className={`flex items-stretch rounded-md my-1.5 overflow-hidden border-[0.5px] cursor-pointer transition-shadow hover:shadow-sm ${theme.row} ${isSelected ? 'ring-1 ring-primary z-10 relative' : ''}`}
+                      className={`flex items-stretch rounded-md my-1.5 overflow-hidden border-[0.5px] cursor-pointer transition-all duration-500 hover:shadow-sm ${isHighlighted ? 'bg-yellow-100 ring-2 ring-yellow-400 scale-[1.02] shadow-md border-yellow-300 z-20 relative' : theme.row} ${isSelected ? 'ring-1 ring-primary z-10 relative' : ''}`}
                       onClick={() => setExpandedId(isExpanded ? null : user.user_id)}
                     >
-                      <div className={`w-[3px] shrink-0 ${theme.bar}`}></div>
+                      <div className={`w-[3px] shrink-0 transition-colors duration-500 ${isHighlighted ? 'bg-yellow-500' : theme.bar}`}></div>
                       <div className="flex items-center gap-3 p-1.5 pr-4 w-full min-w-0">
                         <div className="flex items-center gap-2 pl-2" onClick={e => e.stopPropagation()}>
                           <Checkbox checked={isSelected} onCheckedChange={() => toggleUserSelection(user.user_id)} />
@@ -1085,7 +1166,7 @@ const AdminRecentActivity: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2"><ExpandedUserDetails user={user} /></div>}
+                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2"><ExpandedUserDetails user={user} onMailSent={loadData} /></div>}
                   </div>
                 );
               })}
@@ -1097,7 +1178,10 @@ const AdminRecentActivity: React.FC = () => {
   );
 };
 
-const ADVANCED_GEOS = ['US', 'UK', 'CA', 'AU', 'DE', 'FR', 'IT', 'ES', 'BR', 'IN', 'JP', 'WW'];
+const ADVANCED_GEOS = [
+  'US', 'UK', 'CA', 'AU', 'DE', 'FR', 'IT', 'ES', 'BR', 'IN', 'JP', 'WW',
+  'AE', 'AF', 'AL', 'AM', 'AO', 'AR', 'AT', 'AZ', 'BA', 'BD', 'BE', 'BF', 'BG', 'BH', 'BI', 'BJ', 'BO', 'BS', 'BY', 'BZ', 'CD', 'CF', 'CG', 'CH', 'CI', 'CL', 'CM', 'CN', 'CO', 'CR', 'CU', 'CV', 'CY', 'CZ', 'DJ', 'DK', 'DO', 'DZ', 'EC', 'EE', 'EG', 'EH', 'ER', 'ET', 'FI', 'FJ', 'GA', 'GE', 'GH', 'GM', 'GN', 'GQ', 'GR', 'GT', 'GW', 'GY', 'HN', 'HR', 'HT', 'HU', 'ID', 'IE', 'IL', 'IQ', 'IR', 'IS', 'JM', 'JO', 'KE', 'KG', 'KH', 'KP', 'KR', 'KW', 'KZ', 'LA', 'LB', 'LK', 'LR', 'LS', 'LT', 'LU', 'LV', 'LY', 'MA', 'MD', 'ME', 'MG', 'MK', 'ML', 'MM', 'MN', 'MR', 'MW', 'MX', 'MY', 'MZ', 'NA', 'NE', 'NG', 'NI', 'NL', 'NO', 'NP', 'NZ', 'OM', 'PA', 'PE', 'PG', 'PH', 'PK', 'PL', 'PR', 'PT', 'PY', 'QA', 'RO', 'RS', 'RU', 'RW', 'SA', 'SD', 'SE', 'SG', 'SI', 'SK', 'SL', 'SN', 'SO', 'SR', 'SS', 'SV', 'SY', 'SZ', 'TD', 'TG', 'TH', 'TJ', 'TL', 'TM', 'TN', 'TR', 'TT', 'TW', 'TZ', 'UA', 'UG', 'UY', 'UZ', 'VE', 'VN', 'YE', 'ZA', 'ZM', 'ZW'
+];
 const ADVANCED_VERTICALS = ['Sweeps', 'Finance', 'Dating', 'CPA', 'CPI', 'Crypto', 'Nutra', 'E-commerce', 'Gaming', 'Software', 'Surveys', 'Other'];
 const LOGIN_COUNTS = ['Any', '1x', '2x', '3x', '4x', '5x+'];
 const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only'];
@@ -1141,7 +1225,7 @@ const AdvancedFilterModal: React.FC<{
 
         <div className="mb-8">
           <label className="block text-sm font-medium text-purple-100 mb-3">Country Filter — Which country are people currently online from?</label>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
             {ADVANCED_GEOS.map(opt => (
               <div key={opt} onClick={() => toggleArray('geos', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.geos?.includes(opt) ? 'border-green-400 bg-green-500/20 text-white shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
                 {opt}
@@ -1174,7 +1258,7 @@ const AdvancedFilterModal: React.FC<{
 
         <div className="mb-8">
           <label className="block text-sm font-medium text-purple-100 mb-3">Country / Geo Preference Filter — Which geos do users prefer?</label>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
             {ADVANCED_GEOS.map(opt => (
               <div key={opt} onClick={() => toggleArray('geoPreferences', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.geoPreferences?.includes(opt) ? 'border-orange-400 bg-orange-500/20 text-white shadow-[0_0_10px_rgba(249,115,22,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
                 {opt}

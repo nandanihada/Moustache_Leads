@@ -812,6 +812,10 @@ Moustache Leads"""
                 })
         except Exception as log_err:
             logging.warning(f"Failed to log send history: {log_err}")
+            with open('error_log.txt', 'a') as f:
+                f.write(f"Failed to log send history: {log_err}\n")
+                import traceback
+                f.write(traceback.format_exc())
 
         # Update masked links for these offers with recipient info
         try:
