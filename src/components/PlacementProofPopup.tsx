@@ -14,6 +14,7 @@ import { placementProofApi } from '@/services/placementProofApi';
 import {
   Camera, Upload, X, CheckCircle2, Loader2, ImagePlus, Link, Star,
 } from 'lucide-react';
+import { useImagePaste, fileToBase64 } from '@/hooks/useImagePaste';
 
 interface PlacementProofPopupProps {
   open: boolean;
@@ -33,6 +34,20 @@ export const PlacementProofPopup: React.FC<PlacementProofPopupProps> = ({
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+
+  // Ctrl+V paste support for images
+  useImagePaste(
+    async (file) => {
+      if (images.length >= 5) {
+        toast({ title: 'Max 5 images allowed', variant: 'destructive' });
+        return;
+      }
+      const base64 = await fileToBase64(file);
+      setImages((prev) => [...prev, base64].slice(0, 5));
+      toast({ title: 'Image pasted from clipboard' });
+    },
+    { enabled: open && !submitted, onError: (msg) => toast({ title: msg, variant: 'destructive' }) }
+  );
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;

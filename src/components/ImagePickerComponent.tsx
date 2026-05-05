@@ -8,6 +8,7 @@ import {
   Loader2, Sparkles, RefreshCw, Check, Upload, Search, ImageIcon, Wand2,
 } from 'lucide-react';
 import { adminOfferApi } from '@/services/adminOfferApi';
+import { useImagePaste, fileToBase64 } from '@/hooks/useImagePaste';
 
 // ─── Moustache Leads stock images ────────────────────────────────────
 const ML_IMAGES: { label: string; category: string; url: string }[] = [
@@ -52,6 +53,17 @@ export function ImagePickerComponent({ offerName, description, vertical, onImage
   // Upload tab state
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+
+  // Ctrl+V paste support — auto-switches to upload tab
+  useImagePaste(
+    async (file) => {
+      const dataUrl = await fileToBase64(file);
+      setUploadPreview(dataUrl);
+      setSelectedUrl(dataUrl);
+      setTab('upload');
+    },
+    { onError: () => {} }
+  );
 
   // Stock tab state
   const [stockSearch, setStockSearch] = useState('');

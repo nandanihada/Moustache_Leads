@@ -3,6 +3,7 @@ import { MessageCircle, Send, ChevronDown, ChevronUp, X, Image as ImageIcon } fr
 import { supportApi, SupportMessage } from '@/services/supportApi';
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { toast } from 'sonner';
+import { useImagePaste } from '@/hooks/useImagePaste';
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
@@ -28,6 +29,12 @@ export const SupportWidget: React.FC = () => {
     } catch { toast.error('Upload failed'); }
     finally { setUploading(false); }
   };
+
+  // Ctrl+V paste support for images
+  useImagePaste(
+    (file) => { handleImgUpload(file); toast.success('Image pasted from clipboard'); },
+    { enabled: open, onError: (msg) => toast.error(msg) }
+  );
 
   const load = async () => {
     setLoading(true);

@@ -4,6 +4,7 @@ import { supportApi, SupportMessage, SupportCounts } from '@/services/supportApi
 import { getApiBaseUrl } from '@/services/apiConfig';
 import { getAuthToken } from '@/utils/cookies';
 import { toast } from 'sonner';
+import { useImagePaste } from '@/hooks/useImagePaste';
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
@@ -64,6 +65,12 @@ const AdminSupportInbox: React.FC = () => {
     } catch { toast.error('Upload failed'); }
     finally { setReplyUploading(false); }
   };
+
+  // Ctrl+V paste support for images
+  useImagePaste(
+    (file) => { handleImageUpload(file); toast.success('Image pasted from clipboard'); },
+    { enabled: !!selected, onError: (msg) => toast.error(msg) }
+  );
 
   const load = async () => {
     setLoading(true);

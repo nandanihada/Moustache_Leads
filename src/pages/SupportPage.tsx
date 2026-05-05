@@ -5,6 +5,7 @@ import { getApiBaseUrl } from '@/services/apiConfig';
 import { getAuthToken } from '@/utils/cookies';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useImagePaste } from '@/hooks/useImagePaste';
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
@@ -43,6 +44,16 @@ const SupportPage: React.FC = () => {
     } catch { toast.error('Upload failed'); }
     finally { setUploading(false); }
   };
+
+  // Ctrl+V paste support for images
+  useImagePaste(
+    (file) => {
+      const target = showCompose ? 'compose' : 'reply';
+      handleImageUpload(file, target);
+      toast.success('Image pasted from clipboard');
+    },
+    { onError: (msg) => toast.error(msg) }
+  );
 
   const load = async () => {
     setLoading(true);
