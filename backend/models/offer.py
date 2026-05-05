@@ -31,6 +31,7 @@ VALID_CATEGORIES = [
     'FREE_TRIAL',
     'INSTALLS',
     'GAMES_INSTALL',
+    'OTHER'
 ]
 
 # Category keywords - ORDER MATTERS for priority!
@@ -131,15 +132,15 @@ LEGACY_CATEGORY_MAP = {
     'dating': 'DATING',
     'health': 'HEALTH',
     'education': 'EDUCATION',
-    'general': 'SWEEPSTAKES',
-    'ecommerce': 'FREE_TRIAL',
-    'e-commerce': 'FREE_TRIAL',
-    'entertainment': 'FREE_TRIAL',
-    'food': 'FREE_TRIAL',
-    'food delivery': 'FREE_TRIAL',
-    'travel': 'FREE_TRIAL',
-    'utilities': 'INSTALLS',
-    'lifestyle': 'FREE_TRIAL',
+    'general': 'OTHER',
+    'ecommerce': 'OTHER',
+    'e-commerce': 'OTHER',
+    'entertainment': 'OTHER',
+    'food': 'OTHER',
+    'food delivery': 'OTHER',
+    'travel': 'OTHER',
+    'utilities': 'OTHER',
+    'lifestyle': 'OTHER',
     'survey': 'SURVEY',
     'sweepstakes': 'SWEEPSTAKES',
     'sweeps': 'SWEEPSTAKES',
@@ -150,7 +151,7 @@ LEGACY_CATEGORY_MAP = {
     'games_install': 'GAMES_INSTALL',
     'free_trial': 'FREE_TRIAL',
     'installs': 'INSTALLS',
-    'other': 'SWEEPSTAKES'
+    'other': 'OTHER'
 }
 
 # Default fallback URL for geo-restricted users
@@ -285,7 +286,7 @@ def detect_category_from_text(name, description=''):
     Kept for backward compatibility.
     """
     categories = detect_categories_from_text(name, description)
-    return categories[0] if categories else 'SWEEPSTAKES'
+    return categories[0] if categories else 'OTHER'
 
 
 def map_category_to_new_system(category_value):
@@ -296,19 +297,13 @@ def map_category_to_new_system(category_value):
         category_value: Old category string
         
     Returns:
-        Mapped category string or 'SWEEPSTAKES' as default
+        Mapped category string or 'OTHER' as default
     """
     if not category_value:
-        return 'SWEEPSTAKES'
-    
-    # If the value is already a valid new category, return it directly
-    upper_val = str(category_value).upper().strip()
-    valid = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL']
-    if upper_val in valid:
-        return upper_val
+        return 'OTHER'
     
     category_lower = str(category_value).lower().strip()
-    return LEGACY_CATEGORY_MAP.get(category_lower, 'SWEEPSTAKES')
+    return LEGACY_CATEGORY_MAP.get(category_lower, 'OTHER')
 
 
 def validate_category(category_value):
@@ -322,7 +317,7 @@ def validate_category(category_value):
         Tuple of (is_valid, normalized_value or error_message)
     """
     if not category_value:
-        return True, 'SWEEPSTAKES'  # Default
+        return True, 'OTHER'  # Default
     
     # Check exact match (case-insensitive)
     category_upper = str(category_value).upper().strip()
@@ -823,9 +818,9 @@ class Offer:
                 'campaign_id': f"{original_offer['campaign_id']}-CLONE",
                 'name': f"{original_offer['name']} (Clone)",
                 'description': original_offer.get('description', ''),
-                'vertical': original_offer.get('vertical', 'SWEEPSTAKES'),
-                'category': original_offer.get('category', 'SWEEPSTAKES'),
-                'categories': original_offer.get('categories', [original_offer.get('vertical', 'SWEEPSTAKES')]),
+                'vertical': original_offer.get('vertical', 'OTHER'),
+                'category': original_offer.get('category', 'OTHER'),
+                'categories': original_offer.get('categories', [original_offer.get('vertical', 'OTHER')]),
                 'status': 'pending',  # New clones start as pending
                 'countries': original_offer.get('countries', []),
                 'payout': original_offer['payout'],
@@ -921,7 +916,7 @@ class Offer:
                     # Direct categories array provided (admin edit)
                     categories_list = [c.upper() for c in update_data['categories'] if c][:3]
                     if not categories_list:
-                        categories_list = ['SWEEPSTAKES']
+                        categories_list = ['OTHER']
                     update_data['categories'] = categories_list
                     update_data['vertical'] = categories_list[0]
                     update_data['category'] = categories_list[0]

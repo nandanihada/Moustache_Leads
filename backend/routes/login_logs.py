@@ -718,19 +718,38 @@ def get_user_offer_views(current_user, user_id):
         offer_views = []
         seen_keys = set()
         
-        # Build flexible user query — match by user_id OR username OR email
-        def build_user_query():
-            conditions = [{'user_id': user_id}]
-            # Also try ObjectId version
+        # Fetch user early to get all possible identifiers (id, email, username)
+        user_identifiers = [user_id]
+        if 'users' in db_instance.get_db().list_collection_names():
+            db = db_instance.get_db()
             try:
-                conditions.append({'user_id': ObjectId(user_id)})
+                user_obj = db.users.find_one({'$or': [{'_id': ObjectId(user_id)}, {'email': user_id}, {'username': user_id}]})
             except Exception:
-                pass
-            if username:
-                conditions.append({'username': username})
-            if email:
-                conditions.append({'user_email': email})
-                conditions.append({'email': email})
+                user_obj = db.users.find_one({'$or': [{'_id': user_id}, {'email': user_id}, {'username': user_id}]})
+            
+            if user_obj:
+                user_identifiers.append(str(user_obj.get('_id')))
+                if user_obj.get('email'): user_identifiers.append(user_obj.get('email'))
+                if user_obj.get('username'): user_identifiers.append(user_obj.get('username'))
+        
+        if email: user_identifiers.append(email)
+        if username: user_identifiers.append(username)
+        
+        user_identifiers = list(set(user_identifiers))
+        
+        def build_user_query():
+            conditions = [{'user_id': {'$in': user_identifiers}}]
+            # Also try ObjectId versions
+            obj_ids = []
+            for uid in user_identifiers:
+                try: obj_ids.append(ObjectId(uid))
+                except: pass
+            if obj_ids:
+                conditions.append({'user_id': {'$in': obj_ids}})
+            
+            conditions.append({'username': {'$in': user_identifiers}})
+            conditions.append({'email': {'$in': user_identifiers}})
+            conditions.append({'user_email': {'$in': user_identifiers}})
             return {'$or': conditions}
         
         user_query = build_user_query()
@@ -813,46 +832,97 @@ def get_user_offer_views(current_user, user_id):
 @token_required_with_user
 @subadmin_or_admin_required('login-logs')
 def get_inventory_matched_offers(current_user, user_id):
-    """Get offers matching what a user searched for — based on their search logs keywords"""
+    """Get 5 buckets of offers for the Offer Reco tab."""
     try:
-        limit = int(request.args.get('limit', 20))
         from database import db_instance
+        from datetime import datetime, timedelta
         
-        # Get user's recent search keywords
-        search_col = db_instance.get_collection('search_logs')
-        if search_col is None:
-            return jsonify({'offers': [], 'keywords': []}), 200
-        
-        recent_searches = list(search_col.find(
-            {'user_id': user_id},
-            {'keyword': 1}
-        ).sort('searched_at', -1).limit(20))
-        
-        keywords = list(set(s.get('keyword', '').strip().lower() for s in recent_searches if s.get('keyword', '').strip()))
-        
-        if not keywords:
-            return jsonify({'offers': [], 'keywords': []}), 200
-        
-        # Find active offers matching any of the keywords (name, category, or description)
+        limit = 6
         offers_col = db_instance.get_collection('offers')
         if offers_col is None:
-            return jsonify({'offers': [], 'keywords': keywords}), 200
-        
-        # Build regex OR query for keywords
-        keyword_patterns = [{'name': {'$regex': kw, '$options': 'i'}} for kw in keywords]
-        keyword_patterns += [{'category': {'$regex': kw, '$options': 'i'}} for kw in keywords]
-        keyword_patterns += [{'description': {'$regex': kw, '$options': 'i'}} for kw in keywords]
-        
-        matched_offers = list(offers_col.find(
-            {'$and': [{'status': 'active'}, {'$or': keyword_patterns}]},
-            {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'thumbnail': 1}
-        ).limit(limit))
-        
-        for o in matched_offers:
-            o['_id'] = str(o['_id'])
-        
-        return jsonify(mongodb_to_json({'offers': matched_offers, 'keywords': keywords})), 200
-        
+            return jsonify({}), 200
+            
+        # Get offers already sent or skipped in last 30 days
+        history_col = db_instance.get_collection('offer_send_history')
+        sent_offer_ids = set()
+        if history_col is not None:
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            logs = history_col.find({
+                '$or': [{'user_id': user_id}, {'recipient_user_ids': user_id}],
+                'created_at': {'$gte': thirty_days_ago}
+            })
+            for log in logs:
+                for oid in log.get('offer_ids', []):
+                    sent_offer_ids.add(oid)
+                    
+        base_query = {'status': {'$in': ['active', 'running']}}
+        if sent_offer_ids:
+            base_query['offer_id'] = {'$nin': list(sent_offer_ids)}
+            
+        project_fields = {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1}
+            
+        # 1. Newly added
+        newly_added = list(offers_col.find(base_query, project_fields).sort('created_at', -1).limit(limit))
+
+        # 2. Most approved
+        pipeline = [
+            {'$match': base_query},
+            {'$lookup': {
+                'from': 'affiliate_requests',
+                'localField': 'offer_id',
+                'foreignField': 'offer_id',
+                'as': 'requests'
+            }},
+            {'$addFields': {
+                'approved_requests': {
+                    '$size': {
+                        '$filter': {
+                            'input': '$requests',
+                            'as': 'req',
+                            'cond': {'$eq': ['$$req.status', 'approved']}
+                        }
+                    }
+                }
+            }},
+            {'$sort': {'approved_requests': -1}},
+            {'$limit': limit},
+            {'$project': project_fields}
+        ]
+        most_approved = list(offers_col.aggregate(pipeline))
+
+        # 3. Highly clicked
+        pipeline_clicks = [
+            {'$match': base_query},
+            {'$lookup': {
+                'from': 'clicks',
+                'localField': 'offer_id',
+                'foreignField': 'offer_id',
+                'as': 'clicks'
+            }},
+            {'$addFields': {'click_count': {'$size': '$clicks'}}},
+            {'$sort': {'click_count': -1}},
+            {'$limit': limit},
+            {'$project': project_fields}
+        ]
+        highly_clicked = list(offers_col.aggregate(pipeline_clicks))
+
+        # 4. Recently deleted
+        deleted_query = {'status': {'$in': ['deleted', 'inactive', 'paused']}}
+        if sent_offer_ids:
+            deleted_query['offer_id'] = {'$nin': list(sent_offer_ids)}
+        recently_deleted = list(offers_col.find(deleted_query, project_fields).sort('updated_at', -1).limit(limit))
+
+        # 5. Recently edited
+        recently_edited = list(offers_col.find(base_query, project_fields).sort('updated_at', -1).limit(limit))
+
+        return jsonify(mongodb_to_json({
+            'newly_added': newly_added,
+            'most_approved': most_approved,
+            'highly_clicked': highly_clicked,
+            'recently_deleted': recently_deleted,
+            'recently_edited': recently_edited
+        })), 200
+
     except Exception as e:
         logger.error(f"Error getting inventory matched offers: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500

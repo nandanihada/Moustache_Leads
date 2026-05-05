@@ -635,9 +635,37 @@ def send_offers_to_publisher():
         preview_in_email = data.get('preview_in_email', 'both')
         custom_preview_in_email = data.get('custom_preview_in_email', 'both')
         per_offer_payment_terms = data.get('per_offer_payment_terms', {})
+        schedule_time = data.get('schedule_time')
 
         if (not user_ids and not custom_emails) or (not offer_ids and not message_body):
             return jsonify({'error': 'At least one recipient and either offer_ids or message_body are required'}), 400
+
+        # Handle scheduling
+        if schedule_time and send_via == 'email':
+            from datetime import datetime, timezone
+            try:
+                scheduled_datetime = datetime.fromisoformat(schedule_time.replace('Z', '+00:00'))
+                if scheduled_datetime.tzinfo is not None:
+                    scheduled_datetime = scheduled_datetime.astimezone(timezone.utc).replace(tzinfo=None)
+                
+                db = db_instance.get_db()
+                db.scheduled_emails.insert_one({
+                    'recipients': user_ids + custom_emails,
+                    'subject': subject or 'Recommended Offers for You',
+                    'offer_ids': offer_ids,
+                    'template_type': template_type,
+                    'scheduled_at': scheduled_datetime,
+                    'status': 'scheduled',
+                    'created_at': datetime.utcnow(),
+                    'payload': data
+                })
+                return jsonify({
+                    'success': True,
+                    'scheduled': True,
+                    'message': f"Scheduled to {len(user_ids) + len(custom_emails)} recipient(s) at {scheduled_datetime.isoformat()}"
+                })
+            except Exception as e:
+                return jsonify({'error': f'Invalid schedule time: {str(e)}'}), 400
 
         users_collection = db_instance.get_collection('users')
         offers_collection = db_instance.get_collection('offers')
@@ -781,17 +809,22 @@ Moustache Leads"""
                     results['failed'] += 1
                     results['errors'].append(f"{str(user.get('username', ''))}: {str(e)}")
 
+        elif send_via == 'skip':
+            # Skip doesn't send any real notification or email, it just updates history
+            results['sent'] = len(user_ids)
+
         # Create offer grants for the recipients so they can see inactive offers
-        try:
-            from models.offer_grant import OfferGrant
-            grant_model = OfferGrant()
-            admin_username = request.current_user.get('username', 'admin')
-            for u in users:
-                uid = str(u.get('_id', ''))
-                if uid and offer_ids:
-                    grant_model.grant_offers_to_user(uid, offer_ids, source='offer_access_request', granted_by=admin_username)
-        except Exception as grant_err:
-            logging.warning(f"Failed to create offer grants: {grant_err}")
+        if send_via != 'skip':
+            try:
+                from models.offer_grant import OfferGrant
+                grant_model = OfferGrant()
+                admin_username = request.current_user.get('username', 'admin')
+                for u in users:
+                    uid = str(u.get('_id', ''))
+                    if uid and offer_ids:
+                        grant_model.grant_offers_to_user(uid, offer_ids, source='offer_access_request', granted_by=admin_username)
+            except Exception as grant_err:
+                logging.warning(f"Failed to create offer grants: {grant_err}")
 
         # Log to offer_send_history so Publisher Intelligence can track it
         try:
@@ -806,12 +839,17 @@ Moustache Leads"""
                     'offer_count': len(offer_ids),
                     'source': 'offer_request',
                     'send_via': send_via,
+                    'status': 'skipped' if send_via == 'skip' else 'sent',
                     'subject': email_subject,
                     'admin_username': request.current_user.get('username', 'admin'),
                     'created_at': datetime.utcnow(),
                 })
         except Exception as log_err:
             logging.warning(f"Failed to log send history: {log_err}")
+            with open('error_log.txt', 'a') as f:
+                f.write(f"Failed to log send history: {log_err}\n")
+                import traceback
+                f.write(traceback.format_exc())
 
         # Update masked links for these offers with recipient info
         try:

@@ -848,7 +848,7 @@ class LoginLogsService {
 
     if (userEmail) params.user_email = userEmail;
 
-    const response = await api.get('/api/admin/insights/email-history', { params });
+    const response = await api.get('/api/admin/mail-history', { params });
 
     return response.data;
 
@@ -880,6 +880,11 @@ class LoginLogsService {
 
   async deleteScheduledActivity(activityId: string): Promise<any> {
     const response = await api.delete(`/api/admin/scheduled-activity/${activityId}`);
+    return response.data;
+  }
+
+  async updateScheduledActivity(activityId: string, data: any): Promise<any> {
+    const response = await api.put(`/api/admin/scheduled-activity/${activityId}`, data);
     return response.data;
   }
 
