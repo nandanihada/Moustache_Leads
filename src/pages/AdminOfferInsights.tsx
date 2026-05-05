@@ -57,6 +57,7 @@ import {
 } from '@/services/offerInsightsApi';
 import InsightEmailCampaign from '@/components/InsightEmailCampaign';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import OfferActionIcons from '@/components/OfferActionIcons';
 
 // Default placeholder image as data URI to avoid external image loading issues
 const PLACEHOLDER_IMAGE = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIGZpbGw9IiNFNUU3RUIiLz48cGF0aCBkPSJNMjUgMjVIMzVWMzVIMjVWMjVaIiBmaWxsPSIjOUI5QkEzIi8+PHBhdGggZD0iTTIwIDQwTDI3LjUgMzJMMzIuNSAzN0wzNy41IDMwTDQ1IDQwSDIwWiIgZmlsbD0iIzlCOUJBMyIvPjwvc3ZnPg==';
@@ -685,6 +686,7 @@ const AdminOfferInsights = () => {
                               <Badge variant="outline" className="mt-1 text-xs">
                                 {offer.category || 'General'}
                               </Badge>
+                              <OfferActionIcons offerId={offer.offer_id} offerName={offer.name} currentCategory={offer.category} />
                             </div>
                           </div>
                           

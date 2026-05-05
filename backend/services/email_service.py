@@ -337,8 +337,11 @@ class EmailService:
                     custom_message=custom_message,
                     template_style=ts.get('template_style', 'table'),
                     visible_fields=ts.get('visible_fields'),
+                    see_more_fields=ts.get('see_more_fields'),
                     payout_type=ts.get('payout_type', 'publisher'),
                     default_image=ts.get('default_image', ''),
+                    mask_preview_links=ts.get('mask_preview_links', False),
+                    payment_terms=ts.get('payment_terms', ''),
                 )
             except Exception as tmpl_err:
                 logger.warning(f"Template builder failed, using default: {tmpl_err}")

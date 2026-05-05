@@ -33,6 +33,9 @@ import { useToast } from '@/hooks/use-toast';
 import { API_BASE_URL } from '../services/apiConfig';
 import { TrafficSourceDisplay } from './TrafficSourceDisplay';
 import { TrafficSourceRules, getDefaultRulesForCategory } from '@/services/trafficSourceApi';
+import { ImagePickerComponent } from '@/components/ImagePickerComponent';
+import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
+import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
 
 interface EditOfferModalProps {
   open: boolean;
@@ -732,7 +735,24 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                   </div>
 
                   <div>
-                    <Label htmlFor="description">Description</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="description">Description</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-purple-600" title="AI Description Generator">
+                            <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="" className="w-4 h-4 mr-1" />Generate
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[450px] p-3" align="end">
+                          <DescriptionGeneratorComponent
+                            offerName={formData.name || ''}
+                            existingDescription={formData.description || ''}
+                            vertical={formData.vertical}
+                            onDescriptionSaved={(newDesc) => handleInputChange('description', newDesc)}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
                     <Textarea
                       id="description"
                       value={formData.description || ''}
@@ -744,7 +764,24 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="vertical">Category</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="vertical">Category</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-blue-600" title="AI Vertical Suggester">
+                              <img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="" className="w-4 h-4 mr-1" />Suggest
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[400px] p-3" align="end">
+                            <VerticalSuggesterComponent
+                              offerName={formData.name || ''}
+                              description={formData.description || ''}
+                              currentVertical={formData.vertical || ''}
+                              onVerticalSaved={(newVertical) => handleInputChange('vertical', newVertical)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
                       <Select value={formData.vertical || 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select category" />
@@ -1620,14 +1657,30 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                       <div className="grid grid-cols-2 gap-6">
                         <div>
                           <Label htmlFor="image_url">Main Image URL</Label>
-                          <Input
-                            id="image_url"
-                            type="url"
-                            value={formData.image_url}
-                            onChange={(e) => handleInputChange('image_url', e.target.value)}
-                            placeholder="https://example.com/image.jpg"
-                            className="mb-3"
-                          />
+                          <div className="flex gap-2">
+                            <Input
+                              id="image_url"
+                              type="url"
+                              value={formData.image_url}
+                              onChange={(e) => handleInputChange('image_url', e.target.value)}
+                              placeholder="https://example.com/image.jpg"
+                              className="mb-3 flex-1"
+                            />
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <Button type="button" size="sm" variant="outline" className="h-9 px-2 shrink-0" title="AI Image Generator">
+                                  <ImageIcon className="h-4 w-4" />
+                                </Button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-[500px] p-3" align="end">
+                                <ImagePickerComponent
+                                  offerName={formData.name || ''}
+                                  vertical={formData.vertical}
+                                  onImageSelected={(url) => handleInputChange('image_url', url)}
+                                />
+                              </PopoverContent>
+                            </Popover>
+                          </div>
 
                           {imagePreview ? (
                             <div className="border rounded-lg p-2 bg-gray-50">

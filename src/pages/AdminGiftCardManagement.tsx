@@ -28,6 +28,8 @@ import { giftCardAdminApi, type GiftCard, type CreateGiftCardData } from '@/serv
 import { API_BASE_URL } from '@/services/apiConfig';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ImagePickerComponent } from '@/components/ImagePickerComponent';
 
 interface SimpleUser {
     _id: string;
@@ -319,8 +321,23 @@ export default function AdminGiftCardManagement() {
                             </div>
                             <div className="space-y-2">
                                 <Label>Image URL</Label>
-                                <Input placeholder="https://example.com/gift-card.jpg" value={formData.image_url}
-                                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })} />
+                                <div className="flex gap-2">
+                                    <Input placeholder="https://example.com/gift-card.jpg" value={formData.image_url}
+                                        onChange={(e) => setFormData({ ...formData, image_url: e.target.value })} className="flex-1" />
+                                    <Popover>
+                                        <PopoverTrigger asChild>
+                                            <Button type="button" size="sm" variant="outline" className="h-9 px-2 shrink-0" title="AI Image Generator">
+                                                <Plus className="h-4 w-4" />
+                                            </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-[500px] p-3" align="end">
+                                            <ImagePickerComponent
+                                                offerName={formData.name || 'Gift Card'}
+                                                onImageSelected={(url) => setFormData({ ...formData, image_url: url })}
+                                            />
+                                        </PopoverContent>
+                                    </Popover>
+                                </div>
                             </div>
                             <div className="space-y-2">
                                 <Label>Expiry Date *</Label>

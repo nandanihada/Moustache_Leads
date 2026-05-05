@@ -33,6 +33,10 @@ import { API_BASE_URL } from '../services/apiConfig';
 import { TrafficSourceDisplay } from './TrafficSourceDisplay';
 import { TrafficSourceRules, getDefaultRulesForCategory } from '@/services/trafficSourceApi';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import { ImagePickerComponent } from '@/components/ImagePickerComponent';
+import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
+import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
+import LinkMasker from '@/components/LinkMasker';
 
 interface AddOfferModalProps {
   open: boolean;
@@ -147,6 +151,11 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const [emailSubject, setEmailSubject] = useState('');
   const [emailMessage, setEmailMessage] = useState('');
+  const [excludeUserIds, setExcludeUserIds] = useState<string[]>([]);
+  const [includeUserIds, setIncludeUserIds] = useState<string[]>([]);
+  const [recipientMode, setRecipientMode] = useState<'all' | 'include' | 'exclude'>('all');
+  const [userSearchInput, setUserSearchInput] = useState('');
+  const [availableUsers, setAvailableUsers] = useState<Array<{_id: string; username: string; email: string}>>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedAllowedCountries, setSelectedAllowedCountries] = useState<string[]>([]);  // NEW: For geo-restriction
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -480,10 +489,15 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         send_email: sendEmail,
         email_template_style: emailSettings.templateStyle,
         email_visible_fields: emailSettings.visibleFields,
+        email_see_more_fields: emailSettings.seeMoreFields,
         email_default_image: emailSettings.defaultImage,
         email_payout_type: emailSettings.payoutType,
+        email_mask_preview_links: emailSettings.maskPreviewLinks,
+        email_payment_terms: emailSettings.paymentTerms,
         email_subject: emailSubject || undefined,
         email_message: emailMessage || undefined,
+        email_exclude_user_ids: excludeUserIds.length > 0 ? excludeUserIds : undefined,
+        email_include_user_ids: includeUserIds.length > 0 ? includeUserIds : undefined,
       };
 
       // Remove partner_id if it's empty
@@ -662,7 +676,24 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                   </div>
 
                   <div>
-                    <Label htmlFor="description">Description</Label>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="description">Description</Label>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-purple-600" title="AI Description Generator">
+                            <img src="https://i.postimg.cc/XB0zjj5r/description.png" alt="" className="w-4 h-4 mr-1" />Generate
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[450px] p-3" align="end">
+                          <DescriptionGeneratorComponent
+                            offerName={formData.name || 'New Offer'}
+                            existingDescription={formData.description || ''}
+                            vertical={formData.vertical}
+                            onDescriptionSaved={(newDesc) => handleInputChange('description', newDesc)}
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
                     <Textarea
                       id="description"
                       value={formData.description || ''}
@@ -674,7 +705,24 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="vertical">Category</Label>
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="vertical">Category</Label>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-blue-600" title="AI Vertical Suggester">
+                              <img src="https://i.postimg.cc/bw1GTwsg/categorization.png" alt="" className="w-4 h-4 mr-1" />Suggest
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[400px] p-3" align="end">
+                            <VerticalSuggesterComponent
+                              offerName={formData.name || 'New Offer'}
+                              description={formData.description || ''}
+                              currentVertical={formData.vertical || ''}
+                              onVerticalSaved={(newVertical) => handleInputChange('vertical', newVertical)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
                       <Select value={formData.vertical || 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select category" />
@@ -1585,13 +1633,30 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                   {(formData.creative_type === 'image' || !formData.creative_type) && (
                     <div>
                       <Label htmlFor="image_url">Image URL</Label>
-                      <Input
-                        id="image_url"
-                        type="url"
-                        value={formData.image_url || ''}
-                        onChange={(e) => handleInputChange('image_url', e.target.value)}
-                        placeholder="https://example.com/image.jpg"
-                      />
+                      <div className="flex gap-2">
+                        <Input
+                          id="image_url"
+                          type="url"
+                          value={formData.image_url || ''}
+                          onChange={(e) => handleInputChange('image_url', e.target.value)}
+                          placeholder="https://example.com/image.jpg"
+                          className="flex-1"
+                        />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button type="button" size="sm" variant="outline" className="h-9 px-2 shrink-0" title="AI Image Generator">
+                              <ImageIcon className="h-4 w-4" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-[500px] p-3" align="end">
+                            <ImagePickerComponent
+                              offerName={formData.name || 'New Offer'}
+                              vertical={formData.vertical}
+                              onImageSelected={(url) => handleInputChange('image_url', url)}
+                            />
+                          </PopoverContent>
+                        </Popover>
+                      </div>
                     </div>
                   )}
 
@@ -2339,6 +2404,73 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                   <Label className="text-xs">Email Message (optional — shown above offer card)</Label>
                   <Textarea value={emailMessage} onChange={e => setEmailMessage(e.target.value)} placeholder="Please push more traffic on this offer!" rows={2} className="mt-1 text-sm" />
                 </div>
+
+                {/* Include/Exclude Users */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">Recipients</Label>
+                  <div className="flex gap-2">
+                    {(['all', 'include', 'exclude'] as const).map(mode => (
+                      <button key={mode} type="button" onClick={() => {
+                        setRecipientMode(mode);
+                        if (mode !== 'all' && availableUsers.length === 0) {
+                          const token = localStorage.getItem('token');
+                          fetch(`${API_BASE_URL}/api/auth/admin/users`, {
+                            headers: { Authorization: `Bearer ${token}` }
+                          }).then(r => r.json()).then(d => setAvailableUsers(d.users || [])).catch(() => {});
+                        }
+                      }}
+                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${recipientMode === mode ? 'bg-purple-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}>
+                        {mode === 'all' ? '📧 All Publishers' : mode === 'include' ? '✅ Include Only' : '❌ Exclude'}
+                      </button>
+                    ))}
+                  </div>
+                  {recipientMode !== 'all' && (
+                    <div className="space-y-1.5">
+                      <Input
+                        value={userSearchInput}
+                        onChange={e => setUserSearchInput(e.target.value)}
+                        placeholder={`Filter users to ${recipientMode}...`}
+                        className="h-8 text-xs"
+                      />
+                      <div className="max-h-40 overflow-y-auto border rounded-lg bg-background">
+                        {availableUsers.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-muted-foreground text-center">Loading users...</div>
+                        ) : (
+                          availableUsers
+                            .filter(u => !userSearchInput || u.username.toLowerCase().includes(userSearchInput.toLowerCase()) || u.email.toLowerCase().includes(userSearchInput.toLowerCase()))
+                            .slice(0, 50)
+                            .map(u => {
+                              const list = recipientMode === 'include' ? includeUserIds : excludeUserIds;
+                              const isSelected = list.includes(u._id);
+                              return (
+                                <button key={u._id} type="button"
+                                  className={`w-full text-left px-2 py-1.5 text-xs hover:bg-muted flex items-center justify-between border-b border-border/30 last:border-0 ${isSelected ? 'bg-purple-50 dark:bg-purple-950/20' : ''}`}
+                                  onClick={() => {
+                                    if (recipientMode === 'include') {
+                                      setIncludeUserIds(prev => isSelected ? prev.filter(id => id !== u._id) : [...prev, u._id]);
+                                    } else {
+                                      setExcludeUserIds(prev => isSelected ? prev.filter(id => id !== u._id) : [...prev, u._id]);
+                                    }
+                                  }}>
+                                  <span className="flex items-center gap-2">
+                                    <span className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${isSelected ? 'bg-purple-600 border-purple-600 text-white' : 'border-gray-300'}`}>
+                                      {isSelected && '✓'}
+                                    </span>
+                                    <span>{u.username}</span>
+                                    <span className="text-muted-foreground">({u.email})</span>
+                                  </span>
+                                </button>
+                              );
+                            })
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        {recipientMode === 'include' ? `${includeUserIds.length} users selected to receive email` : `${excludeUserIds.length} users excluded from email`}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} compact />
               </div>
             )}

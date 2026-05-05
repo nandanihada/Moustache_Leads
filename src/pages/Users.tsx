@@ -27,6 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { API_BASE_URL } from "@/services/apiConfig";
 import UserPreferenceBadges from "@/components/UserPreferenceBadges";
+import OfferActionIcons from "@/components/OfferActionIcons";
 
 interface User {
   _id: string;
@@ -960,7 +961,10 @@ const Users = () => {
                                           ) : profileStats[user._id]?.approved_offers?.length > 0 ? (
                                             profileStats[user._id].approved_offers.map((offer: any) => (
                                               <div key={offer.id} className="p-3 bg-green-50 rounded-lg border border-green-100">
-                                                <div className="font-semibold text-sm text-green-900">{offer.name}</div>
+                                                <div className="flex items-center justify-between">
+                                                  <div className="font-semibold text-sm text-green-900">{offer.name}</div>
+                                                  <OfferActionIcons offerId={offer.id} offerName={offer.name} currentCategory={offer.category} />
+                                                </div>
                                                 <div className="text-xs text-green-700 mt-1">{offer.network} • ${offer.payout}</div>
                                               </div>
                                             ))
@@ -981,7 +985,10 @@ const Users = () => {
                                           ) : profileStats[user._id]?.rejected_offers?.length > 0 ? (
                                             profileStats[user._id].rejected_offers.map((offer: any) => (
                                               <div key={offer.id} className="p-3 bg-red-50 rounded-lg border border-red-100">
-                                                <div className="font-semibold text-sm text-red-900">{offer.name}</div>
+                                                <div className="flex items-center justify-between">
+                                                  <div className="font-semibold text-sm text-red-900">{offer.name}</div>
+                                                  <OfferActionIcons offerId={offer.id} offerName={offer.name} currentCategory={offer.category} />
+                                                </div>
                                                 <div className="text-xs text-red-700 mt-1">{offer.network} • ${offer.payout}</div>
                                                 {offer.reason && <div className="text-xs text-red-600 mt-1">Reason: {offer.reason}</div>}
                                               </div>

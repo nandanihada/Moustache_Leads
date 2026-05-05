@@ -2006,10 +2006,12 @@ def get_tab_data():
                     '_id': '$offer_id',
                     'total_requests': {'$sum': 1},
                     'unique_users': {'$addToSet': '$user_id'},
+                    'usernames': {'$addToSet': '$username'},
                     'approved_count': {'$sum': {'$cond': [{'$eq': ['$status', 'approved']}, 1, 0]}},
                     'rejected_count': {'$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}},
                     'pending_count': {'$sum': {'$cond': [{'$in': ['$status', ['pending', 'review']]}, 1, 0]}},
                     'last_requested_at': {'$max': '$requested_at'},
+                    'last_username': {'$last': '$username'},
                 }},
                 {'$addFields': {'unique_users_count': {'$size': '$unique_users'}}},
                 {'$sort': {'total_requests': -1}},
@@ -2057,6 +2059,7 @@ def get_tab_data():
                     'rejected_count': r['rejected_count'],
                     'pending_count': r['pending_count'],
                     'last_requested_at': r.get('last_requested_at'),
+                    'publisher_username': r.get('last_username', ''),
                     'status': 'most_requested',
                 })
 

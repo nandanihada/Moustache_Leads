@@ -12,6 +12,7 @@ import {
 import { API_BASE_URL } from '@/services/apiConfig';
 import { EditOfferModal } from '@/components/EditOfferModal';
 import { adminOfferApi } from '@/services/adminOfferApi';
+import OfferActionIcons from '@/components/OfferActionIcons';
 
 export interface TabOfferRequest {
   _id: string;
@@ -83,6 +84,10 @@ export default function OfferCard({ item, tab, isSelected, onToggleSelect, onCol
   const [editOffer, setEditOffer] = useState<any>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [loadingEdit, setLoadingEdit] = useState(false);
+  const [showRelated, setShowRelated] = useState(false);
+  const [relatedOffers, setRelatedOffers] = useState<any[]>([]);
+  const [loadingRelated, setLoadingRelated] = useState(false);
+  const [selectedRelatedIds, setSelectedRelatedIds] = useState<Set<string>>(new Set());
   const token = localStorage.getItem('token');
 
   const handleEdit = async () => {
@@ -272,6 +277,9 @@ export default function OfferCard({ item, tab, isSelected, onToggleSelect, onCol
             {loadingEdit ? <Loader2 className="w-3 h-3 animate-spin" /> : <Edit className="w-3 h-3" />}Edit
           </Button>
 
+          {/* Smart Tools (Image, Description, Vertical, Masking) */}
+          <OfferActionIcons offerId={item.offer_id} offerName={item.offer_name} currentCategory={item.offer_category} />
+
           {/* Health button */}
           <div className="relative">
             <Button size="sm" variant="outline"
@@ -319,8 +327,79 @@ export default function OfferCard({ item, tab, isSelected, onToggleSelect, onCol
               <Trash2 className="w-3 h-3" />
             </Button>
           )}
+
+          {/* Related Offers toggle */}
+          <Button size="sm" variant="outline" className="h-7 px-2 text-[10px] gap-1 text-indigo-600 border-indigo-200"
+            onClick={() => {
+              if (showRelated) { setShowRelated(false); return; }
+              setShowRelated(true);
+              if (relatedOffers.length === 0 && !loadingRelated) {
+                setLoadingRelated(true);
+                const token = localStorage.getItem('token');
+                fetch(`${API_BASE_URL}/api/admin/offer-access-requests/inventory-matches?offer_name=${encodeURIComponent(item.offer_name)}&limit=8`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                }).then(r => r.ok ? r.json() : { matches: [] })
+                  .then(d => setRelatedOffers((d.matches || []).filter((m: any) => m.offer_id !== item.offer_id)))
+                  .catch(() => {})
+                  .finally(() => setLoadingRelated(false));
+              }
+            }}>
+            <Send className="w-3 h-3" />{showRelated ? 'Hide' : 'Related'}
+          </Button>
         </div>
       </div>
+
+      {/* Related Offers Section */}
+      {showRelated && (
+        <div className="border-t mt-2 pt-2 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Related Offers</p>
+            {selectedRelatedIds.size > 0 && (
+              <div className="flex items-center gap-1">
+                <Badge variant="secondary" className="text-[9px] px-1.5 py-0">{selectedRelatedIds.size} selected</Badge>
+                {onSend && (
+                  <Button size="sm" className="h-6 px-2 text-[9px] gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => { relatedOffers.filter((r: any) => selectedRelatedIds.has(r.offer_id)).forEach((r: any) => onSend!(r.offer_id)); }}>
+                    <Send className="w-2.5 h-2.5" />Send {selectedRelatedIds.size}
+                  </Button>
+                )}
+                {onSchedule && (
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-indigo-600 border-indigo-200"
+                    onClick={() => { relatedOffers.filter((r: any) => selectedRelatedIds.has(r.offer_id)).forEach((r: any) => onSchedule!(r.offer_id)); }}>
+                    <Calendar className="w-2.5 h-2.5" />Schedule
+                  </Button>
+                )}
+                <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[9px] text-gray-500" onClick={() => setSelectedRelatedIds(new Set())}>Clear</Button>
+              </div>
+            )}
+          </div>
+          {loadingRelated ? (
+            <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" />Loading...</div>
+          ) : relatedOffers.length > 0 ? (
+            <div className="space-y-1">
+              <button type="button" className="text-[9px] text-blue-600 hover:underline mb-1"
+                onClick={() => setSelectedRelatedIds(prev => prev.size === relatedOffers.length ? new Set() : new Set(relatedOffers.map((r: any) => r.offer_id)))}>
+                {selectedRelatedIds.size === relatedOffers.length ? 'Deselect All' : 'Select All'}
+              </button>
+              {relatedOffers.map((rel: any) => (
+                <div key={rel.offer_id} className={`flex items-center gap-2 px-2 py-1.5 rounded border text-xs cursor-pointer transition-colors ${selectedRelatedIds.has(rel.offer_id) ? 'border-blue-300 bg-blue-50 dark:bg-blue-950/20' : 'border-gray-100 bg-gray-50 dark:bg-gray-900/30'}`}
+                  onClick={() => setSelectedRelatedIds(prev => { const n = new Set(prev); n.has(rel.offer_id) ? n.delete(rel.offer_id) : n.add(rel.offer_id); return n; })}>
+                  <input type="checkbox" className="rounded border-gray-300 w-3.5 h-3.5 cursor-pointer shrink-0" checked={selectedRelatedIds.has(rel.offer_id)} onChange={() => {}} />
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium truncate block">{rel.name}</span>
+                    <span className="text-muted-foreground">{rel.network} · ${rel.payout} · {rel.category || 'OTHER'}</span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                    <OfferActionIcons offerId={rel.offer_id} offerName={rel.name} currentCategory={rel.category} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground py-1">No related offers found</p>
+          )}
+        </div>
+      )}
 
       {/* Edit Offer Modal */}
       <EditOfferModal

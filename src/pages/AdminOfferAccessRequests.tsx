@@ -11,13 +11,14 @@ import {
   Search, Users, AlertTriangle, AlertCircle, Sparkles, RefreshCw,
   Mail, MessageSquare, CheckCircle2, Inbox,
   ThumbsUp, ThumbsDown, Eye, Briefcase, UserCheck, TrendingUp,
-  ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock, FileImage, MousePointerClick,
+  ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock, FileImage, MousePointerClick, Send,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { useAuth } from '@/contexts/AuthContext';
 import PublisherRow from '@/pages/offer-requests/PublisherRow';
 import SendOffersModal from '@/pages/offer-requests/SendOffersModal';
+import SendScheduleModal from '@/pages/offer-requests/SendScheduleModal';
 import BulkMessageModal from '@/pages/offer-requests/BulkMessageModal';
 import RequestCharts from '@/pages/offer-requests/RequestCharts';
 import TabContent from '@/pages/offer-requests/TabContent';
@@ -140,7 +141,7 @@ export function rsk(level: string) {
 
 // ─── Tab Config ──────────────────────────────────────────────────────────────
 
-type TabId = 'all_requests' | 'approved' | 'rejected' | 'in_review' | 'direct_partner' | 'affiliate' | 'most_requested' | 'placement_proofs' | 'history';
+type TabId = 'all_requests' | 'approved' | 'rejected' | 'in_review' | 'direct_partner' | 'affiliate' | 'most_requested' | 'placement_proofs' | 'recent_changes' | 'history';
 
 const TAB_CONFIG: { id: TabId; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: 'all_requests', label: 'All Requests', icon: Eye },
@@ -151,6 +152,7 @@ const TAB_CONFIG: { id: TabId; label: string; icon: React.ElementType; adminOnly
   { id: 'affiliate', label: 'Affiliate', icon: UserCheck },
   { id: 'most_requested', label: 'Most Requested', icon: TrendingUp },
   { id: 'placement_proofs', label: 'Placement Proofs', icon: FileImage },
+  { id: 'recent_changes', label: 'Recent Changes', icon: Clock },
   { id: 'history', label: 'Send History', icon: Inbox },
 ];
 
@@ -173,7 +175,7 @@ function AdminOfferAccessRequests() {
 
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [tabCounts, setTabCounts] = useState<Record<TabId, number>>({
-    all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, placement_proofs: 0, history: 0,
+    all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, placement_proofs: 0, recent_changes: 0, history: 0,
   });
   const [tabBreakdowns, setTabBreakdowns] = useState<Record<string, { total: number; today: number; week: number }>>({});
   const [recentlyAdded, setRecentlyAdded] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
@@ -181,6 +183,24 @@ function AdminOfferAccessRequests() {
   const [recentlyDeleted, setRecentlyDeleted] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
   const [recentCounts, setRecentCounts] = useState({ added: 0, edited: 0, deleted: 0 });
   const [recentExpanded, setRecentExpanded] = useState(false);
+  const [recentDateFilter, setRecentDateFilter] = useState('today');
+  const [recentSelectedOffers, setRecentSelectedOffers] = useState<Set<string>>(new Set());
+  const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
+  const [scheduleOfferIds, setScheduleOfferIds] = useState<string[]>([]);
+
+  // Filtered recently data based on date filter
+  const filterByDate = (items: { offer_id: string; name: string; network: string; at: string }[]) => {
+    if (recentDateFilter === 'today') {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      return items.filter(o => o.at && new Date(o.at) >= today);
+    }
+    const days = recentDateFilter === '3d' ? 3 : recentDateFilter === '7d' ? 7 : 30;
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+    return items.filter(o => o.at && new Date(o.at) >= cutoff);
+  };
+  const filteredRecentlyAdded = filterByDate(recentlyAdded);
+  const filteredRecentlyEdited = filterByDate(recentlyEdited);
+  const filteredRecentlyDeleted = filterByDate(recentlyDeleted);
 
   // ── In Review tab state (existing publisher-profile view) ──
   const [profiles, setProfiles] = useState<PProf[]>([]);
@@ -335,53 +355,95 @@ function AdminOfferAccessRequests() {
           })}
         </TabsList>
 
-        {/* Recently Added/Edited/Deleted Section */}
-        {(recentlyAdded.length > 0 || recentlyEdited.length > 0 || recentlyDeleted.length > 0) && (
-          <div className="mt-3">
-            <button
-              onClick={() => setRecentExpanded(!recentExpanded)}
-              className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
-            >
-              {recentExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              <span className="flex items-center gap-4">
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500 inline-block" /> Recently added <span className="text-green-600 font-semibold">{recentCounts.added} today</span></span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-500 inline-block" /> Recently edited <span className="text-amber-600 font-semibold">{recentCounts.edited} today</span></span>
-                <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500 inline-block" /> Recently deleted <span className="text-red-600 font-semibold">{recentCounts.deleted} today</span></span>
-              </span>
-            </button>
-            {recentExpanded && (
-              <div className="grid grid-cols-3 gap-4 mt-2 p-3 bg-muted/30 rounded-lg border">
-                <div>
-                  <div className="text-xs font-medium text-green-700 mb-1.5 flex items-center gap-1"><Plus className="h-3 w-3" /> Recently Added</div>
-                  {recentlyAdded.length > 0 ? recentlyAdded.map((o, i) => (
-                    <div key={i} className="flex justify-between text-xs py-0.5">
-                      <span className="truncate max-w-[200px]">{o.name}</span>
-                      <span className="text-muted-foreground ml-2 shrink-0">{o.at ? new Date(o.at).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}</span>
-                    </div>
-                  )) : <div className="text-xs text-muted-foreground">None recently</div>}
+        {/* ── Recent Changes Tab ── */}
+        <TabsContent value="recent_changes">
+          <div className="space-y-4 mt-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Offer Changes</h3>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Filter:</span>
+                {['today', '3d', '7d', '30d'].map(period => (
+                  <button key={period} type="button"
+                    onClick={() => setRecentDateFilter(period)}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${recentDateFilter === period ? 'bg-purple-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}>
+                    {period === 'today' ? 'Today' : period === '3d' ? 'Last 3 Days' : period === '7d' ? 'Last 7 Days' : 'Last 30 Days'}
+                  </button>
+                ))}
+                {recentSelectedOffers.size > 0 && (
+                  <Button size="sm" className="h-7 px-3 text-xs gap-1 bg-blue-600 hover:bg-blue-700 text-white"
+                    onClick={() => {
+                      const ids = Array.from(recentSelectedOffers);
+                      if (ids.length > 0) {
+                        setScheduleOfferIds(ids);
+                        setScheduleModalOpen(true);
+                      }
+                    }}>
+                    <Send className="w-3 h-3" />Send {recentSelectedOffers.size} offers to publishers
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Added */}
+              <div className="border rounded-lg p-4">
+                <div className="text-sm font-medium text-green-700 mb-3 flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
+                  <Plus className="h-4 w-4" /> Recently Added
+                  <Badge variant="secondary" className="ml-auto text-[10px]">{filteredRecentlyAdded.length}</Badge>
                 </div>
-                <div>
-                  <div className="text-xs font-medium text-amber-700 mb-1.5 flex items-center gap-1"><Edit className="h-3 w-3" /> Recently Edited</div>
-                  {recentlyEdited.length > 0 ? recentlyEdited.map((o, i) => (
-                    <div key={i} className="flex justify-between text-xs py-0.5">
-                      <span className="truncate max-w-[200px]">{o.name}</span>
-                      <span className="text-muted-foreground ml-2 shrink-0">{o.at ? new Date(o.at).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}</span>
+                <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+                  {filteredRecentlyAdded.length > 0 ? filteredRecentlyAdded.map((o, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs py-1.5 px-2 rounded hover:bg-muted/50 border border-transparent hover:border-green-100">
+                      <input type="checkbox" className="w-3.5 h-3.5 rounded cursor-pointer accent-green-600" checked={recentSelectedOffers.has(o.offer_id)} onChange={() => setRecentSelectedOffers(prev => { const n = new Set(prev); n.has(o.offer_id) ? n.delete(o.offer_id) : n.add(o.offer_id); return n; })} />
+                      <span className="font-medium truncate flex-1">{o.name}</span>
+                      <span className="text-muted-foreground shrink-0">{o.network}</span>
+                      <span className="text-muted-foreground shrink-0 text-[10px]">{o.at ? new Date(o.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</span>
                     </div>
-                  )) : <div className="text-xs text-muted-foreground">None recently</div>}
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-red-700 mb-1.5 flex items-center gap-1"><Trash2 className="h-3 w-3" /> Recently Deleted</div>
-                  {recentlyDeleted.length > 0 ? recentlyDeleted.map((o, i) => (
-                    <div key={i} className="flex justify-between text-xs py-0.5">
-                      <span className="truncate max-w-[200px]">{o.name}</span>
-                      <span className="text-muted-foreground ml-2 shrink-0">{o.at ? new Date(o.at).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : ''}</span>
-                    </div>
-                  )) : <div className="text-xs text-muted-foreground">None recently</div>}
+                  )) : <div className="text-xs text-muted-foreground text-center py-4">No offers added in this period</div>}
                 </div>
               </div>
-            )}
+
+              {/* Edited */}
+              <div className="border rounded-lg p-4">
+                <div className="text-sm font-medium text-amber-700 mb-3 flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500" />
+                  <Edit className="h-4 w-4" /> Recently Edited
+                  <Badge variant="secondary" className="ml-auto text-[10px]">{filteredRecentlyEdited.length}</Badge>
+                </div>
+                <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+                  {filteredRecentlyEdited.length > 0 ? filteredRecentlyEdited.map((o, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs py-1.5 px-2 rounded hover:bg-muted/50 border border-transparent hover:border-amber-100">
+                      <input type="checkbox" className="w-3.5 h-3.5 rounded cursor-pointer accent-amber-600" checked={recentSelectedOffers.has(o.offer_id)} onChange={() => setRecentSelectedOffers(prev => { const n = new Set(prev); n.has(o.offer_id) ? n.delete(o.offer_id) : n.add(o.offer_id); return n; })} />
+                      <span className="font-medium truncate flex-1">{o.name}</span>
+                      <span className="text-muted-foreground shrink-0">{o.network}</span>
+                      <span className="text-muted-foreground shrink-0 text-[10px]">{o.at ? new Date(o.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</span>
+                    </div>
+                  )) : <div className="text-xs text-muted-foreground text-center py-4">No offers edited in this period</div>}
+                </div>
+              </div>
+
+              {/* Deleted */}
+              <div className="border rounded-lg p-4">
+                <div className="text-sm font-medium text-red-700 mb-3 flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                  <Trash2 className="h-4 w-4" /> Recently Deleted
+                  <Badge variant="secondary" className="ml-auto text-[10px]">{filteredRecentlyDeleted.length}</Badge>
+                </div>
+                <div className="space-y-1.5 max-h-[400px] overflow-y-auto">
+                  {filteredRecentlyDeleted.length > 0 ? filteredRecentlyDeleted.map((o, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs py-1.5 px-2 rounded hover:bg-muted/50 border border-transparent hover:border-red-100">
+                      <input type="checkbox" className="w-3.5 h-3.5 rounded cursor-pointer accent-red-600" checked={recentSelectedOffers.has(o.offer_id)} onChange={() => setRecentSelectedOffers(prev => { const n = new Set(prev); n.has(o.offer_id) ? n.delete(o.offer_id) : n.add(o.offer_id); return n; })} />
+                      <span className="font-medium truncate flex-1">{o.name}</span>
+                      <span className="text-muted-foreground shrink-0">{o.network}</span>
+                      <span className="text-muted-foreground shrink-0 text-[10px]">{o.at ? new Date(o.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</span>
+                    </div>
+                  )) : <div className="text-xs text-muted-foreground text-center py-4">No offers deleted in this period</div>}
+                </div>
+              </div>
+            </div>
           </div>
-        )}
+        </TabsContent>
 
         {/* ── All Requests Tab: Existing publisher-profile view ── */}
         <TabsContent value="all_requests">
@@ -523,7 +585,7 @@ function AdminOfferAccessRequests() {
         </TabsContent>
 
         {/* ── Other Tabs: Card-based view (includes In Review) ── */}
-        {visibleTabs.filter(t => t.id !== 'all_requests').map(t => (
+        {visibleTabs.filter(t => t.id !== 'all_requests' && t.id !== 'recent_changes').map(t => (
           <TabsContent key={t.id} value={t.id}>
             <div className="mt-4">
               <TabContent tab={t.id} isActive={activeTab === t.id} />
@@ -541,6 +603,15 @@ function AdminOfferAccessRequests() {
           preselectedOffers={sendModal.offers}
         />
       )}
+
+      {/* Schedule/Send Modal for Recently Added/Edited offers */}
+      <SendScheduleModal
+        open={scheduleModalOpen}
+        onClose={() => { setScheduleModalOpen(false); setScheduleOfferIds([]); }}
+        offerIds={scheduleOfferIds}
+        defaultMode="send_now"
+        sourceTab="recently_changed"
+      />
 
       {/* Bulk Message Modal (In Review tab) */}
       {bulkMsgModal && (

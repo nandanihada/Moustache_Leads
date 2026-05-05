@@ -35,6 +35,7 @@ import {
   ChevronUp,
   ImageIcon,
 } from "lucide-react";
+import OfferActionIcons from '@/components/OfferActionIcons';
 
 const CATEGORY_TABS = [
   { key: "", label: "All Activity", icon: Activity },
@@ -752,6 +753,7 @@ function RotationLivePanel() {
                   <td className="px-3 py-2 font-mono text-purple-800">{offer.offer_id}</td>
                   <td className="px-3 py-2 max-w-[200px]">
                     <div className="font-medium text-foreground truncate" title={offer.name}>{offer.name}</div>
+                    <OfferActionIcons offerId={offer.offer_id} offerName={offer.name} currentCategory={offer.category} />
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">{offer.network || "—"}</td>
                   <td className="px-3 py-2 text-muted-foreground">{offer.category || "—"}</td>

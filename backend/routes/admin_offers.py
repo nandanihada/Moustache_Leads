@@ -250,23 +250,40 @@ def create_offer():
                 logging.info("📧 Preparing to send email notifications to all users and publishers...")
                 logging.info(f"📧 Offer data for email: {offer_data.get('name', 'Unknown')}")
                 
+                # Get include/exclude user lists
+                include_user_ids = data.get('email_include_user_ids', [])
+                exclude_user_ids = data.get('email_exclude_user_ids', [])
+                
                 # Get all users and publishers from database
                 users_collection = db_instance.get_collection('users')
                 if users_collection is not None:
-                    # Get users who have new_offers email preference enabled (or not set = default True)
-                    all_users = list(users_collection.find(
-                        {
+                    # Build query based on include/exclude mode
+                    if include_user_ids:
+                        # Include mode: only send to specific users
+                        from bson import ObjectId
+                        user_query = {
+                            '_id': {'$in': [ObjectId(uid) for uid in include_user_ids if ObjectId.is_valid(uid)]},
+                            'email': {'$exists': True, '$ne': ''},
+                        }
+                    else:
+                        # All users (with optional exclusion)
+                        user_query = {
                             'email': {'$exists': True, '$ne': ''},
                             '$or': [
                                 {'email_preferences.new_offers': True},
                                 {'email_preferences.new_offers': {'$exists': False}},
                                 {'email_preferences': {'$exists': False}}
                             ]
-                        },
-                        {'email': 1, 'username': 1, 'role': 1}
-                    ))
+                        }
                     
-                    logging.info(f"📧 Total eligible users: {len(all_users)}")
+                    all_users = list(users_collection.find(user_query, {'_id': 1, 'email': 1, 'username': 1, 'role': 1}))
+                    
+                    # Apply exclusion filter
+                    if exclude_user_ids and not include_user_ids:
+                        exclude_set = set(exclude_user_ids)
+                        all_users = [u for u in all_users if str(u['_id']) not in exclude_set]
+                    
+                    logging.info(f"📧 Total eligible users: {len(all_users)} (include: {len(include_user_ids)}, exclude: {len(exclude_user_ids)})")
                     
                     # Extract email addresses
                     all_emails = [
@@ -282,8 +299,11 @@ def create_offer():
                         template_settings = {
                             'template_style': data.get('email_template_style', 'table'),
                             'visible_fields': data.get('email_visible_fields'),
+                            'see_more_fields': data.get('email_see_more_fields'),
                             'default_image': data.get('email_default_image', ''),
                             'payout_type': data.get('email_payout_type', 'publisher'),
+                            'mask_preview_links': data.get('email_mask_preview_links', False),
+                            'payment_terms': data.get('email_payment_terms', ''),
                             'subject': data.get('email_subject', ''),
                             'message': data.get('email_message', ''),
                         }
