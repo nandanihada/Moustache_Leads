@@ -25,7 +25,11 @@ class IPinfoService:
             'AU': 'Australia', 'CA': 'Canada', 'DE': 'Germany', 'FR': 'France', 'IT': 'Italy', 
             'ES': 'Spain', 'BR': 'Brazil', 'RU': 'Russia', 'CN': 'China', 'JP': 'Japan', 
             'PK': 'Pakistan', 'AE': 'United Arab Emirates', 'SA': 'Saudi Arabia', 'MY': 'Malaysia', 
-            'ID': 'Indonesia', 'SG': 'Singapore', 'TH': 'Thailand', 'VN': 'Vietnam', 'PH': 'Philippines'
+            'ID': 'Indonesia', 'SG': 'Singapore', 'TH': 'Thailand', 'VN': 'Vietnam', 'PH': 'Philippines',
+            'HK': 'Hong Kong', 'TW': 'Taiwan', 'KR': 'South Korea', 'NL': 'Netherlands', 'CH': 'Switzerland',
+            'SE': 'Sweden', 'NO': 'Norway', 'DK': 'Denmark', 'FI': 'Finland', 'IE': 'Ireland',
+            'MX': 'Mexico', 'AR': 'Argentina', 'CO': 'Colombia', 'CL': 'Chile', 'PE': 'Peru',
+            'ZA': 'South Africa', 'EG': 'Egypt', 'NG': 'Nigeria', 'KE': 'Kenya', 'MA': 'Morocco'
         }
         
         if not self.enabled:

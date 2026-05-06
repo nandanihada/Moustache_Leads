@@ -33,6 +33,9 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
   'IL': [31.0461, 34.8516], 'MX': [23.6345, -102.5528], 'AR': [-38.4161, -63.6167], 'CO': [4.5709, -74.2973],
   'PE': [-9.1900, -75.0152], 'CL': [-35.6751, -71.5430], 'NZ': [-40.9006, 174.8860], 'PK': [30.3753, 69.3451],
   'BD': [23.6850, 90.3563], 'LK': [7.8731, 80.7718], 'NP': [28.3949, 84.1240], 'RO': [45.9432, 24.9668],
+  // Full name fallbacks
+  'INDIA': [20.5937, 78.9629], 'BANGLADESH': [23.6850, 90.3563], 'UNITED STATES': [37.0902, -95.7129],
+  'UNITED KINGDOM': [55.3781, -3.4360], 'HONG KONG': [22.3193, 114.1694], 'GLOBAL': [0, 0],
   'XX': [0, 0] // Unknown locations map to Null Island
 };
 
@@ -66,17 +69,24 @@ const getCountry = (log: any, profile?: any) => {
   // 2. Strong IP Pattern Matching (Reliable Fallback)
   if (ip) {
     const cleanIp = ip.trim();
-    // India: 106.x, 115.x, 122.x, 157.x, 182.x, 49.x, 124.x, 117.x, 27.x, 223.x, 103.x (many)
+
+    // Localhost / Private IP Handling - Map internal testing directly to India
+    if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp.startsWith('192.168.') || cleanIp.startsWith('10.')) {
+      return 'India';
+    }
+
+    // 🇧🇩 Bangladesh: High Priority Specific Ranges
+    if (cleanIp.startsWith('103.232') || cleanIp.startsWith('119.') || cleanIp.startsWith('27.147') || 
+        cleanIp.startsWith('43.231') || cleanIp.startsWith('45.115') || cleanIp.startsWith('203.112') ||
+        cleanIp.startsWith('103.242') || cleanIp.startsWith('103.197')) return 'Bangladesh';
+
+    // 🇮🇳 India: Expanded ranges
     if (cleanIp.startsWith('106.') || cleanIp.startsWith('115.') || cleanIp.startsWith('122.') || 
         cleanIp.startsWith('157.') || cleanIp.startsWith('182.') || cleanIp.startsWith('49.') || 
         cleanIp.startsWith('124.') || cleanIp.startsWith('117.') || cleanIp.startsWith('27.') || 
         cleanIp.startsWith('223.') || cleanIp.startsWith('103.') || cleanIp.startsWith('203.')) return 'India';
     
-    // Bangladesh: 103.232, 119.x, 27.147, 43.231
-    if (cleanIp.startsWith('103.232') || cleanIp.startsWith('119.') || cleanIp.startsWith('27.147') || 
-        cleanIp.startsWith('43.231')) return 'Bangladesh';
-
-    // US/UK
+    // 🇺🇸 US / 🇬🇧 UK
     if (cleanIp.startsWith('104.') || cleanIp.startsWith('107.') || cleanIp.startsWith('108.') || 
         cleanIp.startsWith('34.') || cleanIp.startsWith('35.') || cleanIp.startsWith('52.')) return 'United States';
     if (cleanIp.startsWith('31.') || cleanIp.startsWith('51.') || cleanIp.startsWith('62.')) return 'United Kingdom';
@@ -559,10 +569,13 @@ const AdminRecentActivity: React.FC = () => {
             if (!countryCode || countryCode === 'XX' || countryCode === 'Unknown') {
               if (userProfile && userProfile.geos && userProfile.geos.length > 0) {
                 countryCode = userProfile.geos[0];
+              } else {
+                // Final fallback to getCountry (which handles IP parsing and local dev)
+                countryCode = getCountry(logObj, userProfile);
               }
             }
 
-            if (!countryCode || countryCode === 'Unknown') {
+            if (!countryCode || countryCode === 'Unknown' || countryCode === 'Tracking...' || countryCode === 'Location Tracking...') {
               countryCode = 'XX';
             }
 
@@ -621,10 +634,9 @@ const AdminRecentActivity: React.FC = () => {
 
         if (new Date(log.login_time) > new Date(userAgg.latest_login)) {
           userAgg.latest_login = log.login_time;
-          if (newLat !== undefined) {
+          if (newLat !== undefined && newLng !== undefined && !(newLat === 0 && newLng === 0)) {
             userAgg.lat = newLat;
             userAgg.lng = newLng;
-            userAgg.country = getCountry(log, profile) || userAgg.country;
           }
         }
         if (log.risk_level === 'high' || log.risk_level === 'critical' || (log.fraud_score && log.fraud_score > 50)) {
@@ -649,17 +661,31 @@ const AdminRecentActivity: React.FC = () => {
         userAgg.city = getCity(latestLog, u);
         userAgg.country = getCountry(latestLog, u);
 
-        // If latest is still indeterminate, scan all logs for any valid historical location
-        if (userAgg.country === 'Tracking...' || userAgg.country === 'Unknown' || userAgg.country === 'Location Tracking...') {
+        // If latest is still indeterminate or Localhost, scan all logs for any valid historical location
+        if (userAgg.country === 'Tracking...' || userAgg.country === 'Unknown' || userAgg.country === 'Location Tracking...' || userAgg.country === 'Localhost') {
           for (const l of userAgg.logs) {
             const ci = getCity(l, u);
             const co = getCountry(l, u);
             if (co !== 'Tracking...' && co !== 'Location Tracking...' && co !== 'Unknown') {
               userAgg.city = ci;
               userAgg.country = co;
+              const { lat, lng } = getLatLng(l.location, l, u);
+              if (lat !== undefined && lng !== undefined && !(lat === 0 && lng === 0)) {
+                userAgg.lat = lat;
+                userAgg.lng = lng;
+              }
               break;
             }
           }
+        }
+        
+        // Final fallback if lat/lng are still missing or Null Island, but country is known
+        if ((userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat)) && userAgg.country && userAgg.country !== 'Tracking...' && userAgg.country !== 'Unknown') {
+           const fallback = COUNTRY_COORDS[userAgg.country.toUpperCase()];
+           if (fallback) {
+             userAgg.lat = fallback[0] + (Math.random() - 0.5) * 2.5;
+             userAgg.lng = fallback[1] + (Math.random() - 0.5) * 2.5;
+           }
         }
 
         const uniqueCountries = new Set(userAgg.logs.map((l: any) => l.location?.country_code || l.location?.country).filter(c => c && c !== 'XX' && c !== 'Unknown'));
@@ -697,6 +723,13 @@ const AdminRecentActivity: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    
+    // Auto-refresh data every 30 seconds to automatically track and show new user locations
+    const intervalId = setInterval(() => {
+      loadData();
+    }, 30000);
+    
+    return () => clearInterval(intervalId);
   }, [timeFilter]);
 
   const toggleUserSelection = (userId: string) => {
@@ -798,11 +831,17 @@ const AdminRecentActivity: React.FC = () => {
   };
 
   const mapMarkers = useMemo(() => {
-    const validUsers = users.filter(u => typeof u.lat === 'number' && !isNaN(u.lat) && typeof u.lng === 'number' && !isNaN(u.lng));
+    const validUsers = users.filter(u => 
+      typeof u.lat === 'number' && !isNaN(u.lat) && 
+      typeof u.lng === 'number' && !isNaN(u.lng) && 
+      !(Math.abs(u.lat) < 5 && Math.abs(u.lng) < 5 && u.country === 'Tracking...') // Filter out Null Island defaults
+    );
+    
     const coordsMap = new Map<string, number>();
 
     return validUsers.map(u => {
-      const key = `${u.lat}_${u.lng}`;
+      // Round to 1 decimal place to cluster very close markers (approx 10km radius)
+      const key = `${Math.round(u.lat! * 10)}_${Math.round(u.lng! * 10)}`;
       const count = coordsMap.get(key) || 0;
       coordsMap.set(key, count + 1);
 
@@ -810,7 +849,7 @@ const AdminRecentActivity: React.FC = () => {
 
       // Jitter overlapping markers into a circular cluster
       const angle = count * (Math.PI * 2 / 8);
-      const distance = 6.0 + (Math.floor(count / 8) * 4.0);
+      const distance = 2.0 + (Math.floor(count / 8) * 2.0);
 
       return {
         ...u,
@@ -1326,7 +1365,17 @@ const AdminRecentActivity: React.FC = () => {
 
                         <div className="flex items-center gap-2 shrink-0 w-[150px] text-[10px] text-muted-foreground">
                           <span>{new Date(user.latest_login).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          <span className="opacity-70 truncate">– {user.city !== 'Unknown' && user.country !== 'Unknown' ? `${user.city}, ${user.country}` : user.country !== 'Unknown' ? user.country : user.city !== 'Unknown' ? user.city : 'Unknown Location'}</span>
+                          <span className="opacity-70 truncate">– {(() => {
+                            const country = user.country;
+                            const city = user.city;
+                            
+                            const isValid = (val: any) => val && val !== 'Unknown' && val !== 'Tracking...' && val !== 'Location Tracking...';
+
+                            if (isValid(city) && isValid(country)) return `${city}, ${country}`;
+                            if (isValid(country)) return country;
+                            if (isValid(city)) return city;
+                            return 'Tracking...';
+                          })()}</span>
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0 flex-1 justify-center" onClick={e => e.stopPropagation()}>

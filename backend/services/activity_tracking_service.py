@@ -65,11 +65,12 @@ class ActivityTrackingService:
                     ip_data = geo_service.lookup_ip(ip_address)
                     
                     if ip_data:
+                        vpn_info = ip_data.get('vpn_detection', {})
                         vpn_detection = {
-                            'is_vpn': ip_data.get('vpn_detected', False),
-                            'is_proxy': ip_data.get('proxy_detected', False),
-                            'is_tor': ip_data.get('tor_detected', False),
-                            'is_datacenter': ip_data.get('hosting_detected', False),
+                            'is_vpn': vpn_info.get('is_vpn', False),
+                            'is_proxy': vpn_info.get('is_proxy', False),
+                            'is_tor': vpn_info.get('is_tor', False),
+                            'is_datacenter': vpn_info.get('is_datacenter', False),
                             'isp': ip_data.get('isp', 'Unknown')
                         }
                         logger.info(f"🔍 Geolocation check for {ip_address}: VPN={vpn_detection.get('is_vpn')}, Proxy={vpn_detection.get('is_proxy')}, ISP={vpn_detection.get('isp')}")

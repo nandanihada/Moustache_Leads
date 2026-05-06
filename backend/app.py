@@ -536,6 +536,14 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
         
+        try:
+            from services.location_retry_service import get_location_retry_service
+            location_retry_service = get_location_retry_service()
+            location_retry_service.start_service()
+            logging.info("✅ Location retry service started (auto-resolves 'Tracking...' IPs)")
+        except Exception as e:
+            logging.warning(f"⚠️ Location retry service failed to start: {str(e)}")
+        
         logging.info("Background services initialization completed")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")
