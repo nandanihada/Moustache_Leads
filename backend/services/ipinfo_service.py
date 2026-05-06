@@ -19,8 +19,17 @@ class IPinfoService:
         self.cache = {}  # In-memory cache (use Redis in production)
         self.enabled = bool(self.api_token)
         
+        # ISO Country Code to Name mapping
+        self.country_names = {
+            'BD': 'Bangladesh', 'IN': 'India', 'US': 'United States', 'GB': 'United Kingdom', 
+            'AU': 'Australia', 'CA': 'Canada', 'DE': 'Germany', 'FR': 'France', 'IT': 'Italy', 
+            'ES': 'Spain', 'BR': 'Brazil', 'RU': 'Russia', 'CN': 'China', 'JP': 'Japan', 
+            'PK': 'Pakistan', 'AE': 'United Arab Emirates', 'SA': 'Saudi Arabia', 'MY': 'Malaysia', 
+            'ID': 'Indonesia', 'SG': 'Singapore', 'TH': 'Thailand', 'VN': 'Vietnam', 'PH': 'Philippines'
+        }
+        
         if not self.enabled:
-            logger.warning("⚠️ IPinfo API token not configured. IP intelligence features will be disabled.")
+            logger.warning("⚠️ IPinfo API token not configured. IP intelligence features will be limited to free ip-api.com fallback.")
         else:
             logger.info("✅ IPinfo service initialized")
     
@@ -274,7 +283,7 @@ class IPinfoService:
         return {
             'ip_address': ip_address,
             'hostname': data.get('hostname'),
-            'country': data.get('country'),
+            'country': self.country_names.get(data.get('country'), data.get('country')),
             'country_code': data.get('country'),
             'region': data.get('region'),
             'city': data.get('city'),

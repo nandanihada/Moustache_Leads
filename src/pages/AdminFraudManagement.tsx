@@ -41,6 +41,7 @@ const AdminFraudManagement: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [countryFilter, setCountryFilter] = useState<string>('all');
 
   // Fetch fraud signals
   const fetchFraudSignals = async () => {
@@ -89,8 +90,16 @@ const AdminFraudManagement: React.FC = () => {
       filtered = filtered.filter(signal => signal.status === statusFilter);
     }
 
+    // Apply country filter
+    if (countryFilter !== 'all') {
+      filtered = filtered.filter(signal => {
+        const country = signal.data?.country || signal.data?.country_code || signal.data?.location?.country_code || signal.data?.location?.country || '';
+        return country.toUpperCase() === countryFilter.toUpperCase();
+      });
+    }
+
     setFilteredSignals(filtered);
-  }, [fraudSignals, searchTerm, severityFilter, statusFilter]);
+  }, [fraudSignals, searchTerm, severityFilter, statusFilter, countryFilter]);
 
   // Refresh data
   const refreshData = async () => {
@@ -303,6 +312,23 @@ const AdminFraudManagement: React.FC = () => {
                   <SelectItem value="reviewing">Reviewing</SelectItem>
                   <SelectItem value="resolved">Resolved</SelectItem>
                   <SelectItem value="false_positive">False Positive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-48">
+              <Label htmlFor="country">Country</Label>
+              <Select value={countryFilter} onValueChange={setCountryFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Countries" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Countries</SelectItem>
+                  {Array.from(new Set(fraudSignals.map(s =>
+                    s.data?.country || s.data?.country_code || s.data?.location?.country_code || s.data?.location?.country || ''
+                  ).filter(Boolean))).sort().map(c => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

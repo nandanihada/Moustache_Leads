@@ -313,6 +313,13 @@ const AdminOffers = () => {
   const offers = useMemo(() => {
     let filtered = [...rawOffers];
 
+    // Apply country filter
+    if (countryFilter !== 'all') {
+      filtered = filtered.filter(offer =>
+        Array.isArray(offer.countries) && offer.countries.some(c => c.toUpperCase() === countryFilter.toUpperCase())
+      );
+    }
+
     // Apply category filter (supports new categories array)
     if (selectedCategories !== 'all') {
       filtered = filtered.filter(offer => {

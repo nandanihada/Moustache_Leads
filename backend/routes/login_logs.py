@@ -855,7 +855,48 @@ def get_inventory_matched_offers(current_user, user_id):
                 for oid in log.get('offer_ids', []):
                     sent_offer_ids.add(oid)
                     
+        # Get user details for personalization
+        user = None
+        users_col = db_instance.get_collection('users')
+        if users_col is not None:
+            from bson import ObjectId
+            try:
+                user = users_col.find_one({'$or': [{'_id': ObjectId(user_id)}, {'email': user_id}, {'username': user_id}]})
+            except Exception:
+                user = users_col.find_one({'$or': [{'_id': user_id}, {'email': user_id}, {'username': user_id}]})
+
+        # Get categories the user interacts with most
+        views_col = db_instance.get_collection('offer_views')
+        fav_categories = set()
+        if views_col is not None and user:
+            views = list(views_col.find({'user_id': str(user.get('_id', user_id))}).limit(50))
+            offer_ids_viewed = [v.get('offer_id') for v in views if v.get('offer_id')]
+            if offer_ids_viewed:
+                viewed_offers = list(offers_col.find({'offer_id': {'$in': offer_ids_viewed}}, {'category': 1}))
+                for vo in viewed_offers:
+                    if vo.get('category'):
+                        fav_categories.add(vo.get('category'))
+        
+        # Add verticals from user profile
+        if user and user.get('verticals'):
+            for v in user.get('verticals', []):
+                fav_categories.add(v)
+                
+        # Get countries from user profile
+        fav_countries = set()
+        if user and user.get('geoPreferences'):
+            for c in user.get('geoPreferences', []):
+                fav_countries.add(c)
+                
         base_query = {'status': {'$in': ['active', 'running']}}
+        
+        # Build personalization query filters
+        if fav_categories:
+            base_query['category'] = {'$in': list(fav_categories)}
+            
+        if fav_countries:
+            base_query['countries'] = {'$in': list(fav_countries)}
+            
         if sent_offer_ids:
             base_query['offer_id'] = {'$nin': list(sent_offer_ids)}
             
@@ -910,17 +951,38 @@ def get_inventory_matched_offers(current_user, user_id):
         deleted_query = {'status': {'$in': ['deleted', 'inactive', 'paused']}}
         if sent_offer_ids:
             deleted_query['offer_id'] = {'$nin': list(sent_offer_ids)}
+        if fav_categories: deleted_query['category'] = {'$in': list(fav_categories)}
+        if fav_countries: deleted_query['countries'] = {'$in': list(fav_countries)}
         recently_deleted = list(offers_col.find(deleted_query, project_fields).sort('updated_at', -1).limit(limit))
 
         # 5. Recently edited
         recently_edited = list(offers_col.find(base_query, project_fields).sort('updated_at', -1).limit(limit))
 
+        # Fallback if too strict
+        if len(newly_added) < 2 and len(most_approved) < 2:
+            base_query_fallback = {'status': {'$in': ['active', 'running']}}
+            if sent_offer_ids: base_query_fallback['offer_id'] = {'$nin': list(sent_offer_ids)}
+            
+            if len(newly_added) < limit:
+                newly_added.extend(list(offers_col.find(base_query_fallback, project_fields).sort('created_at', -1).limit(limit - len(newly_added))))
+            if len(recently_edited) < limit:
+                recently_edited.extend(list(offers_col.find(base_query_fallback, project_fields).sort('updated_at', -1).limit(limit - len(recently_edited))))
+            
+            # Use global for aggregation fallbacks if needed
+            if len(most_approved) < limit:
+                pipeline[0]['$match'] = base_query_fallback
+                most_approved.extend(list(offers_col.aggregate(pipeline)))
+            
+            if len(highly_clicked) < limit:
+                pipeline_clicks[0]['$match'] = base_query_fallback
+                highly_clicked.extend(list(offers_col.aggregate(pipeline_clicks)))
+
         return jsonify(mongodb_to_json({
-            'newly_added': newly_added,
-            'most_approved': most_approved,
-            'highly_clicked': highly_clicked,
-            'recently_deleted': recently_deleted,
-            'recently_edited': recently_edited
+            'newly_added': newly_added[:limit],
+            'most_approved': most_approved[:limit],
+            'highly_clicked': highly_clicked[:limit],
+            'recently_deleted': recently_deleted[:limit],
+            'recently_edited': recently_edited[:limit]
         })), 200
 
     except Exception as e:
