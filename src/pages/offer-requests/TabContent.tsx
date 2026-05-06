@@ -7,15 +7,19 @@ import { toast } from 'sonner';
 import {
   Search, RefreshCw, Mail, MessageSquare, Calendar, ArrowUpDown,
   ChevronLeft, ChevronRight, Link2, Layers, Globe, User, ChevronRight as ChevronRightIcon,
+  Sparkles,
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { API_BASE_URL } from '@/services/apiConfig';
 import OfferCard, { type TabOfferRequest } from './OfferCard';
 import SendScheduleModal from './SendScheduleModal';
 import PushMailModal from './PushMailModal';
+import CampaignWizardModal from './CampaignWizardModal';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import { CheckCircle, XCircle, Loader2, FileImage, ExternalLink, Image } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import type { PProf } from '@/pages/AdminOfferAccessRequests';
 
 type GroupBy = 'all' | 'network' | 'vertical' | 'country' | 'user';
 
@@ -133,6 +137,12 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
   // Modal
   const [sendModal, setSendModal] = useState<{ offerIds: string[]; mode: 'schedule' | 'send_now' } | null>(null);
   const [pushMailModal, setPushMailModal] = useState<{ offerIds: string[] } | null>(null);
+  const [campaignWizardOpen, setCampaignWizardOpen] = useState(false);
+  const [bulkProofModal, setBulkProofModal] = useState(false);
+  const [bulkProofMsg, setBulkProofMsg] = useState('');
+  const [bulkProofSending, setBulkProofSending] = useState(false);
+  const [bulkProofActions, setBulkProofActions] = useState({ meet: true, teams: true, chat: true, telegram: true });
+  const [bulkProofEmailSettings, setBulkProofEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
 
   // History items (for history tab)
   const [historyItems, setHistoryItems] = useState<any[]>([]);
@@ -331,11 +341,17 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/50">
           <Badge>{selectedIds.size} selected</Badge>
+          <Button size="sm" className="gap-1.5 bg-orange-500 hover:bg-orange-600 text-white" onClick={() => setCampaignWizardOpen(true)}>
+            <Sparkles className="h-3.5 w-3.5" /> Launch Campaign
+          </Button>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSendModal({ offerIds: selectedOfferIds, mode: 'send_now' })}>
             <Mail className="h-3.5 w-3.5" /> Send Now
           </Button>
           <Button size="sm" variant="outline" className="gap-1.5" onClick={handlePushMail}>
             <Calendar className="h-3.5 w-3.5" /> Schedule
+          </Button>
+          <Button size="sm" variant="outline" className="gap-1.5 text-purple-600 border-purple-200" onClick={() => setBulkProofModal(true)}>
+            <FileImage className="h-3.5 w-3.5" /> Request Proof
           </Button>
           {(tab === 'approved' || tab === 'rejected' || tab === 'most_requested') && (
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setPushMailModal({ offerIds: selectedOfferIds })}>
@@ -555,6 +571,136 @@ export default function TabContent({ tab, isActive }: TabContentProps) {
           onSuccess={fetchData}
         />
       )}
+
+      {/* Bulk Proof Request Modal */}
+      <Dialog open={bulkProofModal} onOpenChange={v => { if (!v) setBulkProofModal(false); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <FileImage className="h-4 w-4 text-purple-600" /> Bulk Placement Proof Request
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="p-2 bg-muted/50 rounded text-xs">
+              <span className="text-muted-foreground">Requesting proof for:</span>
+              <div className="mt-1 space-y-0.5">
+                {items.filter(i => selectedIds.has(i.offer_id)).slice(0, 10).map(i => (
+                  <div key={i.offer_id} className="font-medium">{i.offer_name}</div>
+                ))}
+                {selectedIds.size > 10 && <div className="text-muted-foreground">+{selectedIds.size - 10} more</div>}
+              </div>
+            </div>
+
+            {/* Action Buttons Toggle — all selected by default */}
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-medium text-muted-foreground">Include action buttons in email:</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: 'meet' as const, label: '📅 Meet', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+                  { key: 'teams' as const, label: '💬 Teams', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+                  { key: 'chat' as const, label: '✉️ Chat', color: 'bg-green-100 text-green-700 border-green-200' },
+                  { key: 'telegram' as const, label: '📱 Telegram', color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+                ].map(btn => (
+                  <label key={btn.key} className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer text-[10px] font-medium transition-all ${bulkProofActions[btn.key] ? btn.color : 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'}`}>
+                    <input type="checkbox" className="w-3 h-3 rounded" checked={bulkProofActions[btn.key]}
+                      onChange={() => setBulkProofActions(prev => ({ ...prev, [btn.key]: !prev[btn.key] }))} />
+                    {btn.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <Textarea
+              value={bulkProofMsg || (() => {
+                const offerNames = items.filter(i => selectedIds.has(i.offer_id)).map(i => i.offer_name);
+                const offerList = offerNames.map(n => '• ' + n).join('\n');
+                return 'Hi {name},\n\nWe require placement proof for the following offers:\n' + offerList + '\n\nPlease reply to this email with screenshots or URLs showing where you are promoting these offers.\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📅 Schedule a Meet — Reply with "MEET" to schedule a call\n💬 Teams — https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1\n✉️ Chat — Simply reply to this email\n📱 Telegram — @mlaffil\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nBest regards,\nMoustache Leads Team';
+              })()}
+              onChange={e => setBulkProofMsg(e.target.value)}
+              rows={8}
+              className="text-sm font-mono"
+            />
+
+            {/* Email Template Settings */}
+            <EmailSettingsPanel settings={bulkProofEmailSettings} onChange={setBulkProofEmailSettings} compact />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" size="sm" onClick={() => setBulkProofModal(false)}>Cancel</Button>
+            <Button size="sm" className="gap-1.5 bg-purple-600 hover:bg-purple-700" disabled={bulkProofSending}
+              onClick={async () => {
+                setBulkProofSending(true);
+                try {
+                  const token = localStorage.getItem('token');
+                  const offerIds = Array.from(selectedIds);
+                  const offerNames = items.filter(i => selectedIds.has(i.offer_id)).map(i => i.offer_name);
+                  const msg = bulkProofMsg || 'Placement proof required for: ' + offerNames.join(', ');
+                  // Get unique publisher IDs from selected items
+                  const publisherIds = [...new Set(items.filter(i => selectedIds.has(i.offer_id)).map(i => i.publisher_id).filter(Boolean))];
+                  
+                  const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/bulk-proof-request`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ offer_ids: offerIds, publisher_ids: publisherIds, message: msg, subject: `Placement Proof Required — ${offerNames.length} offer(s)` }),
+                  });
+                  if (!res.ok) throw new Error();
+                  toast.success(`Proof request sent for ${offerIds.length} offers`);
+                  setBulkProofModal(false);
+                  setBulkProofMsg('');
+                  setSelectedIds(new Set());
+                } catch { toast.error('Failed to send proof request'); }
+                finally { setBulkProofSending(false); }
+              }}>
+              {bulkProofSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileImage className="w-3.5 h-3.5" />}
+              Send Proof Request
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Campaign Wizard Modal */}
+      <CampaignWizardModal
+        open={campaignWizardOpen}
+        onClose={() => setCampaignWizardOpen(false)}
+        selectedUsers={(() => {
+          // Build PProf-like objects from selected items' unique users
+          const userMap = new Map<string, PProf>();
+          items.filter(i => selectedIds.has(i.offer_id)).forEach(item => {
+            const uid = item.publisher_id || item.user_id || '';
+            if (uid && !userMap.has(uid)) {
+              userMap.set(uid, {
+                user_id: uid,
+                username: item.publisher_username || 'Unknown',
+                email: item.publisher_email || '',
+                first_name: '',
+                last_name: '',
+                company_name: '',
+                website: '',
+                created_at: '',
+                account_status: 'approved',
+                risk_level: 'none',
+                fraud_score: 0,
+                total_clicks: 0,
+                total_conversions: 0,
+                conversion_rate: 0,
+                postback_url: '',
+                postback_tested: false,
+                postback_status: 'none',
+                has_proofs: false,
+                requests: [],
+                pending_count: 0,
+                latest_offer_name: item.offer_name || '',
+                latest_offer_id: item.offer_id || '',
+              });
+            }
+          });
+          return Array.from(userMap.values());
+        })()}
+        sourceTab={tab}
+        onSuccess={() => {
+          setSelectedIds(new Set());
+          fetchData();
+        }}
+      />
     </div>
   );
 }

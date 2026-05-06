@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -22,6 +22,7 @@ import { ImagePickerComponent } from '@/components/ImagePickerComponent';
 import { ImageIcon } from 'lucide-react';
 import { DescriptionGeneratorComponent } from '@/components/DescriptionGeneratorComponent';
 import { VerticalSuggesterComponent } from '@/components/VerticalSuggesterComponent';
+import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 
 interface PublisherRowProps {
   pub: PProf;
@@ -54,6 +55,9 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const [expandedOfferId, setExpandedOfferId] = useState<string | null>(null);
   const [proofRequestModal, setProofRequestModal] = useState<{ offerId: string; offerName: string; network?: string; payout?: number; countries?: string[] } | null>(null);
   const [proofRequestMsg, setProofRequestMsg] = useState('');
+  const [bulkProofOfferNames, setBulkProofOfferNames] = useState<string[]>([]);
+  const [proofActionButtons, setProofActionButtons] = useState({ meet: true, teams: true, chat: true, telegram: true });
+  const [proofEmailSettings, setProofEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const [sendingProofReq, setSendingProofReq] = useState(false);
   const [proofTemplateOpen, setProofTemplateOpen] = useState(false);
   const [proofFields, setProofFields] = useState<Record<string, boolean>>(() => {
@@ -201,51 +205,74 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   // Strip network tags like [INHOUSE], [NETWORK_NAME] from offer names for clean display
   const cleanOfferName = (name: string) => name.replace(/\s*\[(?:INHOUSE|[A-Z][A-Za-z0-9_ ]*)\]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
-  const buildProofMessage = (offerName: string, fields: Record<string, boolean>, req?: { offer_network?: string; offer_payout?: number; offer_countries?: string[] }) => {
+  const buildProofMessage = (offerName: string, fields: Record<string, boolean>, req?: { offer_network?: string; offer_payout?: number; offer_countries?: string[] }, multiOffers?: string[]) => {
     const name = pub.first_name || pub.username;
-    const displayName = fields.offer_name !== false ? (fields.network ? offerName : cleanOfferName(offerName)) : '';
-    let offerLine = displayName ? `"${displayName}"` : 'the requested offer';
+    let offerSection = '';
+    if (multiOffers && multiOffers.length > 1) {
+      offerSection = 'the following offers:\n' + multiOffers.map(n => '• ' + (fields.network ? n : cleanOfferName(n))).join('\n');
+    } else {
+      const displayName = fields.offer_name !== false ? (fields.network ? offerName : cleanOfferName(offerName)) : '';
+      offerSection = displayName ? 'the offer "' + displayName + '"' : 'the requested offer';
+    }
     const details: string[] = [];
-    if (fields.payout && req?.offer_payout) details.push(`Payout: $${req.offer_payout.toFixed(2)}`);
-    if (fields.countries && req?.offer_countries?.length) details.push(`Countries: ${req.offer_countries.slice(0, 5).join(', ')}`);
-    const detailBlock = details.length > 0 ? `\n${details.join(' | ')}` : '';
-    return `Hi ${name},\n\nWe require placement proof for the offer ${offerLine} before we can proceed with approval.${detailBlock}\n\nPlease reply to this email with a screenshot or URL showing where you are promoting this offer.\n\nBest regards,\nMoustache Leads Team`;
+    if (fields.payout && req?.offer_payout) details.push('Payout: $' + req.offer_payout.toFixed(2));
+    if (fields.countries && req?.offer_countries?.length) details.push('Countries: ' + req.offer_countries.slice(0, 5).join(', '));
+    const detailBlock = details.length > 0 ? '\n' + details.join(' | ') : '';
+    return 'Hi ' + name + ',\n\nWe require placement proof for ' + offerSection + ' before we can proceed with approval.' + detailBlock + '\n\nYou can submit your placement proof through any of the following ways:\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📅 Meet — Schedule a screen-share call to show your placement live (reply with "MEET")\n💬 Teams — Join our Teams channel and share proof directly: https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1\n✉️ Chat — Reply to this email with screenshots or placement URLs\n📱 Telegram — Send proof via Telegram to @mlaffil\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\nBest regards,\nMoustache Leads Team';
   };
+
 
   const openProofRequest = (offerId: string, offerName: string, reqData?: { offer_network?: string; offer_payout?: number; offer_countries?: string[] }) => {
     setProofRequestModal({ offerId, offerName, network: reqData?.offer_network, payout: reqData?.offer_payout, countries: reqData?.offer_countries });
-    setProofRequestMsg(buildProofMessage(offerName, proofFields, reqData));
+    setProofRequestMsg(buildProofMessage(offerName, proofFields, reqData, bulkProofOfferNames.length > 1 ? bulkProofOfferNames : undefined));
   };
 
   const sendProofRequest = async () => {
     if (!proofRequestModal) return;
     setSendingProofReq(true);
     try {
-      // Build visible_fields for the offer table based on template settings
-      const vf: string[] = ['name']; // always show name
-      if (proofFields.payout) vf.push('payout');
-      if (proofFields.network) vf.push('network');
-      if (proofFields.countries) vf.push('countries');
+      // Build the final message with only selected action buttons
+      let finalMsg = proofRequestMsg;
+      if (!proofActionButtons.meet) finalMsg = finalMsg.replace(/📅 Schedule a Meet[^\n]*\n?/g, '');
+      if (!proofActionButtons.teams) finalMsg = finalMsg.replace(/💬 Teams[^\n]*\n?/g, '');
+      if (!proofActionButtons.chat) finalMsg = finalMsg.replace(/✉️ Chat[^\n]*\n?/g, '');
+      if (!proofActionButtons.telegram) finalMsg = finalMsg.replace(/📱 Telegram[^\n]*\n?/g, '');
+      // Remove separator lines if no buttons remain
+      if (!proofActionButtons.meet && !proofActionButtons.teams && !proofActionButtons.chat && !proofActionButtons.telegram) {
+        finalMsg = finalMsg.replace(/━+\n?/g, '');
+      }
 
-      const cleanSubject = proofFields.network
-        ? proofRequestModal.offerName
-        : cleanOfferName(proofRequestModal.offerName);
+      // Get all offer IDs for bulk proof request
+      const offerIds = bulkProofOfferNames.length > 1
+        ? pub.requests.filter(r => bulkProofOfferNames.includes(r.offer_name)).map(r => r.offer_id)
+        : [proofRequestModal.offerId];
+
+      const cleanSubject = bulkProofOfferNames.length > 1
+        ? `${bulkProofOfferNames.length} offers`
+        : (proofFields.network ? proofRequestModal.offerName : cleanOfferName(proofRequestModal.offerName));
 
       const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/send-offers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           user_id: pub.user_id,
-          offer_ids: [proofRequestModal.offerId],
+          offer_ids: offerIds,
           send_via: 'email',
-          message_body: proofRequestMsg,
+          message_body: finalMsg,
           subject: `Placement Proof Required — ${cleanSubject}`,
-          visible_fields: vf,
+          template_style: proofEmailSettings.templateStyle,
+          visible_fields: proofEmailSettings.visibleFields,
+          see_more_fields: proofEmailSettings.seeMoreFields,
+          default_image: proofEmailSettings.defaultImage,
+          payout_type: proofEmailSettings.payoutType,
+          mask_preview_links: proofEmailSettings.maskPreviewLinks,
+          payment_terms: proofEmailSettings.paymentTerms,
         }),
       });
       if (!res.ok) throw new Error();
       toast.success('Proof request email sent');
       setProofRequestModal(null);
+      setBulkProofOfferNames([]);
     } catch { toast.error('Failed to send'); }
     finally { setSendingProofReq(false); }
   };
@@ -390,6 +417,14 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                           onSendOffers(pub, offers);
                         }}>
                           <Send className="w-2.5 h-2.5" />Mail {selectedReqs.size}
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-6 px-2 text-[9px] gap-1 text-purple-600 border-purple-200" onClick={() => {
+                          const selectedOfferNames = pub.requests.filter(r => selectedReqs.has(r.request_id)).map(r => r.offer_name);
+                          const firstReq = pub.requests.find(r => selectedReqs.has(r.request_id));
+                          openProofRequest(firstReq?.offer_id || '', selectedOfferNames.join(', '), { offer_network: firstReq?.offer_network, offer_payout: firstReq?.offer_payout, offer_countries: firstReq?.offer_countries });
+                          setBulkProofOfferNames(selectedOfferNames);
+                        }}>
+                          <Camera className="w-2.5 h-2.5" />Request Proof
                         </Button>
                       </div>
                     )}
@@ -839,9 +874,9 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
         onOfferUpdated={() => { setEditOffer(null); onRefreshList(); }}
       />
 
-      {/* Request Proof Modal */}
-      <Dialog open={!!proofRequestModal} onOpenChange={v => { if (!v) setProofRequestModal(null); }}>
-        <DialogContent className="max-w-md">
+      {/* Request Proof Modal — Enhanced with action button toggles + EmailSettings */}
+      <Dialog open={!!proofRequestModal} onOpenChange={v => { if (!v) { setProofRequestModal(null); setBulkProofOfferNames([]); } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <Camera className="h-4 w-4 text-purple-600" /> Request Placement Proof
@@ -849,8 +884,32 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
           </DialogHeader>
           <div className="space-y-3">
             <div className="p-2 bg-muted/50 rounded text-xs">
-              <span className="text-muted-foreground">Offer:</span> <span className="font-medium">{proofRequestModal?.offerName}</span>
+              <span className="text-muted-foreground">Offer{bulkProofOfferNames.length > 1 ? 's' : ''}:</span>{' '}
+              {bulkProofOfferNames.length > 1 ? (
+                <div className="mt-1 space-y-0.5">{bulkProofOfferNames.map((n, i) => <div key={i} className="font-medium">• {n}</div>)}</div>
+              ) : (
+                <span className="font-medium">{proofRequestModal?.offerName}</span>
+              )}
               <br /><span className="text-muted-foreground">Publisher:</span> <span className="font-medium">{pub.username} ({pub.email})</span>
+            </div>
+
+            {/* Action Buttons Toggle — all selected by default */}
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-medium text-muted-foreground">Include action buttons in email:</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: 'meet' as const, label: '📅 Meet', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+                  { key: 'teams' as const, label: '💬 Teams', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+                  { key: 'chat' as const, label: '✉️ Chat', color: 'bg-green-100 text-green-700 border-green-200' },
+                  { key: 'telegram' as const, label: '📱 Telegram', color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+                ].map(btn => (
+                  <label key={btn.key} className={`flex items-center gap-1.5 px-2 py-1 rounded border cursor-pointer text-[10px] font-medium transition-all ${proofActionButtons[btn.key] ? btn.color : 'bg-gray-50 text-gray-400 border-gray-200 opacity-60'}`}>
+                    <input type="checkbox" className="w-3 h-3 rounded" checked={proofActionButtons[btn.key]}
+                      onChange={() => setProofActionButtons(prev => ({ ...prev, [btn.key]: !prev[btn.key] }))} />
+                    {btn.label}
+                  </label>
+                ))}
+              </div>
             </div>
 
             {/* Template field toggles */}
@@ -876,7 +935,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                           setProofFields(updated);
                           localStorage.setItem('ml_proof_request_fields', JSON.stringify(updated));
                           if (proofRequestModal) {
-                            setProofRequestMsg(buildProofMessage(proofRequestModal.offerName, updated, { offer_network: proofRequestModal.network, offer_payout: proofRequestModal.payout, offer_countries: proofRequestModal.countries }));
+                            setProofRequestMsg(buildProofMessage(proofRequestModal.offerName, updated, { offer_network: proofRequestModal.network, offer_payout: proofRequestModal.payout, offer_countries: proofRequestModal.countries }, bulkProofOfferNames.length > 1 ? bulkProofOfferNames : undefined));
                           }
                         }}
                       />
@@ -887,10 +946,13 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
               )}
             </div>
 
-            <Textarea value={proofRequestMsg} onChange={e => setProofRequestMsg(e.target.value)} rows={6} className="text-sm" />
+            <Textarea value={proofRequestMsg} onChange={e => setProofRequestMsg(e.target.value)} rows={8} className="text-sm font-mono" />
+
+            {/* Email Template Settings */}
+            <EmailSettingsPanel settings={proofEmailSettings} onChange={setProofEmailSettings} compact />
           </div>
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setProofRequestModal(null)}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={() => { setProofRequestModal(null); setBulkProofOfferNames([]); }}>Cancel</Button>
             <Button size="sm" className="gap-1.5 bg-purple-600 hover:bg-purple-700" onClick={sendProofRequest} disabled={sendingProofReq}>
               {sendingProofReq ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
               Send Request

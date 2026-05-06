@@ -22,6 +22,8 @@ import SendScheduleModal from '@/pages/offer-requests/SendScheduleModal';
 import BulkMessageModal from '@/pages/offer-requests/BulkMessageModal';
 import RequestCharts from '@/pages/offer-requests/RequestCharts';
 import TabContent from '@/pages/offer-requests/TabContent';
+import CampaignWizardModal from '@/pages/offer-requests/CampaignWizardModal';
+import CampaignQueueTab from '@/pages/offer-requests/CampaignQueueTab';
 
 // ─── Exported Types ──────────────────────────────────────────────────────────
 
@@ -141,7 +143,7 @@ export function rsk(level: string) {
 
 // ─── Tab Config ──────────────────────────────────────────────────────────────
 
-type TabId = 'all_requests' | 'approved' | 'rejected' | 'in_review' | 'direct_partner' | 'affiliate' | 'most_requested' | 'placement_proofs' | 'recent_changes' | 'history';
+type TabId = 'all_requests' | 'approved' | 'rejected' | 'in_review' | 'direct_partner' | 'affiliate' | 'most_requested' | 'placement_proofs' | 'recent_changes' | 'history' | 'campaign_queue';
 
 const TAB_CONFIG: { id: TabId; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: 'all_requests', label: 'All Requests', icon: Eye },
@@ -154,6 +156,7 @@ const TAB_CONFIG: { id: TabId; label: string; icon: React.ElementType; adminOnly
   { id: 'placement_proofs', label: 'Placement Proofs', icon: FileImage },
   { id: 'recent_changes', label: 'Recent Changes', icon: Clock },
   { id: 'history', label: 'Send History', icon: Inbox },
+  { id: 'campaign_queue', label: 'Campaign Queue', icon: Send },
 ];
 
 // ─── Summary Type ────────────────────────────────────────────────────────────
@@ -175,7 +178,7 @@ function AdminOfferAccessRequests() {
 
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [tabCounts, setTabCounts] = useState<Record<TabId, number>>({
-    all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, placement_proofs: 0, recent_changes: 0, history: 0,
+    all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, placement_proofs: 0, recent_changes: 0, history: 0, campaign_queue: 0,
   });
   const [tabBreakdowns, setTabBreakdowns] = useState<Record<string, { total: number; today: number; week: number }>>({});
   const [recentlyAdded, setRecentlyAdded] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
@@ -214,8 +217,12 @@ function AdminOfferAccessRequests() {
   const [emailStats, setEmailStats] = useState({ total_mails_sent: 0, today_mails_sent: 0, total_publishers_mailed: 0, today_publishers_mailed: 0, total_interactions: 0, today_interactions: 0, offers_interacted_total: 0, offers_interacted_today: 0, total_clicks: 0, today_clicks: 0 });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [countryFilter, setCountryFilter] = useState('');
   const [sendModal, setSendModal] = useState<{ pub: PProf; offers?: Inv[] } | null>(null);
   const [bulkMsgModal, setBulkMsgModal] = useState<{ mode: 'email' | 'support' } | null>(null);
+  const [campaignWizardOpen, setCampaignWizardOpen] = useState(false);
   const token = localStorage.getItem('token');
 
   // Fetch tab counts
@@ -236,7 +243,9 @@ function AdminOfferAccessRequests() {
         affiliate: getTotal(d.affiliate),
         most_requested: getTotal(d.most_requested),
         placement_proofs: getTotal(d.placement_proofs),
+        recent_changes: 0,
         history: 0,
+        campaign_queue: 0,
       });
       setTabBreakdowns({
         all_requests: getBreakdown(d.all_requests),
@@ -268,6 +277,9 @@ function AdminOfferAccessRequests() {
       const params = new URLSearchParams({
         status, risk: riskFilter, page: String(page), per_page: '20',
         ...(search && { search }),
+        ...(dateFrom && { date_from: dateFrom }),
+        ...(dateTo && { date_to: dateTo }),
+        ...(countryFilter && { country: countryFilter }),
       });
       const res = await fetch(`${API_BASE_URL}/api/admin/offer-access-requests/publisher-profiles?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -291,10 +303,10 @@ function AdminOfferAccessRequests() {
     } finally {
       setLoading(false);
     }
-  }, [status, riskFilter, page, search, token]);
+  }, [status, riskFilter, page, search, dateFrom, dateTo, countryFilter, token]);
 
   useEffect(() => { if (activeTab === 'all_requests') fetchProfiles(); }, [fetchProfiles, activeTab]);
-  useEffect(() => { setPage(1); }, [status, riskFilter, search]);
+  useEffect(() => { setPage(1); }, [status, riskFilter, search, dateFrom, dateTo, countryFilter]);
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -533,12 +545,38 @@ function AdminOfferAccessRequests() {
                   <SelectItem value="none">Clean</SelectItem>
                 </SelectContent>
               </Select>
+              <Input
+                type="date"
+                value={dateFrom}
+                onChange={e => setDateFrom(e.target.value)}
+                className="w-[140px]"
+                placeholder="From date"
+                title="Request date from"
+              />
+              <Input
+                type="date"
+                value={dateTo}
+                onChange={e => setDateTo(e.target.value)}
+                className="w-[140px]"
+                placeholder="To date"
+                title="Request date to"
+              />
+              <Input
+                value={countryFilter}
+                onChange={e => setCountryFilter(e.target.value)}
+                className="w-[120px]"
+                placeholder="Country..."
+                title="Filter by user geo preference"
+              />
             </div>
 
             {/* Bulk Actions */}
             {selectedIds.size > 0 && (
               <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/50">
                 <Badge>{selectedIds.size} selected</Badge>
+                <Button size="sm" className="gap-1.5 bg-orange-500 hover:bg-orange-600 text-white" onClick={() => setCampaignWizardOpen(true)}>
+                  <Sparkles className="h-3.5 w-3.5" /> Launch Campaign
+                </Button>
                 <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setBulkMsgModal({ mode: 'email' })}>
                   <Mail className="h-3.5 w-3.5" /> Email Selected
                 </Button>
@@ -585,13 +623,20 @@ function AdminOfferAccessRequests() {
         </TabsContent>
 
         {/* ── Other Tabs: Card-based view (includes In Review) ── */}
-        {visibleTabs.filter(t => t.id !== 'all_requests' && t.id !== 'recent_changes').map(t => (
+        {visibleTabs.filter(t => t.id !== 'all_requests' && t.id !== 'recent_changes' && t.id !== 'campaign_queue').map(t => (
           <TabsContent key={t.id} value={t.id}>
             <div className="mt-4">
               <TabContent tab={t.id} isActive={activeTab === t.id} />
             </div>
           </TabsContent>
         ))}
+
+        {/* ── Campaign Queue Tab ── */}
+        <TabsContent value="campaign_queue">
+          <div className="mt-4">
+            <CampaignQueueTab isActive={activeTab === 'campaign_queue'} />
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* Send Offers Modal (In Review tab) */}
@@ -622,6 +667,18 @@ function AdminOfferAccessRequests() {
           defaultMode={bulkMsgModal.mode}
         />
       )}
+
+      {/* Campaign Wizard Modal */}
+      <CampaignWizardModal
+        open={campaignWizardOpen}
+        onClose={() => setCampaignWizardOpen(false)}
+        selectedUsers={selectedPubs}
+        sourceTab={activeTab}
+        onSuccess={() => {
+          setSelectedIds(new Set());
+          fetchProfiles();
+        }}
+      />
     </div>
   );
 }

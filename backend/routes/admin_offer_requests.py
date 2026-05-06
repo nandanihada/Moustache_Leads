@@ -106,6 +106,9 @@ def get_publisher_profiles_with_requests():
         status = request.args.get('status', 'pending')
         risk_filter = request.args.get('risk', 'all')
         search = request.args.get('search', '')
+        date_from = request.args.get('date_from', '')
+        date_to = request.args.get('date_to', '')
+        country_filter = request.args.get('country', '').lower()
         page = max(1, int(request.args.get('page', 1)))
         per_page = min(int(request.args.get('per_page', 20)), 200)
         
@@ -120,6 +123,24 @@ def get_publisher_profiles_with_requests():
                 req_query['status'] = {'$in': ['pending', 'review']}
             else:
                 req_query['status'] = status
+        
+        # Date range filter on requested_at
+        if date_from:
+            try:
+                from_dt = datetime.fromisoformat(date_from)
+                if 'requested_at' not in req_query:
+                    req_query['requested_at'] = {}
+                req_query['requested_at']['$gte'] = from_dt
+            except:
+                pass
+        if date_to:
+            try:
+                to_dt = datetime.fromisoformat(date_to) + timedelta(days=1)
+                if 'requested_at' not in req_query:
+                    req_query['requested_at'] = {}
+                req_query['requested_at']['$lte'] = to_dt
+            except:
+                pass
         
         # Get all matching requests
         all_requests = list(requests_collection.find(req_query).sort('requested_at', -1))
@@ -185,6 +206,29 @@ def get_publisher_profiles_with_requests():
         if search:
             sl = search.lower()
             user_ids = [uid for uid in user_ids if uid in users_data and (sl in users_data[uid].get('username', '').lower() or sl in users_data[uid].get('email', '').lower())]
+        
+        # Apply country filter (matches user's geo preferences or offer countries)
+        if country_filter:
+            filtered_uids = []
+            for uid in user_ids:
+                user = users_data.get(uid)
+                if not user:
+                    continue
+                # Check user's geo preferences
+                user_geos = [g.lower() for g in (user.get('geos', []) or [])]
+                if any(country_filter in g for g in user_geos):
+                    filtered_uids.append(uid)
+                    continue
+                # Check offer countries in their requests
+                user_reqs = user_requests_map.get(uid, [])
+                for req in user_reqs:
+                    offer = offer_cache.get(req.get('offer_id'))
+                    if offer:
+                        offer_countries = [c.lower() for c in (offer.get('countries', []) or [])]
+                        if any(country_filter in c for c in offer_countries):
+                            filtered_uids.append(uid)
+                            break
+            user_ids = filtered_uids
         
         # Cache offers
         offer_ids_needed = set()
@@ -306,7 +350,11 @@ def get_publisher_profiles_with_requests():
                 'requests': enriched_requests,
                 'pending_count': len([r for r in enriched_requests if r['status'] == 'pending']),
                 'latest_offer_name': latest_offer.get('name') if latest_offer else 'Unknown',
-                'latest_offer_id': latest_request.get('offer_id')
+                'latest_offer_id': latest_request.get('offer_id'),
+                'verticals': user.get('verticals', []),
+                'geos': user.get('geos', []),
+                'traffic_sources': user.get('traffic_sources', []),
+                'registration_profile_completed': user.get('registration_profile_completed', False),
             }
             publisher_profiles.append(profile)
         
@@ -600,6 +648,110 @@ def mark_requests_for_review():
 
     except Exception as e:
         logging.error(f"Mark for review error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/bulk-proof-request', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def bulk_proof_request():
+    """Send placement proof request email for multiple offers to their respective publishers"""
+    try:
+        from bson import ObjectId
+        data = request.get_json() or {}
+        offer_ids = data.get('offer_ids', [])
+        publisher_ids = data.get('publisher_ids', [])
+        message = data.get('message', '')
+        subject = data.get('subject', 'Placement Proof Required')
+
+        if not offer_ids:
+            return jsonify({'error': 'No offer IDs provided'}), 400
+
+        # Get publisher emails
+        users_col = db_instance.get_collection('users')
+        requests_col = db_instance.get_collection('affiliate_requests')
+        
+        # If publisher_ids provided, use them. Otherwise find publishers from requests
+        emails_to_send = []
+        if publisher_ids:
+            for pid in publisher_ids:
+                try:
+                    user = users_col.find_one({'_id': ObjectId(pid)}, {'email': 1, 'username': 1})
+                    if user and user.get('email'):
+                        emails_to_send.append(user['email'])
+                except:
+                    pass
+        else:
+            # Find all publishers who requested these offers
+            reqs = list(requests_col.find({'offer_id': {'$in': offer_ids}}, {'user_id': 1, 'email': 1}))
+            user_ids = list(set(str(r.get('user_id', '')) for r in reqs))
+            for uid in user_ids:
+                try:
+                    user = users_col.find_one({'_id': ObjectId(uid)}, {'email': 1})
+                    if user and user.get('email'):
+                        emails_to_send.append(user['email'])
+                except:
+                    pass
+
+        if not emails_to_send:
+            return jsonify({'error': 'No publisher emails found'}), 400
+
+        # Send email
+        from services.email_service import get_email_service
+        email_service = get_email_service()
+        
+        # Build HTML with action buttons
+        action_buttons_html = '''
+        <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; text-align: center;">
+            <p style="margin: 0 0 12px; font-weight: 600; color: #333;">Need help? Reach us through:</p>
+            <table cellpadding="0" cellspacing="0" border="0" align="center"><tr>
+                <td style="padding: 0 6px;"><a href="mailto:admin@moustacheleads.com?subject=Meeting Request" style="display: inline-block; padding: 8px 16px; background: #3b82f6; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">📅 Meet</a></td>
+                <td style="padding: 0 6px;"><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1" style="display: inline-block; padding: 8px 16px; background: #6366f1; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">💬 Teams</a></td>
+                <td style="padding: 0 6px;"><a href="mailto:admin@moustacheleads.com" style="display: inline-block; padding: 8px 16px; background: #10b981; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">✉️ Chat</a></td>
+                <td style="padding: 0 6px;"><a href="https://t.me/mlaffil" style="display: inline-block; padding: 8px 16px; background: #06b6d4; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">📱 Telegram</a></td>
+            </tr></table>
+        </div>
+        '''
+        
+        # Convert plain text message to HTML
+        html_message = message.replace('\n', '<br>').replace('━', '—')
+        html_body = f'''
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: linear-gradient(135deg, #7c3aed, #6366f1); padding: 20px; border-radius: 12px 12px 0 0; text-align: center;">
+                <h2 style="color: white; margin: 0; font-size: 18px;">📋 Placement Proof Required</h2>
+            </div>
+            <div style="padding: 24px; background: white; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
+                <p style="font-size: 14px; line-height: 1.6; color: #374151; white-space: pre-line;">{html_message}</p>
+                {action_buttons_html}
+            </div>
+        </div>
+        '''
+        
+        # Send to all publishers
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        
+        sent = 0
+        for batch_start in range(0, len(emails_to_send), 50):
+            batch = emails_to_send[batch_start:batch_start + 50]
+            try:
+                msg = MIMEMultipart('alternative')
+                msg['Subject'] = subject
+                msg['From'] = email_service.from_email
+                msg['To'] = email_service.from_email
+                msg['Bcc'] = ', '.join(batch)
+                msg.attach(MIMEText(html_body, 'html'))
+                
+                if email_service._send_email_smtp(msg):
+                    sent += len(batch)
+            except Exception as e:
+                logging.error(f"Bulk proof request email error: {e}")
+
+        return jsonify({'success': True, 'message': f'Proof request sent to {sent} publishers', 'sent': sent}), 200
+
+    except Exception as e:
+        logging.error(f"Bulk proof request error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

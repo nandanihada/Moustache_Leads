@@ -4,3 +4,33 @@ Traceback (most recent call last):
     'created_at': datetime.utcnow(),
                   ^^^^^^^^
 UnboundLocalError: cannot access local variable 'datetime' where it is not associated with a value
+Failed to log send history: cannot access local variable 'datetime' where it is not associated with a value
+Traceback (most recent call last):
+  File "D:\pepeleads\ascend\MOustache_new_route\Moustache_Leads\backend\routes\admin_offer_requests.py", line 949, in send_offers_to_publisher
+    'created_at': datetime.utcnow(),
+                  ^^^^^^^^
+UnboundLocalError: cannot access local variable 'datetime' where it is not associated with a value
+Failed to log send history: cannot access local variable 'datetime' where it is not associated with a value
+Traceback (most recent call last):
+  File "D:\pepeleads\ascend\MOustache_new_route\Moustache_Leads\backend\routes\admin_offer_requests.py", line 949, in send_offers_to_publisher
+    'created_at': datetime.utcnow(),
+                  ^^^^^^^^
+UnboundLocalError: cannot access local variable 'datetime' where it is not associated with a value
+Failed to log send history: cannot access local variable 'datetime' where it is not associated with a value
+Traceback (most recent call last):
+  File "D:\pepeleads\ascend\MOustache_new_route\Moustache_Leads\backend\routes\admin_offer_requests.py", line 949, in send_offers_to_publisher
+    'created_at': datetime.utcnow(),
+                  ^^^^^^^^
+UnboundLocalError: cannot access local variable 'datetime' where it is not associated with a value
+Failed to log send history: cannot access local variable 'datetime' where it is not associated with a value
+Traceback (most recent call last):
+  File "D:\pepeleads\ascend\MOustache_new_route\Moustache_Leads\backend\routes\admin_offer_requests.py", line 949, in send_offers_to_publisher
+    'created_at': datetime.utcnow(),
+                  ^^^^^^^^
+UnboundLocalError: cannot access local variable 'datetime' where it is not associated with a value
+Failed to log send history: cannot access local variable 'datetime' where it is not associated with a value
+Traceback (most recent call last):
+  File "D:\pepeleads\ascend\MOustache_new_route\Moustache_Leads\backend\routes\admin_offer_requests.py", line 949, in send_offers_to_publisher
+    'created_at': datetime.utcnow(),
+                  ^^^^^^^^
+UnboundLocalError: cannot access local variable 'datetime' where it is not associated with a value

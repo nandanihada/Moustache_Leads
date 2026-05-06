@@ -106,6 +106,7 @@ admin_publisher_email_bp = safe_import_blueprint('routes.admin_publisher_email',
 admin_publisher_bulk_email_bp = safe_import_blueprint('routes.admin_publisher_bulk_email', 'admin_publisher_bulk_email_bp')
 admin_level_progression_bp = safe_import_blueprint('routes.admin_level_progression', 'admin_level_progression_bp')
 platform_settings_bp = safe_import_blueprint('routes.platform_settings', 'platform_settings_bp')
+email_campaigns_bp = safe_import_blueprint('routes.email_campaigns', 'email_campaigns_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -201,6 +202,7 @@ blueprints = [
     (admin_publisher_bulk_email_bp, ''),
     (admin_level_progression_bp, ''),
     (platform_settings_bp, ''),
+    (email_campaigns_bp, '/api/admin'),
 ]
 
 def create_app():
@@ -535,6 +537,14 @@ def start_background_services():
                 logging.info("ℹ️ Offer rotation service loaded (currently disabled)")
         except Exception as e:
             logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
+        
+        try:
+            from services.campaign_processor import get_campaign_processor
+            campaign_processor = get_campaign_processor()
+            campaign_processor.start()
+            logging.info("✅ Campaign processor started (email queue processing)")
+        except Exception as e:
+            logging.warning(f"⚠️ Campaign processor failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:
