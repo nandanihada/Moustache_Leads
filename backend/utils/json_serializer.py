@@ -24,7 +24,7 @@ def convert_objectids_to_strings(obj):
     elif isinstance(obj, ObjectId):
         return str(obj)
     elif isinstance(obj, datetime):
-        return obj.isoformat()
+        return obj.isoformat() + 'Z'
     else:
         return obj
 

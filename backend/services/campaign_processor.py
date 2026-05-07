@@ -150,7 +150,21 @@ class CampaignProcessor:
         
         # Send via EmailService
         email_service = get_email_service()
-        success = email_service._send_email(recipient_email, subject, html_body)
+        
+        if not email_service.is_configured:
+            logger.error(f"❌ Campaign email FAILED: EmailService not configured (SMTP credentials missing)")
+            EmailCampaign.update_email_status(
+                email_doc['_id'],
+                EmailCampaign.EMAIL_FAILED,
+                {'error_message': 'SMTP not configured on server', 'retry_count': email_doc.get('retry_count', 0) + 1}
+            )
+            return
+        
+        try:
+            success = email_service._send_email(recipient_email, subject, html_body)
+        except Exception as send_err:
+            logger.error(f"❌ Campaign email send exception: {send_err}")
+            success = False
         
         if success:
             EmailCampaign.update_email_status(
@@ -171,6 +185,7 @@ class CampaignProcessor:
             logger.info(f"✅ Campaign email sent to {recipient_email} ({len(email_doc.get('offer_ids', []))} offers)")
         else:
             retry_count = email_doc.get('retry_count', 0) + 1
+            logger.warning(f"⚠️ Campaign email FAILED to {recipient_email} (attempt {retry_count})")
             if retry_count >= 3:
                 EmailCampaign.update_email_status(
                     email_doc['_id'],

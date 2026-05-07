@@ -12,6 +12,7 @@ import {
   Mail, MessageSquare, CheckCircle2, Inbox,
   ThumbsUp, ThumbsDown, Eye, Briefcase, UserCheck, TrendingUp,
   ChevronDown, ChevronUp, Plus, Edit, Trash2, Clock, FileImage, MousePointerClick, Send,
+  Download,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -24,6 +25,7 @@ import RequestCharts from '@/pages/offer-requests/RequestCharts';
 import TabContent from '@/pages/offer-requests/TabContent';
 import CampaignWizardModal from '@/pages/offer-requests/CampaignWizardModal';
 import CampaignQueueTab from '@/pages/offer-requests/CampaignQueueTab';
+import ExportModal from '@/pages/offer-requests/ExportModal';
 
 // ─── Exported Types ──────────────────────────────────────────────────────────
 
@@ -190,6 +192,7 @@ function AdminOfferAccessRequests() {
   const [recentSelectedOffers, setRecentSelectedOffers] = useState<Set<string>>(new Set());
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false);
   const [scheduleOfferIds, setScheduleOfferIds] = useState<string[]>([]);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   // Filtered recently data based on date filter
   const filterByDate = (items: { offer_id: string; name: string; network: string; at: string }[]) => {
@@ -327,11 +330,16 @@ function AdminOfferAccessRequests() {
           </h2>
           <p className="text-sm text-muted-foreground">Review publisher offer access requests and send matching offers</p>
         </div>
-        {activeTab === 'all_requests' && (
-          <Button variant="outline" size="sm" onClick={fetchProfiles} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setExportModalOpen(true)}>
+            <Download className="h-4 w-4 mr-2" /> Export
           </Button>
-        )}
+          {activeTab === 'all_requests' && (
+            <Button variant="outline" size="sm" onClick={fetchProfiles} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Analytics Charts */}
@@ -678,6 +686,13 @@ function AdminOfferAccessRequests() {
           setSelectedIds(new Set());
           fetchProfiles();
         }}
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        open={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        tabCounts={tabCounts}
       />
     </div>
   );

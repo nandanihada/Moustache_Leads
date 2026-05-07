@@ -1897,7 +1897,7 @@ def get_tab_counts():
             week = requests_col.count_documents({**query_base, date_field: {'$gte': week_start}})
             return {'total': total, 'today': today, 'week': week}
 
-        all_requests = count_with_breakdown({'status': 'pending'})
+        all_requests = count_with_breakdown({})
         approved = count_with_breakdown({'status': 'approved'})
         rejected = count_with_breakdown({'status': 'rejected'})
         in_review = count_with_breakdown({'status': {'$in': ['pending', 'review']}})
@@ -3682,4 +3682,106 @@ def get_publisher_intelligence(user_id):
 
     except Exception as e:
         logging.error(f"Publisher intelligence error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Export Offer Access Requests to Excel ──────────────────────────────────────
+
+@admin_offer_requests_bp.route('/offer-access-requests/export', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def export_access_requests():
+    """
+    Export offer access requests data to Excel (.xlsx).
+    Supports multi-tab, grouping, column selection, color coding, and summary sheet.
+    """
+    try:
+        from flask import send_file
+        from services.export_service import ExportService
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Request body required'}), 400
+
+        config = {
+            'tabs': data.get('tabs', ['approved']),
+            'columns': data.get('columns', ['offer_name', 'status', 'publisher_username', 'offer_network', 'offer_category', 'offer_countries', 'offer_payout', 'requested_at']),
+            'group_by': data.get('group_by', 'none'),
+            'separate_sheets_per_group': data.get('separate_sheets_per_group', False),
+            'date_range': data.get('date_range'),
+            'include_summary': data.get('include_summary', True),
+            'freeze_headers': data.get('freeze_headers', True),
+            'color_code_rows': data.get('color_code_rows', True),
+            'auto_fit_columns': data.get('auto_fit_columns', True),
+        }
+
+        export_service = ExportService()
+        buffer = export_service.generate_export(config)
+
+        filename = f"offer_requests_export_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
+
+        return send_file(
+            buffer,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        logging.error(f"Export error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offer_requests_bp.route('/offer-access-requests/export-preview-counts', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def export_preview_counts():
+    """
+    Returns filtered counts per tab for the export modal preview.
+    Lightweight endpoint — only counts, no data fetching.
+    """
+    try:
+        data = request.get_json() or {}
+        date_range = data.get('date_range')
+        tabs = data.get('tabs', ['approved', 'rejected', 'in_review', 'all_requests', 'most_requested'])
+
+        requests_col = db_instance.get_collection('affiliate_requests')
+
+        # Build date filter
+        date_filter = {}
+        if date_range:
+            if date_range.get('from'):
+                fr = date_range['from']
+                if 'T' in fr:
+                    date_filter['$gte'] = datetime.fromisoformat(fr.replace('Z', '+00:00'))
+                else:
+                    date_filter['$gte'] = datetime.strptime(fr, '%Y-%m-%d')
+            if date_range.get('to'):
+                to_str = date_range['to']
+                if 'T' in to_str:
+                    to_dt = datetime.fromisoformat(to_str.replace('Z', '+00:00'))
+                else:
+                    to_dt = datetime.strptime(to_str, '%Y-%m-%d')
+                to_dt = to_dt.replace(hour=23, minute=59, second=59)
+                date_filter['$lte'] = to_dt
+
+        status_map = {
+            'approved': {'status': 'approved'},
+            'rejected': {'status': 'rejected'},
+            'in_review': {'status': {'$in': ['pending', 'review']}},
+            'all_requests': {},
+            'most_requested': {},
+        }
+
+        counts = {}
+        for tab in tabs:
+            q = dict(status_map.get(tab, {}))
+            if date_filter:
+                q['requested_at'] = date_filter
+            counts[tab] = requests_col.count_documents(q)
+
+        return jsonify({'counts': counts})
+
+    except Exception as e:
+        logging.error(f"Export preview counts error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
