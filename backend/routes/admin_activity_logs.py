@@ -307,7 +307,7 @@ def get_scheduled_activity():
         email_query = {}
         if user_id:
             from models.user import User
-            user = User().get_by_id(user_id)
+            user = User().find_by_id(user_id)
             if user:
                 query['recipients'] = user.get('email')
                 email_query['to'] = {'$regex': f"^{user.get('email')}$", '$options': 'i'}
