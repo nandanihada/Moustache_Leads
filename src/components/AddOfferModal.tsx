@@ -23,7 +23,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { X, Plus, ImageIcon, CalendarIcon, Clock, Eye, Trash2 } from 'lucide-react';
+import { X, Plus, ImageIcon, CalendarIcon, Clock, Eye, Trash2, Zap } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { CreateOfferData, adminOfferApi } from '@/services/adminOfferApi';
@@ -33,6 +33,7 @@ import { API_BASE_URL } from '../services/apiConfig';
 import { TrafficSourceDisplay } from './TrafficSourceDisplay';
 import { TrafficSourceRules, getDefaultRulesForCategory } from '@/services/trafficSourceApi';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import { OfferClipboardPanel } from './OfferClipboardPanel';
 
 interface AddOfferModalProps {
   open: boolean;
@@ -226,6 +227,27 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
       fetchData();
     }
   }, [open]);
+
+  const [isClipboardOpen, setIsClipboardOpen] = useState(false);
+
+  const handleClipboardFill = (parsed: {
+    campaign_id: string;
+    name: string;
+    payout: number;
+    network: string;
+    target_url: string;
+    description: string;
+  }) => {
+    setFormData(prev => ({
+      ...prev,
+      campaign_id: parsed.campaign_id || prev.campaign_id,
+      name: parsed.name || prev.name,
+      payout: parsed.payout !== undefined ? parsed.payout : prev.payout,
+      network: parsed.network || prev.network,
+      target_url: parsed.target_url || prev.target_url,
+      description: parsed.description || prev.description,
+    }));
+  };
 
   const [formData, setFormData] = useState<CreateOfferData>({
     campaign_id: '',
@@ -508,6 +530,22 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         terms_notes: formData.terms_notes
       });
 
+      // Prompt for explicit confirmation with final form details before calling createOffer
+      const confirmMessage = `Please review and confirm all details before creating this offer:\n\n` +
+        `• Campaign ID: ${submitData.campaign_id}\n` +
+        `• Name: ${submitData.name}\n` +
+        `• Payout: $${Number(submitData.payout).toFixed(2)}\n` +
+        `• Network: ${submitData.network || 'Other'}\n` +
+        `• Target URL: ${submitData.target_url}\n` +
+        `• Description: ${submitData.description || 'N/A'}\n\n` +
+        `Do you want to submit and create this offer?`;
+
+      const isConfirmed = window.confirm(confirmMessage);
+      if (!isConfirmed) {
+        setLoading(false);
+        return;
+      }
+
       await adminOfferApi.createOffer(submitData);
 
       toast({
@@ -592,10 +630,24 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New Offer</DialogTitle>
-          <DialogDescription>
-            Create a comprehensive offer with all required details
-          </DialogDescription>
+          <div className="flex justify-between items-start pr-6">
+            <div>
+              <DialogTitle>Add New Offer</DialogTitle>
+              <DialogDescription>
+                Create a comprehensive offer with all required details
+              </DialogDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-purple-500/30 text-purple-400 bg-purple-500/10 hover:bg-purple-500 hover:text-white rounded-xl gap-1.5 transition-all shadow-sm"
+              onClick={() => setIsClipboardOpen(true)}
+            >
+              <Zap className="w-4 h-4 animate-pulse" />
+              Smart Clipboard
+            </Button>
+          </div>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -623,7 +675,16 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="offer_id">Offer ID (from upward partner) *</Label>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <Label htmlFor="offer_id" className="m-0">Offer ID (from upward partner) *</Label>
+                        <button
+                          type="button"
+                          onClick={() => setIsClipboardOpen(true)}
+                          className="text-[11px] text-purple-400 hover:text-purple-300 font-medium flex items-center gap-1 transition-all bg-purple-500/10 hover:bg-purple-500/20 px-2 py-0.5 rounded-lg border border-purple-500/20 shadow-sm"
+                        >
+                          <Zap className="w-3 h-3" /> Smart Auto-Fill
+                        </button>
+                      </div>
                       <Input
                         id="offer_id"
                         value={formData.campaign_id}
@@ -2345,6 +2406,12 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
           </div>
         </form >
       </DialogContent >
+      <OfferClipboardPanel 
+        isOpen={isClipboardOpen} 
+        onClose={() => setIsClipboardOpen(false)} 
+        onFill={handleClipboardFill} 
+        onOffersCreated={onOfferCreated}
+      />
     </Dialog >
   );
 };

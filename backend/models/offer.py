@@ -4,6 +4,10 @@ from database import db_instance
 import re
 import sys
 import os
+import logging
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # Add utils directory to path for frontend mapping
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
@@ -510,20 +514,22 @@ class Offer:
             if 'payout' not in mapped_data or mapped_data['payout'] is None:
                 return None, "Field 'payout' is required"
             
-            # Validate URL format
+            # Validate URL format - Relaxed to allow macros like {click_id}
             url_pattern = re.compile(
                 r'^https?://'  # http:// or https://
-                r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'  # domain...
+                r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,24}\.?|'  # domain... (updated to allow longer TLDs)
                 r'localhost|'  # localhost...
                 r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
                 r'(?::\d+)?'  # optional port
-                r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+                r'(?:/?|[/?].+)$', re.IGNORECASE) # Relaxed path/query to allow macros
             
             if not url_pattern.match(mapped_data['target_url']):
-                return None, "Invalid target URL format"
+                logger.error(f"❌ [OfferModel] Invalid target URL: {mapped_data['target_url']}")
+                return None, f"Invalid target URL format: {mapped_data['target_url']}"
             
             if mapped_data.get('preview_url') and not url_pattern.match(mapped_data['preview_url']):
-                return None, "Invalid preview URL format"
+                logger.error(f"❌ [OfferModel] Invalid preview URL: {mapped_data['preview_url']}")
+                return None, f"Invalid preview URL format: {mapped_data['preview_url']}"
             
             # Validate payout is numeric (can be 0 for revenue share)
             try:
@@ -544,7 +550,7 @@ class Offer:
                 detected_categories = detect_categories_from_text(offer_name, offer_description)
                 vertical_value = detected_categories[0]  # Primary category
                 categories_list = detected_categories
-                print(f"🔍 AUTO-DETECTED CATEGORIES: {categories_list} from name='{offer_name[:50]}...'")
+                print(f"[DEBUG] AUTO-DETECTED CATEGORIES: {categories_list} from name='{offer_name[:50]}...'")
             else:
                 is_valid_vertical, vertical_result = validate_vertical(vertical_input)
                 if not is_valid_vertical:
@@ -574,14 +580,14 @@ class Offer:
             
             # DEBUG: Print what we're receiving (visible immediately)
             print("="*80)
-            print("🔍 INCENTIVE DEBUG:")
+            print("[DEBUG] INCENTIVE DEBUG:")
             print(f"   payout_type received: '{payout_type}'")
             print(f"   revenue_share_percent: {revenue_share_percent}")
             
             incentive_type = calculate_incentive_type(payout_type, revenue_share_percent)
             
             print(f"   calculated incentive_type: '{incentive_type}'")
-            print(f"   (percentage → Non-Incent, fixed/tiered → Incent)")
+            print(f"   (percentage -> Non-Incent, fixed/tiered -> Incent)")
             print("="*80)
             
             # Process allowed countries for geo-restriction
@@ -748,6 +754,9 @@ class Offer:
             return offer_doc, None
             
         except Exception as e:
+            import traceback
+            logger.error(f"❌ [OfferModel] Exception creating offer: {str(e)}")
+            logger.error(traceback.format_exc())
             return None, f"Error creating offer: {str(e)}"
     
     def get_offers(self, filters=None, skip=0, limit=20):
@@ -878,7 +887,7 @@ class Offer:
             if 'target_url' in update_data or 'preview_url' in update_data or 'fallback_redirect_url' in update_data:
                 url_pattern = re.compile(
                     r'^https?://'
-                    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}\.?|'
+                    r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,24}\.?|'
                     r'localhost|'
                     r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
                     r'(?::\d+)?'
@@ -1067,8 +1076,7 @@ class Offer:
             
             return offers, total
         except Exception as e:
-            import logging
-            logging.error(f"Error getting deleted offers: {str(e)}")
+            logger.error(f"Error getting deleted offers: {str(e)}")
             return [], 0
     
     def empty_recycle_bin(self):
@@ -1114,8 +1122,7 @@ class Offer:
             return None
             
         except Exception as e:
-            import logging
-            logging.error(f"Error getting offer settings: {str(e)}")
+            logger.error(f"Error getting offer settings: {str(e)}")
             return None
     
     def update_offer_settings(self, offer_id, settings):
@@ -1146,8 +1153,7 @@ class Offer:
             return True, None
             
         except Exception as e:
-            import logging
-            logging.error(f"Error updating offer settings: {str(e)}")
+            logger.error(f"Error updating offer settings: {str(e)}")
             return False, f"Error updating offer settings: {str(e)}"
     
     def update_approval_status(self, offer_id, status, approved_by=None, notes=None):
@@ -1176,8 +1182,7 @@ class Offer:
             return result.modified_count > 0, None
             
         except Exception as e:
-            import logging
-            logging.error(f"Error updating approval status: {str(e)}")
+            logger.error(f"Error updating approval status: {str(e)}")
             return False, f"Error updating approval status: {str(e)}"
     
     def check_and_lock_inactive_offers(self):
@@ -1240,6 +1245,5 @@ class Offer:
             return locked_offers
             
         except Exception as e:
-            import logging
-            logging.error(f"Error checking inactive offers: {str(e)}")
+            logger.error(f"Error checking inactive offers: {str(e)}")
             return []

@@ -642,7 +642,6 @@ def send_offers_to_publisher():
 
         # Handle scheduling
         if schedule_time and send_via == 'email':
-            from datetime import datetime, timezone
             try:
                 scheduled_datetime = datetime.fromisoformat(schedule_time.replace('Z', '+00:00'))
                 if scheduled_datetime.tzinfo is not None:
@@ -1058,7 +1057,6 @@ def get_publisher_detailed_stats(user_id):
 def get_all_access_requests():
     """Get all offer access requests with advanced filtering"""
     try:
-        from datetime import datetime as dt
         from bson import ObjectId
 
         # Get query parameters
@@ -1729,12 +1727,11 @@ def check_inactive_offers():
 def get_tab_counts():
     """Get counts for all tabs with time-based breakdowns (today, this week, total)"""
     try:
-        from datetime import datetime as dt, timedelta
         requests_col = db_instance.get_collection('affiliate_requests')
         collections_col = db_instance.get_collection('offer_collections')
         offers_col = db_instance.get_collection('offers')
 
-        now = dt.utcnow()
+        now = datetime.utcnow()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=today_start.weekday())  # Monday
 
@@ -3099,7 +3096,6 @@ def push_mail_v2():
 def get_charts_data():
     """Return REAL data for all offer access request charts. No estimates."""
     try:
-        from datetime import datetime as dt, timedelta
         from bson import ObjectId
         requests_col = db_instance.get_collection('affiliate_requests')
         offers_col = db_instance.get_collection('offers')

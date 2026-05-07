@@ -51,6 +51,8 @@ SPREADSHEET_TO_DB_MAPPING = {
     'payout': 'payout',
     'price': 'payout',
     'amount': 'payout',
+    'revenue': 'revenue',
+    'currency': 'currency',
     'preview_url': 'preview_url',
     'preview url': 'preview_url',
     'image_url': 'image_url',
@@ -80,6 +82,7 @@ SPREADSHEET_TO_DB_MAPPING = {
     'traffic sources': 'affiliate_terms',
     'device': 'device_targeting',
     'device_targeting': 'device_targeting',
+    'device targeting': 'device_targeting',
     # NEW: Geo-restriction fields
     'non_access_url': 'non_access_url',
     'fallback_url': 'non_access_url',
@@ -99,6 +102,12 @@ SPREADSHEET_TO_DB_MAPPING = {
     'payout_model': 'payout_model',
     'payout model': 'payout_model',
     'model': 'payout_model',
+    # NEW: Daily Cap
+    'daily_cap': 'daily_cap',
+    'daily cap': 'daily_cap',
+    'cap': 'daily_cap',
+    # NEW: Status
+    'status': 'status',
     # NEW: Approval workflow fields
     'approval_type': 'approval_type',
     'approval type': 'approval_type',
@@ -483,15 +492,34 @@ def map_spreadsheet_to_db(row_data: Dict[str, Any]) -> Dict[str, Any]:
     for raw_col, value in row_data.items():
         if raw_col.startswith('_') or not value:
             continue
-        col = raw_col.strip().lower()
+            
+        col = str(raw_col).strip().lower()
+        
+        # 🔥 SMART HEADER MATCHING: Remove parentheses and extra info
+        # e.g., "Countries (US,GB,CA)" -> "countries"
+        # e.g., "Device (all/mobile/desktop)" -> "device"
+        col_clean = re.sub(r'\s*\(.*\)', '', col).strip()
+        
         # Try exact match first
         db_field = SPREADSHEET_TO_DB_MAPPING.get(col)
+        
+        # Try cleaned match (without parentheses)
+        if not db_field:
+            db_field = SPREADSHEET_TO_DB_MAPPING.get(col_clean)
+            
         # Try with underscores replaced by spaces
         if not db_field:
             db_field = SPREADSHEET_TO_DB_MAPPING.get(col.replace('_', ' '))
+            
         # Try with spaces replaced by underscores
         if not db_field:
             db_field = SPREADSHEET_TO_DB_MAPPING.get(col.replace(' ', '_'))
+            
+        # Try cleaned match with space/underscore swaps
+        if not db_field and col_clean != col:
+            db_field = SPREADSHEET_TO_DB_MAPPING.get(col_clean.replace('_', ' '))
+            if not db_field:
+                db_field = SPREADSHEET_TO_DB_MAPPING.get(col_clean.replace(' ', '_'))
         
         if not db_field:
             continue
@@ -608,7 +636,8 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     
     # Auto-calculate incentive_type based on revenue_share_percent
     revenue_share_percent = result.get('revenue_share_percent', 0)
-    result['incentive_type'] = calculate_incentive_type(revenue_share_percent)
+    payout_type = result.get('payout_type', 'fixed')
+    result['incentive_type'] = calculate_incentive_type(payout_type, revenue_share_percent)
     
     # Handle allowed_countries for geo-restriction
     if 'allowed_countries' in result:

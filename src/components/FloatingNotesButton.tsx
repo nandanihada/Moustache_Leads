@@ -300,7 +300,7 @@ const FloatingNotesButton: React.FC = () => {
     <>
       <button
         onClick={() => setIsModalOpen(true)}
-        className="fixed bottom-7 right-7 z-[200] bg-indigo-600 text-white rounded-full px-5 py-3 text-sm font-semibold shadow-lg hover:bg-indigo-700 hover:-translate-y-0.5 transition-all flex items-center gap-2"
+        className="fixed bottom-7 right-7 z-[50] bg-indigo-600 text-white rounded-full px-5 py-3 text-sm font-semibold shadow-lg hover:bg-indigo-700 hover:-translate-y-0.5 transition-all flex items-center gap-2"
         style={{ boxShadow: '0 4px 20px rgba(99,102,241,0.4)' }}
       >
         📝 Admin Notes
