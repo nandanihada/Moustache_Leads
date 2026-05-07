@@ -1,5 +1,6 @@
-﻿import { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Loader2, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Filter, Send, Sparkles, ExternalLink, LayoutGrid, List, X } from "lucide-react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { Search, Loader2, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Filter, Send, Sparkles, ExternalLink, LayoutGrid, List, X, ChevronDown } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -78,6 +79,81 @@ const PublisherOffersContent = () => {
 
   // Search session state
   const searchSessionId = useRef<string | null>(null);
+
+  // Guided search wizard state
+  const [wizardActive, setWizardActive] = useState(false);
+  const [wizardKeyword, setWizardKeyword] = useState('');
+  const [wizardStep, setWizardStep] = useState<'vertical' | 'geo' | 'payout' | 'placement' | 'results'>('vertical');
+  const [wizVertical, setWizVertical] = useState('');
+  const [wizGeo, setWizGeo] = useState('');
+  const [wizPayout, setWizPayout] = useState('');
+  const [wizHasPlacement, setWizHasPlacement] = useState<boolean | null>(null);
+  const [wizPlacementLink, setWizPlacementLink] = useState('');
+  const [wizPlacementFile, setWizPlacementFile] = useState<File | null>(null);
+  const [wizSearching, setWizSearching] = useState(false);
+  const [wizResults, setWizResults] = useState<PublisherOffer[]>([]);
+  const [wizNoResults, setWizNoResults] = useState(false);
+
+  // Wizard config from admin settings
+  const [wizConfig, setWizConfig] = useState({ vertical_enabled: true, geo_enabled: true, payout_enabled: true, placement_enabled: true });
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/platform-settings/search-wizard`)
+      .then(r => r.json())
+      .then(data => setWizConfig(data))
+      .catch(() => {});
+  }, []);
+
+  // Helper: get ordered wizard steps based on admin config
+  const WIZARD_STEPS_ORDER: Array<'vertical' | 'geo' | 'payout' | 'placement'> = ['vertical', 'geo', 'payout', 'placement'];
+  const STEP_CONFIG_MAP: Record<string, keyof typeof wizConfig> = {
+    vertical: 'vertical_enabled', geo: 'geo_enabled', payout: 'payout_enabled', placement: 'placement_enabled',
+  };
+  const enabledSteps = WIZARD_STEPS_ORDER.filter(s => wizConfig[STEP_CONFIG_MAP[s]]);
+  const getFirstWizardStep = (): 'vertical' | 'geo' | 'payout' | 'placement' | 'results' => enabledSteps[0] || 'results';
+  const getNextStep = (current: string): 'vertical' | 'geo' | 'payout' | 'placement' | 'results' => {
+    const idx = enabledSteps.indexOf(current as any);
+    return idx >= 0 && idx < enabledSteps.length - 1 ? enabledSteps[idx + 1] : 'results';
+  };
+  const getPrevStep = (current: string): 'vertical' | 'geo' | 'payout' | 'placement' | 'results' => {
+    const idx = enabledSteps.indexOf(current as any);
+    return idx > 0 ? enabledSteps[idx - 1] : enabledSteps[0] || 'results';
+  };
+  const isLastEnabledStep = (current: string): boolean => enabledSteps.indexOf(current as any) === enabledSteps.length - 1;
+
+  // Smart vertical mapping
+  const VERTICAL_MAP: Record<string, string> = {
+    'game': 'GAMES_INSTALL', 'games': 'GAMES_INSTALL', 'gaming': 'GAMES_INSTALL',
+    'finance': 'FINANCE', 'financial': 'FINANCE', 'banking': 'FINANCE', 'crypto': 'FINANCE',
+    'health': 'HEALTH', 'medical': 'HEALTH', 'fitness': 'HEALTH',
+    'survey': 'SURVEY', 'surveys': 'SURVEY', 'poll': 'SURVEY',
+    'sweepstakes': 'SWEEPSTAKES', 'sweeps': 'SWEEPSTAKES', 'giveaway': 'SWEEPSTAKES', 'contest': 'SWEEPSTAKES',
+    'education': 'EDUCATION', 'learning': 'EDUCATION', 'course': 'EDUCATION',
+    'insurance': 'INSURANCE', 'insure': 'INSURANCE',
+    'loan': 'LOAN', 'loans': 'LOAN', 'lending': 'LOAN', 'mortgage': 'LOAN',
+    'dating': 'DATING', 'romance': 'DATING',
+    'trial': 'FREE_TRIAL', 'free trial': 'FREE_TRIAL', 'freetrial': 'FREE_TRIAL',
+    'install': 'INSTALLS', 'installs': 'INSTALLS', 'app': 'INSTALLS', 'download': 'INSTALLS',
+  };
+  const ALL_VERTICALS = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL'];
+
+  const resolveVertical = (input: string): string => {
+    const lower = input.trim().toLowerCase();
+    if (VERTICAL_MAP[lower]) return VERTICAL_MAP[lower];
+    // Fuzzy: check if input is contained in any vertical name
+    const match = ALL_VERTICALS.find(v => v.toLowerCase().includes(lower) || lower.includes(v.toLowerCase()));
+    return match || input.toUpperCase();
+  };
+
+  const getVerticalSuggestions = (input: string): string[] => {
+    if (!input.trim()) return ALL_VERTICALS;
+    const lower = input.trim().toLowerCase();
+    // Direct map match
+    if (VERTICAL_MAP[lower]) return [VERTICAL_MAP[lower]];
+    // Filter verticals that match
+    return ALL_VERTICALS.filter(v =>
+      v.toLowerCase().includes(lower) || lower.includes(v.toLowerCase().replace('_', ' '))
+    );
+  };
 
   // Pagination
   const [page, setPage] = useState(1);
@@ -204,6 +280,8 @@ const PublisherOffersContent = () => {
     return list;
   }, [offers, myOffers, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
 
+  // (wizard replaces progressive mode — no progressive memos needed)
+
   // Auto-log search to backend 2s after user stops typing (fires automatically, no button needed)
   const searchLogTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLoggedSearch = useRef<string>('');
@@ -222,8 +300,10 @@ const PublisherOffersContent = () => {
   }, [searchTerm, filteredOffers.length]);
 
   // Autocomplete: fetch suggestions as user types (300ms debounce)
+  // Suppress when wizard is active (user already picked a keyword)
   useEffect(() => {
     if (acTimer.current) clearTimeout(acTimer.current);
+    if (wizardActive) { setAcOpen(false); return; }
     const q = searchTerm.trim();
     if (q.length < 2) {
       setAcSuggestions([]);
@@ -247,7 +327,7 @@ const PublisherOffersContent = () => {
       }
     }, 300);
     return () => { if (acTimer.current) clearTimeout(acTimer.current); };
-  }, [searchTerm]);
+  }, [searchTerm, wizardActive]);
 
   // Close autocomplete on outside click
   useEffect(() => {
@@ -263,11 +343,20 @@ const PublisherOffersContent = () => {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Handle autocomplete suggestion pick â†’ just set search term for simple filtering
+  // Handle autocomplete suggestion pick → enter wizard
   const handleAcPick = (suggestion: AutocompleteSuggestion, position: number) => {
     setSearchTerm(suggestion.name);
     setAcOpen(false);
-    // Log the pick for admin analytics
+    setWizardKeyword(suggestion.name);
+    setWizardActive(true);
+    setWizardStep(getFirstWizardStep());
+    setWizVertical(''); setWizGeo(''); setWizPayout(''); setWizHasPlacement(null); setWizPlacementLink(''); setWizPlacementFile(null);
+    setWizResults([]); setWizNoResults(false);
+    // If no wizard steps enabled, run search immediately
+    if (enabledSteps.length === 0) {
+      setTimeout(() => runWizardSearch(), 0);
+    }
+    // Log
     if (searchSessionId.current) {
       publisherOfferApi.logSearchEvent(searchSessionId.current, 'suggestion_picked', {
         offer_id: suggestion.offer_id, position, name: suggestion.name,
@@ -307,15 +396,131 @@ const PublisherOffersContent = () => {
     }
   };
 
-  // Simple search on Enter â€” just close autocomplete, filtering happens via searchTerm state
+  // Trigger wizard on Enter key in search
   const handleSearchSubmit = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && searchTerm.trim().length >= 2) {
       setAcOpen(false);
+      setWizardKeyword(searchTerm.trim());
+      setWizardActive(true);
+      setWizardStep(getFirstWizardStep());
+      setWizVertical(''); setWizGeo(''); setWizPayout(''); setWizHasPlacement(null); setWizPlacementLink(''); setWizPlacementFile(null);
+      setWizResults([]); setWizNoResults(false);
       createSession(searchTerm.trim(), acCorrected);
+      if (enabledSteps.length === 0) {
+        setTimeout(() => runWizardSearch(), 0);
+      }
     }
     if (e.key === 'Escape') {
       setAcOpen(false);
     }
+  };
+
+  // Wizard: run the search with all criteria
+  const runWizardSearch = async () => {
+    setWizSearching(true);
+    setWizNoResults(false);
+    const keyword = wizardKeyword.toLowerCase();
+    const vertical = wizVertical ? resolveVertical(wizVertical) : '';
+    const geo = wizGeo.trim().toUpperCase();
+    const targetPayout = parseFloat(wizPayout) || 0;
+
+    // Upload placement proof file if provided
+    let proofFileRef = '';
+    if (wizPlacementFile) {
+      try {
+        const base64 = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(wizPlacementFile);
+        });
+        const { placementProofApi } = await import('@/services/placementProofApi');
+        const proofRes = await placementProofApi.submitProof({
+          offer_id: 'search_wizard',
+          offer_name: wizardKeyword,
+          description: `Search wizard proof: ${wizardKeyword} | ${vertical} | ${geo} | $${targetPayout}`,
+          placement_url: wizPlacementLink,
+          traffic_source: 'search_wizard',
+          base64_images: [base64],
+        });
+        proofFileRef = proofRes?._id || proofRes?.proof_id || 'uploaded';
+        // Store image URLs for admin viewing
+        if (proofRes?.image_urls?.length) {
+          proofFileRef = proofRes._id + '|' + proofRes.image_urls.join(',');
+        }
+      } catch {
+        // Silent fail — don't block the search
+        proofFileRef = 'upload_failed';
+      }
+    }
+
+    // Filter from loaded offers
+    let results = [...offers];
+    // Keyword filter
+    if (keyword) {
+      results = results.filter(o =>
+        o.name.toLowerCase().includes(keyword) ||
+        o.offer_id.toLowerCase().includes(keyword) ||
+        o.network?.toLowerCase().includes(keyword) ||
+        ((o as any).categories || []).some((c: string) => c.toLowerCase().includes(keyword)) ||
+        ((o as any).category || '').toLowerCase().includes(keyword)
+      );
+    }
+    // Vertical filter
+    if (vertical) {
+      results = results.filter(o => {
+        const cats = (o as any).categories;
+        if (Array.isArray(cats) && cats.length > 0) return cats.some((c: string) => c.toUpperCase() === vertical);
+        const v = ((o as any).category || (o as any).vertical || '').toUpperCase();
+        return v === vertical;
+      });
+    }
+    // Geo filter
+    if (geo) {
+      results = results.filter(o => o.countries?.some(c => c.toUpperCase() === geo));
+    }
+    // Payout filter (show offers >= target payout)
+    if (targetPayout > 0) {
+      results = results.filter(o => o.payout >= targetPayout);
+    }
+    // Sort by payout desc
+    results.sort((a, b) => b.payout - a.payout);
+
+    setWizResults(results);
+    setWizNoResults(results.length === 0);
+    setWizardStep('results');
+    setWizSearching(false);
+
+    // Log the full search intent
+    try {
+      await publisherOfferApi.logSearchEvent(searchSessionId.current || '', 'filter_applied', {
+        keyword: wizardKeyword, vertical, geo, target_payout: targetPayout,
+        has_placement: wizHasPlacement, placement_link: wizPlacementLink,
+        proof_file_ref: proofFileRef || undefined,
+        result_count: results.length,
+      });
+      // If no results, log as placement intent / missing inventory
+      if (results.length === 0) {
+        await publisherOfferApi.logSearchEvent(searchSessionId.current || '', 'placement_intent', {
+          searched_term: wizardKeyword, vertical, geo, target_payout: targetPayout,
+          proof_uploaded: !!wizPlacementFile, proof_file_reference: proofFileRef || wizPlacementLink || undefined,
+          query: wizardKeyword,
+        });
+        await publisherOfferApi.logSearchEvent(searchSessionId.current || '', 'not_in_inventory', {
+          query: `${wizardKeyword} | ${vertical} | ${geo} | $${targetPayout}`,
+        });
+      }
+    } catch { /* silent */ }
+  };
+
+  // Reset wizard
+  const resetWizard = () => {
+    setWizardActive(false);
+    setWizardKeyword('');
+    setWizardStep(getFirstWizardStep());
+    setWizVertical(''); setWizGeo(''); setWizPayout(''); setWizHasPlacement(null);
+    setWizPlacementLink(''); setWizPlacementFile(null);
+    setWizResults([]); setWizNoResults(false);
+    setSearchTerm('');
   };
 
   // Split filtered offers into pinned and regular
@@ -353,7 +558,7 @@ const PublisherOffersContent = () => {
     } catch {}
   };
 
-  // Click offer name â†’ open details modal
+  // Click offer name → open details modal
   const handleViewDetails = (offer: PublisherOffer) => {
     setSelectedOffer(offer);
     setDetailsModalOpen(true);
@@ -363,7 +568,7 @@ const PublisherOffersContent = () => {
     searchLogsApi.trackSearchAction('picked_offer', lastSearchLogId.current, offer.name, offer.offer_id);
   };
 
-  // Click Apply â†’ open apply popup (NOT direct link)
+  // Click Apply → open apply popup (NOT direct link)
   const handleApplyClick = (offer: PublisherOffer) => {
     setApplyOffer(offer);
     setApplyPopupOpen(true);
@@ -384,11 +589,11 @@ const PublisherOffersContent = () => {
     // Send request without proof
     setApplyLoading(true);
     try {
-      console.log('ðŸ” Requesting access for offer:', applyOffer.offer_id);
+      console.log('🔍 Requesting access for offer:', applyOffer.offer_id);
       // Track clicked_request in search logs
       searchLogsApi.trackSearchAction('clicked_request', lastSearchLogId.current);
       const result = await publisherOfferApi.requestOfferAccess(applyOffer.offer_id, "");
-      console.log('ðŸ” Access request result:', JSON.stringify(result));
+      console.log('🔍 Access request result:', JSON.stringify(result));
       const wasInstant = result.status === 'approved';
       setApplyPopupOpen(false);
       setLastApplyWasInstant(wasInstant);
@@ -411,7 +616,7 @@ const PublisherOffersContent = () => {
       fetchMyRequests();
       fetchOffers();
     } catch (err: any) {
-      console.log('ðŸ” Access request error:', err.response?.status, JSON.stringify(err.response?.data));
+      console.log('🔍 Access request error:', err.response?.status, JSON.stringify(err.response?.data));
       const errData = err.response?.data;
       // If already pending/approved, treat as success and refresh
       if (errData?.status === 'pending' || errData?.status === 'approved') {
@@ -494,7 +699,7 @@ const PublisherOffersContent = () => {
     <TooltipProvider>
       <div className="p-4 space-y-3">
 
-        {/* â”€â”€ TOP CONTROL BAR â”€â”€ */}
+        {/* ── TOP CONTROL BAR ── */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* View mode */}
           <Select value={viewMode} onValueChange={(v: any) => { setViewMode(v); setPage(1); }}>
@@ -515,7 +720,7 @@ const PublisherOffersContent = () => {
               ref={searchInputRef}
               placeholder="Search offers..."
               value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); if (wizardActive) resetWizard(); }}
               onKeyDown={(e) => { handleSearchKeyDown(e); handleSearchSubmit(e); }}
               onFocus={() => { if (acSuggestions.length > 0) setAcOpen(true); }}
               className="w-full pl-8 h-9 text-sm border border-purple-200 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400"
@@ -523,7 +728,7 @@ const PublisherOffersContent = () => {
             />
             {acLoading && <Loader2 className="absolute right-2.5 top-2.5 h-4 w-4 animate-spin text-purple-300" />}
             {searchTerm && !acLoading && (
-              <button onClick={() => { setSearchTerm(''); }} className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600">
+              <button onClick={() => { setSearchTerm(''); resetWizard(); }} className="absolute right-2.5 top-2.5 text-gray-400 hover:text-gray-600">
                 <X className="h-4 w-4" />
               </button>
             )}
@@ -666,9 +871,9 @@ const PublisherOffersContent = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="newest">Newest First</SelectItem>
-                <SelectItem value="payout_high">Payout: High â†’ Low</SelectItem>
-                <SelectItem value="payout_low">Payout: Low â†’ High</SelectItem>
-                <SelectItem value="name">Name Aâ€“Z</SelectItem>
+                <SelectItem value="payout_high">Payout: High → Low</SelectItem>
+                <SelectItem value="payout_low">Payout: Low → High</SelectItem>
+                <SelectItem value="name">Name A–Z</SelectItem>
               </SelectContent>
             </Select>
 
@@ -726,16 +931,231 @@ const PublisherOffersContent = () => {
             <div className="flex items-center gap-2 mb-3">
               <List className="h-5 w-5 text-purple-500" />
               <h2 className="text-lg font-bold text-gray-900">
-                {searchTerm ? `Search: "${searchTerm}"` : 'All Offers'}
+                {wizardActive ? `Search: "${wizardKeyword}"` : 'All Offers'}
               </h2>
-              {searchTerm && (
-                <button onClick={() => setSearchTerm('')} className="ml-2 text-xs text-purple-500 hover:text-purple-700 underline underline-offset-2">
+              {wizardActive && (
+                <button onClick={resetWizard} className="ml-2 text-xs text-purple-500 hover:text-purple-700 underline underline-offset-2">
                   Back to all offers
                 </button>
               )}
             </div>
 
-            {loading ? (
+            {/* ── GUIDED SEARCH WIZARD ── */}
+            {wizardActive ? (
+              <div className="space-y-4">
+                {wizardStep !== 'results' && (
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    className="p-4 bg-white rounded-xl border border-purple-100 shadow-sm space-y-4">
+
+                    {/* Answered tags row — shows what user already picked */}
+                    <div className="flex items-center gap-2 flex-wrap min-h-[28px]">
+                      {wizardKeyword && (
+                        <motion.span initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                          className="text-[11px] bg-purple-100 text-purple-700 px-2.5 py-1 rounded-full font-medium">{wizardKeyword}</motion.span>
+                      )}
+                      {wizVertical && wizardStep !== 'vertical' && (
+                        <motion.span initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                          className="text-[11px] bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-medium flex items-center gap-1">
+                          {resolveVertical(wizVertical)}
+                          <button onClick={() => { setWizVertical(''); setWizardStep('vertical'); }} className="hover:text-blue-900"><X className="h-2.5 w-2.5" /></button>
+                        </motion.span>
+                      )}
+                      {wizGeo && wizardStep !== 'geo' && (
+                        <motion.span initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                          className="text-[11px] bg-green-100 text-green-700 px-2.5 py-1 rounded-full font-medium flex items-center gap-1">
+                          <img src={getFlag(wizGeo)} alt={wizGeo} className="w-3.5 h-[10px] rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                          {wizGeo}
+                          <button onClick={() => { setWizGeo(''); setWizardStep('geo'); }} className="hover:text-green-900"><X className="h-2.5 w-2.5" /></button>
+                        </motion.span>
+                      )}
+                      {wizPayout && wizardStep !== 'payout' && (
+                        <motion.span initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                          className="text-[11px] bg-amber-100 text-amber-700 px-2.5 py-1 rounded-full font-medium flex items-center gap-1">
+                          ${wizPayout}+
+                          <button onClick={() => { setWizPayout(''); setWizardStep('payout'); }} className="hover:text-amber-900"><X className="h-2.5 w-2.5" /></button>
+                        </motion.span>
+                      )}
+                      {wizHasPlacement !== null && wizardStep !== 'placement' && (
+                        <motion.span initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                          className="text-[11px] bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full font-medium flex items-center gap-1">
+                          Placement: {wizHasPlacement ? 'Yes' : 'No'}
+                          <button onClick={() => { setWizHasPlacement(null); setWizardStep('placement'); }} className="hover:text-gray-900"><X className="h-2.5 w-2.5" /></button>
+                        </motion.span>
+                      )}
+                    </div>
+
+                    {/* Current step input */}
+                    <AnimatePresence mode="wait">
+                      {wizardStep === 'vertical' && (
+                        <motion.div key="vertical" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}
+                          className="space-y-2">
+                          <input autoFocus placeholder="Vertical" value={wizVertical} onChange={(e) => setWizVertical(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { isLastEnabledStep('vertical') ? runWizardSearch() : setWizardStep(getNextStep('vertical')); } }}
+                            className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400" />
+                          <div className="flex flex-wrap gap-1.5">
+                            {(wizVertical ? getVerticalSuggestions(wizVertical) : ALL_VERTICALS).slice(0, 8).map(v => (
+                              <button key={v} onClick={() => { setWizVertical(v); isLastEnabledStep('vertical') ? runWizardSearch() : setWizardStep(getNextStep('vertical')); }}
+                                className="text-[11px] px-2.5 py-1 rounded-full border border-gray-200 text-gray-500 hover:border-purple-300 hover:text-purple-600 transition-colors">{v}</button>
+                            ))}
+                          </div>
+                          {isLastEnabledStep('vertical')
+                            ? <Button size="sm" onClick={runWizardSearch} className="h-8 text-xs rounded-full px-4 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white"><Search className="h-3 w-3 mr-1" />Find Offers</Button>
+                            : <Button size="sm" onClick={() => setWizardStep(getNextStep('vertical'))} className="h-8 text-xs rounded-full px-4 bg-purple-600 hover:bg-purple-700 text-white">{wizVertical ? 'Next' : 'Skip'}</Button>
+                          }
+                        </motion.div>
+                      )}
+
+                      {wizardStep === 'geo' && (
+                        <motion.div key="geo" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}
+                          className="space-y-2">
+                          <input autoFocus placeholder="Geo (e.g. US, UK, IN)" value={wizGeo} onChange={(e) => setWizGeo(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { isLastEnabledStep('geo') ? runWizardSearch() : setWizardStep(getNextStep('geo')); } }}
+                            className="w-full h-10 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400" />
+                          {uniqueCountries.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {uniqueCountries.slice(0, 12).map(g => (
+                                <button key={g} onClick={() => { setWizGeo(g); isLastEnabledStep('geo') ? runWizardSearch() : setWizardStep(getNextStep('geo')); }}
+                                  className={`text-[11px] px-2.5 py-1 rounded-full border flex items-center gap-1 transition-colors ${wizGeo === g ? 'bg-purple-600 text-white border-purple-600' : 'border-gray-200 text-gray-500 hover:border-purple-300 hover:text-purple-600'}`}>
+                                  <img src={getFlag(g)} alt={g} className="w-3.5 h-[10px] rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />{g}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="ghost" onClick={() => setWizardStep(getPrevStep('geo'))} className="h-8 text-xs">Back</Button>
+                            {isLastEnabledStep('geo')
+                              ? <Button size="sm" onClick={runWizardSearch} className="h-8 text-xs rounded-full px-4 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white"><Search className="h-3 w-3 mr-1" />Find Offers</Button>
+                              : <Button size="sm" onClick={() => setWizardStep(getNextStep('geo'))} className="h-8 text-xs rounded-full px-4 bg-purple-600 hover:bg-purple-700 text-white">{wizGeo ? 'Next' : 'Skip'}</Button>
+                            }
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {wizardStep === 'payout' && (
+                        <motion.div key="payout" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}
+                          className="space-y-3">
+                          <div className="flex items-center gap-4">
+                            <span className="text-sm text-gray-500 shrink-0">Target payout</span>
+                            <span className="text-lg font-bold text-purple-600 min-w-[60px]">${wizPayout || '0'}</span>
+                          </div>
+                          <input
+                            type="range" min="0" max="200" step="1"
+                            value={wizPayout || '0'}
+                            onChange={(e) => setWizPayout(e.target.value === '0' ? '' : e.target.value)}
+                            className="w-full h-2 accent-purple-600 cursor-pointer"
+                          />
+                          <div className="flex justify-between text-[10px] text-gray-400">
+                            <span>$0</span><span>$50</span><span>$100</span><span>$150</span><span>$200+</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="ghost" onClick={() => setWizardStep(getPrevStep('payout'))} className="h-8 text-xs">Back</Button>
+                            {isLastEnabledStep('payout')
+                              ? <Button size="sm" onClick={runWizardSearch} className="h-8 text-xs rounded-full px-4 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white"><Search className="h-3 w-3 mr-1" />Find Offers</Button>
+                              : <Button size="sm" onClick={() => setWizardStep(getNextStep('payout'))} className="h-8 text-xs rounded-full px-4 bg-purple-600 hover:bg-purple-700 text-white">{wizPayout ? 'Next' : 'Skip'}</Button>
+                            }
+                          </div>
+                        </motion.div>
+                      )}
+
+                      {wizardStep === 'placement' && (
+                        <motion.div key="placement" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}
+                          className="space-y-3">
+                          <p className="text-sm text-gray-600">Do you have a placement for this?</p>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant={wizHasPlacement === true ? 'default' : 'outline'} onClick={() => setWizHasPlacement(true)}
+                              className={`h-8 text-xs rounded-full px-4 ${wizHasPlacement === true ? 'bg-purple-600 text-white' : ''}`}>Yes</Button>
+                            <Button size="sm" variant={wizHasPlacement === false ? 'default' : 'outline'} onClick={() => setWizHasPlacement(false)}
+                              className={`h-8 text-xs rounded-full px-4 ${wizHasPlacement === false ? 'bg-purple-600 text-white' : ''}`}>No</Button>
+                          </div>
+                          {wizHasPlacement === true && (
+                            <div className="space-y-2">
+                              <input placeholder="Placement link (optional)" value={wizPlacementLink} onChange={(e) => setWizPlacementLink(e.target.value)}
+                                className="w-full h-9 px-3 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400" />
+                              <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer hover:text-purple-600">
+                                <input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => setWizPlacementFile(e.target.files?.[0] || null)} />
+                                <span className="px-3 py-1.5 border border-dashed border-gray-300 rounded-lg hover:border-purple-400 transition-colors">
+                                  {wizPlacementFile ? wizPlacementFile.name : 'Upload proof (image/pdf)'}
+                                </span>
+                              </label>
+                            </div>
+                          )}
+                          <div className="flex gap-2 pt-1">
+                            <Button size="sm" variant="ghost" onClick={() => setWizardStep(getPrevStep('placement'))} className="h-8 text-xs">Back</Button>
+                            <Button size="sm" onClick={runWizardSearch} disabled={wizSearching}
+                              className="h-8 text-xs rounded-full px-6 bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-700 hover:to-violet-700 text-white">
+                              {wizSearching ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Search className="h-3 w-3 mr-1" />}
+                              Find Offers
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                )}
+
+                {/* Wizard results */}
+                {wizardStep === 'results' && (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap gap-1.5 items-center">
+                      <span className="text-[10px] text-gray-400">Searched:</span>
+                      <span className="text-[11px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{wizardKeyword}</span>
+                      {wizVertical && <span className="text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{resolveVertical(wizVertical)}</span>}
+                      {wizGeo && <span className="text-[11px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">{wizGeo}</span>}
+                      {wizPayout && <span className="text-[11px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">${wizPayout}+</span>}
+                      {wizHasPlacement !== null && <span className="text-[11px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Placement: {wizHasPlacement ? 'Yes' : 'No'}</span>}
+                      <button onClick={() => setWizardStep(getFirstWizardStep())} className="text-[10px] text-purple-500 underline ml-1">Edit</button>
+                    </div>
+
+                    {wizNoResults ? (
+                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center py-12 space-y-4">
+                        <motion.div animate={{ scale: [1, 1.05, 1] }} transition={{ repeat: Infinity, duration: 2 }}
+                          className="w-16 h-16 mx-auto rounded-full bg-purple-50 flex items-center justify-center">
+                          <Search className="h-8 w-8 text-purple-300" />
+                        </motion.div>
+                        <div>
+                          <p className="text-sm font-medium text-gray-700">No offer found</p>
+                        </div>
+                        <Button size="sm" variant="outline" onClick={resetWizard} className="h-8 text-xs rounded-full px-4">Search again</Button>
+                      </motion.div>
+                    ) : (
+                      <>
+                        <p className="text-xs text-gray-400">{wizResults.length} offer{wizResults.length !== 1 ? 's' : ''} found</p>
+                        {wizResults.map((offer, idx) => {
+                          const hasAccess = offer.has_access;
+                          const isPending = offer.request_status === "pending";
+                          return (
+                            <motion.div key={offer.offer_id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }}
+                              className="rounded-xl border border-purple-100 bg-white shadow-sm p-4 flex items-center gap-4">
+                              <img src={getOfferImage(offer as any)} alt="" className="w-10 h-10 rounded-lg object-cover border border-purple-100 shrink-0"
+                                onError={(e) => { (e.target as HTMLImageElement).src = "/category-images/other.png"; }} />
+                              <div className="flex-1 min-w-0">
+                                <button onClick={() => handleViewDetails(offer)} className="font-semibold text-sm text-gray-900 truncate block hover:text-purple-600 text-left">{offer.name}</button>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-[10px] text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded">{(offer as any).category || 'OTHER'}</span>
+                                  {renderFlags(offer.countries)}
+                                </div>
+                              </div>
+                              <span className="font-bold text-emerald-600 shrink-0">
+                                {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
+                              </span>
+                              {hasAccess ? (
+                                <Button size="sm" variant="outline" className="h-8 text-xs rounded-full px-3 border-purple-200 text-purple-600"
+                                  onClick={() => { trackDashboardClick(offer); handleViewDetails(offer); }}><ExternalLink className="h-3 w-3 mr-1" />Open</Button>
+                              ) : isPending ? (
+                                <Button size="sm" variant="outline" className="h-8 text-xs rounded-full px-3 opacity-40" disabled>Pending</Button>
+                              ) : (
+                                <Button size="sm" className="h-8 text-xs rounded-full px-3 bg-purple-600 hover:bg-purple-700 text-white"
+                                  onClick={() => handleApplyClick(offer)}><Send className="h-3 w-3 mr-1" />Apply</Button>
+                              )}
+                            </motion.div>
+                          );
+                        })}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : loading ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-purple-400" />
               </div>
@@ -765,7 +1185,7 @@ const PublisherOffersContent = () => {
                       const isPending = offer.request_status === "pending";
                       return (
                         <TableRow key={offer.offer_id} className={`transition-colors hover:bg-purple-50/50 ${idx % 2 === 0 ? "bg-white" : "bg-violet-50/20"}`}>
-                          {/* ID â€” first column */}
+                          {/* ID — first column */}
                           <TableCell className="py-2.5 pl-3">
                             <span className="text-[10px] text-purple-500 font-mono bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded whitespace-nowrap">{offer.offer_id}</span>
                           </TableCell>
@@ -803,7 +1223,7 @@ const PublisherOffersContent = () => {
                           {/* Category */}
                           <TableCell className="py-2.5">
                             <span className="text-xs capitalize text-muted-foreground">
-                              {(offer as any).category || (offer as any).vertical || 'â€”'}
+                              {(offer as any).category || (offer as any).vertical || '—'}
                             </span>
                           </TableCell>
 
@@ -950,7 +1370,7 @@ const PublisherOffersContent = () => {
               </div>
             )}
 
-            {/* Bottom pagination removed â€” pagination is at the top */}
+            {/* Bottom pagination removed — pagination is at the top */}
           </>
         )}
 

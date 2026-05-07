@@ -230,17 +230,18 @@ const AdminOffers = () => {
     }
   };
 
-  const fetchOffers = async (overridePage?: number) => {
+  const fetchOffers = async (overridePage?: number, resetFilters = false) => {
     try {
       setLoading(true);
       const params = {
         page: overridePage ?? pagination.page,
         per_page: pagination.per_page,
-        ...(statusFilter !== 'all' && { status: statusFilter }),
-        ...(searchTerm && { search: searchTerm }),
-        ...(sortBy && { sort: sortBy }),
-        ...(countryFilter !== 'all' && { country: countryFilter }),
-        ...(networkFilter !== 'all' && { network: networkFilter })
+        ...(!resetFilters && statusFilter !== 'all' && { status: statusFilter }),
+        ...(!resetFilters && searchTerm && { search: searchTerm }),
+        ...(!resetFilters && sortBy && { sort: sortBy }),
+        ...(!resetFilters && countryFilter !== 'all' && { country: countryFilter }),
+        ...(!resetFilters && networkFilter !== 'all' && { network: networkFilter }),
+        ...(resetFilters && { sort: 'newest' })
       };
 
       const response = await adminOfferApi.getOffers(params);
@@ -294,6 +295,16 @@ const AdminOffers = () => {
     }
   };
 
+  const handleOfferCreated = () => {
+    setPagination(prev => ({ ...prev, page: 1 }));
+    setSortBy('newest');
+    setSearchTerm('');
+    setStatusFilter('all');
+    setCountryFilter('all');
+    setNetworkFilter('all');
+    fetchOffers(1, true);
+  };
+
   // Category mappings for client-side filtering
   const categoryMappings: Record<string, string[]> = {
     'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
@@ -312,6 +323,13 @@ const AdminOffers = () => {
   // Client-side filtering via useMemo — no re-fetch needed
   const offers = useMemo(() => {
     let filtered = [...rawOffers];
+
+    // Apply country filter
+    if (countryFilter !== 'all') {
+      filtered = filtered.filter(offer =>
+        Array.isArray(offer.countries) && offer.countries.some(c => c.toUpperCase() === countryFilter.toUpperCase())
+      );
+    }
 
     // Apply category filter (supports new categories array)
     if (selectedCategories !== 'all') {
@@ -3855,7 +3873,7 @@ const AdminOffers = () => {
       <AddOfferModal
         open={addOfferModalOpen}
         onOpenChange={setAddOfferModalOpen}
-        onOfferCreated={fetchOffers}
+        onOfferCreated={handleOfferCreated}
       />
 
       {/* Edit Offer Modal */}

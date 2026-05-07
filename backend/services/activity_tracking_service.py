@@ -56,19 +56,26 @@ class ActivityTrackingService:
             
             if status == 'success':
                 try:
-                    from services.ipinfo_service import get_ip2location_service
+                    from services.ipinfo_service import get_ipinfo_service
                     from services.fraud_detection_service import get_fraud_detection_service
                     from database import db_instance
                     
-                    # 1. IPinfo - Superior IP Intelligence
-                    ipinfo_service = get_ip2location_service()
-                    ip_data = ipinfo_service.lookup_ip(ip_address)
+                    # 1. Geolocation Service - Standard IP Intelligence
+                    geo_service = get_ipinfo_service()
+                    ip_data = geo_service.lookup_ip(ip_address)
                     
                     if ip_data:
-                        vpn_detection = ip_data.get('vpn_detection', {})
-                        logger.info(f"🔍 IPinfo check for {ip_address}: VPN={vpn_detection.get('is_vpn')}, Proxy={vpn_detection.get('is_proxy')}, ISP={vpn_detection.get('isp')}")
+                        vpn_info = ip_data.get('vpn_detection', {})
+                        vpn_detection = {
+                            'is_vpn': vpn_info.get('is_vpn', False),
+                            'is_proxy': vpn_info.get('is_proxy', False),
+                            'is_tor': vpn_info.get('is_tor', False),
+                            'is_datacenter': vpn_info.get('is_datacenter', False),
+                            'isp': ip_data.get('isp', 'Unknown')
+                        }
+                        logger.info(f"🔍 Geolocation check for {ip_address}: VPN={vpn_detection.get('is_vpn')}, Proxy={vpn_detection.get('is_proxy')}, ISP={vpn_detection.get('isp')}")
                     else:
-                        # Fallback to old VPN detection service if IPinfo fails
+                        # Fallback to old VPN detection service if geolocation fails
                         from services.vpn_detection_service import get_vpn_detection_service
                         vpn_service = get_vpn_detection_service(db_instance)
                         vpn_detection = vpn_service.check_ip(ip_address)
@@ -300,28 +307,31 @@ class ActivityTrackingService:
     def _get_client_ip(self, request):
         """Get client IP address from request"""
         try:
+            # Check for Cloudflare header first (most reliable)
+            if request.headers.get('CF-Connecting-IP'):
+                return request.headers.get('CF-Connecting-IP')
+            
             # Check for proxy headers
             if request.headers.get('X-Forwarded-For'):
-                ip = request.headers.get('X-Forwarded-For').split(',')[0].strip()
+                # Get the first IP in the comma-separated list
+                return request.headers.get('X-Forwarded-For').split(',')[0].strip()
             elif request.headers.get('X-Real-IP'):
-                ip = request.headers.get('X-Real-IP')
-            else:
-                ip = request.remote_addr
+                return request.headers.get('X-Real-IP')
             
-            return ip
+            return request.remote_addr or 'unknown'
             
         except Exception as e:
             logger.error(f"Error getting client IP: {str(e)}", exc_info=True)
             return 'unknown'
     
     def _get_location(self, ip_address):
-        """Get location and IP intelligence from IPinfo"""
+        """Get location and IP intelligence from GeolocationService"""
         try:
-            # Use IPinfo service for comprehensive IP intelligence
+            # Use IPinfoService for comprehensive IP intelligence
             from services.ipinfo_service import get_ipinfo_service
             
-            ipinfo_service = get_ipinfo_service()
-            ip_data = ipinfo_service.lookup_ip(ip_address)
+            geo_service = get_ipinfo_service()
+            ip_data = geo_service.lookup_ip(ip_address)
             
             if ip_data:
                 # Return location data in expected format
@@ -334,11 +344,11 @@ class ActivityTrackingService:
                     'latitude': ip_data.get('latitude', 0),
                     'longitude': ip_data.get('longitude', 0),
                     'timezone': ip_data.get('time_zone', 'UTC'),
-                    # Additional IPinfo fields
+                    # Additional fields
                     'isp': ip_data.get('isp', 'Unknown'),
-                    'domain': ip_data.get('domain', ''),
+                    'domain': '',
                     'asn': ip_data.get('asn', ''),
-                    'org': ip_data.get('org', 'Unknown')
+                    'org': ip_data.get('organization', 'Unknown')
                 }
             else:
                 # Fallback to default

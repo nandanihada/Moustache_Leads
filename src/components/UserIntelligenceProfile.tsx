@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { loginLogsService } from "@/services/loginLogsService";
+import { offerQueueService, OfferQueueItem, QueueStatus } from '@/services/offerQueueService';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -43,6 +44,53 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
   const [queueOffers, setQueueOffers] = React.useState<any[]>([]);
   const [sendMode, setSendMode] = React.useState<'single'|'combined'>('single');
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = React.useState(false);
+  
+  const [liveQueue, setLiveQueue] = React.useState<OfferQueueItem[]>([]);
+  const [intervalValue, setIntervalValue] = React.useState('15');
+  const [intervalUnit, setIntervalUnit] = React.useState<'minutes'|'hours'|'days'>('minutes');
+  const [isQueueProcessing, setIsQueueProcessing] = React.useState(true);
+  
+  const handleIntervalChange = (val: string, unit: 'minutes'|'hours'|'days') => {
+    setIntervalValue(val);
+    setIntervalUnit(unit);
+    let minutes = parseInt(val) || 15;
+    if (unit === 'hours') minutes *= 60;
+    if (unit === 'days') minutes *= 1440;
+    
+    const queuedItems = liveQueue.filter(q => q.status === 'queued');
+    if (queuedItems.length > 0) {
+      offerQueueService.recalculateTimes(null, queuedItems[0].scheduledTime, minutes);
+    }
+  };
+
+  React.useEffect(() => {
+    const unsubscribe = offerQueueService.subscribe((queue) => {
+      setLiveQueue(queue);
+      setIsQueueProcessing(offerQueueService.getIsProcessing());
+    });
+    
+    const handleQueueSent = (e: any) => {
+      const item = e.detail;
+      if (item.userId === (log.user_id || log._id)) {
+        const sentEvent = {
+            _id: Math.random().toString(),
+            type: 'email',
+            subject: `Sent: ${item.offerName}`,
+            status: item.status === 'skipped' ? 'Skipped' : 'Sent',
+            sent_at: new Date().toISOString(),
+            offer_names: [item.offerName]
+        };
+        setLocalHistory(prev => [sentEvent, ...prev]);
+      }
+    };
+    
+    window.addEventListener('offer_queue_sent', handleQueueSent);
+    
+    return () => {
+      unsubscribe();
+      window.removeEventListener('offer_queue_sent', handleQueueSent);
+    };
+  }, [log]);
   
   const defaultDate = React.useMemo(() => {
     const d = new Date();
@@ -193,6 +241,63 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
             </div>
           )}
 
+          {/* Live Queue View */}
+          {liveQueue.length > 0 && (
+            <div className="card" style={{ padding: '16px', borderRadius: '12px' }}>
+               <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 12px 0' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: '#1a1a18', textTransform: 'none', letterSpacing: '0' }}>
+                    <Clock size={14} className="text-purple-600" /> Live Queue Status
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {isQueueProcessing ? (
+                       <button onClick={() => offerQueueService.pauseQueue()} className="actn-btn" style={{ padding: '2px 8px', fontSize: '10px' }}>Pause</button>
+                    ) : (
+                       <button onClick={() => offerQueueService.resumeQueue()} className="actn-btn primary" style={{ padding: '2px 8px', fontSize: '10px', background: '#185FA5', color: '#fff', border: 'none' }}>Resume</button>
+                    )}
+                    <button onClick={() => offerQueueService.clearQueue()} className="actn-btn" style={{ padding: '2px 8px', fontSize: '10px' }}>Reset</button>
+                  </div>
+               </div>
+               
+               {/* Progress Bar & Stats */}
+               <div style={{ marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#9c9a92', marginBottom: '6px' }}>
+                     <span>{liveQueue.filter(q => q.status === 'sent').length} of {liveQueue.length} sent • {liveQueue.filter(q => q.status === 'queued').length} queued</span>
+                     <span>Finishes: {liveQueue.length > 0 ? new Date(Math.max(...liveQueue.map(q => q.scheduledTime))).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A'}</span>
+                  </div>
+                  <div style={{ height: '4px', background: '#EBF2FB', borderRadius: '2px', overflow: 'hidden' }}>
+                     <div style={{ height: '100%', background: '#185FA5', width: `${(liveQueue.filter(q => q.status === 'sent').length / Math.max(liveQueue.length, 1)) * 100}%`, transition: 'width 0.3s' }}></div>
+                  </div>
+               </div>
+
+               {/* Queue Items */}
+               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '4px' }}>
+                 {liveQueue.map(item => (
+                    <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: '#fff', border: '1px solid #F4F3EF', borderRadius: '6px' }}>
+                       <div style={{ minWidth: 0, paddingRight: '8px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: '500', color: '#1a1a18', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.username} • {item.offerName}</div>
+                          <div style={{ fontSize: '10px', color: '#9c9a92', marginTop: '3px' }}>
+                             {item.status === 'queued' ? 'Scheduled: ' : item.status === 'sending' ? 'Sending now... ' : 'Processed: '} 
+                             {new Date(item.scheduledTime).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute:'2-digit'})}
+                          </div>
+                       </div>
+                       <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                         <span className="badge" style={{ 
+                            background: item.status === 'queued' ? '#F4F0FA' : item.status === 'sending' ? '#EBF2FB' : item.status === 'sent' ? '#E1F5EE' : '#F4F3EF',
+                            color: item.status === 'queued' ? '#7F2FBE' : item.status === 'sending' ? '#185FA5' : item.status === 'sent' ? '#1D9E75' : '#9c9a92',
+                            fontSize: '9px', padding: '2px 6px', borderRadius: '4px'
+                         }}>
+                           {item.status}
+                         </span>
+                         {item.status === 'queued' && (
+                            <button onClick={() => offerQueueService.updateItemStatus(item.id, 'skipped')} style={{ background: 'none', border: 'none', color: '#A32D2D', fontSize: '12px', cursor: 'pointer', padding: '2px' }}>×</button>
+                         )}
+                       </div>
+                    </div>
+                 ))}
+               </div>
+            </div>
+          )}
+
           {/* Offer Queue */}
           <div className="card" style={{ padding: '16px', borderRadius: '12px' }}>
              <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 4px 0' }}>
@@ -280,25 +385,19 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
              {/* Footer Action Buttons */}
              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #F4F3EF' }}>
                 <button onClick={async () => {
-                    if (onSendOffers) {
-                        const topOffers = queueOffers.slice(0, 3);
-                        const offerIds = topOffers.map((o: any) => o.offer_id || o._id).filter(Boolean);
-                        const success = await onSendOffers(offerIds);
-                        if (success) {
-                            const sentEvent = {
-                                _id: Math.random().toString(),
-                                type: 'email',
-                                subject: `Combined Send: ${offerIds.length} offers`,
-                                status: 'Sent',
-                                sent_at: new Date().toISOString(),
-                                offer_names: topOffers.map((o: any) => o.name || o.offer_name || 'Offer')
-                            };
-                            setLocalHistory(prev => [sentEvent, ...prev]);
-                            setQueueOffers(prev => prev.slice(3));
-                            try {
-                                const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
-                            } catch (e) {}
-                        }
+                    const topOffers = queueOffers.slice(0, 3);
+                    const offerIds = topOffers.map((o: any) => o.offer_id || o._id).filter(Boolean);
+                    if (offerIds.length > 0) {
+                        offerQueueService.addItems([{
+                            userId: log.user_id || log._id,
+                            username: log.username || 'User',
+                            offerIds: offerIds,
+                            offerName: `${offerIds.length} offers combined`,
+                            scheduledTime: Date.now(),
+                            sendMode: 'combined'
+                        }]);
+                        setQueueOffers(prev => prev.slice(3));
+                        toast({ title: 'Added to Queue', description: `Added 3 offers to the live send queue.` });
                     }
                 }} disabled={sendingOffers || queueOffers.length === 0} className="actn-btn" style={{ background: '#E1F5EE', color: '#085041', borderColor: '#1D9E75', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', borderRadius: '4px', padding: '4px 8px', opacity: (sendingOffers || queueOffers.length === 0) ? 0.5 : 1 }}>
                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 2L11 13"></path><path d="M22 2L15 22L11 13L2 9L22 2Z"></path></svg>
@@ -408,6 +507,18 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
                             <option value="3 offers">3 offers</option>
                             <option value="5 offers">5 offers</option>
                         </select>
+                    </div>
+
+                    <div>
+                        <div style={{ fontSize: '9px', fontWeight: '600', color: '#9c9a92', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Global Send Interval (Queue)</div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                           <input type="number" value={intervalValue} onChange={(e) => handleIntervalChange(e.target.value, intervalUnit)} style={{ width: '60px', padding: '6px 8px', borderRadius: '6px', border: '1px solid #dddbd2', outline: 'none', fontSize: '11px' }} />
+                           <select value={intervalUnit} onChange={(e) => handleIntervalChange(intervalValue, e.target.value as 'minutes'|'hours'|'days')} style={{ flex: 1, padding: '6px 8px', borderRadius: '6px', border: '1px solid #dddbd2', outline: 'none', fontSize: '11px' }}>
+                               <option value="minutes">Minutes</option>
+                               <option value="hours">Hours</option>
+                               <option value="days">Days</option>
+                           </select>
+                        </div>
                     </div>
 
                     <div>
@@ -526,24 +637,39 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
                      return;
                    }
                    
-                   const offerIds = queueOffers.map(o => o.offer_id || o._id).filter(Boolean);
-                   if (offerIds.length > 0 && onSendOffers) {
-                     await onSendOffers(offerIds, undefined, scheduleDate);
-                     const scheduledEvent = {
-                         _id: Math.random().toString(),
-                         type: 'email',
-                         subject: `Scheduled Send: ${offerIds.length} offers`,
-                         status: 'Scheduled',
-                         scheduled_at: new Date(scheduleDate).toISOString(),
-                         offer_names: queueOffers.map(o => o.name || o.offer_name || 'Offer')
-                     };
-                     setLocalHistory(prev => [scheduledEvent, ...prev]);
+                   let minutes = parseInt(intervalValue) || 15;
+                   if (intervalUnit === 'hours') minutes *= 60;
+                   if (intervalUnit === 'days') minutes *= 1440;
+                   
+                   const startTime = new Date(scheduleDate).getTime();
+                   
+                   if (sendMode === 'combined') {
+                      const offerIds = queueOffers.map(o => o.offer_id || o._id).filter(Boolean);
+                      if (offerIds.length > 0) {
+                         offerQueueService.addItems([{
+                            userId: log.user_id || log._id,
+                            username: log.username || 'User',
+                            offerIds: offerIds,
+                            offerName: `${offerIds.length} offers combined`,
+                            scheduledTime: startTime,
+                            sendMode: 'combined'
+                         }]);
+                      }
+                   } else {
+                      // 1 by 1
+                      const items = queueOffers.map((o, idx) => ({
+                            userId: log.user_id || log._id,
+                            username: log.username || 'User',
+                            offerId: o.offer_id || o._id,
+                            offerName: o.name || o.offer_name || 'Offer',
+                            scheduledTime: startTime + (idx * minutes * 60000),
+                            sendMode: 'single' as const
+                      }));
+                      offerQueueService.addItems(items);
                    }
-                   try {
-                     const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
-                   } catch (e) {
-                     console.error("Failed to refresh history", e);
-                   }
+                   
+                   toast({ title: 'Scheduled', description: `Added ${queueOffers.length} offers to the live queue.` });
+                   
                    setQueueOffers([]);
                    setIsScheduleDialogOpen(false);
             }}>Confirm Schedule</Button>

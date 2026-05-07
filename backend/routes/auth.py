@@ -16,8 +16,9 @@ login_logs_collection = db_instance.get_collection('login_logs')
 def log_signup_attempt(data: dict, status: str, error_message: str = None):
     """Log signup attempt for admin visibility - logs to both signup_attempts and login_logs"""
     try:
-        # Get IP address
-        if request.headers.get('X-Forwarded-For'):
+        if request.headers.get('CF-Connecting-IP'):
+            ip_address = request.headers.get('CF-Connecting-IP')
+        elif request.headers.get('X-Forwarded-For'):
             ip_address = request.headers.get('X-Forwarded-For').split(',')[0].strip()
         elif request.headers.get('X-Real-IP'):
             ip_address = request.headers.get('X-Real-IP')
@@ -28,14 +29,16 @@ def log_signup_attempt(data: dict, status: str, error_message: str = None):
         location = {'city': 'Unknown', 'region': 'Unknown', 'country': 'Unknown', 'country_code': 'XX'}
         try:
             from services.ipinfo_service import get_ipinfo_service
-            ipinfo_service = get_ipinfo_service()
-            ip_data = ipinfo_service.lookup_ip(ip_address)
+            geo_service = get_ipinfo_service()
+            ip_data = geo_service.lookup_ip(ip_address)
             if ip_data:
                 location = {
                     'city': ip_data.get('city', 'Unknown'),
                     'region': ip_data.get('region', 'Unknown'),
                     'country': ip_data.get('country', 'Unknown'),
                     'country_code': ip_data.get('country_code', 'XX'),
+                    'latitude': ip_data.get('latitude', 0),
+                    'longitude': ip_data.get('longitude', 0),
                     'isp': ip_data.get('isp', 'Unknown')
                 }
         except Exception as loc_err:

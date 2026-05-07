@@ -49,7 +49,7 @@ class BulkOfferProcessor:
         # Collect all possible duplicate identifiers
         campaign_ids = []
         names_networks = []
-        tracking_urls = []
+        target_urls = []
         
         for offer in offers_data:
             if offer.get('campaign_id'):
@@ -59,8 +59,8 @@ class BulkOfferProcessor:
                     'name': offer['name'],
                     'network': offer['network']
                 })
-            if offer.get('tracking_url'):
-                tracking_urls.append(offer['tracking_url'])
+            if offer.get('target_url'):
+                target_urls.append(offer['target_url'])
         
         # Build OR query for all potential duplicates
         or_conditions = []
@@ -68,8 +68,8 @@ class BulkOfferProcessor:
         if campaign_ids:
             or_conditions.append({'campaign_id': {'$in': campaign_ids}})
         
-        if tracking_urls:
-            or_conditions.append({'tracking_url': {'$in': tracking_urls}})
+        if target_urls:
+            or_conditions.append({'target_url': {'$in': target_urls}})
         
         # For name+network, we need individual conditions
         for nn in names_networks[:500]:  # Limit to prevent query size issues
@@ -85,7 +85,7 @@ class BulkOfferProcessor:
             # Single query to find all potential duplicates
             existing_offers = list(self.offers_collection.find(
                 {'$or': or_conditions},
-                {'_id': 1, 'offer_id': 1, 'name': 1, 'network': 1, 'campaign_id': 1, 'tracking_url': 1}
+                {'_id': 1, 'offer_id': 1, 'name': 1, 'network': 1, 'campaign_id': 1, 'target_url': 1}
             ))
             
             # Build lookup maps
@@ -101,9 +101,9 @@ class BulkOfferProcessor:
                     key = f"name_network:{existing['name'].lower()}:{existing['network'].lower()}"
                     duplicates[key] = existing
                 
-                # Map by tracking_url
-                if existing.get('tracking_url'):
-                    duplicates[f"url:{existing['tracking_url']}"] = existing
+                # Map by target_url
+                if existing.get('target_url'):
+                    duplicates[f"url:{existing['target_url']}"] = existing
             
             logger.info(f"Bulk duplicate check: found {len(duplicates)} potential duplicates")
             return duplicates
@@ -132,9 +132,9 @@ class BulkOfferProcessor:
                 existing = duplicates_map[key]
                 return True, str(existing.get('_id', existing.get('offer_id', ''))), existing
         
-        # Check tracking_url
-        if offer_data.get('tracking_url'):
-            key = f"url:{offer_data['tracking_url']}"
+        # Check target_url
+        if offer_data.get('target_url'):
+            key = f"url:{offer_data['target_url']}"
             if key in duplicates_map:
                 existing = duplicates_map[key]
                 return True, str(existing.get('_id', existing.get('offer_id', ''))), existing

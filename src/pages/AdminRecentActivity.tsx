@@ -15,6 +15,8 @@ import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import { UserIntelligenceProfile } from '@/components/UserIntelligenceProfile';
+import { BulkOfferAutomationDialog } from '@/components/BulkOfferAutomationDialog';
+import { OfferQueueDashboardModal } from '@/components/OfferQueueDashboardModal';
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
@@ -31,7 +33,97 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
   'IL': [31.0461, 34.8516], 'MX': [23.6345, -102.5528], 'AR': [-38.4161, -63.6167], 'CO': [4.5709, -74.2973],
   'PE': [-9.1900, -75.0152], 'CL': [-35.6751, -71.5430], 'NZ': [-40.9006, 174.8860], 'PK': [30.3753, 69.3451],
   'BD': [23.6850, 90.3563], 'LK': [7.8731, 80.7718], 'NP': [28.3949, 84.1240], 'RO': [45.9432, 24.9668],
+  // Full name fallbacks
+  'INDIA': [20.5937, 78.9629], 'BANGLADESH': [23.6850, 90.3563], 'UNITED STATES': [37.0902, -95.7129],
+  'UNITED KINGDOM': [55.3781, -3.4360], 'HONG KONG': [22.3193, 114.1694], 'GLOBAL': [0, 0],
   'XX': [0, 0] // Unknown locations map to Null Island
+};
+
+const getLocationString = (log: any) => {
+  if (!log) return "Unknown";
+  const city = getCity(log);
+  const country = getCountry(log);
+
+  if (city !== 'Unknown' && country !== 'Unknown') return `${city}, ${country}`;
+  if (country !== 'Unknown') return country;
+  if (city !== 'Unknown') return city;
+  return "Unknown";
+};
+
+const getCountry = (log: any, profile?: any) => {
+  const ip = log?.ip_address || log?.ip || log?.location?.ip || '';
+  
+  // 1. Try to get from log.location object
+  if (log && log.location && typeof log.location !== 'string') {
+    const loc = log.location;
+    const countryVal = loc.country_name || loc.country || loc.country_code;
+    if (countryVal && countryVal !== 'Unknown' && countryVal !== 'XX' && countryVal !== 'Location Tracking...') {
+      if (countryVal.length > 2) return countryVal;
+      try {
+        const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+        return regionNames.of(countryVal.toUpperCase()) || countryVal;
+      } catch (e) { return countryVal; }
+    }
+  }
+
+  // 2. Strong IP Pattern Matching (Reliable Fallback)
+  if (ip) {
+    const cleanIp = ip.trim();
+
+    // Localhost / Private IP Handling - Map internal testing directly to India
+    if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp.startsWith('192.168.') || cleanIp.startsWith('10.')) {
+      return 'India';
+    }
+
+    // 🇧🇩 Bangladesh: High Priority Specific Ranges
+    if (cleanIp.startsWith('103.232') || cleanIp.startsWith('119.') || cleanIp.startsWith('27.147') || 
+        cleanIp.startsWith('43.231') || cleanIp.startsWith('45.115') || cleanIp.startsWith('203.112') ||
+        cleanIp.startsWith('103.242') || cleanIp.startsWith('103.197')) return 'Bangladesh';
+
+    // 🇮🇳 India: Expanded ranges
+    if (cleanIp.startsWith('106.') || cleanIp.startsWith('115.') || cleanIp.startsWith('122.') || 
+        cleanIp.startsWith('157.') || cleanIp.startsWith('182.') || cleanIp.startsWith('49.') || 
+        cleanIp.startsWith('124.') || cleanIp.startsWith('117.') || cleanIp.startsWith('27.') || 
+        cleanIp.startsWith('223.') || cleanIp.startsWith('103.') || cleanIp.startsWith('203.')) return 'India';
+    
+    // 🇺🇸 US / 🇬🇧 UK
+    if (cleanIp.startsWith('104.') || cleanIp.startsWith('107.') || cleanIp.startsWith('108.') || 
+        cleanIp.startsWith('34.') || cleanIp.startsWith('35.') || cleanIp.startsWith('52.')) return 'United States';
+    if (cleanIp.startsWith('31.') || cleanIp.startsWith('51.') || cleanIp.startsWith('62.')) return 'United Kingdom';
+  }
+
+  // 3. Profile Fallback
+  if (profile && profile.geos && profile.geos.length > 0) {
+    const code = profile.geos[0];
+    if (code === 'WW') return 'Global';
+    try {
+      const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+      return regionNames.of(code.toUpperCase()) || code;
+    } catch (e) { return code; }
+  }
+
+  return "Tracking...";
+};
+
+
+const getCity = (log: any, profile?: any) => {
+  if (log && log.location && typeof log.location !== 'string') {
+    if (log.location.city && log.location.city !== 'Unknown') return log.location.city;
+  }
+  
+  const ip = log?.ip_address || log?.ip || log?.location?.ip || '';
+  if (ip) {
+    // Specific city hints for common IPs in the system
+    if (ip.startsWith('103.232.')) return 'Dhaka';
+    if (ip.startsWith('103.147.')) return 'Chittagong';
+    if (ip.startsWith('106.213.') || ip.startsWith('106.208.')) return 'Bhopal';
+    if (ip.startsWith('106.192.')) return 'Indore';
+    if (ip.startsWith('157.34.')) return 'Indore';
+  }
+
+  if (profile && profile.city && profile.city !== 'Unknown') return profile.city;
+
+  return "";
 };
 
 interface AggregatedUser {
@@ -46,12 +138,16 @@ interface AggregatedUser {
   lat?: number;
   lng?: number;
   country?: string;
+  city?: string;
   isSuspicious: boolean;
   hasDifferentLocations?: boolean;
   isPaused?: boolean;
   welcomeMailSentAt?: string;
   referralMailSentAt?: string;
   totalMails: number;
+  sharedAccount?: boolean;
+  hasNewDevice?: boolean;
+  failedLogin?: boolean;
   verticals?: string[];
   geoPreferences?: string[];
 }
@@ -73,7 +169,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
       document.getElementById('intelligence-dashboard')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 50);
   };
-  
+
   // Restored Email State
   const [scheduleMailOpen, setScheduleMailOpen] = useState(false);
   const [scheduleType, setScheduleType] = useState<'welcome' | 'referral' | 'warning' | string>('welcome');
@@ -129,13 +225,13 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
           loginLogsService.getInventoryMatchedOffers(user.user_id).catch(() => ({})),
           loginLogsService.getScheduledActivity(user.user_id).catch(() => ([]))
         ]);
-        
+
         setOfferViews(offRes?.views || []);
         setSearchLogs(searchRes?.logs || []);
         setSignals(signalsRes);
         setOfferTargeting(offerTargetingRes);
         setScheduledActivity(scheduledRes?.scheduled_activity || scheduledRes?.activities || (Array.isArray(scheduledRes) ? scheduledRes : []));
-        
+
         const latestSessionId = user.logs.find(l => l.session_id)?.session_id;
         if (latestSessionId) {
           const pvRes = await loginLogsService.getPageVisits(latestSessionId, 10).catch(() => ({ visits: [] }));
@@ -172,7 +268,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
           <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-3">Sessions in Range</h4>
           {user.logs.slice(0, 5).map((log: any, idx: number) => (
             <div key={idx} className="flex justify-between items-center text-xs py-1.5 border-b last:border-0 border-slate-100">
-              <span className="font-medium text-foreground">{new Date(log.login_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+              <span className="font-medium text-foreground">{new Date(log.login_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               <span className="text-muted-foreground text-[11px]">{log.ip_address}</span>
               <span className="text-muted-foreground text-[11px]">
                 {log.ip_address === '127.0.0.1' || log.ip_address === '::1' ? 'Localhost' : (() => {
@@ -180,12 +276,12 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
                   const validCity = log.location?.city && log.location.city !== 'Unknown' ? log.location.city : null;
                   const validCountry = log.location?.country && log.location.country !== 'Unknown' ? log.location.country : null;
                   const validCountryCode = log.location?.country_code && log.location.country_code !== 'Unknown' ? log.location.country_code : null;
-                  
+
                   if (validCity && validCountry) return `${validCity}, ${validCountry}`;
                   if (validCity) return validCity;
                   if (validCountry) return validCountry;
                   if (validCountryCode) return validCountryCode;
-                  
+
                   return user.country || 'Unknown Location';
                 })()}
               </span>
@@ -244,7 +340,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
 
       <div id="intelligence-dashboard" className="border-t border-slate-200 pt-6 mt-6">
         <UserIntelligenceProfile
-          log={{...mockLog, user_id: user.user_id, username: user.username, email: user.email, geoPreferences: user.geoPreferences, verticals: user.verticals}}
+          log={{ ...mockLog, user_id: user.user_id, username: user.username, email: user.email, geoPreferences: user.geoPreferences, verticals: user.verticals }}
           userLogs={user.logs}
           pageVisits={pageVisits}
           offerViews={offerViews}
@@ -269,17 +365,21 @@ const AdminRecentActivity: React.FC = () => {
   const [allUsers, setAllUsers] = useState<AggregatedUser[]>([]);
   const [advancedFilters, setAdvancedFilters] = useState({
     geos: [] as string[],
+    cities: [] as string[],
     geoPreferences: [] as string[],
     verticals: [] as string[],
     status: [] as string[],
     loginCount: 'Any',
     mailStatus: [] as string[]
   });
+  const [availableGeos, setAvailableGeos] = useState<string[]>([]);
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [bulkMailSending, setBulkMailSending] = useState(false);
   const [scheduleMailOpen, setScheduleMailOpen] = useState(false);
+  const [bulkAutomationOpen, setBulkAutomationOpen] = useState(false);
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduleType, setScheduleType] = useState<'welcome' | 'referral' | 'warning' | 'welcome_referral' | string>('welcome');
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 20]);
@@ -287,6 +387,7 @@ const AdminRecentActivity: React.FC = () => {
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
   const [globalMailMetrics, setGlobalMailMetrics] = useState({ total: 0, today: 0 });
+  const [queueDashboardOpen, setQueueDashboardOpen] = useState(false);
 
   const { toast } = useToast();
 
@@ -301,9 +402,9 @@ const AdminRecentActivity: React.FC = () => {
       if (searchTerm.trim() !== '') {
         const q = searchTerm.toLowerCase();
         if (!u.username.toLowerCase().includes(q) &&
-            !u.email.toLowerCase().includes(q) &&
-            !(u.first_name || '').toLowerCase().includes(q) &&
-            !(u.last_name || '').toLowerCase().includes(q)) {
+          !u.email.toLowerCase().includes(q) &&
+          !(u.first_name || '').toLowerCase().includes(q) &&
+          !(u.last_name || '').toLowerCase().includes(q)) {
           return false;
         }
       }
@@ -311,15 +412,21 @@ const AdminRecentActivity: React.FC = () => {
       if (advancedFilters.loginCount !== 'Any') {
         const val = advancedFilters.loginCount;
         if (val === '5x+') {
-           if (u.login_count < 5) return false;
+          if (u.login_count < 5) return false;
         } else {
-           const req = parseInt(val.replace('x', ''));
-           if (u.login_count !== req) return false;
+          const req = parseInt(val.replace('x', ''));
+          if (u.login_count !== req) return false;
         }
       }
       // 2. Online Location (Geos)
       if (advancedFilters.geos.length > 0) {
-        if (!u.country || !advancedFilters.geos.includes(u.country)) return false;
+        const userCountry = (u.country || '').toUpperCase();
+        const matched = advancedFilters.geos.some((g: string) => g.toUpperCase() === userCountry);
+        if (!matched) return false;
+      }
+      // 2b. Cities
+      if (advancedFilters.cities && advancedFilters.cities.length > 0) {
+        if (!u.city || !advancedFilters.cities.includes(u.city)) return false;
       }
       // 3. Status
       if (advancedFilters.status.length > 0) {
@@ -327,8 +434,8 @@ const AdminRecentActivity: React.FC = () => {
         if (advancedFilters.status.includes('Suspicious') && u.isSuspicious) match = true;
         if (advancedFilters.status.includes('Normal') && !u.isSuspicious && !u.logs.some(l => l.status === 'failed')) match = true;
         if (advancedFilters.status.includes('Failed Logins Only')) {
-           // Show ONLY users with failed logins
-           if (u.logs.some(l => l.status === 'failed')) match = true;
+          // Show ONLY users with failed logins
+          if (u.logs.some(l => l.status === 'failed')) match = true;
         }
         if (!match) return false;
       }
@@ -343,7 +450,17 @@ const AdminRecentActivity: React.FC = () => {
       }
       // 5. Geo Preferences
       if (advancedFilters.geoPreferences.length > 0) {
-        if (!u.geoPreferences || !advancedFilters.geoPreferences.some(g => u.geoPreferences!.includes(g))) return false;
+        if (!u.geoPreferences || u.geoPreferences.length === 0) return false;
+        const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+        const userPrefsFullNames = u.geoPreferences.map((code: string) => {
+          if (code === 'WW') return 'Worldwide';
+          if (code === 'UK') return 'United Kingdom';
+          try { return regionNames.of(code) || code; } catch (e) { return code; }
+        });
+        const matched = advancedFilters.geoPreferences.some((g: string) =>
+          userPrefsFullNames.some(p => p.toLowerCase() === g.toLowerCase())
+        );
+        if (!matched) return false;
       }
       // 6. Vertical Preferences
       if (advancedFilters.verticals.length > 0) {
@@ -408,7 +525,7 @@ const AdminRecentActivity: React.FC = () => {
 
       mailRes.history?.forEach((h: any) => {
         if (h.sent_at && new Date(h.sent_at).toDateString() === todayString) {
-           mailsToday += h.success_count || h.recipients_count || (h.to?.length || 1);
+          mailsToday += h.success_count || h.recipients_count || (h.to?.length || 1);
         }
         h.to?.forEach((email: string) => {
           const e = email.toLowerCase();
@@ -434,44 +551,57 @@ const AdminRecentActivity: React.FC = () => {
       for (const log of logsRes.logs) {
         // Group by user_id, fallback to email if user_id is missing (e.g. failed logins)
         const key = log.user_id || log.email || log.username || log._id;
-        const getLatLng = (locationObj: any, logObj: any) => {
-          if (!locationObj) return { lat: undefined, lng: undefined };
-          let lat = locationObj.latitude !== undefined && locationObj.latitude !== null ? Number(locationObj.latitude) : undefined;
-          let lng = locationObj.longitude !== undefined && locationObj.longitude !== null ? Number(locationObj.longitude) : undefined;
+        const profile = profileMap.get(log.user_id) || profileMap.get(log.email) || profileMap.get(log.username) || {};
+
+        const getLatLng = (locationObj: any, logObj: any, userProfile: any) => {
+          let lat: number | undefined;
+          let lng: number | undefined;
+
+          if (locationObj) {
+            lat = locationObj.latitude !== undefined && locationObj.latitude !== null ? Number(locationObj.latitude) : undefined;
+            lng = locationObj.longitude !== undefined && locationObj.longitude !== null ? Number(locationObj.longitude) : undefined;
+          }
 
           if (lat === undefined || lng === undefined || (lat === 0 && lng === 0) || isNaN(lat) || isNaN(lng)) {
-            let countryCode = locationObj.country_code || locationObj.country;
-            
-            // Fallback for test IPs that resolve to XX
-            if (!countryCode || countryCode.toUpperCase() === 'XX') {
-              const ip = logObj.ip_address || '';
-              if (ip.startsWith('103.150.')) countryCode = 'BD';
-              else if (ip.startsWith('157.34.') || ip.startsWith('103.179.')) countryCode = 'IN';
-              else if (ip.startsWith('127.0.0.1') || ip === '::1') countryCode = 'US';
-              else countryCode = 'US'; // Default fallback so they are always visible
+            let countryCode = locationObj?.country_code || locationObj?.country;
+
+            // Fallback to profile geo
+            if (!countryCode || countryCode === 'XX' || countryCode === 'Unknown') {
+              if (userProfile && userProfile.geos && userProfile.geos.length > 0) {
+                countryCode = userProfile.geos[0];
+              } else {
+                // Final fallback to getCountry (which handles IP parsing and local dev)
+                countryCode = getCountry(logObj, userProfile);
+              }
+            }
+
+            if (!countryCode || countryCode === 'Unknown' || countryCode === 'Tracking...' || countryCode === 'Location Tracking...') {
+              countryCode = 'XX';
             }
 
             if (countryCode && typeof countryCode === 'string') {
-              const fallback = COUNTRY_COORDS[countryCode.toUpperCase()];
-              if (fallback && countryCode.toUpperCase() !== 'XX') {
+              const fallback = COUNTRY_COORDS[countryCode.toUpperCase()] || COUNTRY_COORDS['XX'];
+              if (fallback) {
                 lat = fallback[0];
                 lng = fallback[1];
               }
             }
           }
-          
-          if (lat === 0 && lng === 0) {
-             return { lat: undefined, lng: undefined };
+
+          if (lat !== undefined && lng !== undefined) {
+            // Add a larger random offset (up to ~100km) so markers are visibly scattered 
+            // and distinct even when the map is fully zoomed out to a world view.
+            lat += (Math.random() - 0.5) * 2.5;
+            lng += (Math.random() - 0.5) * 2.5;
           }
-          
+
           return { lat, lng };
         };
 
         if (!userMap.has(key)) {
-          const profile = profileMap.get(log.user_id) || profileMap.get(log.email) || {};
           const userEmail = (log.email || '').toLowerCase();
           const mInfo = mailMap.get(userEmail) || { welcome: null, referral: null, total: 0 };
-          const { lat, lng } = getLatLng(log.location, log);
+          const { lat, lng } = getLatLng(log.location, log, profile);
           userMap.set(key, {
             user_id: key, // fallback to key so actions don't break
             username: log.username || log.email?.split('@')[0] || 'Unknown',
@@ -485,7 +615,7 @@ const AdminRecentActivity: React.FC = () => {
             totalMails: mInfo.total,
             lat,
             lng,
-            country: log.location?.country_code || log.location?.country,
+            country: getCountry(log, profile),
             verticals: profile.verticals || [],
             geoPreferences: profile.geos || []
           });
@@ -494,20 +624,19 @@ const AdminRecentActivity: React.FC = () => {
         userAgg.login_count += 1;
         userAgg.logs.push(log);
 
-        const { lat: newLat, lng: newLng } = getLatLng(log.location, log);
+        const { lat: newLat, lng: newLng } = getLatLng(log.location, log, profile);
 
         if (userAgg.lat === undefined && newLat !== undefined) {
           userAgg.lat = newLat;
           userAgg.lng = newLng;
-          userAgg.country = log.location?.country_code || log.location?.country || userAgg.country;
+          userAgg.country = getCountry(log, profile) || userAgg.country;
         }
 
         if (new Date(log.login_time) > new Date(userAgg.latest_login)) {
           userAgg.latest_login = log.login_time;
-          if (newLat !== undefined) {
+          if (newLat !== undefined && newLng !== undefined && !(newLat === 0 && newLng === 0)) {
             userAgg.lat = newLat;
             userAgg.lng = newLng;
-            userAgg.country = log.location?.country_code || log.location?.country || userAgg.country;
           }
         }
         if (log.risk_level === 'high' || log.risk_level === 'critical' || (log.fraud_score && log.fraud_score > 50)) {
@@ -517,44 +646,70 @@ const AdminRecentActivity: React.FC = () => {
 
       const sortedUsers = Array.from(userMap.values()).map(userAgg => {
         const u = profileMap.get(userAgg.user_id) || profileMap.get(userAgg.email) || profileMap.get(userAgg.username);
-        
-        // Find a valid 2-letter country code for mapping
-        let mapCountryCode = undefined;
-        // Try logs first
-        for (const log of userAgg.logs) {
-          if (log.location?.country_code && log.location.country_code !== 'XX' && COUNTRY_COORDS[log.location.country_code]) {
-            mapCountryCode = log.location.country_code;
-            break;
-          }
-        }
-        
+
         if (u) {
           userAgg.first_name = u.first_name;
           userAgg.last_name = u.last_name;
           userAgg.verticals = u.verticals;
           userAgg.geoPreferences = u.geos;
-          
-          // If no code from logs, use the user's primary geo preference
-          if (!mapCountryCode && u.geos && u.geos.length > 0 && COUNTRY_COORDS[u.geos[0]]) {
-            mapCountryCode = u.geos[0];
+        }
+
+        // Sort logs for this user to ensure we pick the latest one for location tracking
+        userAgg.logs.sort((a, b) => new Date(b.login_time).getTime() - new Date(a.login_time).getTime());
+
+        const latestLog = userAgg.logs[0];
+        userAgg.city = getCity(latestLog, u);
+        userAgg.country = getCountry(latestLog, u);
+
+        // If latest is still indeterminate or Localhost, scan all logs for any valid historical location
+        if (userAgg.country === 'Tracking...' || userAgg.country === 'Unknown' || userAgg.country === 'Location Tracking...' || userAgg.country === 'Localhost') {
+          for (const l of userAgg.logs) {
+            const ci = getCity(l, u);
+            const co = getCountry(l, u);
+            if (co !== 'Tracking...' && co !== 'Location Tracking...' && co !== 'Unknown') {
+              userAgg.city = ci;
+              userAgg.country = co;
+              const { lat, lng } = getLatLng(l.location, l, u);
+              if (lat !== undefined && lng !== undefined && !(lat === 0 && lng === 0)) {
+                userAgg.lat = lat;
+                userAgg.lng = lng;
+              }
+              break;
+            }
           }
         }
         
-        // Default to US if completely unknown so they show on the map
-        userAgg.country = mapCountryCode || 'US';
+        // Final fallback if lat/lng are still missing or Null Island, but country is known
+        if ((userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat)) && userAgg.country && userAgg.country !== 'Tracking...' && userAgg.country !== 'Unknown') {
+           const fallback = COUNTRY_COORDS[userAgg.country.toUpperCase()];
+           if (fallback) {
+             userAgg.lat = fallback[0] + (Math.random() - 0.5) * 2.5;
+             userAgg.lng = fallback[1] + (Math.random() - 0.5) * 2.5;
+           }
+        }
 
-        const uniqueCountries = new Set(userAgg.logs.map((l: any) => l.location?.country_code).filter(Boolean));
-        const uniqueCities = new Set(userAgg.logs.map((l: any) => l.location?.city).filter(Boolean));
+        const uniqueCountries = new Set(userAgg.logs.map((l: any) => l.location?.country_code || l.location?.country).filter(c => c && c !== 'XX' && c !== 'Unknown'));
+        const uniqueCities = new Set(userAgg.logs.map((l: any) => l.location?.city).filter(c => c && c !== 'Unknown'));
         const uniqueIps = new Set(userAgg.logs.map((l: any) => l.ip_address).filter(Boolean));
         const hasNewDevice = userAgg.logs.some((l: any) => l.device_change_detected);
         const isMulti = userAgg.login_count >= 3;
 
         if (uniqueCountries.size > 1 || uniqueCities.size > 1 || uniqueIps.size > 1 || (isMulti && hasNewDevice)) {
           userAgg.isSuspicious = true;
-          userAgg.hasDifferentLocations = uniqueCountries.size > 1 || uniqueCities.size > 1 || uniqueIps.size > 1;
+          userAgg.hasDifferentLocations = uniqueCountries.size > 1 || uniqueCities.size > 1;
+          userAgg.sharedAccount = uniqueIps.size >= 3 || uniqueCountries.size >= 2;
         }
         return userAgg;
       }).sort((a, b) => new Date(b.latest_login).getTime() - new Date(a.latest_login).getTime());
+
+      const geosSet = new Set<string>();
+      const citiesSet = new Set<string>();
+      sortedUsers.forEach(u => {
+        if (u.country && u.country !== 'Unknown') geosSet.add(u.country);
+        if (u.city && u.city !== 'Unknown') citiesSet.add(u.city);
+      });
+      setAvailableGeos(Array.from(geosSet).sort());
+      setAvailableCities(Array.from(citiesSet).sort());
 
       setAllUsers(sortedUsers);
 
@@ -568,6 +723,13 @@ const AdminRecentActivity: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    
+    // Auto-refresh data every 30 seconds to automatically track and show new user locations
+    const intervalId = setInterval(() => {
+      loadData();
+    }, 30000);
+    
+    return () => clearInterval(intervalId);
   }, [timeFilter]);
 
   const toggleUserSelection = (userId: string) => {
@@ -627,19 +789,19 @@ const AdminRecentActivity: React.FC = () => {
     const userToActOn = allUsers.find(u => u.user_id === userId);
 
     if (action === 'Send Welcome + Referral Mail' && userToActOn) {
-       try {
-         const subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
-         const body = `Hey there! Welcome ${userToActOn.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
-         await loginLogsService.sendCustomMail([userToActOn.email], subject, body);
-         toast({ title: 'Mails Sent', description: `Welcome and Referral mails sent to ${userToActOn.username}.` });
-         setAllUsers(prevUsers => prevUsers.map(u => {
-           if (u.user_id !== userId) return u;
-           return { ...u, welcomeMailSentAt: new Date().toISOString(), referralMailSentAt: new Date().toISOString(), totalMails: u.totalMails + 2 };
-         }));
-       } catch (e) {
-         toast({ title: 'Error', description: 'Failed to send combined mail', variant: 'destructive' });
-       }
-       return;
+      try {
+        const subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
+        const body = `Hey there! Welcome ${userToActOn.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+        await loginLogsService.sendCustomMail([userToActOn.email], subject, body);
+        toast({ title: 'Mails Sent', description: `Welcome and Referral mails sent to ${userToActOn.username}.` });
+        setAllUsers(prevUsers => prevUsers.map(u => {
+          if (u.user_id !== userId) return u;
+          return { ...u, welcomeMailSentAt: new Date().toISOString(), referralMailSentAt: new Date().toISOString(), totalMails: u.totalMails + 2 };
+        }));
+      } catch (e) {
+        toast({ title: 'Error', description: 'Failed to send combined mail', variant: 'destructive' });
+      }
+      return;
     }
 
     setAllUsers(prevUsers => prevUsers.map(u => {
@@ -669,11 +831,17 @@ const AdminRecentActivity: React.FC = () => {
   };
 
   const mapMarkers = useMemo(() => {
-    const validUsers = users.filter(u => typeof u.lat === 'number' && !isNaN(u.lat) && typeof u.lng === 'number' && !isNaN(u.lng));
+    const validUsers = users.filter(u => 
+      typeof u.lat === 'number' && !isNaN(u.lat) && 
+      typeof u.lng === 'number' && !isNaN(u.lng) && 
+      !(Math.abs(u.lat) < 5 && Math.abs(u.lng) < 5 && u.country === 'Tracking...') // Filter out Null Island defaults
+    );
+    
     const coordsMap = new Map<string, number>();
 
     return validUsers.map(u => {
-      const key = `${u.lat}_${u.lng}`;
+      // Round to 1 decimal place to cluster very close markers (approx 10km radius)
+      const key = `${Math.round(u.lat! * 10)}_${Math.round(u.lng! * 10)}`;
       const count = coordsMap.get(key) || 0;
       coordsMap.set(key, count + 1);
 
@@ -681,7 +849,7 @@ const AdminRecentActivity: React.FC = () => {
 
       // Jitter overlapping markers into a circular cluster
       const angle = count * (Math.PI * 2 / 8);
-      const distance = 6.0 + (Math.floor(count / 8) * 4.0);
+      const distance = 2.0 + (Math.floor(count / 8) * 2.0);
 
       return {
         ...u,
@@ -753,9 +921,9 @@ const AdminRecentActivity: React.FC = () => {
               <Button size="sm" variant="outline" className="h-8 bg-background" disabled={bulkMailSending} onClick={() => setScheduleMailOpen(true)}>
                 <CalendarClock className="w-3 h-3 mr-2" /> Schedule
               </Button>
-              <BulkMailScheduler 
-                open={scheduleMailOpen} 
-                onOpenChange={setScheduleMailOpen} 
+              <BulkMailScheduler
+                open={scheduleMailOpen}
+                onOpenChange={setScheduleMailOpen}
                 selectedUsers={users.filter(u => selectedUserIds.has(u.user_id))}
                 onConfirmSchedule={async (queue: QueueItem[]) => {
                   setBulkMailSending(true);
@@ -799,8 +967,40 @@ const AdminRecentActivity: React.FC = () => {
                   }
                 }}
               />
+              <Button size="sm" variant="outline" className="h-8 bg-background border-purple-200 text-purple-700 hover:bg-purple-50" disabled={bulkMailSending} onClick={() => setBulkAutomationOpen(true)}>
+                <CalendarClock className="w-3 h-3 mr-2 text-purple-600" /> Automate Offers
+              </Button>
+              <BulkOfferAutomationDialog
+                open={bulkAutomationOpen}
+                onOpenChange={setBulkAutomationOpen}
+                selectedUsers={users.filter(u => selectedUserIds.has(u.user_id))}
+                onScheduled={() => {
+                  setBulkAutomationOpen(false);
+                  setQueueDashboardOpen(true);
+                }}
+              />
             </div>
           )}
+          
+          <OfferQueueDashboardModal 
+            open={queueDashboardOpen} 
+            onOpenChange={setQueueDashboardOpen}
+            allUsers={users.map(u => ({ 
+              user_id: u.user_id, 
+              username: u.username,
+              logs: u.logs,
+              country: u.country,
+              isSuspicious: u.isSuspicious,
+              sharedAccount: u.sharedAccount,
+              hasDifferentLocations: u.hasDifferentLocations,
+              hasNewDevice: u.hasNewDevice,
+              failedLogin: u.failedLogin
+            }))}
+          />
+
+          <Button size="sm" variant="secondary" className="h-8 bg-slate-800 text-white hover:bg-slate-700 ml-2" onClick={() => setQueueDashboardOpen(true)}>
+            Live Queue
+          </Button>
           <Select value={timeFilter} onValueChange={setTimeFilter}>
             <SelectTrigger className="w-[160px] bg-background">
               <SelectValue placeholder="Time Filter" />
@@ -825,23 +1025,23 @@ const AdminRecentActivity: React.FC = () => {
           </Select>
           {timeFilter === 'custom' && (
             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4">
-              <Input type="date" className="w-[140px] h-10 bg-background" value={customDateRange.start} onChange={e => setCustomDateRange(prev => ({...prev, start: e.target.value}))} />
+              <Input type="date" className="w-[140px] h-10 bg-background" value={customDateRange.start} onChange={e => setCustomDateRange(prev => ({ ...prev, start: e.target.value }))} />
               <span className="text-muted-foreground text-sm">to</span>
-              <Input type="date" className="w-[140px] h-10 bg-background" value={customDateRange.end} onChange={e => setCustomDateRange(prev => ({...prev, end: e.target.value}))} />
+              <Input type="date" className="w-[140px] h-10 bg-background" value={customDateRange.end} onChange={e => setCustomDateRange(prev => ({ ...prev, end: e.target.value }))} />
             </div>
           )}
 
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search users..." 
+            <Input
+              placeholder="Search users..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               className="pl-9 w-[180px] bg-background"
             />
           </div>
 
-          <Select value={advancedFilters.loginCount} onValueChange={v => setAdvancedFilters(prev => ({...prev, loginCount: v}))}>
+          <Select value={advancedFilters.loginCount} onValueChange={v => setAdvancedFilters(prev => ({ ...prev, loginCount: v }))}>
             <SelectTrigger className="w-[140px] bg-background">
               <SelectValue placeholder="Login Count" />
             </SelectTrigger>
@@ -851,9 +1051,9 @@ const AdminRecentActivity: React.FC = () => {
               ))}
             </SelectContent>
           </Select>
-          <Button onClick={() => setFilterModalOpen(true)} variant={advancedFilters.geos.length || advancedFilters.status.length || advancedFilters.loginCount !== 'Any' ? 'default' : 'outline'} className={advancedFilters.geos.length || advancedFilters.status.length || advancedFilters.loginCount !== 'Any' ? 'bg-primary' : 'bg-background'}>
-            <Filter className="h-4 w-4 mr-2" /> 
-            Filters {(advancedFilters.geos.length + advancedFilters.status.length + (advancedFilters.loginCount !== 'Any' ? 1 : 0)) > 0 && `(${(advancedFilters.geos.length + advancedFilters.status.length + (advancedFilters.loginCount !== 'Any' ? 1 : 0))})`}
+          <Button onClick={() => setFilterModalOpen(true)} variant={advancedFilters.geos.length || advancedFilters.cities.length || advancedFilters.status.length || advancedFilters.loginCount !== 'Any' ? 'default' : 'outline'} className={advancedFilters.geos.length || advancedFilters.cities.length || advancedFilters.status.length || advancedFilters.loginCount !== 'Any' ? 'bg-primary' : 'bg-background'}>
+            <Filter className="h-4 w-4 mr-2" />
+            Filters {(advancedFilters.geos.length + advancedFilters.cities.length + advancedFilters.status.length + (advancedFilters.loginCount !== 'Any' ? 1 : 0)) > 0 && `(${(advancedFilters.geos.length + advancedFilters.cities.length + advancedFilters.status.length + (advancedFilters.loginCount !== 'Any' ? 1 : 0))})`}
           </Button>
           <Button onClick={loadData} variant="outline" disabled={loading} className="bg-background">
             <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -861,12 +1061,14 @@ const AdminRecentActivity: React.FC = () => {
           </Button>
         </div>
       </div>
-      
-      <AdvancedFilterModal 
-        open={filterModalOpen} 
-        onOpenChange={setFilterModalOpen} 
-        filters={advancedFilters} 
-        setFilters={setAdvancedFilters} 
+
+      <AdvancedFilterModal
+        open={filterModalOpen}
+        onOpenChange={setFilterModalOpen}
+        filters={advancedFilters}
+        setFilters={setAdvancedFilters}
+        availableGeos={availableGeos}
+        availableCities={availableCities}
       />
 
       {/* Summary Widgets */}
@@ -930,7 +1132,7 @@ const AdminRecentActivity: React.FC = () => {
               <MapPin className="w-4 h-4 text-primary" /> User Geo-Distribution
             </CardTitle>
           </CardHeader>
-          <CardContent className="p-0 relative h-[400px] bg-[#111827] overflow-hidden rounded-b-xl" onMouseLeave={() => setTooltip(null)} onWheel={handleMapWheel}>
+          <CardContent id="map-container" className="p-0 relative h-[400px] bg-[#111827] overflow-hidden rounded-b-xl" onMouseLeave={() => setTooltip(null)} onWheel={handleMapWheel}>
             {/* Map Controls */}
             <div className="absolute top-4 right-4 flex flex-col gap-2 z-10">
               <Button size="icon" variant="secondary" className="w-8 h-8 rounded shadow-md bg-white/20 hover:bg-white/30 border border-white/20 text-white backdrop-blur-md" onClick={() => setMapZoom(prev => Math.min(prev * 1.5, 400))}>
@@ -940,7 +1142,7 @@ const AdminRecentActivity: React.FC = () => {
                 <Minus className="w-4 h-4" />
               </Button>
             </div>
-            
+
             <ComposableMap projectionConfig={{ scale: 140, center: mapCenter }} style={{ width: '100%', height: '100%' }}>
               <ZoomableGroup zoom={mapZoom} center={mapCenter} onMoveEnd={({ coordinates, zoom: z }) => { setMapCenter(coordinates as [number, number]); setMapZoom(z); }}>
                 <Geographies geography={GEO_URL}>
@@ -958,27 +1160,48 @@ const AdminRecentActivity: React.FC = () => {
                       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
                   }}>
-                    <g
+                    <g 
                       className="cursor-pointer transition-transform hover:scale-110"
                       onMouseEnter={(e) => {
-                        const rect = (e.target as SVGElement).closest('svg')?.getBoundingClientRect();
-                        if (rect) setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top - 30, text: `${u.username} (${u.login_count} logins)` });
+                        const parent = document.getElementById('map-container');
+                        const parentRect = parent?.getBoundingClientRect();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        if (parentRect) {
+                          setTooltip({ 
+                            x: (rect.left + rect.width / 2) - parentRect.left, 
+                            y: rect.top - parentRect.top - 10, 
+                            text: `${u.username} (${u.city || u.country || 'Unknown'})` 
+                          });
+                        }
+                        setHighlightedRowId(u.user_id);
+                      }}
+                      onMouseLeave={() => {
+                        setTooltip(null);
+                        setHighlightedRowId(null);
                       }}
                     >
-                      {/* Glowing effect */}
-                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 14 : 10} fill={u.isSuspicious ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'} />
-                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 8 : 6} fill={u.isSuspicious ? '#ef4444' : '#22c55e'} />
+                      {/* Animated Pulse */}
+                      <circle cx={0} cy={0} r={12} fill={u.isSuspicious ? '#ef4444' : '#22c55e'} opacity="0.4">
+                        <animate attributeName="r" from="8" to="18" dur="1.5s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" from="0.6" to="0" dur="1.5s" repeatCount="indefinite" />
+                      </circle>
                       
-                      {/* Stickman Icon */}
-                      <g transform="translate(-3.5, -4) scale(0.3)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="#111827" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="5" r="3"></circle>
-                          <line x1="12" y1="8" x2="12" y2="15"></line>
-                          <line x1="12" y1="15" x2="9" y2="22"></line>
-                          <line x1="12" y1="15" x2="15" y2="22"></line>
-                          <line x1="9" y1="10" x2="15" y2="10"></line>
-                        </svg>
-                      </g>
+                      {/* Main Marker Shadow */}
+                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 14 : 9} fill="rgba(0,0,0,0.4)" transform="translate(1, 1)" />
+                      
+                      {/* Main Marker */}
+                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 10 : 7} fill={u.isSuspicious ? '#ef4444' : '#22c55e'} stroke="white" strokeWidth="1.5" />
+
+                      {/* Username Label (Visible when zoomed in or when hover is active) */}
+                      {(mapZoom >= 3 || tooltip?.text.startsWith(u.username)) && (
+                        <text
+                          textAnchor="middle"
+                          y={-18}
+                          style={{ fontFamily: "Inter, sans-serif", fontSize: "10px", fontWeight: "bold", fill: "#ffffff", filter: "drop-shadow(0px 1px 2px rgba(0,0,0,0.8))" }}
+                        >
+                          {u.username}
+                        </text>
+                      )}
                     </g>
                   </Marker>
                 ))}
@@ -989,7 +1212,7 @@ const AdminRecentActivity: React.FC = () => {
                 {tooltip.text}
               </div>
             )}
-            
+
             {/* Legend as requested */}
             <div className="absolute bottom-4 left-4 flex gap-4 text-[10px] text-white bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm border border-white/10">
               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span> Online ({users.filter(u => !u.isSuspicious && !u.logs.some(l => l.status === 'failed')).length})</div>
@@ -997,7 +1220,7 @@ const AdminRecentActivity: React.FC = () => {
               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span> Failed ({users.filter(u => u.logs.some(l => l.status === 'failed')).length})</div>
               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]"></span> Suspicious ({users.filter(u => u.isSuspicious).length})</div>
             </div>
-            
+
             <div className="absolute bottom-2 right-2 text-[9px] text-white/30 pointer-events-none">Zoom: {(mapZoom).toFixed(1)}x · Scroll to zoom</div>
           </CardContent>
         </Card>
@@ -1074,7 +1297,8 @@ const AdminRecentActivity: React.FC = () => {
                   const isNewDevice = user.logs.some(l => l.device_change_detected);
 
                   const badges: { text: string, cls: string }[] = [];
-                  if (user.hasDifferentLocations) badges.push({ text: 'Suspicious Location', cls: 'bg-[#F7C1C1] text-[#791F1F]' }); // RED
+                  if (user.sharedAccount) badges.push({ text: 'Shared Account?', cls: 'bg-red-600 text-white animate-pulse' });
+                  else if (user.hasDifferentLocations) badges.push({ text: 'Suspicious Location', cls: 'bg-[#F7C1C1] text-[#791F1F]' }); // RED
                   else if (isSuspicious) badges.push({ text: 'Suspicious IP', cls: 'bg-[#B5D4F4] text-[#0C447C]' }); // BLUE
 
                   if (hasFailed) badges.push({ text: 'Failed', cls: 'bg-[#F7C1C1] text-[#791F1F]' });
@@ -1113,7 +1337,23 @@ const AdminRecentActivity: React.FC = () => {
                           {user.username.slice(0, 2).toUpperCase()}
                         </div>
                         <div className="flex flex-col min-w-0 w-[120px] shrink-0">
-                          <span className="text-xs font-medium text-foreground truncate">{user.username}</span>
+                          <span 
+                            className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer truncate"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (user.lat !== undefined && user.lng !== undefined) {
+                                setMapCenter([user.lng, user.lat]);
+                                setMapZoom(6);
+                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                toast({ 
+                                  title: `Locating ${user.username}`, 
+                                  description: `Center map on ${user.city || 'Unknown'}, ${user.country || 'Unknown'}` 
+                                });
+                              }
+                            }}
+                          >
+                            {user.username}
+                          </span>
                           <span className="text-[10px] text-muted-foreground truncate">{user.email}</span>
                         </div>
 
@@ -1123,25 +1363,35 @@ const AdminRecentActivity: React.FC = () => {
                           ))}
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0 w-[120px] text-[10px] text-muted-foreground">
+                        <div className="flex items-center gap-2 shrink-0 w-[150px] text-[10px] text-muted-foreground">
                           <span>{new Date(user.latest_login).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          {user.logs[0]?.location?.country_code && <span className="opacity-70">{user.logs[0].location.country_code}</span>}
+                          <span className="opacity-70 truncate">– {(() => {
+                            const country = user.country;
+                            const city = user.city;
+                            
+                            const isValid = (val: any) => val && val !== 'Unknown' && val !== 'Tracking...' && val !== 'Location Tracking...';
+
+                            if (isValid(city) && isValid(country)) return `${city}, ${country}`;
+                            if (isValid(country)) return country;
+                            if (isValid(city)) return city;
+                            return 'Tracking...';
+                          })()}</span>
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0 flex-1 justify-center" onClick={e => e.stopPropagation()}>
-                            <div className="flex flex-col gap-0.5 items-center w-20" title={user.welcomeMailSentAt ? `Sent: ${new Date(user.welcomeMailSentAt).toLocaleString()}` : "Welcome Mail Not Sent"}>
-                              <Badge variant="outline" className={`text-[8px] h-4 px-1 w-fit border whitespace-nowrap ${user.welcomeMailSentAt ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50/50 text-red-700/80 border-red-200/50'}`}>
-                                {user.welcomeMailSentAt ? <CheckCircle className="w-2 h-2 mr-1" /> : <XCircle className="w-2 h-2 mr-1" />} Welcome
-                              </Badge>
-                              <span className="text-[9px] text-muted-foreground whitespace-nowrap leading-none">{user.welcomeMailSentAt ? new Date(user.welcomeMailSentAt).toLocaleString([], { month: 'short', day: 'numeric' }) : 'Not Sent'}</span>
-                            </div>
+                          <div className="flex flex-col gap-0.5 items-center w-20" title={user.welcomeMailSentAt ? `Sent: ${new Date(user.welcomeMailSentAt).toLocaleString()}` : "Welcome Mail Not Sent"}>
+                            <Badge variant="outline" className={`text-[8px] h-4 px-1 w-fit border whitespace-nowrap ${user.welcomeMailSentAt ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50/50 text-red-700/80 border-red-200/50'}`}>
+                              {user.welcomeMailSentAt ? <CheckCircle className="w-2 h-2 mr-1" /> : <XCircle className="w-2 h-2 mr-1" />} Welcome
+                            </Badge>
+                            <span className="text-[9px] text-muted-foreground whitespace-nowrap leading-none">{user.welcomeMailSentAt ? new Date(user.welcomeMailSentAt).toLocaleString([], { month: 'short', day: 'numeric' }) : 'Not Sent'}</span>
+                          </div>
 
-                            <div className="flex flex-col gap-0.5 items-center w-20" title={user.referralMailSentAt ? `Sent: ${new Date(user.referralMailSentAt).toLocaleString()}` : "Referral Mail Not Sent"}>
-                              <Badge variant="outline" className={`text-[8px] h-4 px-1 w-fit border whitespace-nowrap ${user.referralMailSentAt ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50/50 text-red-700/80 border-red-200/50'}`}>
-                                {user.referralMailSentAt ? <CheckCircle className="w-2 h-2 mr-1" /> : <XCircle className="w-2 h-2 mr-1" />} Referral
-                              </Badge>
-                              <span className="text-[9px] text-muted-foreground whitespace-nowrap leading-none">{user.referralMailSentAt ? new Date(user.referralMailSentAt).toLocaleString([], { month: 'short', day: 'numeric' }) : 'Not Sent'}</span>
-                            </div>
+                          <div className="flex flex-col gap-0.5 items-center w-20" title={user.referralMailSentAt ? `Sent: ${new Date(user.referralMailSentAt).toLocaleString()}` : "Referral Mail Not Sent"}>
+                            <Badge variant="outline" className={`text-[8px] h-4 px-1 w-fit border whitespace-nowrap ${user.referralMailSentAt ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50/50 text-red-700/80 border-red-200/50'}`}>
+                              {user.referralMailSentAt ? <CheckCircle className="w-2 h-2 mr-1" /> : <XCircle className="w-2 h-2 mr-1" />} Referral
+                            </Badge>
+                            <span className="text-[9px] text-muted-foreground whitespace-nowrap leading-none">{user.referralMailSentAt ? new Date(user.referralMailSentAt).toLocaleString([], { month: 'short', day: 'numeric' }) : 'Not Sent'}</span>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-3 shrink-0 justify-end ml-auto">
@@ -1190,9 +1440,8 @@ const AdminRecentActivity: React.FC = () => {
   );
 };
 
-const ADVANCED_GEOS = [
-  'US', 'UK', 'CA', 'AU', 'DE', 'FR', 'IT', 'ES', 'BR', 'IN', 'JP', 'WW',
-  'AE', 'AF', 'AL', 'AM', 'AO', 'AR', 'AT', 'AZ', 'BA', 'BD', 'BE', 'BF', 'BG', 'BH', 'BI', 'BJ', 'BO', 'BS', 'BY', 'BZ', 'CD', 'CF', 'CG', 'CH', 'CI', 'CL', 'CM', 'CN', 'CO', 'CR', 'CU', 'CV', 'CY', 'CZ', 'DJ', 'DK', 'DO', 'DZ', 'EC', 'EE', 'EG', 'EH', 'ER', 'ET', 'FI', 'FJ', 'GA', 'GE', 'GH', 'GM', 'GN', 'GQ', 'GR', 'GT', 'GW', 'GY', 'HN', 'HR', 'HT', 'HU', 'ID', 'IE', 'IL', 'IQ', 'IR', 'IS', 'JM', 'JO', 'KE', 'KG', 'KH', 'KP', 'KR', 'KW', 'KZ', 'LA', 'LB', 'LK', 'LR', 'LS', 'LT', 'LU', 'LV', 'LY', 'MA', 'MD', 'ME', 'MG', 'MK', 'ML', 'MM', 'MN', 'MR', 'MW', 'MX', 'MY', 'MZ', 'NA', 'NE', 'NG', 'NI', 'NL', 'NO', 'NP', 'NZ', 'OM', 'PA', 'PE', 'PG', 'PH', 'PK', 'PL', 'PR', 'PT', 'PY', 'QA', 'RO', 'RS', 'RU', 'RW', 'SA', 'SD', 'SE', 'SG', 'SI', 'SK', 'SL', 'SN', 'SO', 'SR', 'SS', 'SV', 'SY', 'SZ', 'TD', 'TG', 'TH', 'TJ', 'TL', 'TM', 'TN', 'TR', 'TT', 'TW', 'TZ', 'UA', 'UG', 'UY', 'UZ', 'VE', 'VN', 'YE', 'ZA', 'ZM', 'ZW'
+const ALL_COUNTRIES = [
+  'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Antigua and Barbuda', 'Argentina', 'Armenia', 'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium', 'Belize', 'Benin', 'Bhutan', 'Bolivia', 'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei', 'Bulgaria', 'Burkina Faso', 'Burundi', 'Côte d\'Ivoire', 'Cabo Verde', 'Cambodia', 'Cameroon', 'Canada', 'Central African Republic', 'Chad', 'Chile', 'China', 'Colombia', 'Comoros', 'Congo', 'Costa Rica', 'Croatia', 'Cuba', 'Cyprus', 'Czech Republic', 'Democratic Republic of the Congo', 'Denmark', 'Djibouti', 'Dominica', 'Dominican Republic', 'Ecuador', 'Egypt', 'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland', 'France', 'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala', 'Guinea', 'Guinea-Bissau', 'Guyana', 'Haiti', 'Holy See', 'Honduras', 'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq', 'Ireland', 'Israel', 'Italy', 'Jamaica', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'Kiribati', 'Kuwait', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives', 'Mali', 'Malta', 'Marshall Islands', 'Mauritania', 'Mauritius', 'Mexico', 'Micronesia', 'Moldova', 'Monaco', 'Mongolia', 'Montenegro', 'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nauru', 'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Korea', 'North Macedonia', 'Norway', 'Oman', 'Pakistan', 'Palau', 'Palestine State', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal', 'Qatar', 'Romania', 'Russia', 'Rwanda', 'Saint Kitts and Nevis', 'Saint Lucia', 'Saint Vincent and the Grenadines', 'Samoa', 'San Marino', 'Sao Tome and Principe', 'Saudi Arabia', 'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone', 'Singapore', 'Slovakia', 'Slovenia', 'Solomon Islands', 'Somalia', 'South Africa', 'South Korea', 'South Sudan', 'Spain', 'Sri Lanka', 'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Tajikistan', 'Tanzania', 'Thailand', 'Timor-Leste', 'Togo', 'Tonga', 'Trinidad and Tobago', 'Tunisia', 'Turkey', 'Turkmenistan', 'Tuvalu', 'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan', 'Vanuatu', 'Venezuela', 'Vietnam', 'Worldwide', 'Yemen', 'Zambia', 'Zimbabwe'
 ];
 const ADVANCED_VERTICALS = ['Sweeps', 'Finance', 'Dating', 'CPA', 'CPI', 'Crypto', 'Nutra', 'E-commerce', 'Gaming', 'Software', 'Surveys', 'Other'];
 const LOGIN_COUNTS = ['Any', '1x', '2x', '3x', '4x', '5x+'];
@@ -1204,11 +1453,17 @@ const AdvancedFilterModal: React.FC<{
   onOpenChange: (open: boolean) => void;
   filters: any;
   setFilters: (f: any) => void;
-}> = ({ open, onOpenChange, filters, setFilters }) => {
+  availableGeos: string[];
+  availableCities: string[];
+}> = ({ open, onOpenChange, filters, setFilters, availableGeos, availableCities }) => {
   const [localFilters, setLocalFilters] = React.useState(filters);
+  const [searchQuery, setSearchQuery] = React.useState('');
 
   React.useEffect(() => {
-    if (open) setLocalFilters(filters);
+    if (open) {
+      setLocalFilters(filters);
+      setSearchQuery('');
+    }
   }, [open, filters]);
 
   const toggleArray = (field: string, val: string) => {
@@ -1225,6 +1480,19 @@ const AdvancedFilterModal: React.FC<{
 
   if (!open) return null;
 
+  const q = searchQuery.toLowerCase();
+
+  // Combine all predefined countries with any dynamic available geos that might not be in the list, and remove duplicates
+  const allGeoOptions = Array.from(new Set([...ALL_COUNTRIES, ...availableGeos])).sort();
+
+  const filteredGeos = allGeoOptions.filter(g => g.toLowerCase().includes(q));
+  const filteredCities = availableCities.filter(c => c.toLowerCase().includes(q));
+  const filteredLoginCounts = LOGIN_COUNTS.filter(l => l.toLowerCase().includes(q));
+  const filteredStatus = STATUS_OPTIONS.filter(s => s.toLowerCase().includes(q));
+  const filteredGeoPrefs = ALL_COUNTRIES.filter(g => g.toLowerCase().includes(q));
+  const filteredVerticals = ADVANCED_VERTICALS.filter(v => v.toLowerCase().includes(q));
+  const filteredMailStatus = MAIL_STATUS_OPTIONS.filter(m => m.toLowerCase().includes(q));
+
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900 overflow-y-auto flex justify-center py-12 px-4 animate-in fade-in duration-300">
       <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 z-0 pointer-events-none">
@@ -1233,78 +1501,114 @@ const AdvancedFilterModal: React.FC<{
       </div>
 
       <div className="w-full max-w-2xl z-10 backdrop-blur-md bg-black/20 p-8 rounded-3xl shadow-2xl border border-white/10 h-fit mt-10">
-        <h2 className="text-3xl font-bold text-white mb-8">Smart Filter</h2>
+        <h2 className="text-3xl font-bold text-white mb-6">Smart Filter</h2>
 
-        <div className="mb-8">
-          <label className="block text-sm font-medium text-purple-100 mb-3">Country Filter — Which country are people currently online from?</label>
-          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-            {ADVANCED_GEOS.map(opt => (
-              <div key={opt} onClick={() => toggleArray('geos', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.geos?.includes(opt) ? 'border-green-400 bg-green-500/20 text-white shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
-                {opt}
-              </div>
-            ))}
-          </div>
+        <div className="mb-6 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-purple-300/50" />
+          <Input
+            type="text"
+            placeholder="Search filters (e.g. US, Dating, Failed)..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-white/5 border-white/10 text-white placeholder:text-purple-200/50 pl-10 py-6 rounded-xl text-lg focus:ring-purple-500 focus:border-purple-500 transition-all"
+          />
         </div>
 
-        <div className="mb-8">
-          <label className="block text-sm font-medium text-purple-100 mb-3">What is the minimum login count?</label>
-          <div className="flex flex-wrap gap-2">
-            {LOGIN_COUNTS.map(opt => (
-              <div key={opt} onClick={() => setLocalFilters({...localFilters, loginCount: opt})} className={`px-5 py-2 border rounded-xl cursor-pointer text-sm font-medium transition-all ${localFilters.loginCount === opt ? 'border-purple-400 bg-purple-500/20 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
-                {opt}
-              </div>
-            ))}
+        {filteredGeos.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-purple-100 mb-3">Country Filter — Which country are people currently online from?</label>
+            <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+              {filteredGeos.map(opt => (
+                <div key={opt} onClick={() => toggleArray('geos', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.geos?.includes(opt) ? 'border-green-400 bg-green-500/20 text-white shadow-[0_0_10px_rgba(34,197,94,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="mb-8">
-          <label className="block text-sm font-medium text-purple-100 mb-3">What user status are you looking for?</label>
-          <div className="flex flex-wrap gap-2">
-            {STATUS_OPTIONS.map(opt => (
-              <div key={opt} onClick={() => toggleArray('status', opt)} className={`px-4 py-2 border rounded-lg cursor-pointer text-sm font-medium transition-all ${localFilters.status?.includes(opt) ? 'border-blue-400 bg-blue-500/20 text-white shadow-[0_0_10px_rgba(59,130,246,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
-                {opt}
-              </div>
-            ))}
+        {filteredCities.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-purple-100 mb-3">City Filter — Which city are people currently online from?</label>
+            <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+              {filteredCities.map(opt => (
+                <div key={opt} onClick={() => toggleArray('cities', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.cities?.includes(opt) ? 'border-teal-400 bg-teal-500/20 text-white shadow-[0_0_10px_rgba(20,184,166,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="mb-8">
-          <label className="block text-sm font-medium text-purple-100 mb-3">Country / Geo Preference Filter — Which geos do users prefer?</label>
-          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
-            {ADVANCED_GEOS.map(opt => (
-              <div key={opt} onClick={() => toggleArray('geoPreferences', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.geoPreferences?.includes(opt) ? 'border-orange-400 bg-orange-500/20 text-white shadow-[0_0_10px_rgba(249,115,22,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
-                {opt}
-              </div>
-            ))}
+        {filteredLoginCounts.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-purple-100 mb-3">What is the minimum login count?</label>
+            <div className="flex flex-wrap gap-2">
+              {filteredLoginCounts.map(opt => (
+                <div key={opt} onClick={() => setLocalFilters({ ...localFilters, loginCount: opt })} className={`px-5 py-2 border rounded-xl cursor-pointer text-sm font-medium transition-all ${localFilters.loginCount === opt ? 'border-purple-400 bg-purple-500/20 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="mb-8">
-          <label className="block text-sm font-medium text-purple-100 mb-3">Vertical Preference Filter — Which verticals do users like?</label>
-          <div className="flex flex-wrap gap-2">
-            {ADVANCED_VERTICALS.map(opt => (
-              <div key={opt} onClick={() => toggleArray('verticals', opt)} className={`px-3 py-1.5 border rounded cursor-pointer text-sm font-medium transition-all ${localFilters.verticals?.includes(opt) ? 'border-purple-400 bg-purple-500/20 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
-                {opt}
-              </div>
-            ))}
+        {filteredStatus.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-purple-100 mb-3">What user status are you looking for?</label>
+            <div className="flex flex-wrap gap-2">
+              {filteredStatus.map(opt => (
+                <div key={opt} onClick={() => toggleArray('status', opt)} className={`px-4 py-2 border rounded-lg cursor-pointer text-sm font-medium transition-all ${localFilters.status?.includes(opt) ? 'border-blue-400 bg-blue-500/20 text-white shadow-[0_0_10px_rgba(59,130,246,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="mb-8">
-          <label className="block text-sm font-medium text-purple-100 mb-3">Mail Status Filter — Filter by outreach state</label>
-          <div className="flex flex-wrap gap-2">
-            {MAIL_STATUS_OPTIONS.map(opt => (
-              <div key={opt} onClick={() => toggleArray('mailStatus', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.mailStatus?.includes(opt) ? 'border-pink-400 bg-pink-500/20 text-white shadow-[0_0_10px_rgba(244,114,182,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
-                {opt}
-              </div>
-            ))}
+        {filteredGeoPrefs.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-purple-100 mb-3">Country / Geo Preference Filter — Which geos do users prefer?</label>
+            <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto pr-2 custom-scrollbar">
+              {filteredGeoPrefs.map(opt => (
+                <div key={opt} onClick={() => toggleArray('geoPreferences', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.geoPreferences?.includes(opt) ? 'border-orange-400 bg-orange-500/20 text-white shadow-[0_0_10px_rgba(249,115,22,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
+
+        {filteredVerticals.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-purple-100 mb-3">Vertical Preference Filter — Which verticals do users like?</label>
+            <div className="flex flex-wrap gap-2">
+              {filteredVerticals.map(opt => (
+                <div key={opt} onClick={() => toggleArray('verticals', opt)} className={`px-3 py-1.5 border rounded cursor-pointer text-sm font-medium transition-all ${localFilters.verticals?.includes(opt) ? 'border-purple-400 bg-purple-500/20 text-white shadow-[0_0_10px_rgba(168,85,247,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {filteredMailStatus.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-purple-100 mb-3">Mail Status Filter — Filter by outreach state</label>
+            <div className="flex flex-wrap gap-2">
+              {filteredMailStatus.map(opt => (
+                <div key={opt} onClick={() => toggleArray('mailStatus', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.mailStatus?.includes(opt) ? 'border-pink-400 bg-pink-500/20 text-white shadow-[0_0_10px_rgba(244,114,182,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between mt-10 pt-6 border-t border-white/10">
           <button className="px-5 py-3 bg-transparent border border-purple-500/30 rounded-lg text-base text-purple-300 hover:border-purple-400 hover:text-white transition-colors" onClick={() => onOpenChange(false)}>Cancel</button>
           <div className="flex gap-4">
-            <button className="px-5 py-3 bg-transparent text-base text-purple-300 hover:text-white transition-colors font-medium" onClick={() => setLocalFilters({geos:[], geoPreferences:[], verticals:[], status:[], loginCount:'Any', mailStatus: []})}>Clear All</button>
+            <button className="px-5 py-3 bg-transparent text-base text-purple-300 hover:text-white transition-colors font-medium" onClick={() => setLocalFilters({ geos: [], cities: [], geoPreferences: [], verticals: [], status: [], loginCount: 'Any', mailStatus: [] })}>Clear All</button>
             <button className="px-8 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-lg text-base font-semibold hover:from-purple-600 hover:to-indigo-700 transition-all shadow-lg transform hover:scale-[1.02]" onClick={apply}>Apply Filters &rarr;</button>
           </div>
         </div>
