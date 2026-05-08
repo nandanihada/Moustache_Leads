@@ -62,7 +62,50 @@ export interface ImportRequest {
     skip_duplicates?: boolean;
     update_existing?: boolean;
     auto_activate?: boolean;
+    [key: string]: any;
   };
+}
+
+export interface FullPreviewOffer {
+  _temp_id: string;
+  campaign_id: string;
+  name: string;
+  description: string;
+  payout: number;
+  currency: string;
+  countries: string[];
+  status: string;
+  vertical: string;
+  category: string;
+  image_url: string;
+  target_url: string;
+  preview_url: string;
+  offer_type: string;
+  payout_model: string;
+  network: string;
+  incentive_type: string;
+  daily_cap: number;
+  expiration_date: string;
+  issues: string[];
+  is_duplicate: boolean;
+}
+
+export interface FullPreviewResponse {
+  success: boolean;
+  offers?: FullPreviewOffer[];
+  total?: number;
+  mapping_errors?: Array<{ row: number; error: string }>;
+  audit_summary?: {
+    missing_vertical: number;
+    missing_description: number;
+    missing_image: number;
+    missing_countries: number;
+    missing_payout: number;
+    missing_tracking_url: number;
+    is_duplicate: number;
+    total: number;
+  };
+  error?: string;
 }
 
 export interface ImportSummary {
@@ -162,6 +205,31 @@ class ApiImportService {
       return data as ImportResponse;
     } catch (error) {
       console.error('Import offers error:', error);
+      if (error instanceof TypeError && error.message === 'Failed to fetch') {
+        throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
+      }
+      throw error;
+    }
+  }
+
+  async fetchFullPreview(request: { network_id: string; api_key: string; network_type: string; filters?: any }): Promise<FullPreviewResponse> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/offers/api-import/full-preview`, {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(request),
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({ error: 'Network error' }));
+        throw new Error(data.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      console.error('Full preview error:', error);
       if (error instanceof TypeError && error.message === 'Failed to fetch') {
         throw new Error('Cannot connect to server. Please check if the backend is running and CORS is configured.');
       }

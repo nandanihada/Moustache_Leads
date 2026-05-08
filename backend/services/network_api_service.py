@@ -27,9 +27,9 @@ class NetworkAPIService:
         Test API connection and return offer count
         
         Args:
-            network_id: Network identifier (e.g., 'cpamerchant')
+            network_id: Network identifier (e.g., 'cpamerchant') or API URL for Everflow
             api_key: API key for authentication
-            network_type: Type of network ('hasoffers', 'cj', 'shareasale')
+            network_type: Type of network ('hasoffers', 'everflow', 'cj', 'shareasale')
             
         Returns:
             Tuple of (success, offer_count, error_message)
@@ -37,6 +37,8 @@ class NetworkAPIService:
         try:
             if network_type == 'hasoffers':
                 return self._test_hasoffers_connection(network_id, api_key)
+            elif network_type == 'everflow':
+                return self._test_everflow_connection(network_id, api_key)
             elif network_type == 'cj':
                 return self._test_cj_connection(network_id, api_key)
             elif network_type == 'shareasale':
@@ -65,6 +67,8 @@ class NetworkAPIService:
         try:
             if network_type == 'hasoffers':
                 return self._fetch_hasoffers_offers(network_id, api_key, filters, limit)
+            elif network_type == 'everflow':
+                return self._fetch_everflow_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
                 return self._fetch_cj_offers(network_id, api_key, filters, limit)
             elif network_type == 'shareasale':
@@ -198,6 +202,181 @@ class NetworkAPIService:
             logger.error(f"Error fetching HasOffers offers: {str(e)}", exc_info=True)
             return [], f"Error: {str(e)}"
 
+    
+    # ==================== Everflow Implementation ====================
+    
+    def _test_everflow_connection(self, api_url: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        """Test Everflow API connection using header-based auth"""
+        try:
+            # Normalize the API URL
+            base_url = api_url.rstrip('/')
+            if not base_url.startswith('http'):
+                base_url = f"https://{base_url}"
+            
+            # If user provided just the domain, append the standard endpoint
+            if '/v1/' not in base_url:
+                base_url = f"{base_url}/v1/affiliates/offersrunnable"
+            
+            logger.info(f"Testing Everflow connection: {base_url}")
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'x-eflow-api-key': api_key
+            }
+            
+            params = {
+                'page': 1,
+                'page_size': 1  # Just test with 1 to get total count
+            }
+            
+            response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
+            
+            if response.status_code == 401:
+                return False, None, "Invalid API key. Please check your Everflow API key."
+            elif response.status_code == 403:
+                return False, None, "Access denied. Your API key may not have affiliate permissions."
+            
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Everflow returns offers array and pagination info
+            # Response format: { "offers": [...], "paging": { "total_count": N, ... } }
+            # OR it could be a direct array
+            if isinstance(data, dict):
+                total_count = 0
+                if 'paging' in data:
+                    total_count = data['paging'].get('total_count', 0)
+                elif 'total_count' in data:
+                    total_count = data['total_count']
+                elif 'offers' in data:
+                    # If no paging info, fetch with larger page to count
+                    total_count = len(data.get('offers', []))
+                    # Try a larger fetch to get real count
+                    params_full = {'page': 1, 'page_size': 100}
+                    try:
+                        resp_full = self.session.get(base_url, headers=headers, params=params_full, timeout=self.timeout)
+                        if resp_full.status_code == 200:
+                            full_data = resp_full.json()
+                            if isinstance(full_data, dict) and 'paging' in full_data:
+                                total_count = full_data['paging'].get('total_count', total_count)
+                            elif isinstance(full_data, dict) and 'offers' in full_data:
+                                total_count = len(full_data['offers'])
+                            elif isinstance(full_data, list):
+                                total_count = len(full_data)
+                    except:
+                        pass
+                else:
+                    # Maybe the response itself is the offers list at top level
+                    total_count = len(data)
+            elif isinstance(data, list):
+                total_count = len(data)
+            else:
+                return False, None, "Unexpected API response format"
+            
+            logger.info(f"Everflow connection successful: {total_count} offers found")
+            return True, total_count, None
+            
+        except requests.exceptions.Timeout:
+            return False, None, "Connection timeout. Please check the API URL and try again."
+        except requests.exceptions.ConnectionError:
+            return False, None, "Unable to connect. Please verify the API URL is correct."
+        except requests.exceptions.HTTPError as e:
+            return False, None, f"HTTP Error: {e.response.status_code}"
+        except Exception as e:
+            return False, None, f"Error: {str(e)}"
+    
+    def _fetch_everflow_offers(self, api_url: str, api_key: str,
+                               filters: Optional[Dict] = None,
+                               limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """Fetch offers from Everflow API with pagination"""
+        try:
+            # Normalize the API URL
+            base_url = api_url.rstrip('/')
+            if not base_url.startswith('http'):
+                base_url = f"https://{base_url}"
+            
+            if '/v1/' not in base_url:
+                base_url = f"{base_url}/v1/affiliates/offersrunnable"
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'x-eflow-api-key': api_key
+            }
+            
+            page_size = min(limit or 100, 100)  # Everflow max page size is typically 100
+            max_offers = limit or 5000  # Safety cap
+            
+            all_offers = []
+            page = 1
+            
+            logger.info(f"Fetching Everflow offers from {base_url} (limit: {max_offers})")
+            
+            while len(all_offers) < max_offers:
+                params = {
+                    'page': page,
+                    'page_size': page_size
+                }
+                
+                response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
+                
+                if response.status_code == 401:
+                    return [], "Invalid API key"
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                # Parse response - handle different Everflow response formats
+                offers_batch = []
+                has_more = False
+                
+                if isinstance(data, dict):
+                    if 'offers' in data:
+                        offers_batch = data['offers']
+                    elif 'data' in data:
+                        offers_batch = data['data']
+                    else:
+                        # The dict itself might contain offer-like data
+                        offers_batch = [data] if 'offer_id' in data or 'network_offer_id' in data else []
+                    
+                    # Check pagination
+                    paging = data.get('paging', {})
+                    total_count = paging.get('total_count', 0)
+                    if total_count > 0:
+                        has_more = (page * page_size) < total_count
+                    else:
+                        # No paging info — check if we got a full page (means more might exist)
+                        has_more = len(offers_batch) == page_size
+                elif isinstance(data, list):
+                    offers_batch = data
+                    has_more = len(data) == page_size  # If full page, might be more
+                
+                if not offers_batch:
+                    break
+                
+                all_offers.extend(offers_batch)
+                
+                if not has_more or len(all_offers) >= max_offers:
+                    break
+                
+                page += 1
+            
+            # Trim to limit
+            if limit and len(all_offers) > limit:
+                all_offers = all_offers[:limit]
+            
+            logger.info(f"Fetched {len(all_offers)} offers from Everflow ({page} pages)")
+            return all_offers, None
+            
+        except requests.exceptions.Timeout:
+            return [], "Connection timeout. Please try again."
+        except requests.exceptions.ConnectionError:
+            return [], "Unable to connect to Everflow API."
+        except requests.exceptions.HTTPError as e:
+            return [], f"HTTP Error: {e.response.status_code}"
+        except Exception as e:
+            logger.error(f"Error fetching Everflow offers: {str(e)}", exc_info=True)
+            return [], f"Error: {str(e)}"
     
     # ==================== Commission Junction Implementation ====================
     

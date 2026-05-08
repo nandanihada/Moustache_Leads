@@ -3719,6 +3719,169 @@ def preview_api_offers():
         return jsonify({'error': f'Failed to preview offers: {str(e)}'}), 500
 
 
+@admin_offers_bp.route('/offers/api-import/full-preview', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def full_preview_api_offers():
+    """Fetch ALL offers from API and return with missing field analysis for audit mode"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        network_id = data.get('network_id')
+        api_key = data.get('api_key')
+        network_type = data.get('network_type', 'hasoffers')
+        filters = data.get('filters', {})
+        
+        if not network_id or not api_key:
+            return jsonify({'error': 'network_id and api_key are required'}), 400
+        
+        # Import services
+        from services.network_api_service import network_api_service
+        from services.network_field_mapper import network_field_mapper
+        
+        # Fetch ALL offers (no limit)
+        offers, error = network_api_service.fetch_offers(
+            network_id, api_key, network_type, filters
+        )
+        
+        if error:
+            return jsonify({'success': False, 'error': error}), 400
+        
+        if not offers:
+            return jsonify({'success': True, 'offers': [], 'total': 0, 'audit_summary': {}}), 200
+        
+        # Map all offers to DB format
+        mapped_offers = []
+        mapping_errors = []
+        
+        for idx, offer_data in enumerate(offers):
+            try:
+                mapped = network_field_mapper.map_to_db_format(offer_data, network_type, network_id)
+                if mapped:
+                    # Add a temp ID for frontend tracking
+                    mapped['_temp_id'] = f"api_{idx}_{mapped.get('campaign_id', idx)}"
+                    mapped['_row_index'] = idx
+                    mapped_offers.append(mapped)
+                else:
+                    mapping_errors.append({'row': idx + 1, 'error': 'Failed to map offer data'})
+            except Exception as e:
+                mapping_errors.append({'row': idx + 1, 'error': str(e)})
+        
+        # Check duplicates against existing DB offers
+        existing_campaign_ids = set()
+        try:
+            offers_col = db_instance.get_collection('offers')
+            if offers_col is not None:
+                campaign_ids = [o.get('campaign_id') for o in mapped_offers if o.get('campaign_id')]
+                if campaign_ids:
+                    existing = offers_col.find(
+                        {'campaign_id': {'$in': campaign_ids}},
+                        {'campaign_id': 1}
+                    )
+                    existing_campaign_ids = {doc['campaign_id'] for doc in existing}
+        except Exception as e:
+            logging.warning(f"Duplicate check failed (non-critical): {e}")
+        
+        # Analyze each offer for missing fields
+        audit_results = []
+        missing_counts = {
+            'missing_vertical': 0,
+            'missing_description': 0,
+            'missing_image': 0,
+            'missing_countries': 0,
+            'missing_payout': 0,
+            'missing_tracking_url': 0,
+            'is_duplicate': 0,
+            'total': len(mapped_offers),
+        }
+        
+        for offer in mapped_offers:
+            issues = []
+            
+            # Check vertical
+            vertical = offer.get('vertical', '') or offer.get('category', '')
+            if not vertical or vertical.lower() in ['', 'other', 'general', 'unknown']:
+                issues.append('missing_vertical')
+                missing_counts['missing_vertical'] += 1
+            
+            # Check description
+            desc = offer.get('description', '')
+            if not desc or len(desc.strip()) < 10:
+                issues.append('missing_description')
+                missing_counts['missing_description'] += 1
+            
+            # Check image
+            image = offer.get('image_url', '') or offer.get('thumbnail_url', '')
+            if not image or not image.strip():
+                issues.append('missing_image')
+                missing_counts['missing_image'] += 1
+            
+            # Check countries
+            countries = offer.get('countries', [])
+            if not countries or countries == ['US']:
+                issues.append('missing_countries')
+                missing_counts['missing_countries'] += 1
+            
+            # Check payout
+            payout = offer.get('payout', 0)
+            if not payout or float(payout) <= 0:
+                issues.append('missing_payout')
+                missing_counts['missing_payout'] += 1
+            
+            # Check tracking URL
+            target_url = offer.get('target_url', '')
+            if not target_url or target_url in ['https://example.com/offer', 'https://www.google.com']:
+                issues.append('missing_tracking_url')
+                missing_counts['missing_tracking_url'] += 1
+            
+            # Check duplicate
+            is_dup = offer.get('campaign_id', '') in existing_campaign_ids
+            if is_dup:
+                issues.append('is_duplicate')
+                missing_counts['is_duplicate'] += 1
+            
+            audit_results.append({
+                '_temp_id': offer.get('_temp_id'),
+                'campaign_id': offer.get('campaign_id', ''),
+                'name': offer.get('name', ''),
+                'description': offer.get('description', ''),
+                'payout': offer.get('payout', 0),
+                'currency': offer.get('currency', 'USD'),
+                'countries': offer.get('countries', []),
+                'status': offer.get('status', 'active'),
+                'vertical': offer.get('vertical', ''),
+                'category': offer.get('category', ''),
+                'image_url': offer.get('image_url', ''),
+                'target_url': offer.get('target_url', ''),
+                'preview_url': offer.get('preview_url', ''),
+                'offer_type': offer.get('offer_type', ''),
+                'payout_model': offer.get('payout_model', ''),
+                'network': offer.get('network', ''),
+                'incentive_type': offer.get('incentive_type', ''),
+                'daily_cap': offer.get('daily_cap', 0),
+                'expiration_date': offer.get('expiration_date', ''),
+                'issues': issues,
+                'is_duplicate': is_dup,
+            })
+        
+        logging.info(f"✅ Full preview: {len(audit_results)} offers mapped, {len(mapping_errors)} errors")
+        
+        return jsonify({
+            'success': True,
+            'offers': audit_results,
+            'total': len(audit_results),
+            'mapping_errors': mapping_errors[:10],
+            'audit_summary': missing_counts,
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Full preview failed: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to fetch full preview: {str(e)}'}), 500
+
+
 @admin_offers_bp.route('/offers/api-import', methods=['POST'])
 @token_required
 @subadmin_or_admin_required('offers')

@@ -118,7 +118,7 @@ class NetworkFieldMapper:
         
         Args:
             offer_data: Raw offer data from network API
-            network_type: Type of network ('hasoffers', 'cj', 'shareasale')
+            network_type: Type of network ('hasoffers', 'everflow', 'cj', 'shareasale')
             network_id: Network identifier (e.g., 'cpamerchant')
             
         Returns:
@@ -127,6 +127,8 @@ class NetworkFieldMapper:
         try:
             if network_type == 'hasoffers':
                 return self._map_hasoffers_offer(offer_data, network_id)
+            elif network_type == 'everflow':
+                return self._map_everflow_offer(offer_data, network_id)
             elif network_type == 'cj':
                 return self._map_cj_offer(offer_data, network_id)
             elif network_type == 'shareasale':
@@ -446,6 +448,227 @@ class NetworkFieldMapper:
             return 'Incent'
         else:
             return 'Incent'  # Default
+    
+    def _map_everflow_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
+        """Map Everflow offer to database format — based on real Everflow API response structure"""
+        try:
+            network_name = network_id if network_id else 'Everflow'
+            
+            # Extract offer ID
+            offer_id = str(offer_data.get('network_offer_id') or offer_data.get('offer_id') or offer_data.get('id') or '')
+            
+            # Extract name
+            raw_name = offer_data.get('name') or ''
+            formatted_name = format_offer_name(raw_name)
+            
+            # Extract description — Everflow uses html_description
+            raw_description = offer_data.get('html_description') or offer_data.get('description') or ''
+            clean_description = clean_html_description(raw_description)
+            
+            # Extract relationship object (contains payouts, countries, category, etc.)
+            relationship = offer_data.get('relationship', {}) or {}
+            
+            # Extract payout from relationship.payouts.entries[0].payout_amount
+            payout = 0.0
+            payouts_data = relationship.get('payouts', {})
+            if isinstance(payouts_data, dict):
+                entries = payouts_data.get('entries', [])
+                if entries and isinstance(entries, list):
+                    # Find default payout or first entry
+                    for entry in entries:
+                        if entry.get('is_default', False):
+                            payout = float(entry.get('payout_amount', 0) or 0)
+                            break
+                    if payout == 0 and entries:
+                        payout = float(entries[0].get('payout_amount', 0) or 0)
+            if payout == 0:
+                payout = float(offer_data.get('payout', 0) or 0)
+            
+            # Extract payout type from payouts entries
+            payout_type = 'cpa'
+            if isinstance(payouts_data, dict):
+                entries = payouts_data.get('entries', [])
+                if entries and isinstance(entries, list):
+                    payout_type = entries[0].get('payout_type', 'cpa') or 'cpa'
+            
+            # Extract currency
+            currency = offer_data.get('currency_id') or offer_data.get('currency') or 'USD'
+            # Everflow uses string currency codes like "EUR", "USD"
+            if currency and str(currency).isdigit():
+                currency = 'USD'  # Fallback for numeric IDs
+            
+            # Extract status
+            offer_status = offer_data.get('offer_status') or offer_data.get('status') or 'active'
+            if isinstance(offer_status, dict):
+                offer_status = offer_status.get('name', 'active')
+            
+            # Extract tracking URL (this is the actual offer link to use)
+            tracking_url = offer_data.get('tracking_url') or offer_data.get('redirect_tracking_url') or ''
+            preview_url = offer_data.get('preview_url') or 'https://www.google.com'
+            
+            # Extract image/thumbnail
+            image_url = offer_data.get('thumbnail_url') or ''
+            # Also check relationship.thumbnail_asset for higher quality
+            thumb_asset = relationship.get('thumbnail_asset', {})
+            if isinstance(thumb_asset, dict) and thumb_asset.get('url'):
+                image_url = thumb_asset['url']
+            
+            # Basic mapping
+            mapped = {
+                'campaign_id': offer_id,
+                'name': formatted_name,
+                'description': clean_description,
+                'preview_url': preview_url,
+                'payout': payout,
+                'currency': currency.upper() if currency else 'USD',
+                'status': self._normalize_status(str(offer_status)),
+                'network': network_name,
+                'target_url': tracking_url or preview_url,
+                'image_url': image_url,
+            }
+            
+            # Payout type / model
+            mapped['offer_type'] = self.PAYOUT_TYPE_MAPPING.get(str(payout_type).lower(), 'CPA')
+            mapped['payout_model'] = mapped['offer_type']
+            
+            # Expiration date — Everflow uses date_live_until
+            expiration = offer_data.get('date_live_until') or offer_data.get('expiration_date') or ''
+            if expiration and expiration not in ['0000-00-00', '', None]:
+                mapped['expiration_date'] = str(expiration)[:10]
+            else:
+                mapped['expiration_date'] = (datetime.utcnow() + timedelta(days=90)).strftime('%Y-%m-%d')
+            
+            # Countries — from relationship.ruleset.countries[] with country_code field
+            countries = []
+            ruleset = relationship.get('ruleset', {})
+            if isinstance(ruleset, dict):
+                country_entries = ruleset.get('countries', [])
+                if isinstance(country_entries, list):
+                    for c in country_entries:
+                        if isinstance(c, dict):
+                            code = c.get('country_code', '')
+                            targeting_type = c.get('targeting_type', 'include')
+                            if code and targeting_type == 'include':
+                                countries.append(code.upper())
+            
+            # Fallback: try top-level countries field
+            if not countries:
+                country_data = offer_data.get('countries') or offer_data.get('geo') or []
+                if isinstance(country_data, list):
+                    for c in country_data:
+                        if isinstance(c, dict):
+                            code = c.get('country_code') or c.get('code') or ''
+                            if code:
+                                countries.append(code.upper())
+                        elif isinstance(c, str) and len(c) == 2:
+                            countries.append(c.upper())
+                elif isinstance(country_data, str):
+                    countries = self._parse_geo_string(country_data)
+            
+            mapped['countries'] = countries if countries else ['US']
+            
+            # Vertical / Category — from relationship.category.name
+            api_vertical = ''
+            category_data = relationship.get('category', {})
+            if isinstance(category_data, dict):
+                api_vertical = category_data.get('name', '')
+            if not api_vertical:
+                api_vertical = offer_data.get('category') or offer_data.get('vertical') or ''
+            
+            if api_vertical and api_vertical.lower() not in ['', 'lifestyle', 'general', 'other']:
+                mapped['vertical'] = api_vertical
+            else:
+                from models.offer import detect_vertical_from_text
+                mapped['vertical'] = detect_vertical_from_text(formatted_name, clean_description)
+            mapped['category'] = mapped['vertical']
+            
+            # KPI — from relationship.requirement_kpis.entries[].kpi
+            kpi_text = ''
+            kpi_data = relationship.get('requirement_kpis', {})
+            if isinstance(kpi_data, dict):
+                kpi_entries = kpi_data.get('entries', [])
+                if kpi_entries and isinstance(kpi_entries, list):
+                    kpi_text = kpi_entries[0].get('kpi', '')
+            mapped['kpi'] = kpi_text
+            mapped['conversion_type'] = kpi_text  # KPI describes the conversion
+            
+            # Traffic type
+            mapped['traffic_type'] = ''
+            
+            # Caps — from top-level fields
+            mapped['daily_cap'] = int(offer_data.get('daily_conversion_cap', 0) or 0)
+            mapped['monthly_cap'] = int(offer_data.get('monthly_conversion_cap', 0) or 0)
+            
+            # Device/Platform targeting — from relationship.ruleset.platforms[]
+            platforms = []
+            if isinstance(ruleset, dict):
+                platform_entries = ruleset.get('platforms', [])
+                if isinstance(platform_entries, list):
+                    for p in platform_entries:
+                        if isinstance(p, dict) and p.get('label'):
+                            platforms.append(p['label'])
+            mapped['device_targeting'] = ', '.join(platforms) if platforms else ''
+            mapped['allowed_traffic_sources'] = []
+            mapped['blocked_traffic_sources'] = []
+            
+            # Restrictions and terms
+            mapped['restrictions'] = ''
+            mapped['terms_notes'] = offer_data.get('terms_and_conditions') or ''
+            
+            # Geo targeting
+            mapped['allowed_countries'] = countries
+            mapped['blocked_countries'] = []
+            
+            # OS/Browser/Carrier from ruleset
+            mapped['os_requirements'] = []
+            mapped['browser_requirements'] = []
+            mapped['carrier_requirements'] = []
+            mapped['connection_type'] = ''
+            
+            # Demographics
+            mapped['language_requirements'] = []
+            mapped['age_restrictions'] = ''
+            mapped['gender_targeting'] = ''
+            
+            # Defaults
+            mapped['affiliates'] = 'all'
+            mapped['revenue_share_percent'] = 0
+            mapped['tracking_protocol'] = ''
+            mapped['conversion_flow'] = ''
+            mapped['conversion_window'] = None
+            mapped['creative_requirements'] = ''
+            mapped['affiliate_terms'] = offer_data.get('terms_and_conditions') or ''
+            
+            # Incentive type — check relationship.channels for "Incent" channel
+            is_incent = False
+            channels_data = relationship.get('channels', {})
+            if isinstance(channels_data, dict):
+                channel_entries = channels_data.get('entries', [])
+                if isinstance(channel_entries, list):
+                    for ch in channel_entries:
+                        if isinstance(ch, dict) and 'incent' in (ch.get('name', '') or '').lower():
+                            is_incent = True
+                            break
+            
+            if is_incent:
+                mapped['incentive_type'] = 'Incent'
+            else:
+                # Fallback: check name or terms
+                terms = (offer_data.get('terms_and_conditions') or '').lower()
+                if 'incent' in terms or 'incent' in raw_name.lower():
+                    mapped['incentive_type'] = 'Incent'
+                else:
+                    mapped['incentive_type'] = self._extract_incentive_type(raw_name)
+            
+            # Process tracking link for special networks
+            mapped = process_offer_tracking_link(mapped, network_identifier=network_id)
+            
+            logger.debug(f"Mapped Everflow offer: {mapped['name']} (campaign: {mapped['campaign_id']})")
+            return mapped
+            
+        except Exception as e:
+            logger.error(f"Error mapping Everflow offer: {str(e)}", exc_info=True)
+            return {}
     
     def _map_cj_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
         """Map CJ offer to database format"""
