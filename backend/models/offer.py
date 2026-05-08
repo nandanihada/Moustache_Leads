@@ -11,12 +11,12 @@ logger = logging.getLogger(__name__)
 
 # Add utils directory to path for frontend mapping
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utils'))
-from frontend_mapping import frontend_to_database, validate_frontend_data
+from frontend_mapping import frontend_to_database, validate_frontend_data # type: ignore
 
 # Import traffic source rules service
 try:
     sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'services'))
-    from traffic_source_rules_service import TrafficSourceRulesService
+    from traffic_source_rules_service import TrafficSourceRulesService # type: ignore
 except ImportError:
     TrafficSourceRulesService = None
 
@@ -759,8 +759,8 @@ class Offer:
             logger.error(traceback.format_exc())
             return None, f"Error creating offer: {str(e)}"
     
-    def get_offers(self, filters=None, skip=0, limit=20):
-        """Get offers with filtering and pagination"""
+    def get_offers(self, filters=None, skip=0, limit=20, sort_by=None):
+        """Get offers with filtering, pagination and sorting"""
         if not self._check_db_connection():
             return [], 0
         
@@ -773,6 +773,10 @@ class Offer:
             if filters:
                 if filters.get('status'):
                     query['status'] = filters['status']
+                if filters.get('category'):
+                    query['categories'] = filters['category'] # Use categories $in query if passed as dict
+                if filters.get('countries'):
+                    query['allowed_countries'] = filters['countries']
                 if filters.get('network'):
                     query['network'] = {'$regex': filters['network'], '$options': 'i'}
                 if filters.get('search'):
@@ -796,9 +800,28 @@ class Offer:
             # Get total count
             total = self.collection.count_documents(query)
             
-            # Get offers with pagination - pinned offers first
+            # Prepare sort
+            sort_params = [('is_pinned', -1)] # Always pinned first
+            if sort_by:
+                if sort_by == 'payout':
+                    sort_params.append(('payout', -1))
+                elif sort_by == 'hits':
+                    sort_params.append(('hits', -1))
+                elif sort_by == 'created_at':
+                    sort_params.append(('created_at', -1))
+                elif sort_by == 'approved_count':
+                    # Fallback to hits if approved_count doesn't exist yet
+                    sort_params.append(('approved_count', -1))
+                elif sort_by == 'today_hits':
+                    sort_params.append(('today_hits', -1))
+                else:
+                    sort_params.append(('created_at', -1))
+            else:
+                sort_params.extend([('pinned_at', -1), ('created_at', -1)])
+            
+            # Get offers with pagination
             offers = list(self.collection.find(query)
-                         .sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)])
+                         .sort(sort_params)
                          .skip(skip)
                          .limit(limit))
             

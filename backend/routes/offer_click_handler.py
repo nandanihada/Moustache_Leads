@@ -109,30 +109,87 @@ def handle_offer_click(offer_id):
                 f"(Rule: {result['rule_applied']}, GEO: {access_check['country_code']})"
             )
             
-            # --- API STATS INTERCEPTION ---
+            # --- API STATS & USER TRACKING ---
             subid = request.args.get('subid')
-            if subid and len(subid) == 24: # Valid ObjectId length
+            if subid:
                 try:
                     from database import db_instance
                     from bson import ObjectId
-                    db_instance.get_collection('api_stats').update_one(
-                        {
-                            'api_key_id': ObjectId(subid),
-                            'date': datetime.utcnow().strftime('%Y-%m-%d')
-                        },
-                        {
-                            '$inc': {'clicks': 1},
-                            '$setOnInsert': {
-                                'impressions': 1,
-                                'device_type': 'desktop',
-                                'traffic_source': 'api'
-                            }
-                        },
-                        upsert=True
-                    )
-                    logging.info(f"📊 Successfully tracked API Click for API Key ID: {subid}")
+                    
+                    users_col = db_instance.get_collection('users')
+                    intel_col = db_instance.get_collection('user_intelligence')
+                    
+                    # Find user by any means
+                    user_obj = None
+                    if len(subid) == 24:
+                        try:
+                            user_obj = users_col.find_one({'_id': ObjectId(subid)})
+                        except:
+                            pass
+                    
+                    if not user_obj:
+                        user_obj = users_col.find_one({'$or': [
+                            {'username': subid},
+                            {'email': subid}
+                        ]})
+
+                    if user_obj:
+                        u_id = str(user_obj['_id'])
+                        
+                        # Update user verticals for interest tracking
+                        category = offer.get('category') or offer.get('vertical')
+                        if category and category not in ('N/A', 'Uncategorized', 'Unknown'):
+                            clean_cat = category.strip()
+                            # 1. Update user collection (legacy)
+                            users_col.update_one(
+                                {'_id': user_obj['_id']},
+                                {'$addToSet': {'verticals': clean_cat}}
+                            )
+                            
+                            # 2. Update intelligence collection (modern)
+                            intel_col.update_one(
+                                {'user_id': u_id},
+                                {
+                                    '$addToSet': {'verticals': clean_cat},
+                                    '$set': {
+                                        'last_activity': datetime.utcnow(),
+                                        'username': user_obj.get('username'),
+                                        'email': user_obj.get('email')
+                                    },
+                                    '$inc': {'total_clicks': 1}
+                                },
+                                upsert=True
+                            )
+                            logging.info(f"📊 Tracking: Added vertical '{clean_cat}' to user {u_id}")
+
+                        # Update API stats (only if it looks like an ObjectId/API key ref)
+                        if len(subid) == 24:
+                            db_instance.get_collection('api_stats').update_one(
+                                {
+                                    'api_key_id': subid if isinstance(subid, str) else str(subid),
+                                    'date': datetime.utcnow().strftime('%Y-%m-%d')
+                                },
+                                {
+                                    '$inc': {'clicks': 1},
+                                    '$setOnInsert': {
+                                        'impressions': 1,
+                                        'device_type': 'desktop',
+                                        'traffic_source': 'api'
+                                    }
+                                },
+                                upsert=True
+                            )
+                        
+                        # Trigger automation engine for this activity
+                        try:
+                            from services.automation_service import get_automation_service
+                            get_automation_service().handle_user_activity(u_id, activity_type='Click')
+                        except:
+                            pass
+                        
+                        logging.info(f"📊 Successfully tracked Click and User Interests for user: {user_obj.get('username')}")
                 except Exception as e:
-                    logging.error(f"Failed to log API click stat: {e}")
+                    logging.error(f"Failed to log click tracking data: {e}")
             # -----------------------------
             
             # Redirect to resolved URL

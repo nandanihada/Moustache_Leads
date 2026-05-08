@@ -155,13 +155,10 @@ class ActivityTrackingService:
                 
                 self.active_session_model.create_session(session_data)
                 
-            # 🔍 Trigger Automation Cycle
-            try:
-                from services.automation_engine_service import automation_engine_service
-                automation_engine_service.trigger_activity(user_data)
-            except Exception as auto_err:
-                logger.error(f"Error triggering automation cycle: {auto_err}")
-
+                logger.info(f"Tracked successful login for user {log_data['email']}, session: {session_id}")
+            else:
+                logger.info(f"Tracked failed login attempt for {log_data.get('email', 'unknown')}: {failure_reason}")
+            
             return session_id
             
         except Exception as e:

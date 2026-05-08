@@ -184,15 +184,21 @@ def get_user_signals(user_id):
             'top_geos': []
         }
         
-        # Fetch user early to get all possible identifiers (id, email, username)
+        # Get additional identifiers from query params
+        username_query = request.args.get('username', '')
+        email_query = request.args.get('email', '')
+        
         user_identifiers = [user_id]
+        if username_query: user_identifiers.append(username_query)
+        if email_query: user_identifiers.append(email_query)
+
         user_obj = None
         if 'users' in db.list_collection_names():
             try:
                 from bson import ObjectId
-                user_obj = db.users.find_one({'$or': [{'_id': ObjectId(user_id)}, {'email': user_id}, {'username': user_id}]})
+                user_obj = db.users.find_one({'$or': [{'_id': ObjectId(user_id)}, {'email': user_id}, {'username': user_id}, {'email': email_query}, {'username': username_query}]})
             except:
-                user_obj = db.users.find_one({'$or': [{'_id': user_id}, {'email': user_id}, {'username': user_id}]})
+                user_obj = db.users.find_one({'$or': [{'_id': user_id}, {'email': user_id}, {'username': user_id}, {'email': email_query}, {'username': username_query}]})
             
             if user_obj:
                 user_identifiers.append(str(user_obj.get('_id')))
@@ -200,8 +206,13 @@ def get_user_signals(user_id):
                 if user_obj.get('username'): user_identifiers.append(user_obj.get('username'))
         
         # Deduplicate identifiers
-        user_identifiers = list(set(user_identifiers))
-        query_filter = {'$or': [{'user_id': {'$in': user_identifiers}}, {'email': {'$in': user_identifiers}}, {'username': {'$in': user_identifiers}}]}
+        user_identifiers = list(set(filter(None, user_identifiers)))
+        query_filter = {'$or': [
+            {'user_id': {'$in': user_identifiers}}, 
+            {'email': {'$in': user_identifiers}}, 
+            {'username': {'$in': user_identifiers}},
+            {'user_email': {'$in': user_identifiers}}
+        ]}
         
         # Requests and Approvals count
         if 'affiliate_requests' in db.list_collection_names():
@@ -289,6 +300,28 @@ def get_user_signals(user_id):
                         signals['top_categories'] = user.get('verticals')[:3]
                     if not top_geos and user.get('geos'):
                         signals['top_geos'] = user.get('geos')[:3]
+        
+        # --- SAVE TO USER_INTELLIGENCE COLLECTION ---
+        try:
+            intel_col = db_instance.get_collection('user_intelligence')
+            if intel_col is not None:
+                intel_col.update_one(
+                    {'user_id': str(user_id)},
+                    {
+                        '$set': {
+                            'top_categories': signals['top_categories'],
+                            'top_geos': signals['top_geos'],
+                            'signal_breakdown': signals['signal_breakdown'],
+                            'last_updated': datetime.utcnow(),
+                            'username': username_query or (user_obj.get('username') if user_obj else None),
+                            'email': email_query or (user_obj.get('email') if user_obj else None)
+                        }
+                    },
+                    upsert=True
+                )
+        except Exception as save_err:
+            logging.warning(f"Failed to save intelligence signals: {save_err}")
+            
         return jsonify(signals), 200
     except Exception as e:
         logging.error(f"Error getting user signals: {str(e)}", exc_info=True)
@@ -430,4 +463,35 @@ def handle_user_automations(user_id):
             return jsonify({'success': True}), 200
     except Exception as e:
         logging.error(f"Error handling automations: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@admin_activity_logs_bp.route('/all-user-intelligence', methods=['GET'])
+@token_required
+def get_all_user_intelligence():
+    """Returns aggregated intelligence for all users from user_intelligence collection"""
+    try:
+        from database import db_instance
+        db = db_instance.get_db()
+        
+        intel_col = db_instance.get_collection('user_intelligence')
+        if intel_col is None:
+            return jsonify({'intelligence': []}), 200
+            
+        # Optionally filter by recent activity
+        # limit = int(request.args.get('limit', 1000))
+        
+        intelligence_list = list(intel_col.find({}))
+        for item in intelligence_list:
+            item['_id'] = str(item['_id'])
+            if item.get('last_updated'):
+                item['last_updated'] = item['last_updated'].isoformat() + 'Z'
+            if item.get('last_activity'):
+                item['last_activity'] = item['last_activity'].isoformat() + 'Z'
+                
+        return jsonify({
+            'success': True,
+            'intelligence': intelligence_list
+        }), 200
+    except Exception as e:
+        logging.error(f"Error fetching all user intelligence: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500

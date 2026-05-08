@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { BulkMailScheduler, QueueItem } from '@/components/BulkMailScheduler';
-import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus } from 'lucide-react';
+import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus, Zap, ExternalLink, Settings, LogIn, ShieldCheck } from 'lucide-react';
 import loginLogsService, { LoginLog } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -17,7 +17,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
 import UserIntelligenceProfile from '@/components/UserIntelligenceProfile';
 import { BulkOfferAutomationDialog } from '@/components/BulkOfferAutomationDialog';
 import { OfferQueueDashboardModal } from '@/components/OfferQueueDashboardModal';
+import { AutomationQueueDashboardModal } from '@/components/AutomationQueueDashboardModal';
 import { SmartMessagePanel } from '@/components/SmartMessagePanel';
+import { SupportHubContent } from './AdminSupportHub';
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
@@ -127,6 +129,51 @@ const getCity = (log: any, profile?: any) => {
   return "";
 };
 
+const getLatLng = (locationObj: any, logObj: any, userProfile: any) => {
+  let lat: number | undefined;
+  let lng: number | undefined;
+
+  if (locationObj) {
+    lat = locationObj.latitude !== undefined && locationObj.latitude !== null ? Number(locationObj.latitude) : undefined;
+    lng = locationObj.longitude !== undefined && locationObj.longitude !== null ? Number(locationObj.longitude) : undefined;
+  }
+
+  if (lat === undefined || lng === undefined || (lat === 0 && lng === 0) || isNaN(lat) || isNaN(lng)) {
+    let countryCode = locationObj?.country_code || locationObj?.country;
+
+    // Fallback to profile geo
+    if (!countryCode || countryCode === 'XX' || countryCode === 'Unknown') {
+      if (userProfile && userProfile.geos && userProfile.geos.length > 0) {
+        countryCode = userProfile.geos[0];
+      } else {
+        // Final fallback to getCountry (which handles IP parsing and local dev)
+        countryCode = getCountry(logObj, userProfile);
+      }
+    }
+
+    if (!countryCode || countryCode === 'Unknown' || countryCode === 'Tracking...' || countryCode === 'Location Tracking...') {
+      countryCode = 'XX';
+    }
+
+    if (countryCode && typeof countryCode === 'string') {
+      const fallback = COUNTRY_COORDS[countryCode.toUpperCase()] || COUNTRY_COORDS['XX'];
+      if (fallback) {
+        lat = fallback[0];
+        lng = fallback[1];
+      }
+    }
+  }
+
+  if (lat !== undefined && lng !== undefined) {
+    // Add a larger random offset (up to ~100km) so markers are visibly scattered 
+    // and distinct even when the map is fully zoomed out to a world view.
+    lat += (Math.random() - 0.5) * 2.5;
+    lng += (Math.random() - 0.5) * 2.5;
+  }
+
+  return { lat, lng };
+};
+
 interface AggregatedUser {
   user_id: string;
   username: string;
@@ -156,13 +203,19 @@ interface AggregatedUser {
 
 
 
-const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => void }> = ({ user, onMailSent }) => {
+const ExpandedUserDetails: React.FC<{ 
+  user: AggregatedUser; 
+  automationQueueItem?: any;
+  onMailSent?: () => void;
+  onAutomateOffers?: (userId: string) => void;
+}> = ({ user, automationQueueItem, onMailSent, onAutomateOffers }) => {
   const [pageVisits, setPageVisits] = useState<any[]>([]);
   const [offerViews, setOfferViews] = useState<any[]>([]);
   const [searchLogs, setSearchLogs] = useState<any[]>([]);
   const [signals, setSignals] = useState<any>(null);
   const [offerTargeting, setOfferTargeting] = useState<any>({});
   const [scheduledActivity, setScheduledActivity] = useState<any[]>([]);
+  const [automation, setAutomation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('login');
   const handleQuickAction = (tab: string) => {
@@ -213,19 +266,19 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
     }
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('token');
-        const [offRes, searchRes, signalsRes, offerTargetingRes, scheduledRes] = await Promise.all([
-          loginLogsService.getOfferViews(user.user_id, 20).catch(() => ({ views: [] })),
-          fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&per_page=10`, {
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+        const [offRes, searchRes, signalsRes, offerTargetingRes, scheduledRes, automationRes] = await Promise.all([
+          loginLogsService.getOfferViews(user.user_id, 20, user.username, user.email).catch(() => ({ views: [] })),
+          fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&username=${user.username}&email=${user.email}&per_page=10`, {
             headers: { 'Authorization': `Bearer ${token}` }
           }).then(res => res.json()).catch(() => ({ logs: [] })),
-          loginLogsService.getUserSignals(user.user_id).catch(() => null),
+          loginLogsService.getUserSignals(user.user_id, user.username, user.email).catch(() => null),
           loginLogsService.getInventoryMatchedOffers(user.user_id).catch(() => ({})),
-          loginLogsService.getScheduledActivity(user.user_id).catch(() => ([]))
+          loginLogsService.getScheduledActivity(user.user_id).catch(() => ([])),
+          loginLogsService.getUserAutomations(user.user_id).catch(() => null)
         ]);
 
         setOfferViews(offRes?.views || []);
@@ -233,6 +286,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
         setSignals(signalsRes);
         setOfferTargeting(offerTargetingRes);
         setScheduledActivity(scheduledRes?.scheduled_activity || scheduledRes?.activities || (Array.isArray(scheduledRes) ? scheduledRes : []));
+        setAutomation(automationRes);
 
         const latestSessionId = user.logs.find(l => l.session_id)?.session_id;
         if (latestSessionId) {
@@ -244,7 +298,9 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
       } finally {
         setLoading(false);
       }
-    };
+  };
+  
+  useEffect(() => {
     fetchData();
   }, [user.user_id]);
 
@@ -300,6 +356,15 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
             <Badge onClick={() => sendSingleMail('welcome')} variant="secondary" className="cursor-pointer bg-green-50 hover:bg-green-100 text-green-700 font-normal rounded-full px-3 py-1">Welcome mail</Badge>
             <Badge onClick={() => sendSingleMail('referral')} variant="secondary" className="cursor-pointer bg-green-50 hover:bg-green-100 text-green-700 font-normal rounded-full px-3 py-1">Referral mail</Badge>
             <Badge onClick={() => sendSingleMail('warning')} variant="secondary" className="cursor-pointer bg-red-50 hover:bg-red-100 text-red-700 font-normal rounded-full px-3 py-1">Warn user</Badge>
+            <Badge 
+              onClick={() => {
+                if (onAutomateOffers) onAutomateOffers(user.user_id);
+              }} 
+              variant="secondary" 
+              className="cursor-pointer bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-100 shadow-sm rounded-full px-3 py-1"
+            >
+              <Zap className="w-3 h-3 mr-1 fill-purple-500" /> Automate Offers
+            </Badge>
             <Dialog open={scheduleMailOpen} onOpenChange={setScheduleMailOpen}>
               <DialogTrigger asChild>
                 <Badge variant="secondary" className="cursor-pointer hover:bg-slate-100 font-normal rounded-full px-3 py-1">Schedule mail</Badge>
@@ -393,6 +458,52 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
                 </div>
               </CardContent>
             </Card>
+
+            <Card className="border-amber-100 shadow-sm h-full bg-white">
+              <CardHeader className="pb-2 border-b bg-amber-50/30">
+                <CardTitle className="text-sm font-semibold text-amber-900 flex items-center gap-2">
+                  <Zap size={16} className="text-amber-600 fill-amber-600" /> Automation Engine
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold">Status</span>
+                  <Badge className={automation?.queue_status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}>
+                    {automation?.queue_status || 'Inactive'}
+                  </Badge>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold">Current Step</span>
+                  <span className="text-xs font-bold text-slate-700">
+                    {automation ? `Step ${automation.current_step}/5` : 'N/A'}
+                  </span>
+                </div>
+                {automation?.next_mail_time && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-gray-500 uppercase font-bold">Next Outreach</span>
+                    <div className="text-[11px] text-slate-600 flex items-center gap-1">
+                      <Clock size={10} /> {new Date(automation.next_mail_time).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="w-full text-[10px] h-7 mt-2"
+                  onClick={async () => {
+                    try {
+                      await loginLogsService.saveUserAutomations(user.user_id, { queue_status: 'active', current_step: 0 });
+                      toast({ title: "Automation Started", description: `Triggered new cycle for ${user.username}` });
+                      fetchData();
+                    } catch (e) {
+                      toast({ title: "Error", description: "Failed to trigger automation", variant: "destructive" });
+                    }
+                  }}
+                >
+                  {automation?.queue_status === 'active' ? 'Restart Cycle' : 'Start Mail Flow'}
+                </Button>
+              </CardContent>
+            </Card>
           </div>
         </div>
       </div>
@@ -407,6 +518,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
           userSignals={signals}
           scheduledActivity={scheduledActivity}
           offerTargeting={offerTargeting}
+          automationQueueItem={automationQueueItem}
           allowedTabs={['login', 'activity', 'browsing', 'reco', 'automation', 'messaging']}
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -447,8 +559,21 @@ const AdminRecentActivity: React.FC = () => {
   const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
   const [globalMailMetrics, setGlobalMailMetrics] = useState({ total: 0, today: 0 });
   const [queueDashboardOpen, setQueueDashboardOpen] = useState(false);
+  const [automationQueueOpen, setAutomationQueueOpen] = useState(false);
+  const [automationSettingsOpen, setAutomationSettingsOpen] = useState(false);
+  const [messagingHubOpen, setMessagingHubOpen] = useState(false);
+  const [automationStats, setAutomationStats] = useState({ active: 0, completed: 0, failed: 0, inCooldown: 0 });
+  const [automationQueue, setAutomationQueue] = useState<any[]>([]);
+  const [automationSettings, setAutomationSettings] = useState({
+    enabled: true,
+    initial_delay_hours: 5,
+    step_interval_minutes: 200,
+    cooldown_days: 7
+  });
 
   const { toast } = useToast();
+
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
   const handleMapWheel = (e: React.WheelEvent) => {
     const newZoom = Math.min(Math.max(mapZoom - e.deltaY / 200, 1), 8);
@@ -535,7 +660,7 @@ const AdminRecentActivity: React.FC = () => {
     setSelectedUserIds(new Set());
     setExpandedId(null);
     try {
-      const params: any = { page: 1, limit: 2000 };
+      const params: any = { page: 1, limit: 400 };
       const now = new Date();
       let start = new Date(now);
       let end = new Date(now);
@@ -570,16 +695,36 @@ const AdminRecentActivity: React.FC = () => {
 
       // Fetch logs and mail history in parallel
       const token = localStorage.getItem('token');
-      const [logsRes, mailRes, usersRes, searchRes] = await Promise.all([
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+
+      const [logsRes, mailRes, usersRes, searchRes, queueRes, settingsRes] = await Promise.all([
         loginLogsService.getLoginLogs(params).catch(() => ({ logs: [] })),
-        loginLogsService.getMailHistory(undefined, 2000).catch(() => ({ history: [] })),
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/admin/users`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()).catch(() => ({ users: [] })),
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?date_from=${params.start_date}&date_to=${params.end_date}&per_page=2000`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()).catch(() => ({ logs: [] }))
+        loginLogsService.getMailHistory(undefined, 500).catch(() => ({ history: [] })),
+        fetch(`${API_URL}/api/auth/admin/users`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { users: [] }).catch(() => ({ users: [] })),
+        fetch(`${API_URL}/api/admin/search-logs?date_from=${params.start_date}&date_to=${params.end_date}&per_page=500`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { logs: [] }).catch(() => ({ logs: [] })),
+        fetch(`${API_URL}/api/admin/automation/queue`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { queue: [] }).catch(() => ({ queue: [] })),
+        fetch(`${API_URL}/api/admin/automation/settings`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { settings: {} }).catch(() => ({ settings: {} }))
       ]);
+      clearTimeout(timeoutId);
+
+      // Update state for automation components
+      if (settingsRes.settings) setAutomationSettings(settingsRes.settings);
+      const automationQueueRawData = queueRes.queue || [];
+      setAutomationQueue(automationQueueRawData);
+      (window as any)._rawQueue = automationQueueRawData;
 
       // Process search activity
       const searchUserIds = new Set(searchRes.logs?.map((l: any) => l.user_id).filter(Boolean) || []);
@@ -608,70 +753,87 @@ const AdminRecentActivity: React.FC = () => {
       // Process users for profiles
       const profileMap = new Map<string, any>();
       usersRes.users?.forEach((u: any) => {
-        profileMap.set(u._id, u);
-        if (u.email) profileMap.set(u.email, u);
+        profileMap.set(String(u._id), u);
+        if (u.email) profileMap.set(u.email.toLowerCase(), u);
+        if (u.username) profileMap.set(u.username.toLowerCase(), u);
       });
 
       // Aggregate by user
       const userMap = new Map<string, AggregatedUser>();
-      for (const log of logsRes.logs) {
-        // Group by user_id, fallback to email if user_id is missing (e.g. failed logins)
-        const key = log.user_id || log.email || log.username || log._id;
-        const profile = profileMap.get(log.user_id) || profileMap.get(log.email) || profileMap.get(log.username) || {};
+      
+      // Optimization: Create a set of user IDs that already have logs to avoid O(N^2) search
+      const existingLogUserIds = new Set((logsRes.logs || []).map((l: any) => String(l.user_id || l._id)));
 
-        const getLatLng = (locationObj: any, logObj: any, userProfile: any) => {
-          let lat: number | undefined;
-          let lng: number | undefined;
-
-          if (locationObj) {
-            lat = locationObj.latitude !== undefined && locationObj.latitude !== null ? Number(locationObj.latitude) : undefined;
-            lng = locationObj.longitude !== undefined && locationObj.longitude !== null ? Number(locationObj.longitude) : undefined;
-          }
-
-          if (lat === undefined || lng === undefined || (lat === 0 && lng === 0) || isNaN(lat) || isNaN(lng)) {
-            let countryCode = locationObj?.country_code || locationObj?.country;
-
-            // Fallback to profile geo
-            if (!countryCode || countryCode === 'XX' || countryCode === 'Unknown') {
-              if (userProfile && userProfile.geos && userProfile.geos.length > 0) {
-                countryCode = userProfile.geos[0];
-              } else {
-                // Final fallback to getCountry (which handles IP parsing and local dev)
-                countryCode = getCountry(logObj, userProfile);
-              }
+      // SYNC: Inject users from automation queue who had recent activity but no login log today
+      automationQueueRawData.forEach((qItem: any) => {
+        if (qItem.last_login && new Date(qItem.last_login).getTime() > Date.now() - 24 * 60 * 60 * 1000) {
+          const key = String(qItem.user_id);
+          // We'll let the log processor below handle existing users, 
+          // but we ensure they are at least initialized or tracked
+          if (!userMap.has(key)) {
+            const alreadyLogged = existingLogUserIds.has(key);
+            if (!alreadyLogged) {
+              logsRes.logs.push({
+                user_id: key,
+                username: qItem.username,
+                email: qItem.email || '',
+                login_time: qItem.last_login,
+                activity_type: qItem.activity_type || 'Active Session',
+                ip_address: qItem.ip || '0.0.0.0',
+                device: { 
+                  type: 'pc', 
+                  os: 'Windows', 
+                  browser: 'Chrome', 
+                  version: 'Latest', 
+                  is_mobile: false, 
+                  is_tablet: false, 
+                  is_pc: true, 
+                  is_bot: false 
+                },
+                location: { 
+                  city: 'Unknown', 
+                  country: 'Unknown', 
+                  ip: qItem.ip || '0.0.0.0', 
+                  region: 'Unknown', 
+                  country_code: qItem.country || 'WW' 
+                },
+                login_method: 'password',
+                status: 'success',
+                created_at: qItem.last_login
+              } as any);
             }
-
-            if (!countryCode || countryCode === 'Unknown' || countryCode === 'Tracking...' || countryCode === 'Location Tracking...') {
-              countryCode = 'XX';
-            }
-
-            if (countryCode && typeof countryCode === 'string') {
-              const fallback = COUNTRY_COORDS[countryCode.toUpperCase()] || COUNTRY_COORDS['XX'];
-              if (fallback) {
-                lat = fallback[0];
-                lng = fallback[1];
-              }
-            }
           }
-
-          if (lat !== undefined && lng !== undefined) {
-            // Add a larger random offset (up to ~100km) so markers are visibly scattered 
-            // and distinct even when the map is fully zoomed out to a world view.
-            lat += (Math.random() - 0.5) * 2.5;
-            lng += (Math.random() - 0.5) * 2.5;
-          }
-
-          return { lat, lng };
-        };
+        }
+      });
+      for (const log of (logsRes.logs || [])) {
+        const key = String(log.user_id || log.email || log.username || log._id);
+        if (!key || key === 'undefined' || key === 'null') continue;
+        
+        const emailKey = (log.email || '').toLowerCase();
+        const userKey = (log.username || '').toLowerCase();
+        
+        const profile = profileMap.get(String(log.user_id)) || 
+                        profileMap.get(emailKey) || 
+                        profileMap.get(userKey) || {};
 
         if (!userMap.has(key)) {
           const userEmail = (log.email || '').toLowerCase();
           const mInfo = mailMap.get(userEmail) || { welcome: null, referral: null, total: 0 };
           const { lat, lng } = getLatLng(log.location, log, profile);
+          
+          // Get verticals with multiple fallbacks
+          const verticals = profile.verticals || 
+                           (profile.signup_preferences && profile.signup_preferences.verticals) || 
+                           profile.vertical || [];
+          
+          const geos = profile.geos || 
+                      (profile.signup_preferences && profile.signup_preferences.geos) || 
+                      profile.geos_preference || [];
+
           userMap.set(key, {
-            user_id: key, // fallback to key so actions don't break
-            username: log.username || log.email?.split('@')[0] || 'Unknown',
-            email: log.email || 'Unknown',
+            user_id: key,
+            username: log.username || profile.username || log.email?.split('@')[0] || 'Unknown',
+            email: log.email || profile.email || 'Unknown',
             latest_login: log.login_time,
             login_count: 0,
             logs: [],
@@ -682,8 +844,8 @@ const AdminRecentActivity: React.FC = () => {
             lat,
             lng,
             country: getCountry(log, profile),
-            verticals: profile.verticals || [],
-            geoPreferences: profile.geos || [],
+            verticals: Array.isArray(verticals) ? verticals : (verticals ? [verticals] : []),
+            geoPreferences: Array.isArray(geos) ? geos : (geos ? [geos] : []),
             hasSearchActivity: searchUserIds.has(key) || searchUserIds.has(log.user_id)
           });
         }
@@ -712,13 +874,26 @@ const AdminRecentActivity: React.FC = () => {
       }
 
       const sortedUsers = Array.from(userMap.values()).map(userAgg => {
-        const u = profileMap.get(userAgg.user_id) || profileMap.get(userAgg.email) || profileMap.get(userAgg.username);
+        const emailKey = (userAgg.email || '').toLowerCase();
+        const userKey = (userAgg.username || '').toLowerCase();
+        const u = profileMap.get(String(userAgg.user_id)) || profileMap.get(emailKey) || profileMap.get(userKey);
 
         if (u) {
           userAgg.first_name = u.first_name;
           userAgg.last_name = u.last_name;
-          userAgg.verticals = u.verticals;
-          userAgg.geoPreferences = u.geos;
+          
+          let verticals = u.verticals || 
+                           (u.signup_preferences && u.signup_preferences.verticals) || 
+                           u.vertical || [];
+          
+          if (!Array.isArray(verticals)) verticals = [verticals];
+          userAgg.verticals = verticals.filter(Boolean).map((v: any) => String(v).trim());
+          
+          let geos = u.geos || 
+                      (u.signup_preferences && u.signup_preferences.geos) || 
+                      u.geos_preference || [];
+          if (!Array.isArray(geos)) geos = [geos];
+          userAgg.geoPreferences = geos.filter(Boolean).map((g: any) => String(g).trim());
         }
 
         // Sort logs for this user to ensure we pick the latest one for location tracking
@@ -779,6 +954,17 @@ const AdminRecentActivity: React.FC = () => {
       setAvailableCities(Array.from(citiesSet).sort());
 
       setAllUsers(sortedUsers);
+
+      // Sync Automation Stats with CURRENT users in view
+      const autoStatsQueue = (window as any)._rawQueue || [];
+      const currentIds = new Set(sortedUsers.map(u => String(u.user_id)));
+      
+      setAutomationStats({
+        active: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'active').length,
+        completed: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'completed').length,
+        failed: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.delivery_status === 'failed').length,
+        inCooldown: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'completed' && i.cooldown_until && new Date(i.cooldown_until) > now).length
+      });
 
     } catch (e) {
       console.error("Error loading recent activity", e);
@@ -1027,8 +1213,14 @@ const AdminRecentActivity: React.FC = () => {
                   }
                 }}
               />
-              <Button size="sm" variant="outline" className="h-8 bg-background border-purple-200 text-purple-700 hover:bg-purple-50" disabled={bulkMailSending} onClick={() => setBulkAutomationOpen(true)}>
-                <CalendarClock className="w-3 h-3 mr-2 text-purple-600" /> Automate Offers
+              <Button 
+                size="sm" 
+                variant="default" 
+                className="h-8 bg-purple-600 hover:bg-purple-700 text-white border-none shadow-sm" 
+                disabled={bulkMailSending} 
+                onClick={() => setBulkAutomationOpen(true)}
+              >
+                <Zap className="w-3 h-3 mr-2 fill-white" /> Automate Offers
               </Button>
               <BulkOfferAutomationDialog
                 open={bulkAutomationOpen}
@@ -1060,6 +1252,15 @@ const AdminRecentActivity: React.FC = () => {
 
           <Button size="sm" variant="secondary" className="h-8 bg-slate-800 text-white hover:bg-slate-700 ml-2" onClick={() => setQueueDashboardOpen(true)}>
             Live Queue
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setAutomationQueueOpen(true)}>
+            <Zap className="w-3 h-3 mr-2 fill-amber-500 text-amber-500" /> Automation Flow
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => setAutomationSettingsOpen(true)}>
+            <Zap className="w-3 h-3 mr-2 text-indigo-600" /> Automation Engine
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 border-blue-200 text-blue-700 hover:bg-blue-50" onClick={() => setMessagingHubOpen(true)}>
+            <Mail className="w-3 h-3 mr-2 text-blue-600" /> Messaging Hub
           </Button>
           <Select value={timeFilter} onValueChange={setTimeFilter}>
             <SelectTrigger className="w-[160px] bg-background">
@@ -1183,6 +1384,71 @@ const AdminRecentActivity: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Automation Flow Visualizer */}
+      <Card className="shadow-sm border border-slate-200 overflow-hidden bg-white mt-6 mb-2">
+        <CardHeader className="py-2.5 px-4 border-b bg-slate-50/50">
+          <CardTitle className="text-xs font-bold flex items-center gap-2 uppercase tracking-tight text-slate-600">
+            <Zap size={14} className="text-amber-500 fill-amber-500" /> Automation Engine Flow Tracking
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="grid grid-cols-1 md:grid-cols-5 divide-x divide-slate-100">
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-slate-50/50 transition-colors">
+              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <LogIn size={20} className="text-slate-600" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">{summary.uniqueUsers}</div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase">User Logs In</div>
+              <p className="text-[9px] text-slate-400 mt-1">Total active users tracked</p>
+            </div>
+            
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-emerald-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <Users size={20} className="text-emerald-600" />
+              </div>
+              <div className="text-xl font-bold text-emerald-600">
+                {Math.max(0, (summary.uniqueUsers || 0) - (automationStats.active || 0) - (automationStats.inCooldown || 0))}
+              </div>
+              <div className="text-[10px] font-bold text-emerald-600/70 uppercase">Eligible Users</div>
+              <p className="text-[9px] text-slate-400 mt-1">Passed cooldown check</p>
+            </div>
+
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-blue-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform animate-pulse">
+                <Clock size={20} className="text-blue-600" />
+              </div>
+              <div className="text-xl font-bold text-blue-600">
+                {automationStats.active} 
+              </div>
+              <div className="text-[10px] font-bold text-blue-600/70 uppercase">Wait 5h Delay</div>
+              <p className="text-[9px] text-slate-400 mt-1">Queue start pending</p>
+            </div>
+
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-indigo-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <Send size={20} className="text-indigo-600" />
+              </div>
+              <div className="text-xl font-bold text-indigo-600">{summary.totalSent}</div>
+              <div className="text-[10px] font-bold text-indigo-600/70 uppercase">Step 1-5 Cycle</div>
+              <p className="text-[9px] text-slate-400 mt-1">Mails being delivered</p>
+            </div>
+
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-amber-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <ShieldCheck size={20} className="text-amber-600" />
+              </div>
+              <div className="text-xl font-bold text-amber-600">{automationStats.completed}</div>
+              <div className="text-[10px] font-bold text-amber-600/70 uppercase">1-Week Cooldown</div>
+              <p className="text-[9px] text-slate-400 mt-1">Locked from new cycle</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Map and Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1489,7 +1755,17 @@ const AdminRecentActivity: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2"><ExpandedUserDetails user={user} onMailSent={loadData} /></div>}
+                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2">
+                      <ExpandedUserDetails 
+                        user={user} 
+                        automationQueueItem={automationQueue.find(q => q.user_id === user.user_id)}
+                        onMailSent={loadData} 
+                        onAutomateOffers={(userId) => {
+                          setSelectedUserIds(new Set([userId]));
+                          setBulkAutomationOpen(true);
+                        }}
+                      />
+                    </div>}
                   </div>
                 );
               })}
@@ -1497,6 +1773,137 @@ const AdminRecentActivity: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Automation Engine Settings Modal */}
+      <Dialog open={automationSettingsOpen} onOpenChange={setAutomationSettingsOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-2xl font-bold">
+              <Zap className="text-amber-500 fill-amber-500" /> Automation Engine Settings
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-4">
+            <Card className="md:col-span-1 border-slate-200">
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Settings size={16} /> Global Config
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                  <span className="text-xs font-medium">Engine Status</span>
+                  <input 
+                    type="checkbox" 
+                    checked={automationSettings.enabled} 
+                    onChange={e => setAutomationSettings({...automationSettings, enabled: e.target.checked})} 
+                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-500">Delay (Hours)</label>
+                  <Input type="number" value={automationSettings.initial_delay_hours} onChange={e => setAutomationSettings({...automationSettings, initial_delay_hours: parseInt(e.target.value)})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-500">Step Interval (Min)</label>
+                  <Input type="number" value={automationSettings.step_interval_minutes} onChange={e => setAutomationSettings({...automationSettings, step_interval_minutes: parseInt(e.target.value)})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-500">Cooldown (Days)</label>
+                  <Input type="number" value={automationSettings.cooldown_days} onChange={e => setAutomationSettings({...automationSettings, cooldown_days: parseInt(e.target.value)})} />
+                </div>
+                <Button className="w-full bg-slate-900" onClick={async () => {
+                  try {
+                    const token = localStorage.getItem('token');
+                    // Strip internal _id and other MongoDB metadata before sending
+                    const { _id, updated_at, ...cleanSettings } = automationSettings as any;
+                    
+                    const res = await fetch(`${API_URL}/api/admin/automation/settings`, {
+                      method: 'POST',
+                      headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${token}` 
+                      },
+                      body: JSON.stringify(cleanSettings)
+                    });
+                    
+                    if (!res.ok) {
+                      const errorData = await res.json().catch(() => ({}));
+                      throw new Error(errorData.error || `Update failed with status ${res.status}`);
+                    }
+                    
+                    toast({ title: 'Success', description: 'Automation settings updated successfully' });
+                  } catch (e: any) {
+                    console.error("Settings update error:", e);
+                    toast({ 
+                      title: 'Update Failed', 
+                      description: e.message || 'Check network connection and try again', 
+                      variant: 'destructive' 
+                    });
+                  }
+                }}>Save Settings</Button>
+              </CardContent>
+            </Card>
+            <Card className="md:col-span-2 border-slate-200">
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold">Active Queue Statistics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 bg-blue-50 rounded-lg text-center">
+                    <p className="text-[10px] text-blue-600 font-bold uppercase">Active</p>
+                    <p className="text-xl font-bold">{automationStats.active}</p>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg text-center">
+                    <p className="text-[10px] text-green-600 font-bold uppercase">Completed</p>
+                    <p className="text-xl font-bold">{automationStats.completed}</p>
+                  </div>
+                  <div className="p-3 bg-red-50 rounded-lg text-center">
+                    <p className="text-[10px] text-red-600 font-bold uppercase">Failed</p>
+                    <p className="text-xl font-bold">{automationStats.failed}</p>
+                  </div>
+                </div>
+                <Button variant="outline" className="w-full border-amber-200 text-amber-700 hover:bg-amber-50 font-bold" onClick={() => {
+                  setAutomationSettingsOpen(false);
+                  setAutomationQueueOpen(true);
+                }}>View Detailed Automation Flow</Button>
+              </CardContent>
+            </Card>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <OfferQueueDashboardModal 
+        open={queueDashboardOpen} 
+        onOpenChange={setQueueDashboardOpen} 
+        allUsers={users.map(u => ({
+          user_id: u.user_id,
+          username: u.username,
+          logs: u.logs,
+          country: u.country,
+          isSuspicious: u.isSuspicious,
+          sharedAccount: u.sharedAccount,
+          hasDifferentLocations: u.hasDifferentLocations,
+          hasNewDevice: u.hasNewDevice,
+          failedLogin: u.failedLogin
+        }))}
+      />
+
+      <AutomationQueueDashboardModal
+        open={automationQueueOpen}
+        onOpenChange={setAutomationQueueOpen}
+        apiUrl={API_URL}
+      />
+
+      {/* Messaging Hub Modal */}
+      <Dialog open={messagingHubOpen} onOpenChange={setMessagingHubOpen}>
+        <DialogContent className="max-w-[95vw] w-[1300px] h-[95vh] p-0 overflow-hidden">
+          <SupportHubContent 
+            onClose={() => setMessagingHubOpen(false)} 
+            apiUrl={API_URL} 
+            initialUsers={users}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -1546,13 +1953,13 @@ const AdvancedFilterModal: React.FC<{
   // Combine all predefined countries with any dynamic available geos that might not be in the list, and remove duplicates
   const allGeoOptions = Array.from(new Set([...ALL_COUNTRIES, ...availableGeos])).sort();
 
-  const filteredGeos = allGeoOptions.filter(g => g.toLowerCase().includes(q));
-  const filteredCities = availableCities.filter(c => c.toLowerCase().includes(q));
-  const filteredLoginCounts = LOGIN_COUNTS.filter(l => l.toLowerCase().includes(q));
-  const filteredStatus = STATUS_OPTIONS.filter(s => s.toLowerCase().includes(q));
-  const filteredGeoPrefs = ALL_COUNTRIES.filter(g => g.toLowerCase().includes(q));
-  const filteredVerticals = ADVANCED_VERTICALS.filter(v => v.toLowerCase().includes(q));
-  const filteredMailStatus = MAIL_STATUS_OPTIONS.filter(m => m.toLowerCase().includes(q));
+  const filteredGeos = allGeoOptions.filter(g => typeof g === 'string' && g.toLowerCase().includes(q));
+  const filteredCities = availableCities.filter(c => typeof c === 'string' && c.toLowerCase().includes(q));
+  const filteredLoginCounts = LOGIN_COUNTS.filter(l => typeof l === 'string' && l.toLowerCase().includes(q));
+  const filteredStatus = STATUS_OPTIONS.filter(s => typeof s === 'string' && s.toLowerCase().includes(q));
+  const filteredGeoPrefs = ALL_COUNTRIES.filter(g => typeof g === 'string' && g.toLowerCase().includes(q));
+  const filteredVerticals = ADVANCED_VERTICALS.filter(v => typeof v === 'string' && v.toLowerCase().includes(q));
+  const filteredMailStatus = MAIL_STATUS_OPTIONS.filter(m => typeof m === 'string' && m.toLowerCase().includes(q));
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900 overflow-y-auto flex justify-center py-12 px-4 animate-in fade-in duration-300">

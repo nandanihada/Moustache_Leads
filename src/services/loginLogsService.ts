@@ -888,8 +888,11 @@ class LoginLogsService {
     return response.data;
   }
 
-  async getUserSignals(userId: string): Promise<any> {
-    const response = await api.get(`/api/admin/user-signals/${userId}`);
+  async getUserSignals(userId: string, username?: string, email?: string): Promise<any> {
+    const params: Record<string, string> = {};
+    if (username) params.username = username;
+    if (email) params.email = email;
+    const response = await api.get(`/api/admin/user-signals/${userId}`, { params });
     return response.data;
   }
 

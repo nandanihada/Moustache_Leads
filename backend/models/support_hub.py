@@ -2,78 +2,56 @@ from datetime import datetime
 from bson import ObjectId
 from database import db_instance
 
-class SupportTemplate:
-    COLLECTION_NAME = 'support_templates'
+class SupportHub:
+    def __init__(self):
+        self.templates_col = db_instance.get_collection('support_templates')
+        self.conversations_col = db_instance.get_collection('support_conversations')
+        self.messages_col = db_instance.get_collection('support_messages')
 
-    @classmethod
-    def get_collection(cls):
-        return db_instance.get_collection(cls.COLLECTION_NAME)
+    def get_templates(self):
+        return list(self.templates_col.find())
 
-    @classmethod
-    def create(cls, name, category, body):
-        col = cls.get_collection()
-        doc = {
-            'name': name,
-            'category': category,
-            'body': body,
-            'created_at': datetime.utcnow(),
-            'updated_at': datetime.utcnow()
+    def get_conversations(self):
+        return list(self.conversations_col.find().sort('last_message_at', -1))
+
+    def get_messages(self, conversation_id):
+        return list(self.messages_col.find({'conversation_id': str(conversation_id)}).sort('timestamp', 1))
+
+    def create_template(self, template_data):
+        template_data['created_at'] = datetime.utcnow()
+        result = self.templates_col.insert_one(template_data)
+        template_data['_id'] = str(result.inserted_id)
+        return template_data
+
+    def create_conversation(self, user_id, channel):
+        conv = {
+            'user_id': str(user_id),
+            'channel': channel,
+            'status': 'active',
+            'unread_count': 0,
+            'last_message_at': datetime.utcnow(),
+            'created_at': datetime.utcnow()
         }
-        result = col.insert_one(doc)
-        doc['_id'] = str(result.inserted_id)
-        return doc
-
-    @classmethod
-    def get_all(cls):
-        col = cls.get_collection()
-        templates = list(col.find().sort('category', 1))
-        for t in templates:
-            t['_id'] = str(t['_id'])
-        return templates
-
-class SupportConversationV2:
-    COLLECTION_NAME = 'support_conversations_v2'
-
-    @classmethod
-    def get_collection(cls):
-        return db_instance.get_collection(cls.COLLECTION_NAME)
-
-    @classmethod
-    def create_or_get(cls, user_id, channel):
-        col = cls.get_collection()
-        conv = col.find_one({'user_id': str(user_id), 'channel': channel})
-        if not conv:
-            doc = {
-                'user_id': str(user_id),
-                'channel': channel,
-                'status': 'open',
-                'last_message_at': datetime.utcnow(),
-                'unread_count': 0,
-                'created_at': datetime.utcnow()
-            }
-            result = col.insert_one(doc)
-            doc['_id'] = str(result.inserted_id)
-            return doc
-        conv['_id'] = str(conv['_id'])
+        result = self.conversations_col.insert_one(conv)
+        conv['_id'] = str(result.inserted_id)
         return conv
 
-    @classmethod
-    def add_message(cls, conversation_id, text, sender_type):
-        col = db_instance.get_collection('support_messages_v2')
-        doc = {
+    def add_message(self, conversation_id, sender_type, body, channel):
+        msg = {
             'conversation_id': str(conversation_id),
-            'text': text,
             'sender_type': sender_type, # 'admin' or 'user'
+            'body': body,
+            'channel': channel,
             'timestamp': datetime.utcnow()
         }
-        col.insert_one(doc)
+        self.messages_col.insert_one(msg)
         
         # Update conversation
-        cls.get_collection().update_one(
+        self.conversations_col.update_one(
             {'_id': ObjectId(conversation_id)},
             {
                 '$set': {'last_message_at': datetime.utcnow()},
                 '$inc': {'unread_count': 1 if sender_type == 'user' else 0}
             }
         )
-        return doc
+        return msg

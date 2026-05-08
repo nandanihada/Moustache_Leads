@@ -6,77 +6,219 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { 
-  MessageSquare, Send, Users, Mail, Phone, 
-  Search, Filter, Plus, Clock, CheckCircle, 
-  AlertCircle, ChevronRight, Hash, Globe, 
-  Settings, Layout, Inbox, Sparkles, Zap
+import {
+  MessageSquare, Send, Users, Mail, Phone,
+  Search, Filter, Plus, Clock, CheckCircle,
+  AlertCircle, ChevronRight, Hash, Globe,
+  Settings, Layout, Inbox, Sparkles, Zap, ChevronDown,
+  LayoutDashboard, UserCheck, MessageCircle, MapPin, Tag
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
-import { supportHubService, SupportTemplate, SupportConversation } from '@/services/supportHubService';
+import { supportHubService, SupportTemplate, SupportConversation, SupportMessage } from '../services/supportHubService';
 import loginLogsService from '@/services/loginLogsService';
 
-const AdminSupportHub: React.FC = () => {
+const normalizeVertical = (v: any): string => {
+  if (!v) return '';
+  const lower = String(v).toLowerCase().trim();
+  if (lower === 'sweeps' || lower.includes('sweep')) return 'Sweepstakes';
+  if (lower.includes('finance') || lower.includes('money')) return 'Finance';
+  if (lower.includes('loan')) return 'Loan';
+  if (lower.includes('insur')) return 'Insurance';
+  if (lower.includes('educat')) return 'Education';
+  if (lower.includes('install')) return 'Installs';
+  if (lower.includes('game')) return 'Games';
+  if (lower.includes('survey')) return 'Survey';
+  if (lower.includes('dating')) return 'Dating';
+  if (lower.includes('trial')) return 'Free Trial';
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+};
+
+const getVerticalsArray = (user: any): string[] => {
+  if (!user) return [];
+  const raw = user.verticals || 
+              (user.signup_preferences && user.signup_preferences.verticals) || 
+              user.vertical || 
+              [];
+  return Array.isArray(raw) ? raw : [raw];
+};
+
+export const SupportHubContent: React.FC<{ 
+  onClose?: () => void;
+  initialUsers?: any[];
+  apiUrl?: string;
+}> = ({ onClose, initialUsers, apiUrl }) => {
+  const BASE_API_URL = apiUrl || import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const [activeTab, setActiveTab] = useState('explorer');
   const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState<any[]>([]);
+  const [allSupportUsers, setAllSupportUsers] = useState<any[]>(initialUsers || []);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [templates, setTemplates] = useState<SupportTemplate[]>([]);
   const [conversations, setConversations] = useState<SupportConversation[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterVertical, setFilterVertical] = useState('All');
   const [filterCountry, setFilterCountry] = useState('All');
-  
+
+  useEffect(() => {
+    if (initialUsers) {
+      setAllSupportUsers(initialUsers);
+    }
+  }, [initialUsers]);
+
+  useEffect(() => {
+    if (allSupportUsers.length > 0) {
+      const allVerts = new Set();
+      allSupportUsers.forEach(u => {
+        const v = Array.isArray(u.verticals) ? u.verticals : [u.verticals];
+        v.forEach(item => { if (item) allVerts.add(String(item)); });
+      });
+      console.log("Support Hub: Available verticals in data:", Array.from(allVerts));
+    }
+  }, [allSupportUsers]);
+
   // Bulk Send State
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [selectedMessageType, setSelectedMessageType] = useState<string>('Geo-based');
   const [selectedChannel, setSelectedChannel] = useState<string>('Email');
   const [isSending, setIsSending] = useState(false);
+  const [scheduledTime, setScheduledTime] = useState<string>('');
+
+  // Inbox State
+  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<SupportMessage[]>([]);
+  const [replyText, setReplyText] = useState('');
+  const [isReplying, setIsReplying] = useState(false);
+
+  // Template Preview Helper
+  const getPreview = (templateBody: string, user?: any) => {
+    if (!templateBody) return "";
+    const u = user || (filteredUsers[0] || { username: "{user}", country: "{location}", verticals: ["{vertical}"] });
+    let body = templateBody;
+    
+    // Core Placeholders
+    body = body.replace(/{user}/g, u.username || "User");
+    body = body.replace(/{location}/g, u.city || u.country || "your location");
+    
+    const v = Array.isArray(u.verticals) ? u.verticals[0] : u.verticals;
+    body = body.replace(/{vertical}/g, v || "exclusive");
+    
+    // Strategy based hooks
+    if (selectedMessageType === 'Geo-based') {
+      body = `Hey ${u.username || 'User'}, users from ${u.country || 'your area'} love our latest ${v || 'offers'}! ` + body;
+    } else if (selectedMessageType === 'Vertical-based') {
+      body = `Hey ${u.username || 'User'}, need help with ${v || 'your favorite'} deals? ` + body;
+    } else if (selectedMessageType === 'Combined') {
+      body = `Hey ${u.username || 'User'}, check out the top ${v || 'exclusive'} offers near ${u.city || u.country || 'you'}: ` + body;
+    }
+    
+    body = body.replace(/{offer}/g, "High-Payout Bundle");
+    return body;
+  };
+
+  const activeTemplate = useMemo(() => {
+    return templates.find(t => t._id === selectedTemplateId);
+  }, [templates, selectedTemplateId]);
+
+  const previewUser = useMemo(() => {
+    if (selectedUsers.size === 0) return null;
+    const firstId = Array.from(selectedUsers)[0];
+    return allSupportUsers.find(u => String(u.user_id || u._id) === firstId);
+  }, [selectedUsers, allSupportUsers]);
 
   const { toast } = useToast();
 
   useEffect(() => {
     loadData();
   }, []);
-
   const loadData = async () => {
-    setLoading(true);
+    // Even if initialUsers is provided, we fetch full list in background to ensure we have ALL data
+    // but we can show initialUsers immediately for speed
+    if (initialUsers && initialUsers.length > 0 && allSupportUsers.length === 0) {
+      setAllSupportUsers(initialUsers);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
     try {
-      // Fetch users from admin API (reusing logic from activity page if needed)
+      supportHubService.setBaseUrl(BASE_API_URL);
       const token = localStorage.getItem('token');
-      const usersRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/admin/users`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      }).then(r => r.json());
       
-      setUsers(usersRes.users || []);
-      
+      // Fetch users and intelligence in parallel
+      const [usersRes, intelRes] = await Promise.all([
+        fetch(`${BASE_API_URL}/api/auth/admin/users`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()),
+        fetch(`${BASE_API_URL}/api/admin/all-user-intelligence`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).catch(() => ({ intelligence: [] }))
+      ]);
+
+      if (usersRes.users) {
+        // Merge intelligence into users
+        const intelMap = new Map();
+        (intelRes.intelligence || []).forEach((item: any) => {
+          intelMap.set(item.user_id, item);
+        });
+
+        const enrichedUsers = usersRes.users.map((u: any) => {
+          const uId = String(u._id);
+          const intel = intelMap.get(uId);
+          if (intel) {
+            // Combine profile verticals with intelligence verticals (clicked/searched)
+            const profileVerts = getVerticalsArray(u);
+            const intelVerts = intel.top_categories || [];
+            const combinedVerts = Array.from(new Set([...profileVerts, ...intelVerts])).filter(Boolean);
+            
+            return {
+              ...u,
+              verticals: combinedVerts,
+              intelligence_geos: intel.top_geos || []
+            };
+          }
+          return u;
+        });
+
+        console.log(`Support Hub: Loaded ${enrichedUsers.length} users with intelligence`);
+        setAllSupportUsers(enrichedUsers);
+      }
+
       const templatesData = await supportHubService.getTemplates();
-      setTemplates(templatesData);
-      
+      setTemplates(Array.isArray(templatesData) ? templatesData : []);
       const conversationsData = await supportHubService.getConversations();
-      setConversations(conversationsData);
-      
+      setConversations(Array.isArray(conversationsData) ? conversationsData : []);
     } catch (error) {
       console.error("Failed to load support hub data", error);
-      toast({ title: "Error", description: "Failed to load dashboard data", variant: "destructive" });
+      if (allSupportUsers.length === 0) {
+        toast({ title: "Error", description: "Failed to load dashboard data", variant: "destructive" });
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const filteredUsers = useMemo(() => {
-    return users.filter(u => {
-      const matchesSearch = u.username.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                           u.email.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesVertical = filterVertical === 'All' || (u.verticals && u.verticals.includes(filterVertical));
+    return allSupportUsers.filter(u => {
+      const matchesSearch = !searchTerm || 
+        u.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        u.email.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const userVerts = getVerticalsArray(u);
+      
+      const matchesVertical = filterVertical === 'All' || 
+        userVerts.some((v: any) => {
+          const norm = normalizeVertical(v);
+          return norm === filterVertical;
+        });
+      
       const matchesCountry = filterCountry === 'All' || u.country === filterCountry;
+      
       return matchesSearch && matchesVertical && matchesCountry;
     });
-  }, [users, searchTerm, filterVertical, filterCountry]);
-
+  }, [allSupportUsers, searchTerm, filterVertical, filterCountry]);
   const toggleUserSelection = (id: string) => {
     const next = new Set(selectedUsers);
     if (next.has(id)) next.delete(id);
@@ -85,14 +227,19 @@ const AdminSupportHub: React.FC = () => {
   };
 
   const handleBulkSend = async () => {
-    if (!selectedTemplate || selectedUsers.size === 0) return;
-    
+    if (!selectedTemplateId || selectedUsers.size === 0) return;
     setIsSending(true);
     try {
-      await supportHubService.bulkSend(Array.from(selectedUsers), selectedTemplate, selectedChannel);
-      toast({ title: "Success", description: `Message sent to ${selectedUsers.size} users via ${selectedChannel}` });
+      await supportHubService.bulkSend(Array.from(selectedUsers), selectedTemplateId, selectedChannel, scheduledTime);
+      toast({ 
+        title: scheduledTime ? "Scheduled" : "Success", 
+        description: scheduledTime 
+          ? `Message scheduled for ${new Date(scheduledTime).toLocaleString()}`
+          : `Message sent to ${selectedUsers.size} users via ${selectedChannel}` 
+      });
       setBulkModalOpen(false);
       setSelectedUsers(new Set());
+      setScheduledTime('');
       loadData();
     } catch (error) {
       toast({ title: "Error", description: "Failed to send messages", variant: "destructive" });
@@ -101,169 +248,292 @@ const AdminSupportHub: React.FC = () => {
     }
   };
 
-  const countries = Array.from(new Set(users.map(u => u.country).filter(Boolean)));
-  const verticals = ['HEALTH', 'FINANCE', 'DATING', 'SWEEPSTAKES', 'GAMES_INSTALL'];
+  const loadMessages = async (convId: string) => {
+    try {
+      const data = await supportHubService.getMessages(convId);
+      setMessages(data);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleReply = async () => {
+    if (!selectedConvId || !replyText.trim()) return;
+    setIsReplying(true);
+    try {
+      await supportHubService.sendReply(selectedConvId, replyText);
+      setReplyText('');
+      loadMessages(selectedConvId);
+      toast({ title: "Sent", description: "Your reply has been dispatched." });
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to send message", variant: "destructive" });
+    } finally {
+      setIsReplying(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedConvId) {
+      loadMessages(selectedConvId);
+      const interval = setInterval(() => loadMessages(selectedConvId), 5000);
+      return () => clearInterval(interval);
+    }
+  }, [selectedConvId]);
+
+  const PREDEFINED_VERTICALS = [
+    "Survey", "Sweepstakes", "Education", "Insurance", "Loan", 
+    "Finance", "Dating", "Free Trial", "Installs", "Games", "Other"
+  ];
+
+  const dynamicVerticals = useMemo(() => {
+    const set = new Set<string>(PREDEFINED_VERTICALS);
+    allSupportUsers.forEach(u => {
+      const v = getVerticalsArray(u);
+      v.forEach(item => {
+        if (item) {
+          const normalized = normalizeVertical(item);
+          if (normalized) set.add(normalized);
+        }
+      });
+    });
+    return Array.from(set).sort((a, b) => {
+      if (a === 'Other') return 1;
+      if (b === 'Other') return -1;
+      return a.localeCompare(b);
+    });
+  }, [allSupportUsers]);
+
+  const countries = useMemo(() => {
+    const set = new Set<string>();
+    allSupportUsers.forEach(u => {
+      if (u.country) set.add(u.country);
+    });
+    return Array.from(set).sort();
+  }, [allSupportUsers]);
 
   return (
-    <AdminPageGuard>
-      <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 space-y-8 animate-in fade-in duration-500">
-        {/* Header Section */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-              <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-200">
-                <MessageSquare size={28} />
-              </div>
-              Support Messaging Hub
-            </h1>
-            <p className="text-slate-500 mt-1">Manage cross-channel communication and user outreach</p>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <Button variant="outline" className="bg-white border-slate-200 shadow-sm hover:bg-slate-50" onClick={loadData}>
-              <Clock size={16} className="mr-2" /> Refresh Hub
-            </Button>
-            <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-100" disabled={selectedUsers.size === 0}>
-                  <Send size={16} className="mr-2" /> Bulk Outreach ({selectedUsers.size})
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle>Send Bulk Message</DialogTitle>
-                  <DialogDescription>
-                    Send a personalized message to {selectedUsers.size} selected users.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Select Template</label>
-                    <Select value={selectedTemplate} onValueChange={setSelectedTemplate}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose a template..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {templates.map(t => (
-                          <SelectItem key={t._id} value={t._id!}>{t.name} ({t.category})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Channel</label>
-                    <Select value={selectedChannel} onValueChange={setSelectedChannel}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose channel..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Email">Email Outreach</SelectItem>
-                        <SelectItem value="Telegram">Telegram DM</SelectItem>
-                        <SelectItem value="Teams">Microsoft Teams</SelectItem>
-                        <SelectItem value="Chat">Internal Portal Chat</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-100 flex items-start gap-3">
-                    <Sparkles className="text-indigo-600 mt-1" size={18} />
-                    <p className="text-xs text-indigo-700 leading-relaxed">
-                      Messages will automatically use placeholders like <b>{'{user}'}</b> and <b>{'{location}'}</b> based on each user's Recent Activity data.
-                    </p>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
-                  <Button onClick={handleBulkSend} disabled={isSending || !selectedTemplate} className="bg-indigo-600 hover:bg-indigo-700">
-                    {isSending ? "Sending..." : "Dispatch Messages"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
+    <div className="flex flex-col h-full bg-[#F8FAFC]">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 md:p-6 border-b bg-white">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
+            <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-200">
+              <MessageSquare size={20} />
+            </div>
+            Support Messaging Hub
+          </h1>
+          <p className="text-slate-500 text-xs mt-1">Manage cross-channel communication and user outreach</p>
         </div>
 
-        {/* Main Dashboard Content */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <div className="flex items-center justify-between bg-white p-1.5 rounded-2xl shadow-sm border border-slate-200">
-            <TabsList className="bg-transparent border-none">
-              <TabsTrigger value="explorer" className="rounded-xl data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:shadow-none px-6">
-                <Users size={16} className="mr-2" /> User Explorer
-              </TabsTrigger>
-              <TabsTrigger value="inbox" className="rounded-xl data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:shadow-none px-6">
-                <Inbox size={16} className="mr-2" /> Support Inbox
-                {conversations.filter(c => c.unread_count > 0).length > 0 && (
-                  <Badge className="ml-2 bg-rose-500 text-white border-none h-5 w-5 p-0 flex items-center justify-center rounded-full text-[10px]">
-                    {conversations.filter(c => c.unread_count > 0).length}
-                  </Badge>
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" className="bg-white border-slate-200 shadow-sm" onClick={loadData}>
+            <Clock size={14} className="mr-2" /> Refresh
+          </Button>
+          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-100" 
+            disabled={selectedUsers.size === 0}
+            onClick={() => setBulkModalOpen(true)}>
+            <Send size={14} className="mr-2" /> Bulk Outreach ({selectedUsers.size})
+          </Button>
+
+          <Dialog open={bulkModalOpen} onOpenChange={setBulkModalOpen}>
+            <DialogContent className="sm:max-w-[600px] p-0 overflow-hidden rounded-2xl border-none">
+              <div className="bg-indigo-600 p-6 text-white">
+                <DialogTitle className="text-xl flex items-center gap-2">
+                  <Sparkles size={20} className="text-amber-300" />
+                  Compose Bulk Outreach
+                </DialogTitle>
+                <DialogDescription className="text-indigo-100 mt-1">
+                  You have selected {selectedUsers.size} users. Messages will be auto-personalized.
+                </DialogDescription>
+              </div>
+
+              <div className="p-6 space-y-6 bg-white">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Message Strategy</label>
+                    <Select value={selectedMessageType} onValueChange={setSelectedMessageType}>
+                      <SelectTrigger className="rounded-xl border-slate-200 bg-slate-50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Geo-based">Geo-Targeted Hook</SelectItem>
+                        <SelectItem value="Vertical-based">Vertical Interest</SelectItem>
+                        <SelectItem value="Combined">Combined Personalization</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Template</label>
+                    <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+                      <SelectTrigger className="rounded-xl border-slate-200 bg-slate-50">
+                        <SelectValue placeholder="Choose template..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {templates.map(t => <SelectItem key={t._id} value={t._id!}>{t.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {activeTemplate && (
+                  <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase text-indigo-600">
+                        Dynamic Preview ({previewUser?.username || "Selected User"} @ {previewUser?.city || previewUser?.country || "Location"})
+                      </span>
+                      <Badge variant="outline" className="bg-white border-indigo-200 text-indigo-700 text-[10px] uppercase">{activeTemplate.category}</Badge>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-relaxed italic">
+                      "{getPreview(activeTemplate.body, previewUser)}"
+                    </p>
+                  </div>
                 )}
-              </TabsTrigger>
-              <TabsTrigger value="templates" className="rounded-xl data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:shadow-none px-6">
-                <Layout size={16} className="mr-2" /> Template Manager
-              </TabsTrigger>
-            </TabsList>
-            
-            <div className="flex items-center gap-3 px-3">
-               <div className="relative">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Delivery Channel</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {['Email', 'Telegram', 'Teams', 'Chat'].map(ch => {
+                      const isAvailable = selectedUsers.size === 1 ? (
+                        ch === 'Email' ? !!previewUser?.email :
+                        ch === 'Telegram' ? !!previewUser?.telegram :
+                        ch === 'Teams' ? !!previewUser?.teams :
+                        true // Chat is always available as fallback
+                      ) : true;
+
+                      return (
+                        <button 
+                          key={ch}
+                          disabled={!isAvailable}
+                          onClick={() => setSelectedChannel(ch)}
+                          className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${!isAvailable ? 'opacity-40 cursor-not-allowed border-slate-50 bg-slate-50/50' : (selectedChannel === ch ? 'border-indigo-500 bg-indigo-50 text-indigo-600' : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200')}`}
+                        >
+                          {ch === 'Email' && <Mail size={16} />}
+                          {ch === 'Telegram' && <Send size={16} />}
+                          {ch === 'Teams' && <Users size={16} />}
+                          {ch === 'Chat' && <MessageSquare size={16} />}
+                          <span className="text-[10px] font-bold">{ch}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Scheduling (Optional)</label>
+                    {scheduledTime && (
+                      <Button variant="ghost" size="sm" className="h-4 text-[9px] text-red-500 hover:text-red-600 p-0" onClick={() => setScheduledTime('')}>Clear</Button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Clock className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                    <Input 
+                      type="datetime-local" 
+                      value={scheduledTime} 
+                      onChange={e => setScheduledTime(e.target.value)}
+                      className="pl-10 rounded-xl border-slate-200 bg-slate-50 text-xs h-10"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="p-4 bg-slate-50 border-t flex items-center justify-between">
+                <div className="flex items-center gap-2 text-[10px] text-slate-400">
+                  <Clock size={12} className={scheduledTime ? "text-indigo-500" : ""} />
+                  <span className={scheduledTime ? "text-indigo-600 font-medium" : ""}>
+                    {scheduledTime ? `Scheduled for ${new Date(scheduledTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}` : "Scheduled for immediate dispatch"}
+                  </span>
+                </div>
+                <div className="flex gap-3">
+                  <Button variant="ghost" size="sm" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
+                  <Button size="sm" onClick={handleBulkSend} disabled={isSending || !selectedTemplateId} className="bg-indigo-600 px-6">
+                    {isSending ? "Processing..." : (scheduledTime ? "Schedule Outreach" : "Send Now")}
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      {/* Main Dashboard Content */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col p-4 md:p-6 space-y-6 overflow-hidden">
+        <div className="flex items-center justify-between bg-white p-1.5 rounded-2xl shadow-sm border border-slate-200 shrink-0">
+          <TabsList className="bg-transparent border-none">
+            <TabsTrigger value="explorer" className="rounded-xl data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 px-6">User Explorer</TabsTrigger>
+            <TabsTrigger value="inbox" className="rounded-xl data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 px-6">Inbox</TabsTrigger>
+            <TabsTrigger value="templates" className="rounded-xl data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 px-6">Templates</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <div className="flex-1 overflow-hidden">
+          <TabsContent value="explorer" className="mt-0 h-full flex flex-col space-y-4">
+            <div className="flex flex-col md:flex-row gap-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                   <Input 
-                    placeholder="Search users..." 
+                    placeholder="Search users by name or email..." 
+                    className="pl-10 bg-white border-slate-200 rounded-xl"
                     value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="h-9 w-64 pl-9 bg-slate-50 border-none rounded-xl focus-visible:ring-1 focus-visible:ring-indigo-400"
+                    onChange={(e) => setSearchTerm(e.target.value)}
                   />
-               </div>
-               <Select value={filterVertical} onValueChange={setFilterVertical}>
-                  <SelectTrigger className="h-9 w-40 bg-slate-50 border-none rounded-xl">
-                    <SelectValue placeholder="Vertical" />
+                </div>
+                <Select value={filterCountry} onValueChange={setFilterCountry}>
+                  <SelectTrigger className="w-[140px] bg-white border-slate-200 rounded-xl">
+                    <SelectValue placeholder="Region" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="All">All Verticals</SelectItem>
-                    {verticals.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                    <SelectItem value="All">All Regions</SelectItem>
+                    {countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                   </SelectContent>
-               </Select>
-            </div>
-          </div>
+                </Select>
+                <Select value={filterVertical} onValueChange={setFilterVertical}>
+                  <SelectTrigger className="w-[180px] bg-white border-slate-200 rounded-xl"><SelectValue placeholder="Vertical" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="All">All Verticals</SelectItem>
+                    {dynamicVerticals.map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
 
-          <TabsContent value="explorer" className="mt-0">
-            <div className="grid grid-cols-1 gap-4">
-              <Card className="border-slate-200 shadow-sm overflow-hidden rounded-2xl">
-                <CardHeader className="bg-white border-b border-slate-100 py-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-lg">Filtered Users</CardTitle>
-                      <CardDescription>Select users to begin bulk outreach</CardDescription>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       <Button variant="ghost" size="sm" onClick={() => setSelectedUsers(new Set(filteredUsers.map(u => u._id)))} className="text-xs text-indigo-600 hover:text-indigo-700">Select All</Button>
-                       <Button variant="ghost" size="sm" onClick={() => setSelectedUsers(new Set())} className="text-xs text-slate-500">Clear</Button>
-                    </div>
-                  </div>
-                </CardHeader>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50/50 border-b border-slate-100">
-                        <th className="p-4 w-12"><Checkbox checked={selectedUsers.size === filteredUsers.length && filteredUsers.length > 0} onCheckedChange={(val) => {
-                          if (val) setSelectedUsers(new Set(filteredUsers.map(u => u._id)));
-                          else setSelectedUsers(new Set());
-                        }} /></th>
-                        <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">User</th>
-                        <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Activity Context</th>
-                        <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Geo</th>
-                        <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Verticals</th>
-                        <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                        <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+            <Card className="border-slate-200 shadow-sm overflow-hidden rounded-2xl flex-1 flex flex-col">
+              <div className="overflow-y-auto flex-1 custom-scrollbar min-h-[400px]">
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 bg-slate-50 z-10">
+                    <tr className="border-b border-slate-100">
+                      <th className="p-4 w-12"><Checkbox checked={selectedUsers.size === filteredUsers.length && filteredUsers.length > 0} onCheckedChange={(val: boolean) => {
+                        if (val) setSelectedUsers(new Set(filteredUsers.map(u => String(u.user_id || u._id))));
+                        else setSelectedUsers(new Set());
+                      }} /></th>
+                       <th className="p-4 text-xs font-semibold text-slate-500 uppercase">User</th>
+                      <th className="p-4 text-xs font-semibold text-slate-500 uppercase">Verticals</th>
+                      <th className="p-4 text-xs font-semibold text-slate-500 uppercase">Geo</th>
+                      <th className="p-4 text-xs font-semibold text-slate-500 uppercase">Channels</th>
+                      <th className="p-4 text-xs font-semibold text-slate-500 uppercase text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-12 text-center">
+                          <div className="flex flex-col items-center justify-center text-slate-400 space-y-2">
+                            <Search size={32} className="opacity-20" />
+                            <p className="text-sm italic font-medium">No users match your current filters</p>
+                            <Button variant="ghost" size="sm" onClick={() => {
+                              setFilterVertical('All');
+                              setFilterCountry('All');
+                              setSearchTerm('');
+                            }} className="text-indigo-600 hover:text-indigo-700">Clear all filters</Button>
+                          </div>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {loading ? (
-                        <tr><td colSpan={7} className="p-12 text-center text-slate-400">Loading user intelligence...</td></tr>
-                      ) : filteredUsers.length === 0 ? (
-                        <tr><td colSpan={7} className="p-12 text-center text-slate-400">No users match your criteria</td></tr>
-                      ) : filteredUsers.map(user => (
-                        <tr key={user._id} className={`hover:bg-slate-50/80 transition-colors ${selectedUsers.has(user._id) ? 'bg-indigo-50/30' : ''}`}>
-                          <td className="p-4">
-                            <Checkbox checked={selectedUsers.has(user._id)} onCheckedChange={() => toggleUserSelection(user._id)} />
+                    ) : filteredUsers.map(user => {
+                      const userId = String(user.user_id || user._id);
+                      const userVerts = getVerticalsArray(user);
+                      return (
+                        <tr 
+                          key={userId} 
+                          onClick={() => toggleUserSelection(userId)}
+                          className={`hover:bg-slate-50/80 cursor-pointer transition-colors ${selectedUsers.has(userId) ? 'bg-indigo-50/30 border-l-4 border-l-indigo-500' : 'border-l-4 border-l-transparent'}`}
+                        >
+                          <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox checked={selectedUsers.has(userId)} onCheckedChange={() => toggleUserSelection(userId)} />
                           </td>
                           <td className="p-4">
                             <div className="flex flex-col">
@@ -272,177 +542,209 @@ const AdminSupportHub: React.FC = () => {
                             </div>
                           </td>
                           <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <div className="flex flex-col">
-                                <span className="text-xs font-medium text-slate-700">Last: {new Date(user.last_login || Date.now()).toLocaleDateString()}</span>
-                                <span className="text-[10px] text-slate-400 flex items-center gap-1"><Zap size={10} className="text-amber-500" /> Active Session</span>
+                            <div className="flex flex-wrap gap-1 max-w-[200px]">
+                              {userVerts.length > 0 ? (
+                                userVerts.slice(0, 3).map((v: string) => (
+                                  <Badge key={v} variant="outline" className="text-[10px] bg-white border-indigo-100 text-indigo-700 flex items-center gap-1">
+                                    <Sparkles size={8} className="text-amber-400" />
+                                    {normalizeVertical(v)}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <span className="text-[10px] text-slate-400 italic">None</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-1.5">
+                              <MapPin size={12} className="text-slate-400" />
+                              <span className="text-xs text-slate-600">
+                                {user.city || user.country || user.intelligence_geos?.[0] || 'Unknown'}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-1.5">
+                              <div className={`p-1.5 rounded-lg border ${user.email ? 'border-emerald-200 bg-emerald-50 text-emerald-600' : 'border-slate-100 bg-slate-50 text-slate-300'}`} title="Email verified">
+                                <Mail size={12} />
+                              </div>
+                              <div className={`p-1.5 rounded-lg border ${user.telegram ? 'border-blue-200 bg-blue-50 text-blue-600' : 'border-slate-100 bg-slate-50 text-slate-300'}`} title="Telegram linked">
+                                <Send size={12} />
+                              </div>
+                              <div className={`p-1.5 rounded-lg border ${user.teams ? 'border-indigo-200 bg-indigo-50 text-indigo-600' : 'border-slate-100 bg-slate-50 text-slate-300'}`} title="Teams verified">
+                                <Users size={12} />
                               </div>
                             </div>
                           </td>
-                          <td className="p-4">
-                             <div className="flex items-center gap-1.5">
-                                <Globe size={14} className="text-slate-400" />
-                                <span className="text-sm text-slate-600">{user.country || 'Global'}</span>
-                             </div>
-                          </td>
-                          <td className="p-4">
-                            <div className="flex flex-wrap gap-1">
-                              {user.verticals?.slice(0, 2).map((v: string) => (
-                                <Badge key={v} variant="outline" className="text-[10px] bg-white text-slate-600 border-slate-200 font-normal">{v}</Badge>
-                              ))}
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <Badge className={user.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-slate-50 text-slate-600 border-slate-100'} variant="outline">
-                              {user.status || 'active'}
-                            </Badge>
-                          </td>
-                          <td className="p-4 text-right">
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400 hover:text-indigo-600">
-                              <ChevronRight size={18} />
+                          <td className="p-4 text-right" onClick={(e) => e.stopPropagation()}>
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-full hover:bg-indigo-50 hover:text-indigo-600" onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedUsers(new Set([userId]));
+                              setBulkModalOpen(true);
+                            }}>
+                              <Send size={14} />
                             </Button>
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="inbox" className="mt-0 h-full flex flex-col min-h-0">
+            <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4 h-full min-h-0 overflow-hidden">
+              <Card className="rounded-2xl border-slate-200 overflow-hidden flex flex-col bg-white">
+                <div className="p-4 border-b bg-slate-50/50">
+                  <h3 className="text-sm font-bold flex items-center gap-2">
+                    <Inbox size={16} className="text-indigo-500" />
+                    Conversations
+                  </h3>
                 </div>
+                <ScrollArea className="flex-1">
+                  <div className="divide-y divide-slate-100">
+                    {!conversations || conversations.length === 0 ? (
+                      <div className="p-8 text-center text-slate-400 text-xs italic">No active conversations found</div>
+                    ) : conversations.map(conv => {
+                      const user = allSupportUsers.find(u => u._id === conv.user_id);
+                      return (
+                        <div 
+                          key={conv._id} 
+                          onClick={() => setSelectedConvId(conv._id)}
+                          className={`p-4 hover:bg-slate-50 cursor-pointer transition-colors relative ${selectedConvId === conv._id ? 'bg-indigo-50/50 border-r-2 border-r-indigo-500' : ''}`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-sm text-slate-900">{user?.username || `User #${conv.user_id.slice(-4)}`}</span>
+                            <span className="text-[9px] text-slate-400">{new Date(conv.last_message_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {conv.channel === 'Email' && <Mail size={10} className="text-emerald-500" />}
+                            {conv.channel === 'Telegram' && <Send size={10} className="text-blue-500" />}
+                            {conv.channel === 'Teams' && <Users size={10} className="text-indigo-500" />}
+                            <span className="text-xs text-slate-500 truncate">Support via {conv.channel}</span>
+                          </div>
+                          {conv.unread_count > 0 && (
+                            <div className="absolute top-4 right-4 w-2 h-2 bg-indigo-500 rounded-full" />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              </Card>
+
+              <Card className="rounded-2xl border-slate-200 flex flex-col bg-white overflow-hidden shadow-sm">
+                {selectedConvId ? (
+                  <>
+                    <div className="p-4 border-b flex items-center justify-between bg-slate-50/30">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-xs">
+                          {allSupportUsers.find(u => u._id === conversations.find(c => c._id === selectedConvId)?.user_id)?.username?.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-slate-900">
+                            {allSupportUsers.find(u => u._id === conversations.find(c => c._id === selectedConvId)?.user_id)?.username}
+                          </h4>
+                          <p className="text-[10px] text-slate-400 uppercase font-bold tracking-tighter">
+                            Active Session • {conversations.find(c => c._id === selectedConvId)?.channel}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="bg-white text-slate-500">#{selectedConvId.slice(-6)}</Badge>
+                    </div>
+
+                    <ScrollArea className="flex-1 p-4 bg-slate-50/20">
+                      <div className="space-y-4">
+                        {messages.map(msg => (
+                          <div key={msg._id} className={`flex ${msg.sender_type === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${msg.sender_type === 'admin' ? 'bg-indigo-600 text-white rounded-tr-none' : 'bg-white border border-slate-100 text-slate-800 rounded-tl-none shadow-sm'}`}>
+                              <p className="leading-relaxed">{msg.body}</p>
+                              <div className={`text-[9px] mt-1.5 opacity-60 ${msg.sender_type === 'admin' ? 'text-white text-right' : 'text-slate-400'}`}>
+                                {new Date(msg.timestamp).toLocaleTimeString()}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                        {messages.length === 0 && (
+                          <div className="flex items-center justify-center h-full text-slate-400 text-xs italic">
+                            Loading conversation history...
+                          </div>
+                        )}
+                      </div>
+                    </ScrollArea>
+
+                    <div className="p-4 bg-white border-t">
+                      <div className="flex gap-2 bg-slate-100 p-1.5 rounded-2xl border border-slate-200">
+                        <Input 
+                          placeholder="Type your message here..." 
+                          value={replyText}
+                          onChange={e => setReplyText(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleReply()}
+                          className="border-none bg-transparent shadow-none focus-visible:ring-0 text-sm"
+                        />
+                        <Button 
+                          size="sm" 
+                          onClick={handleReply} 
+                          disabled={isReplying || !replyText.trim()} 
+                          className="rounded-xl bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-100"
+                        >
+                          <Send size={14} className={isReplying ? 'animate-pulse' : ''} />
+                        </Button>
+                      </div>
+                      <p className="text-[9px] text-slate-400 mt-2 px-2">Message will be delivered via {conversations.find(c => c._id === selectedConvId)?.channel}</p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-4">
+                    <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-200">
+                      <MessageSquare size={32} />
+                    </div>
+                    <div>
+                      <h3 className="text-slate-900 font-bold">Select a conversation</h3>
+                      <p className="text-slate-400 text-xs mt-1">Choose a user from the sidebar to view message history and reply.</p>
+                    </div>
+                  </div>
+                )}
               </Card>
             </div>
           </TabsContent>
 
-          <TabsContent value="inbox" className="mt-0">
-             <div className="grid grid-cols-1 md:grid-cols-[350px_1fr] gap-6 h-[700px]">
-                <Card className="rounded-2xl border-slate-200 overflow-hidden flex flex-col">
-                   <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                      <span className="font-semibold text-slate-900">Conversations</span>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0"><Plus size={16} /></Button>
-                   </div>
-                   <ScrollArea className="flex-1">
-                      <div className="divide-y divide-slate-50">
-                        {conversations.length === 0 ? (
-                          <div className="p-8 text-center text-slate-400 text-sm">No active threads</div>
-                        ) : conversations.map(conv => (
-                          <div key={conv._id} className="p-4 hover:bg-slate-50 cursor-pointer transition-colors border-l-4 border-l-transparent data-[active=true]:border-l-indigo-500 data-[active=true]:bg-indigo-50/30">
-                             <div className="flex items-center justify-between mb-1">
-                                <span className="font-medium text-slate-900 text-sm">User #{conv.user_id.slice(-4)}</span>
-                                <span className="text-[10px] text-slate-400">{new Date(conv.last_message_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                             </div>
-                             <div className="flex items-center justify-between">
-                                <p className="text-xs text-slate-500 truncate pr-4">Sent via {conv.channel}</p>
-                                {conv.unread_count > 0 && (
-                                  <Badge className="bg-indigo-600 text-white border-none h-4 px-1.5 text-[9px]">{conv.unread_count}</Badge>
-                                )}
-                             </div>
-                          </div>
-                        ))}
-                      </div>
-                   </ScrollArea>
-                </Card>
-
-                <Card className="rounded-2xl border-slate-200 overflow-hidden flex flex-col bg-white">
-                   <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                         <div className="h-10 w-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-500">
-                            <Users size={20} />
-                         </div>
-                         <div>
-                            <div className="font-semibold text-slate-900">Conversation Details</div>
-                            <div className="text-[10px] text-emerald-500 flex items-center gap-1 font-medium">
-                               <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" /> Channel Active
-                            </div>
-                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                         <Button variant="outline" size="sm" className="rounded-lg h-9">View Profile</Button>
-                         <Button variant="outline" size="sm" className="rounded-lg h-9 text-rose-500 hover:text-rose-600">Close Ticket</Button>
-                      </div>
-                   </div>
-                   
-                   <div className="flex-1 bg-slate-50/30 p-6 flex flex-col items-center justify-center text-slate-400 space-y-4">
-                      <div className="p-4 bg-white rounded-full shadow-sm">
-                         <Inbox size={48} className="text-slate-200" />
-                      </div>
-                      <p className="text-sm font-medium">Select a conversation to start messaging</p>
-                   </div>
-
-                   <div className="p-4 border-t border-slate-100 bg-white">
-                      <div className="flex items-center gap-2">
-                         <Input placeholder="Type a reply..." className="rounded-xl border-slate-200 focus-visible:ring-indigo-400" />
-                         <Button className="bg-indigo-600 hover:bg-indigo-700 rounded-xl px-5">
-                            <Send size={16} />
-                         </Button>
-                      </div>
-                   </div>
-                </Card>
-             </div>
-          </TabsContent>
-
-          <TabsContent value="templates" className="mt-0">
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="rounded-2xl border-slate-200 shadow-sm md:col-span-1 p-6 space-y-4 bg-white">
-                   <div className="space-y-1">
-                      <h3 className="font-bold text-slate-900">Add New Template</h3>
-                      <p className="text-xs text-slate-500">Create reusable message blocks</p>
-                   </div>
-                   <div className="space-y-4 pt-2">
-                      <div className="space-y-2">
-                         <label className="text-xs font-semibold text-slate-500 uppercase">Template Name</label>
-                         <Input placeholder="e.g. Welcome Series #1" className="rounded-xl" />
-                      </div>
-                      <div className="space-y-2">
-                         <label className="text-xs font-semibold text-slate-500 uppercase">Category</label>
-                         <Select defaultValue="outreach">
-                            <SelectTrigger className="rounded-xl">
-                               <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                               <SelectItem value="outreach">Outreach</SelectItem>
-                               <SelectItem value="support">Support</SelectItem>
-                               <SelectItem value="offers">Offer Promotion</SelectItem>
-                               <SelectItem value="security">Account Security</SelectItem>
-                            </SelectContent>
-                         </Select>
-                      </div>
-                      <div className="space-y-2">
-                         <label className="text-xs font-semibold text-slate-500 uppercase">Content</label>
-                         <textarea 
-                           className="w-full min-h-[150px] rounded-xl border border-slate-200 p-3 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
-                           placeholder="Hello {user}, we noticed you are from {location}..."
-                         />
-                      </div>
-                      <Button className="w-full bg-indigo-600 hover:bg-indigo-700 rounded-xl h-11">Save Template</Button>
-                   </div>
-                </Card>
-
-                <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4 auto-rows-max">
-                   {templates.map(template => (
-                      <Card key={template._id} className="rounded-2xl border-slate-200 shadow-sm p-5 hover:border-indigo-200 transition-colors group bg-white">
-                         <div className="flex items-start justify-between mb-4">
-                            <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                               <Layout size={18} />
-                            </div>
-                            <Badge variant="outline" className="text-[10px] capitalize">{template.category}</Badge>
-                         </div>
-                         <h4 className="font-bold text-slate-900 mb-2">{template.name}</h4>
-                         <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed mb-4">
-                            {template.body}
-                         </p>
-                         <div className="flex items-center gap-2 pt-2 border-t border-slate-50">
-                            <Button variant="ghost" size="sm" className="text-xs h-8 px-2 hover:text-indigo-600">Edit</Button>
-                            <Button variant="ghost" size="sm" className="text-xs h-8 px-2 hover:text-rose-600">Delete</Button>
-                         </div>
-                      </Card>
-                   ))}
-                   {templates.length === 0 && (
-                     <div className="col-span-2 p-12 text-center text-slate-400 border-2 border-dashed rounded-2xl border-slate-100">
-                        No templates created yet
-                     </div>
-                   )}
+          <TabsContent value="templates" className="mt-0 h-full flex flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
+              {!templates || templates.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3">
+                  <Layout size={40} className="opacity-20" />
+                  <p className="text-sm italic">No messaging templates available</p>
+                  <Button variant="outline" size="sm" onClick={loadData}>Reload Data</Button>
                 </div>
-             </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {templates.map(template => (
+                    <Card key={template._id} className="p-4 hover:border-indigo-200 transition-colors bg-white shadow-sm border-slate-200">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-bold text-slate-900">{template.name}</h4>
+                        <Badge variant="outline" className="text-[9px] uppercase">{template.category}</Badge>
+                      </div>
+                      <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed">{template.body}</p>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
           </TabsContent>
-        </Tabs>
+        </div>
+      </Tabs>
+    </div>
+  );
+};
+
+const AdminSupportHub: React.FC = () => {
+  return (
+    <AdminPageGuard requiredTab="support">
+      <div className="min-h-screen">
+        <SupportHubContent />
       </div>
     </AdminPageGuard>
   );

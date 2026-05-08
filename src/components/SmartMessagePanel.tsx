@@ -101,14 +101,22 @@ export const SmartMessagePanel: React.FC<SmartMessagePanelProps> = ({ user, onMe
           <CardTitle className="text-lg flex items-center gap-2 text-purple-900">
             <MessageSquare size={20} /> Smart Messaging & Support
           </CardTitle>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="text-purple-600 hover:text-purple-700 hover:bg-purple-100 h-8 gap-1"
-            onClick={generateSmartMessage}
-          >
-            <Sparkles size={14} /> Regenerate
-          </Button>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              className="text-purple-600 hover:text-purple-700 hover:bg-purple-100 h-8 gap-1"
+              onClick={generateSmartMessage}
+            >
+              <Sparkles size={14} /> Regenerate
+            </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="border-purple-200 text-purple-700 hover:bg-purple-50 h-8 gap-1"
+              onClick={() => window.location.href = '/admin/support-hub'}
+            >
+              <ExternalLink size={14} /> Full Hub
+            </Button>
         </div>
       </CardHeader>
       <CardContent className="pt-6 space-y-5">

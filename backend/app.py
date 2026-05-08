@@ -106,7 +106,8 @@ admin_publisher_email_bp = safe_import_blueprint('routes.admin_publisher_email',
 admin_publisher_bulk_email_bp = safe_import_blueprint('routes.admin_publisher_bulk_email', 'admin_publisher_bulk_email_bp')
 admin_level_progression_bp = safe_import_blueprint('routes.admin_level_progression', 'admin_level_progression_bp')
 platform_settings_bp = safe_import_blueprint('routes.platform_settings', 'platform_settings_bp')
-support_hub_v2_bp = safe_import_blueprint('routes.support_hub_v2', 'support_hub_bp')
+automation_admin_bp = safe_import_blueprint('routes.automation_admin', 'automation_admin_bp')
+support_hub_admin_bp = safe_import_blueprint('routes.support_hub_admin', 'support_hub_admin_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -202,7 +203,8 @@ blueprints = [
     (admin_publisher_bulk_email_bp, ''),
     (admin_level_progression_bp, ''),
     (platform_settings_bp, ''),
-    (support_hub_v2_bp, ''),
+    (automation_admin_bp, '/api/admin'),
+    (support_hub_admin_bp, '/api/admin'),
 ]
 
 def create_app():
@@ -545,13 +547,14 @@ def start_background_services():
             logging.info("✅ Location retry service started (auto-resolves 'Tracking...' IPs)")
         except Exception as e:
             logging.warning(f"⚠️ Location retry service failed to start: {str(e)}")
-        
+
         try:
-            from services.automation_engine_service import automation_engine_service
-            automation_engine_service.start_worker()
-            logging.info("✅ Automation engine service started")
+            from services.automation_service import get_automation_service
+            automation_service = get_automation_service()
+            automation_service.start_service()
+            logging.info("✅ Automation Engine background service started")
         except Exception as e:
-            logging.warning(f"⚠️ Automation engine service failed to start: {str(e)}")
+            logging.warning(f"⚠️ Automation Engine failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:

@@ -99,6 +99,14 @@ class OfferwallTracker:
                 {'session_id': session_id},
                 {'$inc': {'metrics.impressions': 1}}
             )
+            
+        # Trigger automation engine for this activity
+        if user_id:
+            try:
+                from services.automation_service import get_automation_service
+                get_automation_service().handle_user_activity(user_id, activity_type='View')
+            except:
+                pass
         
         return impression_id
     
@@ -154,6 +162,14 @@ class OfferwallTracker:
                 {'session_id': session_id},
                 {'$inc': {'metrics.clicks': 1}}
             )
+
+        # Trigger automation engine for this activity
+        if user_id:
+            try:
+                from services.automation_service import get_automation_service
+                get_automation_service().handle_user_activity(user_id, activity_type='Click')
+            except:
+                pass
         
         logger.info(f"✅ Recorded click: {click_id} for offer: {offer_id}")
         return click_id

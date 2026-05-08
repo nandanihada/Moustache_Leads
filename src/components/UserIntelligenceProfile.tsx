@@ -3,7 +3,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } 
 import { formatDistanceToNow } from "date-fns";
 import {
   Clock, Globe, Monitor, Search, CheckCircle, Eye, MousePointerClick,
-  Calendar, Package, Activity, Fingerprint, ShieldAlert
+  Calendar, Package, Activity, Fingerprint, ShieldAlert, Zap
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ interface UserIntelligenceProfileProps {
   userSignals: any;
   scheduledActivity: any[];
   offerTargeting: any;
+  automationQueueItem?: any;
   allowedTabs?: string[];
   activeTab?: string;
   onTabChange?: (tab: string) => void;
@@ -41,7 +42,7 @@ const COLORS = {
 const CHART_COLORS = [COLORS.purple, COLORS.blue, COLORS.green, COLORS.orange, COLORS.amber, COLORS.red];
 
 
-const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, scheduledActivity, onSendOffers, sendingOffers }: any) => {
+const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueItem, offerViews, scheduledActivity, onSendOffers, sendingOffers }: any) => {
   const [queueOffers, setQueueOffers] = React.useState<any[]>([]);
   const [sendMode, setSendMode] = React.useState<'single'|'combined'>('single');
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = React.useState(false);
@@ -153,10 +154,21 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
   const toggleTrigger = (id: string) => {
       setTriggers(prev => prev.map(t => t.id === id ? { ...t, active: !t.active } : t));
   };
-
   React.useEffect(() => {
     if (!offerTargeting) return;
     
+    // PRIORITY: If we have an automation queue item for this user, use its 'next_offers'
+    if (automationQueueItem && automationQueueItem.next_offers && automationQueueItem.next_offers.length > 0) {
+        const queueOffers = automationQueueItem.next_offers.map((o: any) => ({
+            ...o,
+            source: 'Automation Queue',
+            type: 'Primary',
+            matchScore: 100
+        }));
+        setQueueOffers(queueOffers.slice(0, 6));
+        return;
+    }
+
     const allOffers: any[] = [];
     const seenIds = new Set();
     
@@ -195,17 +207,13 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
     
     allOffers.sort((a, b) => b.matchScore - a.matchScore);
     
-    // Add some fallbacks if empty
-    // Removed fake data to rely strictly on backend `offerTargeting`
-    // if (allOffers.length === 0) { ... }
-    
     setQueueOffers(allOffers.slice(0, 6));
-  }, [offerTargeting]);
+  }, [offerTargeting, automationQueueItem]);
 
   const historyData = React.useMemo(() => {
     // Show actual scheduled activity / mail history instead of offer views
     if (!localHistory || localHistory.length === 0) return [];
-    return localHistory.slice(0, 5).map((v: any) => {
+    return localHistory.slice(0, 10).map((v: any) => {
         const dateStr = v.created_at || v.sent_at || v.timestamp || v.scheduled_at ? new Date(v.created_at || v.sent_at || v.timestamp || v.scheduled_at).toLocaleString('en-US', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : 'Unknown Date';
         let status = (v.status === 'scheduled' || v.status === 'pending') ? 'Scheduled' : 
                      (v.status?.toLowerCase() === 'skipped' || v.subject?.toLowerCase().includes('skipped')) ? 'Skipped' : 'Sent';        
@@ -213,12 +221,16 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
             ? `${status}: ${v.offer_names.join(', ')}` 
             : v.offer_count ? `${status} ${v.offer_count} offer(s)` : (v.subject || v.type || 'Email Sent');
         
+        // Mark if it's an automation email
+        const isAutomation = (v.type && v.type.includes('automation')) || (v.subject && v.subject.toLowerCase().includes('personalized outreach'));
+
         return {
             id: v._id || Math.random().toString(),
             offer: title,
             date: dateStr,
             status,
-            isPending: status === 'Scheduled'
+            isPending: status === 'Scheduled',
+            isAutomation
         };
     });
   }, [localHistory]);
@@ -235,10 +247,68 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
         {/* Left Column (Offer Queue & Send History) */}
         <div style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
           
-          {historyData.some(h => h.isPending) && (
-            <div style={{ background: '#FFF4E5', border: '1px solid #FFD8A8', color: '#B05C0F', padding: '10px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-                This person has offers in queue to send
+          {/* NEW: Automation Engine Intelligence Card */}
+          {automationQueueItem && (
+            <div className="card" style={{ padding: '20px', borderRadius: '12px', background: '#fff', border: '1px solid #185FA5', boxShadow: '0 4px 12px rgba(24, 95, 165, 0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            <div style={{ padding: '6px', background: '#EBF2FB', borderRadius: '8px' }}>
+                                <Zap size={18} className="text-blue-600" />
+                            </div>
+                            <span style={{ fontSize: '14px', fontWeight: '700', color: '#1a1a18' }}>Automation Engine Feed</span>
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#5a5855' }}>Intelligent targeting active for {log.username}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                        <span className="badge" style={{ 
+                            background: automationQueueItem.queue_status === 'active' ? '#E1F5EE' : '#F4F3EF',
+                            color: automationQueueItem.queue_status === 'active' ? '#1D9E75' : '#9c9a92',
+                            padding: '4px 10px', fontSize: '10px', fontWeight: '600', textTransform: 'uppercase'
+                        }}>
+                           {automationQueueItem.queue_status || 'Active'}
+                        </span>
+                        <div style={{ fontSize: '10px', color: '#9c9a92', marginTop: '4px' }}>
+                            Step {automationQueueItem.current_step || 0} of 5
+                        </div>
+                    </div>
+                </div>
+
+                {/* Next Delivery Info */}
+                <div style={{ background: '#F8FAFC', borderRadius: '10px', padding: '14px', marginBottom: '16px', border: '1px solid #E2E8F0' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                        <div style={{ fontSize: '11px', fontWeight: '600', color: '#475569' }}>NEXT OUTREACH</div>
+                        <div style={{ fontSize: '11px', fontWeight: '700', color: '#185FA5' }}>
+                            {automationQueueItem.next_mail_time ? new Date(automationQueueItem.next_mail_time).toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' }) : 'Pending Sync'}
+                        </div>
+                    </div>
+                    {automationQueueItem.next_offers && automationQueueItem.next_offers.length > 0 ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ width: '32px', height: '32px', background: '#fff', borderRadius: '6px', border: '1px solid #CBD5E1', display: 'flex', alignItems: 'center', justifySelf: 'center', fontSize: '16px' }}>🎁</div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>{automationQueueItem.next_offers[0].name}</div>
+                                <div style={{ fontSize: '10px', color: '#64748b' }}>Primary selection for next delivery</div>
+                            </div>
+                            <div style={{ fontSize: '11px', fontWeight: '700', color: '#1D9E75' }}>{automationQueueItem.next_offers[0].payout_display || `$${automationQueueItem.next_offers[0].payout}`}</div>
+                        </div>
+                    ) : (
+                        <div style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>Calculating next optimal offer...</div>
+                    )}
+                </div>
+
+                {/* Upcoming Flow Sequence */}
+                <div style={{ marginBottom: '0' }}>
+                    <div style={{ fontSize: '10px', fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>Full Sequence Flow</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {(automationQueueItem.next_offers || []).map((o: any, i: number) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', background: i === 0 ? '#fff' : 'rgba(255,255,255,0.4)', borderRadius: '6px', border: i === 0 ? '1px solid #185FA5' : '1px solid transparent', opacity: i === 0 ? 1 : 0.7 }}>
+                                <span style={{ fontSize: '10px', fontWeight: '700', color: i === 0 ? '#185FA5' : '#94a3b8', width: '18px' }}>#{i+1}</span>
+                                <span style={{ fontSize: '11px', color: '#1e293b', flex: 1 }} className="truncate">{o.name}</span>
+                                <span style={{ fontSize: '10px', color: '#64748b' }}>{o.category}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
           )}
 
@@ -432,7 +502,10 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, offerViews, sche
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0' }}>
                 {historyData.length > 0 ? historyData.map((hist, idx) => (
                     <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 4px', borderBottom: idx < historyData.length - 1 ? '1px solid #F4F3EF' : 'none' }}>
-                        <span style={{ fontSize: '11px', color: '#5a5855' }}>{hist.offer}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {hist.isAutomation && <span title="Automation Outreach" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '16px', height: '16px', background: '#EBF2FB', color: '#185FA5', borderRadius: '4px', fontSize: '10px' }}><Zap size={10} fill="currentColor" /></span>}
+                            <span style={{ fontSize: '11px', color: hist.isAutomation ? '#185FA5' : '#5a5855', fontWeight: hist.isAutomation ? '600' : '400' }}>{hist.offer}</span>
+                        </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                             <span style={{ fontSize: '10px', color: '#9c9a92' }}>{hist.isPending ? `Scheduled for ${hist.date}` : hist.date}</span>
                             <span className="badge" style={{ 
@@ -687,12 +760,13 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
   offerViews,
   searchLogs,
   userSignals,
-  scheduledActivity,
-  offerTargeting,
-  allowedTabs,
-  activeTab: externalActiveTab,
-  onTabChange
-}) => {
+   scheduledActivity,
+   offerTargeting,
+   automationQueueItem,
+   allowedTabs,
+   activeTab: externalActiveTab,
+   onTabChange
+ }) => {
   const [internalActiveTab, setInternalActiveTab] = useState(allowedTabs && allowedTabs.length > 0 ? allowedTabs[0] : 'login');
   const [recoMode, setRecoMode] = useState<'combined' | '1-by-1'>('combined');
   const [browsingSendIdx, setBrowsingSendIdx] = useState<Record<string, number>>({});
@@ -1520,7 +1594,7 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
         </div>)}
 
         {/* TAB: AUTOMATION */}
-        {activeTab === 'automation' && <UserAutomationTab verticalData={verticalData} log={log} offerTargeting={offerTargeting} userLogs={userLogs} offerViews={safeOfferViews} scheduledActivity={safeScheduled} onSendOffers={handleSendOffers} sendingOffers={sendingOffers} />}
+        {activeTab === 'automation' && <UserAutomationTab verticalData={verticalData} log={log} offerTargeting={offerTargeting} automationQueueItem={automationQueueItem} userLogs={userLogs} offerViews={safeOfferViews} scheduledActivity={safeScheduled} onSendOffers={handleSendOffers} sendingOffers={sendingOffers} />}
 
         {/* TAB: MESSAGING */}
         {activeTab === 'messaging' && (

@@ -547,6 +547,14 @@ def register():
         except Exception as ref_link_err:
             logging.error(f"⚠️ Could not create referral link for new user: {ref_link_err}")
         
+        # Trigger automation workflow
+        try:
+            from services.automation_service import get_automation_service
+            automation_service = get_automation_service()
+            automation_service.handle_user_activity(str(user_data['_id']), activity_type='Registration')
+        except Exception as auto_err:
+            logging.error(f"Failed to trigger automation for user {username}: {auto_err}")
+
         return jsonify({
             'message': 'User registered successfully. Please check your email to verify your account.',
             'token': token,
@@ -642,6 +650,14 @@ def login():
             status='success',
             login_method='password'
         )
+
+        # Trigger Automation Engine
+        try:
+            from services.automation_service import get_automation_service
+            automation_service = get_automation_service()
+            automation_service.handle_user_activity(str(user_data['_id']), activity_type='Login')
+        except Exception as e:
+            logging.error(f"Failed to trigger automation: {str(e)}")
         
         # Generate token
         token = generate_token(user_data)
