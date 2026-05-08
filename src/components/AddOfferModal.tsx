@@ -147,7 +147,12 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 }) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [sendEmail, setSendEmail] = useState(true);
+  const [sendEmail, setSendEmail] = useState(false);
+  const [emailSendMode, setEmailSendMode] = useState<'now' | 'schedule'>('now');
+  const [emailScheduleDate, setEmailScheduleDate] = useState('');
+  const [emailScheduleTime, setEmailScheduleTime] = useState('');
+  const [scheduledEmails, setScheduledEmails] = useState<Array<{_id: string; subject: string; scheduled_at: string; status: string; offer_names?: string[]}>>([]);
+  const [loadingScheduled, setLoadingScheduled] = useState(false);
   const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const [emailSubject, setEmailSubject] = useState('');
   const [emailMessage, setEmailMessage] = useState('');
@@ -235,6 +240,29 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
       fetchData();
     }
   }, [open]);
+
+  // Fetch scheduled emails when user enables email sending
+  const fetchScheduledEmails = async () => {
+    setLoadingScheduled(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_BASE_URL}/api/admin/offers/scheduled-emails`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setScheduledEmails(data.scheduled || []);
+      }
+    } catch { /* ignore */ }
+    finally { setLoadingScheduled(false); }
+  };
+
+  const handleEmailToggle = (checked: boolean) => {
+    setSendEmail(checked);
+    if (checked) {
+      fetchScheduledEmails();
+    }
+  };
 
   const [formData, setFormData] = useState<CreateOfferData>({
     campaign_id: '',
@@ -498,6 +526,8 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         email_message: emailMessage || undefined,
         email_exclude_user_ids: excludeUserIds.length > 0 ? excludeUserIds : undefined,
         email_include_user_ids: includeUserIds.length > 0 ? includeUserIds : undefined,
+        email_send_mode: emailSendMode,
+        email_schedule_at: emailSendMode === 'schedule' && emailScheduleDate ? `${emailScheduleDate}T${emailScheduleTime || '09:00'}:00` : undefined,
       };
 
       // Remove partner_id if it's empty
@@ -2380,7 +2410,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                 <input
                   type="checkbox"
                   checked={sendEmail}
-                  onChange={(e) => setSendEmail(e.target.checked)}
+                  onChange={(e) => handleEmailToggle(e.target.checked)}
                   className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
                 />
                 <span className="text-muted-foreground">Send email notification to publishers</span>
@@ -2396,6 +2426,42 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
             </div>
             {sendEmail && (
               <div className="space-y-2 p-3 bg-muted/30 rounded-lg border">
+                {/* Send Now vs Schedule */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">When to send?</Label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setEmailSendMode('now')}
+                      className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${emailSendMode === 'now' ? 'bg-green-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}>
+                      🚀 Send Immediately
+                    </button>
+                    <button type="button" onClick={() => setEmailSendMode('schedule')}
+                      className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${emailSendMode === 'schedule' ? 'bg-blue-600 text-white' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}>
+                      📅 Schedule for Later
+                    </button>
+                  </div>
+                  {emailSendMode === 'schedule' && (
+                    <div className="flex gap-2 mt-2">
+                      <Input type="date" value={emailScheduleDate} onChange={e => setEmailScheduleDate(e.target.value)} className="h-8 text-xs w-40" />
+                      <Input type="time" value={emailScheduleTime} onChange={e => setEmailScheduleTime(e.target.value)} className="h-8 text-xs w-32" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Already Scheduled Emails */}
+                {scheduledEmails.length > 0 && (
+                  <div className="space-y-1.5 p-2 bg-amber-50 dark:bg-amber-950/20 rounded border border-amber-200 dark:border-amber-800">
+                    <p className="text-[11px] font-medium text-amber-700 dark:text-amber-400">⚠️ Already scheduled emails in queue:</p>
+                    <div className="max-h-24 overflow-y-auto space-y-1">
+                      {scheduledEmails.map(s => (
+                        <div key={s._id} className="text-[10px] text-amber-600 dark:text-amber-500 flex items-center justify-between">
+                          <span className="truncate flex-1">{s.subject || 'No subject'}</span>
+                          <span className="shrink-0 ml-2">{s.scheduled_at ? new Date(s.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div>
                   <Label className="text-xs">Email Subject (optional — auto-generated if empty)</Label>
                   <Input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="🚀 Happy Monday! New Offer: {offer_name} - Push More Traffic!" className="mt-1 text-sm" />

@@ -135,7 +135,11 @@ export default function SendOffersModal({ open, onClose, publisher, preselectedO
                           {(o as any).visibility === 'running' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-emerald-100 text-emerald-700 font-medium">🏃 Running</span>}
                           {(o as any).visibility === 'rotating' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-100 text-blue-700 font-medium">🔄 Rotating</span>}
                           {(o as any).visibility === 'inactive' && <span className="text-[10px] px-1.5 py-0 rounded-full bg-gray-100 text-gray-600 font-medium">⚫ Inactive</span>}
-                          {!(o as any).image_url && !(o as any).thumbnail_url ? <span className="text-[10px] text-amber-500">⚠️ No image</span> : null}
+                          {!(o as any).image_url && !(o as any).thumbnail_url ? <span className="text-[10px] px-1.5 py-0 rounded-full bg-red-100 text-red-700 font-medium">🖼 No Image</span> : null}
+                          {!(o as any).category && !(o as any).vertical ? <span className="text-[10px] px-1.5 py-0 rounded-full bg-purple-100 text-purple-700 font-medium">🏷 No Vertical</span> : null}
+                          {!(o as any).description ? <span className="text-[10px] px-1.5 py-0 rounded-full bg-amber-100 text-amber-700 font-medium">📝 No Description</span> : <span className="text-[10px] px-1.5 py-0 rounded-full bg-green-100 text-green-700 font-medium">📝 Has Desc</span>}
+                          {(o as any).target_url || (o as any).tracking_url ? <span className="text-[10px] px-1.5 py-0 rounded-full bg-blue-100 text-blue-700 font-medium">🔗 Target URL</span> : <span className="text-[10px] px-1.5 py-0 rounded-full bg-red-100 text-red-700 font-medium">🔗 No Target URL</span>}
+                          {(o as any).preview_url ? <span className="text-[10px] px-1.5 py-0 rounded-full bg-cyan-100 text-cyan-700 font-medium">👁 Preview URL</span> : <span className="text-[10px] px-1.5 py-0 rounded-full bg-gray-100 text-gray-600 font-medium">👁 No Preview</span>}
                         </div>
                       </div>
                       {/* Action icons — link masker, image, description, category */}

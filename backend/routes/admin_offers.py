@@ -244,6 +244,78 @@ def create_offer():
         
         if not send_email:
             logging.info("📧 Email notifications skipped (send_email=false)")
+        elif data.get('email_send_mode') == 'schedule' and data.get('email_schedule_at'):
+            # Schedule email for later
+            try:
+                schedule_at_str = data.get('email_schedule_at')
+                from datetime import datetime as dt_parse, timedelta as td
+                schedule_at = dt_parse.fromisoformat(schedule_at_str)
+                # Convert IST to UTC (subtract 5:30)
+                IST_OFFSET = td(hours=5, minutes=30)
+                schedule_at_utc = schedule_at - IST_OFFSET
+                logging.info(f"📅 Schedule: input={schedule_at_str} (IST), stored={schedule_at_utc.isoformat()} (UTC)")
+                
+                # Resolve recipients now (so we have email addresses ready)
+                include_user_ids = data.get('email_include_user_ids', [])
+                exclude_user_ids = data.get('email_exclude_user_ids', [])
+                users_collection = db_instance.get_collection('users')
+                all_emails = []
+                
+                if users_collection is not None:
+                    if include_user_ids:
+                        from bson import ObjectId as ObjId
+                        user_query = {
+                            '_id': {'$in': [ObjId(uid) for uid in include_user_ids if ObjId.is_valid(uid)]},
+                            'email': {'$exists': True, '$ne': ''},
+                        }
+                    else:
+                        user_query = {
+                            'email': {'$exists': True, '$ne': ''},
+                            '$or': [
+                                {'email_preferences.new_offers': True},
+                                {'email_preferences.new_offers': {'$exists': False}},
+                                {'email_preferences': {'$exists': False}}
+                            ]
+                        }
+                    all_users = list(users_collection.find(user_query, {'_id': 1, 'email': 1}))
+                    if exclude_user_ids and not include_user_ids:
+                        exclude_set = set(exclude_user_ids)
+                        all_users = [u for u in all_users if str(u['_id']) not in exclude_set]
+                    all_emails = [u['email'] for u in all_users if u.get('email')]
+                
+                # Build email body
+                from routes.admin_offer_requests import _build_email_html
+                subject = data.get('email_subject', '') or f"New Offer: {offer_data.get('name', 'Unknown')}"
+                body = _build_email_html(
+                    body_text=data.get('email_message', ''),
+                    offers=[offer_data],
+                    payout_type=data.get('email_payout_type', 'publisher'),
+                    template_style=data.get('email_template_style', 'table'),
+                    visible_fields=data.get('email_visible_fields'),
+                )
+                
+                # Save as pending (the scheduled_email_service will pick it up)
+                scheduled_col = db_instance.get_collection('scheduled_emails')
+                if scheduled_col is not None and all_emails:
+                    scheduled_col.insert_one({
+                        'type': 'new_offer_notification',
+                        'subject': subject,
+                        'body': body,
+                        'recipients': all_emails,
+                        'offer_id': offer_data.get('offer_id', ''),
+                        'offer_name': offer_data.get('name', ''),
+                        'email_subject': subject,
+                        'scheduled_at': schedule_at_utc,
+                        'scheduled_at_ist': schedule_at,
+                        'status': 'pending',
+                        'created_by': str(user['_id']),
+                        'created_at': datetime.utcnow(),
+                    })
+                    logging.info(f"📅 Email scheduled for {schedule_at_utc.isoformat()} UTC ({schedule_at_str} IST) to {len(all_emails)} recipients for offer {offer_data.get('name')}")
+                else:
+                    logging.warning(f"⚠️ No recipients found for scheduled email")
+            except Exception as sched_err:
+                logging.error(f"❌ Email scheduling error: {sched_err}", exc_info=True)
         else:
             # Send email notifications to all users and publishers (non-blocking)
             try:
@@ -369,6 +441,103 @@ def create_offer():
     except Exception as e:
         logging.error(f"Create offer error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to create offer: {str(e)}'}), 500
+
+@admin_offers_bp.route('/offers/scheduled-emails', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_scheduled_emails():
+    """Get pending scheduled emails for offer notifications."""
+    try:
+        scheduled_col = db_instance.get_collection('scheduled_emails')
+        if scheduled_col is None:
+            return jsonify({'scheduled': []})
+        
+        # Only show pending/scheduled emails (not already sent)
+        docs = list(scheduled_col.find(
+            {'status': {'$in': ['pending', 'scheduled']}, 'type': 'new_offer_notification'},
+            {'offer_name': 1, 'email_subject': 1, 'subject': 1, 'scheduled_at': 1, 'scheduled_at_ist': 1, 'status': 1, 'created_at': 1, 'recipients': 1}
+        ).sort('scheduled_at', 1).limit(20))
+        
+        results = []
+        for d in docs:
+            # Show IST time if available, otherwise convert UTC to IST for display
+            display_time = d.get('scheduled_at_ist') or d.get('scheduled_at')
+            # If we only have UTC time, convert to IST for display
+            if display_time and not d.get('scheduled_at_ist'):
+                from datetime import timedelta as td2
+                display_time = display_time + td2(hours=5, minutes=30)
+            recipients = d.get('recipients', [])
+            results.append({
+                '_id': str(d['_id']),
+                'subject': d.get('subject') or d.get('email_subject') or f"New Offer: {d.get('offer_name', 'Unknown')}",
+                'offer_name': d.get('offer_name', ''),
+                'scheduled_at': display_time.isoformat() + 'Z' if display_time else '',
+                'status': d.get('status', 'pending'),
+                'recipient_count': len(recipients) if isinstance(recipients, list) else 0,
+            })
+        
+        return jsonify({'scheduled': results})
+    except Exception as e:
+        logging.error(f"Scheduled emails fetch error: {e}")
+        return jsonify({'scheduled': []})
+
+
+@admin_offers_bp.route('/offers/scheduled-emails/process-now', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def process_scheduled_emails_now():
+    """Manually trigger processing of due scheduled emails (for debugging)."""
+    try:
+        from models.scheduled_email import ScheduledEmail
+        from services.email_service import get_email_service
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+
+        due = ScheduledEmail.get_due_emails()
+        if not due:
+            return jsonify({'message': 'No due emails found', 'count': 0})
+
+        email_service = get_email_service()
+        results = []
+
+        for email_doc in due:
+            email_id = str(email_doc.get('_id'))
+            subject = email_doc.get('subject', 'No Subject')
+            recipients = email_doc.get('recipients', [])
+            body = email_doc.get('body', '')
+
+            if not recipients:
+                ScheduledEmail.mark_sent(email_id)
+                results.append({'id': email_id, 'status': 'skipped', 'reason': 'no recipients'})
+                continue
+
+            if not body:
+                results.append({'id': email_id, 'status': 'skipped', 'reason': 'no body'})
+                ScheduledEmail.mark_failed(email_id, 'No email body')
+                continue
+
+            try:
+                msg = MIMEMultipart('alternative')
+                msg['Subject'] = subject
+                msg['From'] = email_service.from_email
+                msg['To'] = email_service.from_email
+                msg['Bcc'] = ', '.join(recipients[:50])
+                msg.attach(MIMEText(body, 'html'))
+
+                if email_service._send_email_smtp(msg):
+                    ScheduledEmail.mark_sent(email_id)
+                    results.append({'id': email_id, 'status': 'sent', 'recipients': len(recipients)})
+                else:
+                    ScheduledEmail.mark_failed(email_id, 'SMTP send returned False')
+                    results.append({'id': email_id, 'status': 'failed', 'reason': 'SMTP returned False'})
+            except Exception as send_err:
+                ScheduledEmail.mark_failed(email_id, str(send_err))
+                results.append({'id': email_id, 'status': 'failed', 'reason': str(send_err)})
+
+        return jsonify({'message': f'Processed {len(due)} emails', 'results': results})
+    except Exception as e:
+        logging.error(f"Manual process error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
 @admin_offers_bp.route('/offers/export', methods=['GET'])
 @token_required

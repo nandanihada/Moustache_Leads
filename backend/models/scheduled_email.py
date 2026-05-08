@@ -130,7 +130,7 @@ class ScheduledEmail:
         
         now = datetime.utcnow()
         cursor = collection.find({
-            'status': cls.STATUS_PENDING,
+            'status': {'$in': [cls.STATUS_PENDING, 'scheduled']},
             'scheduled_at': {'$lte': now}
         }).sort('scheduled_at', 1)
         

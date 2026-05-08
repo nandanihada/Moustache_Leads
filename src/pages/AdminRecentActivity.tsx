@@ -470,10 +470,12 @@ const AdminRecentActivity: React.FC = () => {
     });
   }, [allUsers, advancedFilters, searchTerm]);
 
-  const loadData = async () => {
-    setLoading(true);
-    setSelectedUserIds(new Set());
-    setExpandedId(null);
+  const loadData = async (isBackgroundRefresh = false) => {
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+      setSelectedUserIds(new Set());
+      setExpandedId(null);
+    }
     try {
       const params: any = { page: 1, limit: 2000 };
       const now = new Date();
@@ -715,7 +717,9 @@ const AdminRecentActivity: React.FC = () => {
 
     } catch (e) {
       console.error("Error loading recent activity", e);
-      toast({ title: 'Error', description: 'Failed to load activity data', variant: 'destructive' });
+      if (!isBackgroundRefresh) {
+        toast({ title: 'Error', description: 'Failed to load activity data', variant: 'destructive' });
+      }
     } finally {
       setLoading(false);
     }
@@ -724,10 +728,10 @@ const AdminRecentActivity: React.FC = () => {
   useEffect(() => {
     loadData();
     
-    // Auto-refresh data every 30 seconds to automatically track and show new user locations
+    // Auto-refresh data every 2 minutes (background refresh preserves UI state)
     const intervalId = setInterval(() => {
-      loadData();
-    }, 30000);
+      loadData(true);
+    }, 120000);
     
     return () => clearInterval(intervalId);
   }, [timeFilter]);
@@ -782,7 +786,7 @@ const AdminRecentActivity: React.FC = () => {
     });
     setBulkMailSending(false);
     setScheduleMailOpen(false);
-    loadData(); // refresh to update mail tracking state
+    loadData(true); // refresh to update mail tracking state without resetting UI
   };
 
   const handleUserAction = async (userId: string, action: string) => {
@@ -958,7 +962,7 @@ const AdminRecentActivity: React.FC = () => {
                       title: 'Bulk Mail Scheduled',
                       description: `Successfully scheduled ${successCount} out of ${queue.length} mails.`
                     });
-                    loadData();
+                    loadData(true);
                     return true;
                   } catch (e) {
                     return false;
@@ -1428,7 +1432,7 @@ const AdminRecentActivity: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2"><ExpandedUserDetails user={user} onMailSent={loadData} /></div>}
+                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2"><ExpandedUserDetails user={user} onMailSent={() => loadData(true)} /></div>}
                   </div>
                 );
               })}

@@ -11,10 +11,13 @@ import { toast } from 'sonner';
 import {
   Loader2, Send, Calendar, ChevronRight, ChevronLeft, Eye,
   Zap, Users, Settings, Mail, Clock, Sparkles, X,
+  Image, FileText, Tag, ExternalLink, AlertTriangle, Brain,
+  MousePointerClick, TrendingUp,
 } from 'lucide-react';
 import { API_BASE_URL } from '@/services/apiConfig';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import OfferActionIcons from '@/components/OfferActionIcons';
+import PublisherIntelligencePanel from '@/components/PublisherIntelligencePanel';
 import type { PProf } from '@/pages/AdminOfferAccessRequests';
 
 interface CampaignWizardModalProps {
@@ -34,15 +37,34 @@ interface PreviewEmail {
     network: string;
     category?: string;
     countries?: string[];
+    description?: string;
+    image_url?: string;
+    thumbnail_url?: string;
+    preview_url?: string;
+    target_url?: string;
+    tracking_url?: string;
+    vertical?: string;
   }>;
+}
+
+interface UserPreviewStats {
+  total_mail_sent: number;
+  mail_sent_today: number;
+  last_mail_sent: string | null;
+  total_offers_sent: number;
+  offers_sent_today: number;
+  total_clicks: number;
+  total_conversions: number;
 }
 
 interface UserPreview {
   user_id: string;
   username: string;
   email: string;
+  first_name?: string;
   total_offers: number;
   emails: PreviewEmail[];
+  stats?: UserPreviewStats;
 }
 
 const STEPS = ['Settings', 'Template', 'Preview', 'Schedule'];
@@ -74,14 +96,37 @@ export default function CampaignWizardModal({ open, onClose, selectedUsers, sour
 
   const token = localStorage.getItem('token');
 
-  // Auto-generate batch name
+  // ── RESET all state when modal opens ──
   useEffect(() => {
-    if (open && !batchName) {
+    if (open) {
+      // Reset to step 1
+      setStep(0);
+      setLoading(false);
+      setCreating(false);
+      
+      // Reset settings
       const now = new Date();
       const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
       setBatchName(`${monthNames[now.getMonth()]} ${now.getDate()} — ${sourceTab} (${selectedUsers.length} users)`);
+      setTotalOffersPerUser(3);
+      setOffersPerEmail(1);
+      setPricePercentage(80);
+      setCooldownDays(1);
+      
+      // Reset template
+      setSubject('🚀 Hot Offers You Should Check Out!');
+      setMessageBody('Hi there! We have handpicked some exclusive offers based on your interests. These are high-converting campaigns that match your traffic profile. Check them out below and start earning today!');
+      setEmailSettings(DEFAULT_EMAIL_SETTINGS);
+      
+      // Reset preview
+      setPreview([]);
+      setExpandedUser(null);
+      
+      // Reset schedule
+      setSendType('send_now');
+      setScheduledAt('');
     }
-  }, [open]);
+  }, [open, selectedUsers, sourceTab]);
 
   // Calculate email count
   const emailsPerUser = Math.ceil(totalOffersPerUser / Math.max(1, offersPerEmail));
@@ -97,6 +142,15 @@ export default function CampaignWizardModal({ open, onClose, selectedUsers, sour
   const loadPreview = async () => {
     setLoading(true);
     try {
+      // Build user_offer_names map: { user_id: latest_offer_name }
+      // This tells the backend which offer each user requested, so it can find related offers
+      const userOfferNames: Record<string, string> = {};
+      selectedUsers.forEach(u => {
+        if (u.latest_offer_name) {
+          userOfferNames[u.user_id] = u.latest_offer_name;
+        }
+      });
+
       const res = await fetch(`${API_BASE_URL}/api/admin/email-campaigns/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -106,6 +160,7 @@ export default function CampaignWizardModal({ open, onClose, selectedUsers, sour
           offers_per_email: offersPerEmail,
           source_tab: sourceTab,
           price_percentage: pricePercentage,
+          user_offer_names: userOfferNames,
         }),
       });
       const data = await res.json();
@@ -122,6 +177,23 @@ export default function CampaignWizardModal({ open, onClose, selectedUsers, sour
   const handleCreate = async () => {
     setCreating(true);
     try {
+      // Build custom_offers from the preview data — send EXACTLY what was shown in preview
+      // This ensures the email contains the same offers the admin saw and approved
+      const customOffers: Record<string, string[]> = {};
+      for (const user of preview) {
+        const offerIds: string[] = [];
+        for (const emailBatch of (user.emails || [])) {
+          for (const offer of (emailBatch.offers || [])) {
+            if (offer.offer_id) {
+              offerIds.push(offer.offer_id);
+            }
+          }
+        }
+        if (offerIds.length > 0) {
+          customOffers[user.user_id] = offerIds;
+        }
+      }
+
       const res = await fetch(`${API_BASE_URL}/api/admin/email-campaigns/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -138,7 +210,8 @@ export default function CampaignWizardModal({ open, onClose, selectedUsers, sour
           email_settings: emailSettings,
           send_type: sendType,
           scheduled_at: sendType === 'schedule' ? scheduledAt : null,
-          interval_hours: cooldownDays * 24,  // Convert days to hours for interval
+          interval_hours: cooldownDays * 24,
+          custom_offers: customOffers,
         }),
       });
       const data = await res.json();
@@ -468,6 +541,8 @@ function StepTemplate({ subject, setSubject, messageBody, setMessageBody, emailS
 // ─── Step 3: Preview ──────────────────────────────────────────────────────────
 
 function StepPreview({ loading, preview, expandedUser, setExpandedUser, pricePercentage, onRefresh }: any) {
+  const [intelligenceUserId, setIntelligenceUserId] = useState<string | null>(null);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -476,6 +551,18 @@ function StepPreview({ loading, preview, expandedUser, setExpandedUser, pricePer
       </div>
     );
   }
+
+  const timeAgo = (dateStr: string | null): string => {
+    if (!dateStr) return 'Never';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
 
   return (
     <div className="space-y-4">
@@ -514,56 +601,163 @@ function StepPreview({ loading, preview, expandedUser, setExpandedUser, pricePer
             </button>
 
             {expandedUser === user.user_id && (
-              <div className="px-4 pb-3 space-y-2 border-t bg-muted/20">
+              <div className="px-4 pb-3 space-y-3 border-t bg-muted/20">
+                {/* User Stats Row */}
+                {user.stats && (
+                  <div className="flex flex-wrap items-center gap-3 pt-2 pb-1 border-b border-dashed">
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <Mail className="w-3 h-3 text-violet-500" />
+                      <span className="text-muted-foreground">Mails:</span>
+                      <span className="font-semibold">{user.stats.total_mail_sent}</span>
+                      {user.stats.mail_sent_today > 0 && <span className="text-green-600">(+{user.stats.mail_sent_today} today)</span>}
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <Clock className="w-3 h-3 text-blue-500" />
+                      <span className="text-muted-foreground">Last:</span>
+                      <span className="font-semibold">{timeAgo(user.stats.last_mail_sent)}</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <Send className="w-3 h-3 text-orange-500" />
+                      <span className="text-muted-foreground">Offers Sent:</span>
+                      <span className="font-semibold">{user.stats.total_offers_sent}</span>
+                      {user.stats.offers_sent_today > 0 && <span className="text-green-600">(+{user.stats.offers_sent_today} today)</span>}
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <MousePointerClick className="w-3 h-3 text-cyan-500" />
+                      <span className="text-muted-foreground">Clicks:</span>
+                      <span className="font-semibold">{user.stats.total_clicks}</span>
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px]">
+                      <TrendingUp className="w-3 h-3 text-green-500" />
+                      <span className="text-muted-foreground">Conversions:</span>
+                      <span className="font-semibold">{user.stats.total_conversions}</span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-5 px-2 text-[10px] gap-1 ml-auto"
+                      onClick={(e) => { e.stopPropagation(); setIntelligenceUserId(user.user_id); }}
+                    >
+                      <Brain className="w-3 h-3" /> Publisher Intelligence
+                    </Button>
+                  </div>
+                )}
+
                 {user.emails?.map((emailBatch: PreviewEmail) => (
                   <div key={emailBatch.email_number} className="mt-2">
                     <div className="text-xs font-medium text-muted-foreground mb-1">
                       Email #{emailBatch.email_number}
                     </div>
                     <div className="space-y-1.5">
-                      {emailBatch.offers?.map((offer: any) => (
-                        <div key={offer.offer_id} className="bg-background rounded-lg px-3 py-2 text-xs border space-y-1">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              {(offer.image_url || offer.thumbnail_url) && (
-                                <img src={offer.image_url || offer.thumbnail_url} alt="" className="w-8 h-8 rounded object-cover" />
-                              )}
-                              <div className="min-w-0">
-                                <span className="font-medium truncate block">{offer.name}</span>
-                                <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                                  <span>{offer.network}</span>
-                                  {offer.category && <><span>•</span><span>{offer.category}</span></>}
-                                  {offer.countries && offer.countries.length > 0 && (
-                                    <><span>•</span><span>{offer.countries.slice(0, 3).join(', ')}{offer.countries.length > 3 ? ` +${offer.countries.length - 3}` : ''}</span></>
+                      {emailBatch.offers?.map((offer: any) => {
+                        const hasImage = !!(offer.image_url || offer.thumbnail_url);
+                        const hasDescription = !!(offer.description && offer.description.trim());
+                        const hasVertical = !!(offer.category || offer.vertical);
+                        const hasTargetUrl = !!(offer.target_url || offer.tracking_url);
+                        const hasPreviewUrl = !!offer.preview_url;
+
+                        return (
+                          <div key={offer.offer_id} className="bg-background rounded-lg px-3 py-2 text-xs border space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                {hasImage && (
+                                  <img src={offer.image_url || offer.thumbnail_url} alt="" className="w-8 h-8 rounded object-cover" />
+                                )}
+                                <div className="min-w-0">
+                                  <span className="font-medium truncate block">{offer.name}</span>
+                                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                    <span>{offer.network}</span>
+                                    {offer.category && <><span>•</span><span>{offer.category}</span></>}
+                                    {offer.countries && offer.countries.length > 0 && (
+                                      <><span>•</span><span>{offer.countries.slice(0, 3).join(', ')}{offer.countries.length > 3 ? ` +${offer.countries.length - 3}` : ''}</span></>
+                                    )}
+                                  </div>
+                                  {hasDescription && (
+                                    <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{offer.description}</p>
                                   )}
                                 </div>
-                                {offer.description && (
-                                  <p className="text-[10px] text-muted-foreground mt-0.5 line-clamp-1">{offer.description}</p>
-                                )}
+                              </div>
+                              <div className="flex items-center gap-2 ml-2">
+                                <OfferActionIcons
+                                  offerId={offer.offer_id}
+                                  offerName={offer.name}
+                                  currentImageUrl={offer.image_url || offer.thumbnail_url}
+                                  currentDescription={offer.description}
+                                  currentCategory={offer.category}
+                                />
+                                <div className="text-right">
+                                  <span className="font-semibold text-green-600">
+                                    ${(parseFloat(offer.payout || 0) * pricePercentage / 100).toFixed(2)}
+                                  </span>
+                                  {pricePercentage !== 100 && (
+                                    <span className="text-[10px] text-muted-foreground line-through ml-1">
+                                      ${parseFloat(offer.payout || 0).toFixed(2)}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2 ml-2">
-                              <OfferActionIcons
-                                offerId={offer.offer_id}
-                                offerName={offer.name}
-                                currentImageUrl={offer.image_url || offer.thumbnail_url}
-                                currentDescription={offer.description}
-                                currentCategory={offer.category}
-                              />
-                              <div className="text-right">
-                                <span className="font-semibold text-green-600">
-                                  ${(parseFloat(offer.payout || 0) * pricePercentage / 100).toFixed(2)}
+                            {/* Offer Tags Row */}
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-dashed">
+                              {!hasImage && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                  <Image className="w-2.5 h-2.5" /> No Image
                                 </span>
-                                {pricePercentage !== 100 && (
-                                  <span className="text-[10px] text-muted-foreground line-through ml-1">
-                                    ${parseFloat(offer.payout || 0).toFixed(2)}
-                                  </span>
-                                )}
-                              </div>
+                              )}
+                              {hasImage && (
+                                <a href={offer.image_url || offer.thumbnail_url} target="_blank" rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 hover:underline cursor-pointer">
+                                  <Image className="w-2.5 h-2.5" /> Image ✓
+                                </a>
+                              )}
+                              {!hasDescription && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                  <FileText className="w-2.5 h-2.5" /> No Description
+                                </span>
+                              )}
+                              {hasDescription && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" title={offer.description}>
+                                  <FileText className="w-2.5 h-2.5" /> {offer.description.length > 40 ? offer.description.substring(0, 40) + '...' : offer.description}
+                                </span>
+                              )}
+                              {!hasVertical && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                                  <Tag className="w-2.5 h-2.5" /> No Vertical
+                                </span>
+                              )}
+                              {hasVertical && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                                  <Tag className="w-2.5 h-2.5" /> {offer.category || offer.vertical}
+                                </span>
+                              )}
+                              {hasTargetUrl && (
+                                <a href={offer.target_url || offer.tracking_url} target="_blank" rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 hover:underline cursor-pointer max-w-[200px] truncate"
+                                  title={offer.target_url || offer.tracking_url}>
+                                  <ExternalLink className="w-2.5 h-2.5 shrink-0" /> {(offer.target_url || offer.tracking_url || '').replace(/^https?:\/\//, '').substring(0, 30)}...
+                                </a>
+                              )}
+                              {!hasTargetUrl && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                  <ExternalLink className="w-2.5 h-2.5" /> No Target URL
+                                </span>
+                              )}
+                              {hasPreviewUrl && (
+                                <a href={offer.preview_url} target="_blank" rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300 hover:underline cursor-pointer max-w-[200px] truncate"
+                                  title={offer.preview_url}>
+                                  <Eye className="w-2.5 h-2.5 shrink-0" /> {offer.preview_url.replace(/^https?:\/\//, '').substring(0, 30)}...
+                                </a>
+                              )}
+                              {!hasPreviewUrl && (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+                                  <Eye className="w-2.5 h-2.5" /> No Preview URL
+                                </span>
+                              )}
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))}
@@ -581,6 +775,15 @@ function StepPreview({ loading, preview, expandedUser, setExpandedUser, pricePer
           <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
           <p className="text-sm">No preview available. Click "Refresh Matches" to generate.</p>
         </div>
+      )}
+
+      {/* Publisher Intelligence Dialog */}
+      {intelligenceUserId && (
+        <Dialog open={!!intelligenceUserId} onOpenChange={() => setIntelligenceUserId(null)}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <PublisherIntelligencePanel userId={intelligenceUserId} compact={false} />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

@@ -45,11 +45,13 @@ def preview_campaign():
     try:
         data = request.get_json() or {}
         user_ids = data.get('user_ids', [])
+        user_offer_names = data.get('user_offer_names', {})  # {user_id: latest_offer_name}
         config = {
             'total_offers_per_user': data.get('total_offers_per_user', 3),
             'offers_per_email': data.get('offers_per_email', 1),
             'source_tab': data.get('source_tab', 'all'),
             'price_percentage': data.get('price_percentage', 80),
+            'user_offer_names': user_offer_names,
         }
         
         if not user_ids:
@@ -126,6 +128,7 @@ def create_campaign():
             'offers_per_email': offers_per_email,
             'source_tab': source_tab,
             'price_percentage': price_percentage,
+            'user_offer_names': data.get('user_offer_names', {}),
         }
         
         # Use custom offers if provided, otherwise auto-match

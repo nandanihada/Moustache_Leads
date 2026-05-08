@@ -1,7 +1,7 @@
 """
 Smart Offer Matcher Service
 Picks unique, relevant, unsent offers for each user based on their profile and request history.
-Implements: freshness scoring, diversity, never-repeat, tab-context matching.
+Uses the SAME logic as inventory-matches to find offers from each user's related offers list.
 """
 
 import logging
@@ -25,44 +25,26 @@ class SmartOfferMatcher:
     def get_offers_for_users(self, user_ids: list, config: dict) -> dict:
         """
         Get personalized offer selections for multiple users.
-        Ensures different offers across users in the same campaign.
-        
-        Args:
-            user_ids: List of user IDs to match offers for
-            config: {
-                'total_offers_per_user': int,
-                'offers_per_email': int,
-                'source_tab': str (all/most_requested/approved/rejected/etc.),
-                'price_percentage': float,
-            }
-        
-        Returns:
-            {
-                user_id: {
-                    'emails': [
-                        {'email_number': 1, 'offers': [offer1, offer2, ...]},
-                        {'email_number': 2, 'offers': [offer3, offer4, ...]},
-                    ],
-                    'total_offers': int,
-                }
-            }
+        Uses each user's own related offers list (same as inventory-matches).
         """
         total_per_user = config.get('total_offers_per_user', 3)
         per_email = config.get('offers_per_email', 1)
         source_tab = config.get('source_tab', 'all')
+        user_offer_names = config.get('user_offer_names', {})  # {user_id: latest_offer_name}
         
         result = {}
-        # Track offers assigned across all users in this campaign to maximize diversity
         campaign_assigned_offers = set()
         
         for user_id in user_ids:
             try:
+                # Use the specific offer name passed from frontend (same as inventory-matches)
+                offer_name = user_offer_names.get(user_id, '')
                 user_offers = self._match_for_user(
                     user_id, total_per_user, per_email, source_tab,
-                    exclude_campaign_offers=campaign_assigned_offers
+                    exclude_campaign_offers=campaign_assigned_offers,
+                    offer_name=offer_name
                 )
                 result[user_id] = user_offers
-                # Add assigned offers to campaign-level exclusion set
                 for email_batch in user_offers.get('emails', []):
                     for offer in email_batch.get('offers', []):
                         campaign_assigned_offers.add(offer.get('offer_id', ''))
@@ -72,25 +54,29 @@ class SmartOfferMatcher:
         
         return result
     
-    def _match_for_user(self, user_id: str, total_offers: int, per_email: int, source_tab: str, exclude_campaign_offers: set = None) -> dict:
-        """Match offers for a single user, excluding offers already assigned to other users in this campaign"""
-        
+    def _match_for_user(self, user_id: str, total_offers: int, per_email: int, source_tab: str, exclude_campaign_offers: set = None, offer_name: str = '') -> dict:
+        """
+        Match offers for a single user using the SAME logic as inventory-matches endpoint.
+        Uses the user's latest_offer_name to find related offers (exactly like the Related Offers section).
+        """
         if exclude_campaign_offers is None:
             exclude_campaign_offers = set()
         
-        # 1. Get user's request history (what they've asked for)
-        user_requests = list(self.requests_collection.find(
-            {'$or': [{'user_id': user_id}, {'user_id': {'$regex': f'^{re.escape(user_id)}$'}}]},
-            {'offer_id': 1, 'offer_name': 1, 'status': 1}
-        ))
-        
-        requested_offer_ids = {r.get('offer_id') for r in user_requests if r.get('offer_id')}
-        requested_offer_names = [r.get('offer_name', '') for r in user_requests if r.get('offer_name')]
+        # 1. Determine the offer name to use for keyword matching
+        # Priority: offer_name passed from frontend > latest request from DB
+        if not offer_name:
+            # Fallback: get from user's latest request
+            user_query = {'user_id': user_id}
+            latest_req = self.requests_collection.find_one(
+                user_query,
+                {'offer_name': 1},
+                sort=[('requested_at', -1)]
+            )
+            if latest_req:
+                offer_name = latest_req.get('offer_name', '')
         
         # 2. Get already-sent offers (never repeat)
         sent_offer_ids = EmailCampaign.get_sent_offer_ids(user_id)
-        
-        # Also check offer_grants for backward compatibility
         try:
             from models.offer_grant import OfferGrant
             grant_model = OfferGrant()
@@ -101,20 +87,63 @@ class SmartOfferMatcher:
         except:
             pass
         
-        # 3. Build candidate pool based on source_tab context
-        candidates = self._get_candidate_pool(source_tab, requested_offer_names, requested_offer_ids)
+        # 3. Extract keywords from the offer name (SAME logic as inventory-matches endpoint)
+        stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+                      'of', 'with', 'by', '&', '-', '+', 'all', 'geos', 'global', 'incent', 'allowed'}
         
-        # 4. Exclude already-sent and already-requested offers AND offers assigned to other users in this campaign
-        exclude_ids = sent_offer_ids | requested_offer_ids | exclude_campaign_offers
+        keywords = [w.lower() for w in offer_name.split() if w.lower() not in stop_words and len(w) > 2] if offer_name else []
+        
+        if not keywords:
+            keywords = [offer_name.lower()] if offer_name else []
+        
+        # 4. Find related offers using regex (SAME as inventory-matches)
+        candidates = []
+        if keywords:
+            safe_keywords = [re.escape(kw) for kw in keywords]
+            regex_patterns = [{'name': {'$regex': kw, '$options': 'i'}} for kw in safe_keywords]
+            
+            candidates = list(self.offers_collection.find(
+                {'$or': regex_patterns},
+                self._offer_projection()
+            ).limit(50))
+        
+        # Fallback: if no keyword matches, get recent active offers
+        if not candidates:
+            candidates = list(self.offers_collection.find(
+                {'status': {'$in': ['active', 'running']}},
+                self._offer_projection()
+            ).sort('created_at', -1).limit(30))
+        
+        # 5. Exclude already-sent offers and offers assigned to other users
+        exclude_ids = sent_offer_ids | exclude_campaign_offers
         candidates = [c for c in candidates if c.get('offer_id') not in exclude_ids]
         
-        # 5. Score and rank candidates
-        scored = self._score_offers(candidates, requested_offer_names, user_id)
+        # 6. Score candidates by keyword match strength (same as inventory-matches)
+        scored = []
+        for offer in candidates:
+            name_lower = offer.get('name', '').lower()
+            match_count = sum(1 for kw in keywords if kw in name_lower)
+            # Strong match = 2+ keywords, Good = 1 keyword
+            score = match_count * 20
+            
+            # Small bonus for active status
+            if offer.get('status') == 'active':
+                score += 3
+            
+            # Small bonus for payout
+            payout = float(offer.get('payout', 0) or 0)
+            score += min(5, payout * 0.2)
+            
+            offer['_score'] = score
+            scored.append(offer)
         
-        # 6. Select top N with diversity
-        selected = self._select_with_diversity(scored, total_offers)
+        # Sort by score (strongest keyword matches first, then by payout)
+        scored.sort(key=lambda x: (-x.get('_score', 0), -float(x.get('payout', 0) or 0)))
         
-        # 7. Split into emails
+        # 7. Select top N
+        selected = scored[:total_offers]
+        
+        # 8. Split into emails
         emails = []
         for i in range(0, len(selected), per_email):
             batch = selected[i:i + per_email]
@@ -129,96 +158,8 @@ class SmartOfferMatcher:
             'total_offers': len(selected),
         }
     
-    def _get_candidate_pool(self, source_tab: str, requested_names: list, requested_ids: set) -> list:
-        """Get candidate offers based on source tab context"""
-        
-        if source_tab == 'most_requested':
-            # Get most requested offers
-            pipeline = [
-                {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
-                {'$sort': {'count': -1}},
-                {'$limit': 100}
-            ]
-            top_requested = list(self.requests_collection.aggregate(pipeline))
-            top_ids = [r['_id'] for r in top_requested if r['_id']]
-            
-            if top_ids:
-                return list(self.offers_collection.find(
-                    {'offer_id': {'$in': top_ids}, 'status': {'$in': ['active', 'running']}},
-                    self._offer_projection()
-                ))
-        
-        elif source_tab in ('approved', 'rejected', 'review'):
-            # Find offers similar to what user requested
-            pass
-        
-        # Default: keyword-based matching from user's request history
-        keywords = self._extract_keywords(requested_names)
-        
-        if keywords:
-            safe_keywords = [re.escape(kw) for kw in keywords[:10]]
-            regex_patterns = [{'name': {'$regex': kw, '$options': 'i'}} for kw in safe_keywords]
-            
-            candidates = list(self.offers_collection.find(
-                {
-                    '$or': regex_patterns,
-                    'status': {'$in': ['active', 'running']},
-                },
-                self._offer_projection()
-            ).limit(200))
-            
-            if candidates:
-                return candidates
-        
-        # Fallback: get recent active offers
-        return list(self.offers_collection.find(
-            {'status': {'$in': ['active', 'running']}},
-            self._offer_projection()
-        ).sort('created_at', -1).limit(100))
-    
-    def _score_offers(self, candidates: list, requested_names: list, user_id: str) -> list:
-        """Score offers based on freshness, relevance, and conversion rate"""
-        
-        keywords = self._extract_keywords(requested_names)
-        now = datetime.utcnow()
-        
-        scored = []
-        for offer in candidates:
-            score = 0.0
-            
-            # Freshness score (newer = better, max 30 points)
-            created = offer.get('created_at', now - timedelta(days=365))
-            if isinstance(created, datetime):
-                age_days = (now - created).days
-                freshness = max(0, 30 - (age_days * 0.5))
-                score += freshness
-            
-            # Relevance score (keyword match, max 40 points)
-            name_lower = offer.get('name', '').lower()
-            match_count = sum(1 for kw in keywords if kw in name_lower)
-            relevance = min(40, match_count * 10)
-            score += relevance
-            
-            # Payout score (higher payout = more attractive, max 15 points)
-            payout = float(offer.get('payout', 0) or 0)
-            payout_score = min(15, payout * 0.5)
-            score += payout_score
-            
-            # Conversion rate bonus (max 15 points)
-            # Use offer-level stats if available
-            conv_rate = float(offer.get('conversion_rate', 0) or 0)
-            score += min(15, conv_rate * 5)
-            
-            offer['_score'] = score
-            scored.append(offer)
-        
-        # Sort by score descending
-        scored.sort(key=lambda x: x.get('_score', 0), reverse=True)
-        return scored
-    
     def _select_with_diversity(self, scored_offers: list, count: int) -> list:
         """Select offers ensuring category/network diversity"""
-        
         if len(scored_offers) <= count:
             return scored_offers
         
@@ -233,11 +174,9 @@ class SmartOfferMatcher:
             category = offer.get('category', '') or offer.get('vertical', '') or 'unknown'
             network = offer.get('network', '') or 'unknown'
             
-            # Penalize if too many from same category/network
             cat_count = used_categories.get(category, 0)
             net_count = used_networks.get(network, 0)
             
-            # Allow max 2 from same category, max 3 from same network
             if cat_count >= 2 and len(scored_offers) > count * 2:
                 continue
             if net_count >= 3 and len(scored_offers) > count * 2:
@@ -247,32 +186,11 @@ class SmartOfferMatcher:
             used_categories[category] = cat_count + 1
             used_networks[network] = net_count + 1
         
-        # If diversity filtering was too strict, fill remaining from top scores
         if len(selected) < count:
             remaining = [o for o in scored_offers if o not in selected]
             selected.extend(remaining[:count - len(selected)])
         
         return selected[:count]
-    
-    def _extract_keywords(self, names: list) -> list:
-        """Extract meaningful keywords from offer names"""
-        stop_words = {
-            'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-            'of', 'with', 'by', '&', '-', '+', 'all', 'geos', 'global', 'incent',
-            'allowed', 'offer', 'new', 'hot', 'best', 'top', 'free', 'get',
-        }
-        
-        keywords = set()
-        for name in names:
-            if not name:
-                continue
-            words = re.split(r'[\s\-_/|,]+', name.lower())
-            for w in words:
-                w = re.sub(r'[^a-z0-9]', '', w)
-                if w and len(w) > 2 and w not in stop_words:
-                    keywords.add(w)
-        
-        return list(keywords)[:20]
     
     def _offer_projection(self) -> dict:
         """Standard projection for offer queries"""
@@ -289,41 +207,132 @@ class SmartOfferMatcher:
             'image_url': 1,
             'thumbnail_url': 1,
             'preview_url': 1,
+            'target_url': 1,
+            'tracking_url': 1,
             'created_at': 1,
             'conversion_rate': 1,
             'description': 1,
         }
-    
+
     def preview_campaign(self, user_ids: list, config: dict) -> dict:
         """
         Generate a preview of what offers would be sent to each user.
         Used by admin to review before confirming.
+        Includes user stats: mail sent, clicks, conversions, offers sent.
         """
         matches = self.get_offers_for_users(user_ids, config)
         
-        # Enrich with user info
+        # Enrich with user info and stats
         users_col = db_instance.get_collection('users')
+        clicks_col = db_instance.get_collection('clicks')
+        conversions_col = db_instance.get_collection('conversions')
+        email_activity_col = db_instance.get_collection('email_activity_logs')
+        offer_send_col = db_instance.get_collection('offer_send_history')
+        push_mail_col = db_instance.get_collection('push_mail_history')
+        
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        
         preview = []
         
         for user_id in user_ids:
             user_data = matches.get(user_id, {'emails': [], 'total_offers': 0})
             
             # Get user info
-            user_info = {'username': 'Unknown', 'email': ''}
+            user_info = {'username': 'Unknown', 'email': '', 'first_name': ''}
             try:
                 from bson import ObjectId
-                user = users_col.find_one({'_id': ObjectId(user_id)}, {'username': 1, 'email': 1})
+                user = users_col.find_one({'_id': ObjectId(user_id)}, {'username': 1, 'email': 1, 'first_name': 1})
                 if user:
-                    user_info = {'username': user.get('username', ''), 'email': user.get('email', '')}
+                    user_info = {
+                        'username': user.get('username', ''),
+                        'email': user.get('email', ''),
+                        'first_name': user.get('first_name', ''),
+                    }
             except:
                 pass
+            
+            # Get user stats
+            uid_str = str(user_id)
+            total_clicks = 0
+            total_conversions = 0
+            total_mail_sent = 0
+            mail_sent_today = 0
+            last_mail_sent = None
+            total_offers_sent = 0
+            offers_sent_today = 0
+            
+            try:
+                if clicks_col is not None:
+                    total_clicks = clicks_col.count_documents({'user_id': uid_str})
+                if conversions_col is not None:
+                    total_conversions = conversions_col.count_documents({'user_id': uid_str})
+                
+                # Mail stats from multiple collections
+                user_email = user_info.get('email', '')
+                def _user_mail_query():
+                    conditions = [{'user_id': uid_str}, {'recipient_user_ids': uid_str}, {'recipient_ids': uid_str}]
+                    if user_email:
+                        conditions.append({'recipient_emails': user_email})
+                    return {'$or': conditions}
+                
+                uq = _user_mail_query()
+                
+                if email_activity_col is not None:
+                    total_mail_sent += email_activity_col.count_documents(uq)
+                    mail_sent_today += email_activity_col.count_documents({**uq, 'created_at': {'$gte': today_start}})
+                    last_doc = email_activity_col.find_one(uq, sort=[('created_at', -1)])
+                    if last_doc:
+                        last_mail_sent = last_doc.get('created_at')
+                    for doc in email_activity_col.find(uq, {'offer_ids': 1, 'offer_count': 1, 'created_at': 1}):
+                        oc = doc.get('offer_count', len(doc.get('offer_ids', [])))
+                        total_offers_sent += oc
+                        if doc.get('created_at') and doc['created_at'] >= today_start:
+                            offers_sent_today += oc
+                
+                if offer_send_col is not None:
+                    for doc in offer_send_col.find(uq, {'offer_ids': 1, 'offer_count': 1, 'created_at': 1}):
+                        total_mail_sent += 1
+                        oc = doc.get('offer_count', len(doc.get('offer_ids', [])))
+                        total_offers_sent += oc
+                        dt = doc.get('created_at')
+                        if dt:
+                            if dt >= today_start:
+                                mail_sent_today += 1
+                                offers_sent_today += oc
+                            if last_mail_sent is None or dt > last_mail_sent:
+                                last_mail_sent = dt
+                
+                if push_mail_col is not None:
+                    for doc in push_mail_col.find(uq, {'offer_ids': 1, 'created_at': 1}):
+                        total_mail_sent += 1
+                        oc = len(doc.get('offer_ids', []))
+                        total_offers_sent += oc
+                        dt = doc.get('created_at')
+                        if dt:
+                            if dt >= today_start:
+                                mail_sent_today += 1
+                                offers_sent_today += oc
+                            if last_mail_sent is None or dt > last_mail_sent:
+                                last_mail_sent = dt
+            except Exception as stats_err:
+                logger.warning(f"Error fetching stats for user {user_id}: {stats_err}")
             
             preview.append({
                 'user_id': user_id,
                 'username': user_info['username'],
                 'email': user_info['email'],
+                'first_name': user_info.get('first_name', ''),
                 'total_offers': user_data['total_offers'],
                 'emails': user_data['emails'],
+                'stats': {
+                    'total_mail_sent': total_mail_sent,
+                    'mail_sent_today': mail_sent_today,
+                    'last_mail_sent': last_mail_sent,
+                    'total_offers_sent': total_offers_sent,
+                    'offers_sent_today': offers_sent_today,
+                    'total_clicks': total_clicks,
+                    'total_conversions': total_conversions,
+                },
             })
         
         return {'preview': preview, 'total_users': len(user_ids)}

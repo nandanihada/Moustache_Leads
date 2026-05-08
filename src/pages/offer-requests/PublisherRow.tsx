@@ -656,6 +656,14 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                                           {inv.health?.failures && inv.health.failures.length > 0 && (
                                             <div className="flex flex-wrap gap-1">{inv.health.failures.map(f => (<span key={f.criterion} className="inline-flex items-center gap-0.5 text-[9px] text-red-600 bg-red-50 border border-red-100 rounded px-1.5 py-0.5"><span className="w-1 h-1 rounded-full bg-red-400" />{f.criterion.replace(/_/g, ' ')}{f.detail ? `: ${f.detail}` : ''}</span>))}</div>
                                           )}
+                                          {/* Offer info tags */}
+                                          <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-dashed">
+                                            {!inv.image_url && !inv.thumbnail_url && <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">🖼 No Image</span>}
+                                            {!inv.category && !inv.vertical && <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">🏷 No Vertical</span>}
+                                            {!inv.description ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">📝 No Desc</span> : <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-100 text-green-700 font-medium">📝 Has Desc</span>}
+                                            {inv.target_url || inv.tracking_url ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">🔗 Target</span> : <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">🔗 No Target</span>}
+                                            {inv.preview_url ? <span className="text-[9px] px-1.5 py-0.5 rounded bg-cyan-100 text-cyan-700 font-medium">👁 Preview</span> : <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-medium">👁 No Preview</span>}
+                                          </div>
                                         </div>
                                       ))}
                                     </div>

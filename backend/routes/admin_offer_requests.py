@@ -482,6 +482,10 @@ def get_inventory_matches():
                 'countries': 1,
                 'allowed_countries': 1,
                 'rotation_running': 1,
+                'description': 1,
+                'target_url': 1,
+                'preview_url': 1,
+                'tracking_url': 1,
             }
         ).limit(limit * 3))  # Fetch extra to account for filtering
         
@@ -587,6 +591,7 @@ def get_inventory_matches():
                 'payout': offer.get('payout', 0),
                 'network': offer.get('network', ''),
                 'category': offer.get('category', ''),
+                'vertical': offer.get('vertical', ''),
                 'image_url': offer.get('image_url', ''),
                 'thumbnail_url': offer.get('thumbnail_url', ''),
                 'countries': offer.get('countries', offer.get('allowed_countries', [])),
@@ -600,6 +605,10 @@ def get_inventory_matches():
                 'is_in_rotation': is_in_rotation_batch,
                 'grant_count': grant_counts.get(oid, 0),
                 'already_sent': oid in already_sent_offer_ids,
+                'description': offer.get('description', ''),
+                'target_url': offer.get('target_url', ''),
+                'preview_url': offer.get('preview_url', ''),
+                'tracking_url': offer.get('tracking_url', ''),
             })
         
         # Sort by match strength (Strong first) then by payout

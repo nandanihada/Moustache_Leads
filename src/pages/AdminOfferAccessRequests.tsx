@@ -123,6 +123,12 @@ export interface Inv {
   image_url?: string;
   thumbnail_url?: string;
   countries?: string[];
+  category?: string;
+  vertical?: string;
+  description?: string;
+  target_url?: string;
+  preview_url?: string;
+  tracking_url?: string;
 }
 
 // ─── Exported Helpers ────────────────────────────────────────────────────────
