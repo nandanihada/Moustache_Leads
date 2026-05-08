@@ -14,9 +14,10 @@ import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { UserIntelligenceProfile } from '@/components/UserIntelligenceProfile';
+import UserIntelligenceProfile from '@/components/UserIntelligenceProfile';
 import { BulkOfferAutomationDialog } from '@/components/BulkOfferAutomationDialog';
 import { OfferQueueDashboardModal } from '@/components/OfferQueueDashboardModal';
+import { SmartMessagePanel } from '@/components/SmartMessagePanel';
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
@@ -150,6 +151,7 @@ interface AggregatedUser {
   failedLogin?: boolean;
   verticals?: string[];
   geoPreferences?: string[];
+  hasSearchActivity?: boolean;
 }
 
 
@@ -338,6 +340,63 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
         </div>
       </div>
 
+      {/* Smart Messaging Integration */}
+      <div className="mt-6 border-t border-slate-100 pt-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <SmartMessagePanel 
+              user={{
+                user_id: user.user_id,
+                username: user.username,
+                email: user.email,
+                country: user.country,
+                city: user.city,
+                verticals: user.verticals,
+                geoPreferences: user.geoPreferences,
+                recentOffers: offerViews.slice(0, 5).map(o => o.offer_name || o.name)
+              }}
+              onMessageSent={() => {
+                if (onMailSent) onMailSent();
+              }}
+            />
+          </div>
+          <div className="space-y-4">
+            <Card className="border-purple-100 shadow-sm h-full bg-white">
+              <CardHeader className="pb-2 border-b bg-purple-50/30">
+                <CardTitle className="text-sm font-semibold text-purple-900 flex items-center gap-2">
+                  <Activity size={16} className="text-purple-600" /> User Persona
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-4">
+                <div className="space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Core Interests</div>
+                  <div className="flex flex-wrap gap-1">
+                    {user.verticals?.slice(0, 3).map(v => (
+                      <Badge key={v} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 text-[10px]">{v}</Badge>
+                    )) || <span className="text-xs text-slate-400 italic">No vertical data</span>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Geo Preferences</div>
+                  <div className="flex flex-wrap gap-1">
+                    {user.geoPreferences?.slice(0, 3).map(g => (
+                      <Badge key={g} variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100 text-[10px]">{g}</Badge>
+                    )) || <span className="text-xs text-slate-400 italic">No geo data</span>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Last Activity</div>
+                  <div className="text-xs text-gray-700 font-medium flex items-center gap-1">
+                    <Clock size={12} className="text-gray-400" />
+                    {user.latest_login ? new Date(user.latest_login).toLocaleString() : 'Recently'}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+
       <div id="intelligence-dashboard" className="border-t border-slate-200 pt-6 mt-6">
         <UserIntelligenceProfile
           log={{ ...mockLog, user_id: user.user_id, username: user.username, email: user.email, geoPreferences: user.geoPreferences, verticals: user.verticals }}
@@ -348,7 +407,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
           userSignals={signals}
           scheduledActivity={scheduledActivity}
           offerTargeting={offerTargeting}
-          allowedTabs={['login', 'activity', 'browsing', 'reco', 'automation']}
+          allowedTabs={['login', 'activity', 'browsing', 'reco', 'automation', 'messaging']}
           activeTab={activeTab}
           onTabChange={setActiveTab}
         />
@@ -437,6 +496,7 @@ const AdminRecentActivity: React.FC = () => {
           // Show ONLY users with failed logins
           if (u.logs.some(l => l.status === 'failed')) match = true;
         }
+        if (advancedFilters.status.includes('Searched Something') && u.hasSearchActivity) match = true;
         if (!match) return false;
       }
       // 4. Mail Status
@@ -510,13 +570,19 @@ const AdminRecentActivity: React.FC = () => {
 
       // Fetch logs and mail history in parallel
       const token = localStorage.getItem('token');
-      const [logsRes, mailRes, usersRes] = await Promise.all([
+      const [logsRes, mailRes, usersRes, searchRes] = await Promise.all([
         loginLogsService.getLoginLogs(params).catch(() => ({ logs: [] })),
         loginLogsService.getMailHistory(undefined, 2000).catch(() => ({ history: [] })),
         fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/admin/users`, {
           headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()).catch(() => ({ users: [] }))
+        }).then(r => r.json()).catch(() => ({ users: [] })),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?date_from=${params.start_date}&date_to=${params.end_date}&per_page=2000`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).catch(() => ({ logs: [] }))
       ]);
+
+      // Process search activity
+      const searchUserIds = new Set(searchRes.logs?.map((l: any) => l.user_id).filter(Boolean) || []);
 
       // Process mail history
       const mailMap = new Map<string, { welcome: string | null, referral: string | null, total: number }>();
@@ -617,7 +683,8 @@ const AdminRecentActivity: React.FC = () => {
             lng,
             country: getCountry(log, profile),
             verticals: profile.verticals || [],
-            geoPreferences: profile.geos || []
+            geoPreferences: profile.geos || [],
+            hasSearchActivity: searchUserIds.has(key) || searchUserIds.has(log.user_id)
           });
         }
         const userAgg = userMap.get(key)!;
@@ -723,13 +790,6 @@ const AdminRecentActivity: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    
-    // Auto-refresh data every 30 seconds to automatically track and show new user locations
-    const intervalId = setInterval(() => {
-      loadData();
-    }, 30000);
-    
-    return () => clearInterval(intervalId);
   }, [timeFilter]);
 
   const toggleUserSelection = (userId: string) => {
@@ -1304,6 +1364,7 @@ const AdminRecentActivity: React.FC = () => {
                   if (hasFailed) badges.push({ text: 'Failed', cls: 'bg-[#F7C1C1] text-[#791F1F]' });
                   if (isNewDevice) badges.push({ text: 'New device', cls: 'bg-[#FAC775] text-[#633806]' });
                   if (isMulti) badges.push({ text: `${user.login_count}x logins`, cls: 'bg-[#CECBF6] text-[#3C3489]' });
+                  if (user.hasSearchActivity) badges.push({ text: 'Searched', cls: 'bg-purple-100 text-purple-700 border border-purple-200' });
                   if (badges.length === 0) badges.push({ text: 'OK', cls: 'bg-[#C0DD97] text-[#27500A]' });
 
                   let theme = { row: 'bg-muted/10 border-transparent hover:border-border', bar: 'bg-border', avatar: 'bg-[#D3D1C7] text-[#2C2C2A]', loginBadge: 'bg-[#D3D1C7] text-[#2C2C2A]' };
@@ -1445,7 +1506,7 @@ const ALL_COUNTRIES = [
 ];
 const ADVANCED_VERTICALS = ['Sweeps', 'Finance', 'Dating', 'CPA', 'CPI', 'Crypto', 'Nutra', 'E-commerce', 'Gaming', 'Software', 'Surveys', 'Other'];
 const LOGIN_COUNTS = ['Any', '1x', '2x', '3x', '4x', '5x+'];
-const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only'];
+const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only', 'Searched Something'];
 const MAIL_STATUS_OPTIONS = ['Welcome Mail Not Sent', 'Referral Mail Not Sent', 'Welcome Mail Sent', 'Referral Mail Sent'];
 
 const AdvancedFilterModal: React.FC<{

@@ -704,6 +704,15 @@ class AdminOfferApi {
     return this.handleResponse(response);
   }
 
+  async aiExtractOffers(payload: { text?: string; image?: string }): Promise<{ offers: any[] }> {
+    const response = await fetch(`${API_BASE_URL}/offers/ai-extract`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return this.handleResponse(response);
+  }
+
   async aiExtractParts(offers: Array<{ offer_id: string; name: string; description?: string; vertical?: string; category?: string; countries?: string[] }>): Promise<{
     extractions: Record<string, {
       brand: string; amount: string; geo: string; optin: string;

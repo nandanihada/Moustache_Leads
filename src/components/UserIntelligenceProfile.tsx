@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { loginLogsService } from "@/services/loginLogsService";
 import { offerQueueService, OfferQueueItem, QueueStatus } from '@/services/offerQueueService';
+import { SmartMessagePanel } from '@/components/SmartMessagePanel';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -943,7 +944,8 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               { id: 'activity', label: 'Recent Activity' },
               { id: 'browsing', label: 'Currently Browsing' },
               { id: 'reco', label: 'Offer Reco' },
-              { id: 'automation', label: 'Automation' }
+              { id: 'automation', label: 'Automation' },
+              { id: 'messaging', label: 'Messaging' }
             ].filter(tab => !allowedTabs || allowedTabs.includes(tab.id)).map(tab => (
               <button
                 key={tab.id}
@@ -962,6 +964,21 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
       {/* Content Area */}
       <div className="p-6 bg-slate-50/50 min-h-[400px]">
+        {activeTab === 'messaging' && (
+          <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-3xl mx-auto">
+             <SmartMessagePanel 
+                user={{
+                  user_id: log.user_id || log._id,
+                  username: log.username,
+                  email: log.email,
+                  country: userCountry,
+                  verticals: (Array.isArray(userSignals?.top_categories) ? userSignals.top_categories : []),
+                  geoPreferences: log.geoPreferences,
+                  recentOffers: safeOfferViews.slice(0, 5).map(o => o.offer_details?.name || o.offer_name)
+                }}
+             />
+          </div>
+        )}
 
         {/* TAB: LOGIN LOGS */}
         {activeTab === 'login' && (
@@ -1504,6 +1521,58 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
         {/* TAB: AUTOMATION */}
         {activeTab === 'automation' && <UserAutomationTab verticalData={verticalData} log={log} offerTargeting={offerTargeting} userLogs={userLogs} offerViews={safeOfferViews} scheduledActivity={safeScheduled} onSendOffers={handleSendOffers} sendingOffers={sendingOffers} />}
+
+        {/* TAB: MESSAGING */}
+        {activeTab === 'messaging' && (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2">
+                <SmartMessagePanel 
+                  user={{
+                    user_id: log.user_id,
+                    username: log.username,
+                    email: log.email,
+                    country: log.location?.country || userCountry,
+                    city: log.location?.city || 'Unknown',
+                    verticals: log.verticals || [],
+                    geoPreferences: log.geoPreferences || [],
+                    recentOffers: safeOfferViews.slice(0, 5).map(o => o.offer_name || o.name)
+                  }}
+                  onMessageSent={() => {
+                    toast({
+                      title: "Message History Updated",
+                      description: "Communication logged in intelligence profile."
+                    });
+                  }}
+                />
+              </div>
+              <div className="space-y-6">
+                <div className="bg-white border rounded-xl p-5 shadow-sm">
+                  <h3 className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <Activity size={14} className="text-blue-500" /> Interaction Intelligence
+                  </h3>
+                  <div className="space-y-4">
+                    <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100">
+                      <div className="text-[10px] text-blue-600 font-bold uppercase mb-1">Recommended Outreach</div>
+                      <div className="text-xs text-blue-800 leading-relaxed">
+                        User shows high affinity for <strong>{log.verticals?.[0] || 'various'}</strong> offers. 
+                        Geo-preferences align with <strong>{log.geoPreferences?.[0] || 'global'}</strong> markets.
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="text-[10px] text-gray-500 font-bold uppercase">Communication Channels</div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="secondary" className="bg-slate-100 text-slate-600">Email Dispatch</Badge>
+                        <Badge variant="secondary" className="bg-sky-100 text-sky-600">Telegram Link</Badge>
+                        <Badge variant="secondary" className="bg-indigo-100 text-indigo-600">Teams Direct</Badge>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <style>{`*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F3EF;color:#1a1a18;font-size:13px}
 
