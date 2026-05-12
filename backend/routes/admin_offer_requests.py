@@ -1119,9 +1119,9 @@ def get_all_access_requests():
         if date_from or date_to:
             date_query = {}
             if date_from:
-                date_query['$gte'] = dt.fromisoformat(date_from)
+                date_query['$gte'] = datetime.fromisoformat(date_from)
             if date_to:
-                date_to_dt = dt.fromisoformat(date_to)
+                date_to_dt = datetime.fromisoformat(date_to)
                 date_query['$lte'] = date_to_dt.replace(hour=23, minute=59, second=59)
             query['requested_at'] = date_query
 
@@ -3103,7 +3103,7 @@ def get_charts_data():
         push_history_col = db_instance.get_collection('push_mail_history')
         clicks_col = db_instance.get_collection('clicks')
 
-        now = dt.utcnow()
+        now = datetime.utcnow()
         days_30_ago = now - timedelta(days=30)
 
         # ── Chart 1: Email Campaign Funnel (REAL DATA ONLY) ──

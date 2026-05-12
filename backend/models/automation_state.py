@@ -18,6 +18,9 @@ class AutomationState:
             upsert=True
         )
 
+    def delete_user_state(self, user_id):
+        return self.collection.delete_one({'user_id': str(user_id)})
+
     def get_active_queue(self):
         return list(self.collection.find({'queue_status': 'active'}))
 
@@ -31,7 +34,7 @@ class AutomationState:
             settings = {
                 'type': 'global',
                 'enabled': True,
-                'initial_delay_hours': 5,
+                'initial_delay_hours': 0,
                 'step_interval_minutes': 200, # 3h 20m
                 'cooldown_days': 7,
                 'updated_at': datetime.utcnow()

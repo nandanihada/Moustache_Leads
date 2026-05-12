@@ -31,16 +31,31 @@ def log_signup_attempt(data: dict, status: str, error_message: str = None):
             from services.ipinfo_service import get_ipinfo_service
             geo_service = get_ipinfo_service()
             ip_data = geo_service.lookup_ip(ip_address)
+            
+            country_hint = request.headers.get('CF-IPCountry')
+            
             if ip_data:
+                country = ip_data.get('country', 'Unknown')
+                country_code = ip_data.get('country_code', 'XX')
+                
+                # Apply hint if IP data is missing country
+                if (country == 'Unknown' or country_code == 'XX') and country_hint and country_hint != 'XX':
+                    country_code = country_hint
+                    country = geo_service.country_names.get(country_code, country_code)
+                
                 location = {
                     'city': ip_data.get('city', 'Unknown'),
                     'region': ip_data.get('region', 'Unknown'),
-                    'country': ip_data.get('country', 'Unknown'),
-                    'country_code': ip_data.get('country_code', 'XX'),
+                    'country': country,
+                    'country_code': country_code,
                     'latitude': ip_data.get('latitude', 0),
                     'longitude': ip_data.get('longitude', 0),
                     'isp': ip_data.get('isp', 'Unknown')
                 }
+            elif country_hint and country_hint != 'XX':
+                # Only hint available
+                location['country_code'] = country_hint
+                location['country'] = geo_service.country_names.get(country_hint, country_hint)
         except Exception as loc_err:
             logging.warning(f"Could not get location for signup: {loc_err}")
         

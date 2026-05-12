@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Zap, Clock, Send, Mail, ShieldCheck, RefreshCw, X, Search, Filter, MoreVertical, SkipForward, RotateCcw, Pause, Play, AlertCircle, CheckCircle2, Eye, Edit3, CalendarClock } from 'lucide-react';
+import { Zap, Clock, Send, Mail, ShieldCheck, RefreshCw, X, Search, Filter, MoreVertical, SkipForward, RotateCcw, Pause, Play, AlertCircle, CheckCircle2, Eye, Edit3, CalendarClock, Trash2 } from 'lucide-react';
 import { 
   DropdownMenu, 
   DropdownMenuContent, 
@@ -20,7 +20,7 @@ import AutomationSendNowModal from './AutomationSendNowModal';
 export interface AutomationQueueItem {
   user_id: string;
   username: string;
-  queue_status: 'active' | 'completed' | 'paused';
+  queue_status: 'active' | 'completed' | 'paused' | 'removed';
   current_step: number;
   next_mail_time: string;
   cooldown_until: string;
@@ -45,6 +45,8 @@ export interface AutomationQueueItem {
     countries: string[];
     network: string;
   }[];
+  custom_subject?: string;
+  custom_message?: string;
 }
 
 export const AutomationQueueDashboardModal: React.FC<{
@@ -56,11 +58,12 @@ export const AutomationQueueDashboardModal: React.FC<{
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'active' | 'completed' | 'failed' | 'pending' | 'sent'>('all');
-  const [recentOnly, setRecentOnly] = useState(true); // Default to true as per user request
+  const [filter, setFilter] = useState<'all' | 'active' | 'paused' | 'pending' | 'sent' | 'completed' | 'failed' | 'removed'>('all');
+  const [recentOnly, setRecentOnly] = useState(false); // Default to false to ensure visibility of all cycles
   const [selectedQueueItem, setSelectedQueueItem] = useState<AutomationQueueItem | null>(null);
   const [offerModalOpen, setOfferModalOpen] = useState(false);
   const [sendNowOpen, setSendNowOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [initialPreviewMode, setInitialPreviewMode] = useState(false);
   const [tick, setTick] = useState(0);
   const { toast } = useToast();
@@ -92,16 +95,34 @@ export const AutomationQueueDashboardModal: React.FC<{
     }
   };
 
-  const handleSync = async () => {
+  const handleSync = async (forceReset: boolean = false) => {
     setSyncing(true);
     try {
       const token = localStorage.getItem('token');
+      
+      if (forceReset) {
+        // Hard wipe before discovery
+        await fetch(`${apiUrl}/api/admin/automation/purge`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      }
+
       const res = await fetch(`${apiUrl}/api/admin/automation/sync`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ force_reset: forceReset })
       });
       const data = await res.json();
-      toast({ title: 'Sync Complete', description: `Successfully added ${data.count || 0} active users to the automation flow.` });
+      toast({ 
+        title: forceReset ? 'Clean Start Initialized' : 'Sync Complete', 
+        description: forceReset 
+          ? `System purged and ${data.count || 0} active users discovered.`
+          : `Successfully added ${data.count || 0} active users to the flow.` 
+      });
       loadQueue();
     } catch (e) {
       toast({ title: 'Sync Error', description: 'Failed to sync active users', variant: 'destructive' });
@@ -109,7 +130,30 @@ export const AutomationQueueDashboardModal: React.FC<{
       setSyncing(false);
     }
   };
-  const handleOverride = async (userId: string, action: string, step?: number) => {
+
+  const handlePurge = async () => {
+    if (!window.confirm("CRITICAL WARNING: This will PERMANENTLY DELETE all user automation states, history, and stats. This cannot be undone. Wipe everything?")) return;
+    
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${apiUrl}/api/admin/automation/purge`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        toast({ title: 'System Purged', description: 'All automation data has been cleared.' });
+        loadQueue();
+      } else {
+        toast({ title: 'Error', description: 'Failed to purge data', variant: 'destructive' });
+      }
+    } catch (e) {
+      toast({ title: 'Error', description: 'Network error', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
+  };
+  const handleOverride = async (userId: string, action: 'pause' | 'resume' | 'complete' | 'reset' | 'skip' | 'remove' | 'restore' | 'delete_permanent' | 'pin' | 'save-content' | 'retry', step?: number | string, data?: any) => {
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`${apiUrl}/api/admin/automation/override`, {
@@ -192,15 +236,19 @@ export const AutomationQueueDashboardModal: React.FC<{
     const userId = (item.user_id || '').toLowerCase();
     
     const matchesSearch = username.includes(searchLower) || userId.includes(searchLower);
-    const matchesFilter = filter === 'all' || 
+    const matchesFilter = filter === 'all' ? item.queue_status !== 'removed' :
                          (filter === 'active' && item.queue_status === 'active') ||
+                         (filter === 'paused' && item.queue_status === 'paused') ||
                          (filter === 'completed' && item.queue_status === 'completed') ||
-                         (filter === 'failed' && item.delivery_status === 'failed') ||
+                         (filter === 'removed' && item.queue_status === 'removed') ||
                          (filter === 'pending' && item.queue_status === 'active' && item.delivery_status === 'pending') ||
-                         (filter === 'sent' && (item.current_step || 0) > 0);
+                         (filter === 'sent' && item.queue_status !== 'removed' && (item.current_step || 0) > 0) ||
+                         (filter === 'failed' && item.delivery_status === 'failed' && item.queue_status !== 'removed');
     
-    // Recent Activity Filter (Last 24h)
-    const isRecent = !recentOnly || (item.last_login && new Date(item.last_login).getTime() > Date.now() - 24 * 60 * 60 * 1000);
+    // Recent Activity Filter (Expanded to 36h to handle 'Yesterday' activity and timezone drift)
+    const isReady = new Date(item.next_mail_time).getTime() <= Date.now();
+    const lastLoginTime = item.last_login ? new Date(item.last_login).getTime() : 0;
+    const isRecent = !recentOnly || isReady || (lastLoginTime > Date.now() - 36 * 60 * 60 * 1000);
     
     return matchesSearch && matchesFilter && isRecent;
   }).sort((a, b) => {
@@ -216,15 +264,19 @@ export const AutomationQueueDashboardModal: React.FC<{
   };
 
   const stats = {
-    active: queue.filter(q => q.queue_status === 'active').length,
+    active: queue.filter(q => q.queue_status === 'active' && q.delivery_status !== 'failed').length,
     completed: queue.filter(q => q.queue_status === 'completed').length,
-    totalDelivered: queue.reduce((acc, q) => acc + (q.current_step || 0), 0),
-    pendingNext: queue.filter(q => q.queue_status === 'active' && q.delivery_status === 'pending').length
+    totalDelivered: queue.filter(q => q.queue_status !== 'removed').reduce((acc, q) => acc + (q.current_step || 0), 0),
+    pendingNext: queue.filter(q => q.queue_status === 'active' && q.delivery_status === 'pending').length,
+    readyToSend: queue.filter(q => q.queue_status === 'active' && new Date(q.next_mail_time).getTime() <= Date.now()).length,
+    failed: queue.filter(q => q.delivery_status === 'failed' && q.queue_status !== 'removed').length,
+    paused: queue.filter(q => q.queue_status === 'paused').length,
+    removed: queue.filter(q => q.queue_status === 'removed').length
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+      <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col p-0 overflow-hidden border border-slate-200 shadow-2xl rounded-2xl">
         <DialogHeader className="px-6 py-4 border-b bg-slate-50">
           <DialogTitle className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -232,26 +284,154 @@ export const AutomationQueueDashboardModal: React.FC<{
               <span>Automation Engine: Live User Queue</span>
             </div>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" onClick={handleSync} disabled={syncing || loading} className="border-amber-200 text-amber-700 hover:bg-amber-50">
-                <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-                Sync Active Users
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={syncing || loading} className="border-amber-200 text-amber-700 hover:bg-amber-50">
+                    <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+                    Sync Active Users
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>Sync Options</DropdownMenuLabel>
+                  <DropdownMenuItem onClick={() => handleSync(false)}>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    <span>Sync New Users Only</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => {
+                    if (window.confirm("WARNING: This will RESET ALL SELECTED USERS (including completed/removed) back to Step 0. Continue?")) {
+                      handleSync(true);
+                    }
+                  }} className="text-red-600 font-bold">
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    <span>Full System Reset & Sync</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handlePurge} className="text-red-900 font-black bg-red-50">
+                    <Trash2 className="mr-2 h-4 w-4 text-red-600" />
+                    <span>WIPE ALL DATA (Hard Reset)</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <Button size="sm" variant="outline" onClick={loadQueue} disabled={loading}>
                 <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Refresh Data
               </Button>
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2 animate-in zoom-in duration-200">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="border-amber-200 text-amber-600 hover:bg-amber-50 font-black text-[10px] h-8 gap-2"
+                    onClick={() => {
+                      selectedIds.forEach(id => handleOverride(id, 'pause'));
+                      setSelectedIds(new Set());
+                    }}
+                  >
+                    <Pause size={14} />
+                    BULK PAUSE ({selectedIds.size})
+                  </Button>
+
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="border-emerald-200 text-emerald-600 hover:bg-emerald-50 font-black text-[10px] h-8 gap-2"
+                    onClick={() => {
+                      selectedIds.forEach(id => handleOverride(id, 'resume'));
+                      setSelectedIds(new Set());
+                    }}
+                  >
+                    <Play size={14} />
+                    BULK RESUME ({selectedIds.size})
+                  </Button>
+
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="border-red-200 text-red-600 hover:bg-red-50 font-black text-[10px] h-8 gap-2"
+                    onClick={() => {
+                      if (window.confirm(`Permanently REMOVE ${selectedIds.size} users from the automation queue?`)) {
+                        selectedIds.forEach(id => handleOverride(id, 'remove'));
+                        setSelectedIds(new Set());
+                      }
+                    }}
+                  >
+                    <Trash2 size={14} />
+                    BULK REMOVE ({selectedIds.size})
+                  </Button>
+
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    className="border-blue-200 text-blue-600 hover:bg-blue-50 font-black text-[10px] h-8 gap-2"
+                    onClick={() => {
+                      const completedCount = queue.filter(q => selectedIds.has(q.user_id) && q.queue_status === 'completed').length;
+                      let confirmMsg = `Restore/Reset ${selectedIds.size} users to active outreach?`;
+                      if (completedCount > 0) {
+                        confirmMsg = `${completedCount} of these users have ALREADY COMPLETED their cycle. Do you want to RESTART them from Step 0 with a 5-hour delay?`;
+                      }
+
+                      if (window.confirm(confirmMsg)) {
+                        selectedIds.forEach(id => {
+                          const item = queue.find(q => q.user_id === id);
+                          if (item?.queue_status === 'removed') {
+                            handleOverride(id, 'restore');
+                          } else if (item?.queue_status === 'completed') {
+                            handleOverride(id, 'reset');
+                          } else {
+                            handleOverride(id, 'resume');
+                          }
+                        });
+                        setSelectedIds(new Set());
+                      }
+                    }}
+                  >
+                    <RefreshCw size={14} />
+                    BULK RESTORE/RESET ({selectedIds.size})
+                  </Button>
+                  
+                  <Button 
+                    size="sm" 
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg font-black text-[10px] h-8 gap-2 animate-in zoom-in duration-300"
+                    onClick={() => {
+                      const selectedItems = queue.filter(item => selectedIds.has(item.user_id));
+                      if (selectedItems.length > 0) {
+                        setSelectedQueueItem(selectedItems[0]); 
+                        setSendNowOpen(true);
+                        setInitialPreviewMode(true); 
+                      }
+                    }}
+                  >
+                    <Zap size={14} className="fill-white" />
+                    BULK START NOW ({selectedIds.size})
+                  </Button>
+                </div>
+              )}
             </div>
           </DialogTitle>
         </DialogHeader>
-        <div className="px-6 py-3 border-b bg-slate-50/30 grid grid-cols-4 gap-4">
+        <div className="px-6 py-3 border-b bg-slate-50/30 grid grid-cols-6 gap-3">
           <div 
             className={`flex flex-col cursor-pointer p-2 rounded-lg transition-all ${filter === 'active' ? 'bg-blue-50 border border-blue-200 shadow-sm' : 'hover:bg-slate-100 border border-transparent'}`}
             onClick={() => setFilter('active')}
           >
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Cycles</span>
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-black text-blue-600">{stats.active}</span>
-              <span className="text-[10px] text-slate-400 font-medium">Users tracking</span>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl font-black text-blue-600 leading-none">{stats.active}</span>
+              <div className="flex flex-col border-l pl-3 border-blue-100">
+                <span className="text-[10px] text-slate-400 font-bold uppercase leading-tight">In Flow</span>
+                <span className="text-[11px] font-black text-indigo-500 leading-tight">
+                  {queue.filter(q => {
+                    if (!q.last_login) return false;
+                    const loginDate = new Date(q.last_login);
+                    const today = new Date();
+                    return loginDate.getDate() === today.getDate() && 
+                           loginDate.getMonth() === today.getMonth() && 
+                           loginDate.getFullYear() === today.getFullYear();
+                  }).length} Total Active Today
+                </span>
+              </div>
             </div>
           </div>
           <div 
@@ -268,14 +448,21 @@ export const AutomationQueueDashboardModal: React.FC<{
           </div>
           <div 
             className={`flex flex-col border-l pl-4 cursor-pointer p-2 rounded-lg transition-all ${filter === 'pending' ? 'bg-amber-50 border border-amber-200 shadow-sm' : 'hover:bg-slate-100 border border-transparent'}`}
-            onClick={() => {
-                setFilter('pending');
-            }}
+            onClick={() => setFilter('pending')}
           >
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">In Queue (Pending)</span>
             <div className="flex items-center gap-2">
               <span className="text-xl font-black text-amber-500">{stats.pendingNext}</span>
               <span className="text-[10px] text-slate-400 font-medium">Waiting to go</span>
+            </div>
+          </div>
+          <div 
+            className="flex flex-col border-l pl-4 p-2 rounded-lg bg-emerald-50 border border-emerald-200"
+          >
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ready to Send</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-black text-emerald-600">{stats.readyToSend}</span>
+              <span className="text-[10px] text-emerald-600 font-bold animate-pulse">Now</span>
             </div>
           </div>
           <div 
@@ -285,7 +472,19 @@ export const AutomationQueueDashboardModal: React.FC<{
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Completed</span>
             <div className="flex items-center gap-2">
               <span className="text-xl font-black text-slate-600">{stats.completed}</span>
-              <span className="text-[10px] text-slate-400 font-medium">Finished cycles</span>
+              <span className="text-[10px] text-slate-400 font-medium">Finished</span>
+            </div>
+          </div>
+          <div 
+            className={`flex flex-col border-l pl-4 cursor-pointer p-2 rounded-lg transition-all ${filter === 'removed' ? 'bg-red-50 border border-red-200 shadow-sm' : 'hover:bg-slate-100 border border-transparent'}`}
+            onClick={() => setFilter('removed')}
+          >
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Removed</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-black text-red-600">{stats.removed}</span>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-slate-400 font-medium">On Hold</span>
+              </div>
             </div>
           </div>
         </div>
@@ -301,16 +500,29 @@ export const AutomationQueueDashboardModal: React.FC<{
                 onChange={e => setSearch(e.target.value)}
               />
             </div>
-            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
-              {(['all', 'active', 'pending', 'sent', 'completed', 'failed'] as const).map(f => (
-                <button
-                  key={f}
-                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all capitalize ${filter === f ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-600 hover:text-indigo-50'}`}
-                  onClick={() => setFilter(f)}
-                >
-                  {f}
-                </button>
-              ))}
+            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 overflow-x-auto custom-scrollbar">
+              {(['all', 'active', 'paused', 'pending', 'sent', 'completed', 'removed', 'failed'] as const).map(f => {
+                const count = f === 'all' ? queue.filter(q => q.queue_status !== 'removed').length : 
+                             f === 'active' ? stats.active :
+                             f === 'paused' ? stats.paused :
+                             f === 'pending' ? stats.pendingNext :
+                             f === 'sent' ? queue.filter(q => q.queue_status !== 'removed' && (q.current_step || 0) > 0).length :
+                             f === 'completed' ? stats.completed :
+                             f === 'removed' ? stats.removed :
+                             stats.failed;
+                return (
+                  <button
+                    key={f}
+                    className={`px-3 py-1.5 text-[10px] font-black rounded-md transition-all capitalize flex items-center gap-1.5 whitespace-nowrap ${filter === f ? 'bg-white text-indigo-600 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-indigo-600'}`}
+                    onClick={() => setFilter(f)}
+                  >
+                    <span>{f}</span>
+                    <span className={`px-1.5 py-0.5 rounded-full text-[9px] ${filter === f ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-200 text-slate-500'}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -333,6 +545,19 @@ export const AutomationQueueDashboardModal: React.FC<{
           <Table>
             <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <TableRow>
+                <TableHead className="w-[40px]">
+                  <Checkbox 
+                    checked={filteredQueue.length > 0 && selectedIds.size === filteredQueue.length}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setSelectedIds(new Set(filteredQueue.map(item => item.user_id)));
+                      } else {
+                        setSelectedIds(new Set());
+                      }
+                    }}
+                    className="data-[state=checked]:bg-indigo-600 border-slate-300"
+                  />
+                </TableHead>
                 <TableHead className="w-[200px]">User / Trigger</TableHead>
                 <TableHead>Flow Status</TableHead>
                 <TableHead className="w-[140px]">Send Progress</TableHead>
@@ -345,13 +570,65 @@ export const AutomationQueueDashboardModal: React.FC<{
             <TableBody>
               {filteredQueue.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-64 text-center text-slate-400 italic">
-                    {loading ? 'Fetching active cycles...' : 'No users currently in the automation queue'}
+                  <TableCell colSpan={8} className="h-96 text-center">
+                    <div className="flex flex-col items-center justify-center gap-4 py-12">
+                       <div className="p-4 bg-slate-50 rounded-full">
+                          <Zap size={48} className="text-slate-200" />
+                       </div>
+                       <div className="space-y-1">
+                          <p className="text-slate-500 font-bold">No active cycles found in this view</p>
+                          <p className="text-slate-400 text-sm">Would you like to discover users from recent activity?</p>
+                       </div>
+                       <div className="flex gap-4">
+                          <Button 
+                            onClick={() => handleSync(true)} 
+                            disabled={syncing}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white font-black px-8 h-10 shadow-lg gap-2"
+                          >
+                            <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+                            DISCOVER & START FRESH
+                          </Button>
+                          
+                          <Button 
+                            variant="outline"
+                            onClick={handlePurge} 
+                            disabled={loading}
+                            className="border-red-200 text-red-600 hover:bg-red-50 font-black px-8 h-10 gap-2"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            START FROM ZERO (WIPE DATA)
+                          </Button>
+                       </div>
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredQueue.map(item => (
-                  <TableRow key={item.user_id} className="hover:bg-slate-50/50 transition-colors">
+                  <TableRow 
+                    key={item.user_id} 
+                    className={`hover:bg-slate-50/50 transition-colors cursor-pointer ${selectedIds.has(item.user_id) ? 'bg-indigo-50/30' : ''}`}
+                    onClick={() => {
+                      setSelectedIds(prev => {
+                        const next = new Set(prev);
+                        if (next.has(item.user_id)) next.delete(item.user_id);
+                        else next.add(item.user_id);
+                        return next;
+                      });
+                    }}
+                  >
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox 
+                        checked={selectedIds.has(item.user_id)}
+                        onCheckedChange={() => {
+                          setSelectedIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(item.user_id)) next.delete(item.user_id);
+                            else next.add(item.user_id);
+                            return next;
+                          });
+                        }}
+                      />
+                    </TableCell>
                     <TableCell>
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
@@ -368,8 +645,19 @@ export const AutomationQueueDashboardModal: React.FC<{
                             {item.activity_type || 'Login'}
                           </Badge>
                           <span className="text-[10px] text-slate-400">
-                            {formatExactDate(item.last_login || '')}
+                            Logged: {formatExactDate(item.last_login || '')}
                           </span>
+                          {item.last_login && !isNaN(new Date(item.last_login).getTime()) && (
+                            <span className="text-[9px] font-mono text-indigo-500 font-bold bg-indigo-50 px-1 rounded ml-1">
+                              {(() => {
+                                const diff = Date.now() - new Date(item.last_login).getTime();
+                                if (diff < 0) return "Just now";
+                                const hrs = Math.floor(diff / (1000 * 60 * 60));
+                                const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                                return hrs > 0 ? `${hrs}h ${mins}m ago` : `${mins}m ago`;
+                              })()}
+                            </span>
+                          )}
                         </div>
                         {/* Matched Verticals */}
                         {item.matched_verticals && item.matched_verticals.length > 0 && (
@@ -394,10 +682,32 @@ export const AutomationQueueDashboardModal: React.FC<{
                               Delivery: <span className="capitalize text-slate-600 font-medium">{item.delivery_status}</span>
                             </span>
                           </div>
+                        ) : item.queue_status === 'paused' ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="flex items-center text-amber-600 text-[10px] font-bold uppercase">
+                              <Pause size={12} className="mr-1" /> Cycle Paused
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              Waiting for <span className="text-amber-600 font-medium">Resume</span>
+                            </span>
+                          </div>
                         ) : (
                           <span className="flex items-center text-slate-400 text-[10px] font-bold uppercase">
                             <ShieldCheck size={12} className="mr-1" /> Cycle Finished
                           </span>
+                        )}
+
+                        {item.queue_status === 'removed' && (
+                           <Button 
+                             size="sm" 
+                             className="h-8 mt-2 px-4 text-[10px] font-black bg-blue-600 text-white hover:bg-blue-700 shadow-lg flex items-center gap-2 animate-in slide-in-from-left duration-300"
+                             onClick={(e) => {
+                               e.stopPropagation();
+                               handleOverride(item.user_id, 'restore');
+                             }}
+                           >
+                             <RefreshCw size={14} className="fill-white" /> RESTORE TO ACTIVE
+                           </Button>
                         )}
                       </div>
                     </TableCell>
@@ -434,7 +744,7 @@ export const AutomationQueueDashboardModal: React.FC<{
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col min-w-[140px]">
                         {item.queue_status === 'active' ? (
                           <>
                             <div className="flex items-center text-slate-700 font-bold text-xs">
@@ -442,80 +752,157 @@ export const AutomationQueueDashboardModal: React.FC<{
                                 <div className="flex items-center gap-2">
                                   <span className="flex items-center text-emerald-600 animate-pulse">
                                     <Zap size={12} className="mr-1 fill-emerald-600" />
-                                    Due Now
+                                    READY
                                   </span>
                                   <Button 
                                     size="sm" 
-                                    variant="outline" 
-                                    className="h-6 px-2 text-[9px] font-black bg-emerald-600 text-white border-none hover:bg-emerald-700 transition-all shadow-sm flex items-center gap-1"
+                                    className="h-7 px-3 text-[10px] font-black bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg flex items-center gap-1 animate-bounce"
                                     disabled={fetchingItem === item.user_id}
-                                    onClick={() => fetchItemDetails(item, false)}
+                                    onClick={() => fetchItemDetails(item, true)}
                                   >
-                                    {fetchingItem === item.user_id ? <RefreshCw size={10} className="animate-spin" /> : <Mail size={10} />}
-                                    Edit & Send
+                                    <Zap size={10} className="fill-white" /> INITIATE OUTREACH
                                   </Button>
                                 </div>
                               ) : (
-                                <>
-                                  <Clock size={12} className="mr-1 text-blue-500" />
-                                  {getCountdown(item.next_mail_time)}
-                                </>
+                                <div className="flex flex-col gap-1 w-full">
+                                  <div className="flex items-center justify-between">
+                                     <span className="flex items-center gap-1">
+                                       <Clock size={12} className="text-blue-500" />
+                                       {getCountdown(item.next_mail_time)}
+                                     </span>
+                                     <div className="flex items-center gap-1">
+                                       <Button 
+                                         size="sm" 
+                                         variant="ghost"
+                                         className="h-6 px-2 text-[9px] font-black text-indigo-600 hover:bg-indigo-50 border border-indigo-100"
+                                         onClick={(e) => {
+                                           e.stopPropagation();
+                                           fetchItemDetails(item, true);
+                                         }}
+                                       >
+                                         FORCE NEXT NOW
+                                       </Button>
+                                       <Button 
+                                         size="sm" 
+                                         variant="ghost"
+                                         className="h-6 w-6 p-0 text-amber-600 hover:bg-amber-50 border border-amber-100"
+                                         title="Pause Automation"
+                                         onClick={(e) => {
+                                           e.stopPropagation();
+                                           handleOverride(item.user_id, 'pause');
+                                         }}
+                                       >
+                                         <Pause size={12} />
+                                       </Button>
+                                     </div>
+                                  </div>
+                                  {/* Interval Progress Bar (5h standard) */}
+                                  {item.current_step === 0 && item.last_login && (
+                                    <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden mt-1">
+                                      <div 
+                                        className="bg-blue-400 h-full transition-all duration-1000" 
+                                        style={{ 
+                                          width: `${Math.min(100, Math.max(0, (Date.now() - new Date(item.last_login).getTime()) / (5 * 60 * 60 * 1000) * 100))}%` 
+                                        }} 
+                                      />
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
-                            <div className="flex items-center gap-1 mt-0.5">
+                            <div className="flex items-center gap-1 mt-1">
                               <Badge variant="secondary" className="text-[9px] h-3.5 px-1 bg-blue-50 text-blue-700 border-blue-100">
-                                Step {item.current_step + 1}/5
+                                {item.current_step === 0 ? 'Wait Phase' : `Step ${item.current_step + 1}/5`}
                               </Badge>
-                              <span className="text-[9px] text-slate-400">
-                                at {new Date(item.next_mail_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              <span className="text-[9px] text-slate-400 font-bold uppercase">
+                                {new Date(item.next_mail_time).getTime() - new Date().getTime() <= 0 ? 'Waiting for Admin' : `Ready at ${new Date(item.next_mail_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
                               </span>
-                              <Button 
-                                size="sm" 
-                                variant="ghost" 
-                                className="h-4 px-1 text-[8px] font-black text-blue-600 hover:bg-blue-50 ml-auto gap-0.5"
-                                onClick={() => fetchItemDetails(item, false)}
-                              >
-                                <Edit3 size={8} /> Edit
-                              </Button>
                             </div>
                           </>
+                        ) : item.queue_status === 'paused' ? (
+                          <div className="flex flex-col gap-2">
+                             <Button 
+                               size="sm" 
+                               className="h-8 px-4 text-[10px] font-black bg-emerald-600 text-white hover:bg-emerald-700 shadow-md flex items-center gap-2"
+                               onClick={(e) => {
+                                 e.stopPropagation();
+                                 handleOverride(item.user_id, 'resume');
+                               }}
+                             >
+                               <Play size={14} className="fill-white" /> RESUME FLOW
+                             </Button>
+                             <div className="flex items-center gap-1.5 px-1">
+                                <Pause size={10} className="text-amber-500" />
+                                <span className="text-[9px] font-black text-amber-600 uppercase tracking-tight">Halted at Step {item.current_step}/5</span>
+                             </div>
+                          </div>
                         ) : (
-                          <span className="text-slate-300">---</span>
+                          <div className="flex items-center gap-2 text-slate-300">
+                            <CheckCircle2 size={14} className="text-emerald-500" />
+                            <span className="text-[10px] font-bold uppercase">Completed</span>
+                          </div>
                         )}
                       </div>
                     </TableCell>
                     <TableCell>
                       <div 
-                        className="flex flex-col gap-1 cursor-pointer hover:bg-white p-1 rounded border border-transparent hover:border-slate-200 transition-all"
+                        className="flex flex-col gap-2 cursor-pointer hover:bg-slate-50/50 p-2 rounded-xl border border-transparent hover:border-slate-100 transition-all"
                         onClick={() => {
                           fetchItemDetails(item, true);
                         }}
                       >
-                        <div className="flex items-center justify-between mb-1">
-                           <span className="text-[10px] font-black uppercase text-slate-400">Targeted Content</span>
-                           <Button size="sm" variant="ghost" className="h-5 px-1.5 text-[9px] gap-1 text-indigo-600 hover:bg-indigo-50">
-                             <Eye size={10} /> Preview
-                           </Button>
+                        <div className="flex items-center justify-between">
+                           <span className="text-[10px] font-black uppercase text-slate-400">Cycle Status</span>
+                           <span className="text-[10px] font-bold text-indigo-600">{(item.current_step || 0)} / 5 Sent</span>
                         </div>
-                        {item.next_offers && item.next_offers.length > 0 ? (
-                          item.next_offers.slice(0, 2).map((off, i) => (
-                            <div key={off.id} className={`text-[10px] flex items-center gap-1.5 p-1 rounded-md transition-all ${i === 0 ? 'bg-blue-50/80 border border-blue-100 text-blue-700 shadow-sm' : 'text-slate-600'}`}>
-                              <span className={`flex items-center justify-center w-4 h-4 rounded-full text-[9px] font-black ${i === 0 ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-400'}`}>
-                                {i+1}
-                              </span>
-                              <div className="flex flex-col">
-                                <span className={`truncate max-w-[120px] ${i === 0 ? 'font-bold' : ''}`}>{off.name}</span>
-                                {i === 0 && <span className="text-[8px] font-black uppercase text-blue-500 animate-pulse">Next Outreach</span>}
+
+                        {/* 5-Step Progress Bar */}
+                        <div className="flex gap-1 h-1.5 w-full">
+                          {[1, 2, 3, 4, 5].map((s) => {
+                            const isSent = s <= (item.current_step || 0);
+                            const isOngoing = s === (item.current_step || 0) + 1;
+                            return (
+                              <div 
+                                key={`bar-${s}`} 
+                                className={`flex-1 rounded-full ${isSent ? 'bg-emerald-500' : isOngoing ? 'bg-indigo-500 animate-pulse' : 'bg-slate-200'}`} 
+                              />
+                            );
+                          })}
+                        </div>
+
+                        <div className="space-y-1 mt-1">
+                          {item.queue_status === 'active' ? (
+                            <div className="bg-indigo-50/50 border border-indigo-100 p-1.5 rounded-lg">
+                              <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-[8px] font-black uppercase text-indigo-500">Next Outreach</span>
+                                <Zap size={8} className="text-indigo-500 fill-indigo-500" />
                               </div>
-                              {i === 0 && <Zap size={8} className="ml-auto text-blue-500 fill-blue-500" />}
+                              <div className="text-[10px] font-bold text-indigo-700 truncate">
+                                {item.next_offers?.[0]?.name || 'Matching Best Offer...'}
+                              </div>
                             </div>
-                          ))
-                        ) : (
-                          <span className="text-slate-300 text-[10px]">No previews</span>
-                        )}
-                        {item.next_offers && item.next_offers.length > 2 && (
-                          <span className="text-[9px] text-indigo-500 font-medium">+{item.next_offers.length - 2} more...</span>
-                        )}
+                          ) : item.queue_status === 'paused' ? (
+                            <div className="bg-amber-50/50 border border-amber-100 p-1.5 rounded-lg">
+                              <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-[8px] font-black uppercase text-amber-500">Paused</span>
+                                <Pause size={8} className="text-amber-500 fill-amber-500" />
+                              </div>
+                              <div className="text-[10px] font-bold text-amber-700 truncate">
+                                Waiting for Resume
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-emerald-50/50 border border-emerald-100 p-1.5 rounded-lg">
+                              <div className="flex items-center justify-between mb-0.5">
+                                <span className="text-[8px] font-black uppercase text-emerald-500">Completed</span>
+                                <CheckCircle2 size={8} className="text-emerald-500" />
+                              </div>
+                              <div className="text-[10px] font-bold text-emerald-700 truncate">
+                                {item.sent_history?.[(item.sent_history?.length || 1) - 1]?.name || 'All Steps Delivered'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -529,16 +916,6 @@ export const AutomationQueueDashboardModal: React.FC<{
                       ) : (
                         <div className="flex flex-col gap-1">
                           <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 text-[9px] h-3.5 px-1 uppercase">Eligible</Badge>
-                          <Button 
-                            size="sm" 
-                            variant="ghost" 
-                            className="h-6 mt-1 text-[9px] font-black text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 p-0 flex items-center gap-1"
-                            onClick={() => {
-                              fetchItemDetails(item, false);
-                            }}
-                          >
-                            <Mail size={10} /> Prepare Outreach
-                          </Button>
                         </div>
                       )}
                     </TableCell>
@@ -571,26 +948,72 @@ export const AutomationQueueDashboardModal: React.FC<{
                             <Mail className="mr-2 h-4 w-4" />
                             <span>Send Custom Mail</span>
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => fetchItemDetails(item, false)}>
-                            <Mail className="mr-2 h-4 w-4" />
-                            <span>Prepare Outreach</span>
-                          </DropdownMenuItem>
+
                           {item.queue_status === 'active' && (
                             <DropdownMenuItem onClick={() => handleOverride(item.user_id, 'complete')} className="text-emerald-600">
                               <ShieldCheck className="mr-2 h-4 w-4" />
                               <span>Mark as Completed</span>
                             </DropdownMenuItem>
                           )}
-                          <DropdownMenuItem onClick={() => handleOverride(item.user_id, 'reset')} className="text-amber-600">
-                            <RotateCcw className="mr-2 h-4 w-4" />
-                            <span>Reset Full Cycle</span>
-                          </DropdownMenuItem>
+                          {item.queue_status === 'active' ? (
+                            <DropdownMenuItem onClick={() => handleOverride(item.user_id, 'pause')} className="text-amber-600">
+                              <Pause className="mr-2 h-4 w-4" />
+                              <span>Pause Flow</span>
+                            </DropdownMenuItem>
+                          ) : item.queue_status === 'paused' ? (
+                            <DropdownMenuItem onClick={() => handleOverride(item.user_id, 'resume')} className="text-emerald-600">
+                              <Play className="mr-2 h-4 w-4" />
+                              <span>Resume Flow</span>
+                            </DropdownMenuItem>
+                          ) : item.queue_status === 'removed' ? (
+                            <>
+                              <DropdownMenuItem onClick={() => {
+                                if (window.confirm(`This user has COMPLETED their cycle. Restart from Step 0 with a 5-hour delay?`)) {
+                                  handleOverride(item.user_id, 'reset');
+                                }
+                              }} className="text-blue-600 font-bold">
+                                <RefreshCw className="mr-2 h-4 w-4" />
+                                <span>Restart Cycle</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => {
+                                if (window.confirm(`PERMANENTLY DELETE ${item.username}? This cannot be undone.`)) {
+                                  handleOverride(item.user_id, 'delete_permanent');
+                                }
+                              }} className="text-red-900 font-bold bg-red-50">
+                                <Trash2 className="mr-2 h-4 w-4 text-red-600" />
+                                <span>Delete Permanently</span>
+                              </DropdownMenuItem>
+                            </>
+                          ) : null}
+
+                          <DropdownMenuItem onClick={() => {
+                              if (window.confirm(`Stop and FINISH automation cycle for ${item.username}?`)) {
+                                handleOverride(item.user_id, 'complete');
+                              }
+                            }} className="text-red-600">
+                              <X className="mr-2 h-4 w-4" />
+                              <span>Finish Cycle</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleOverride(item.user_id, 'reset')} className="text-amber-600">
+                              <RotateCcw className="mr-2 h-4 w-4" />
+                              <span>Reset Full Cycle</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => {
+                              if (window.confirm(`Permanently REMOVE ${item.username} from the automation queue?`)) {
+                                handleOverride(item.user_id, 'remove');
+                              }
+                            }} className="text-red-600 font-bold">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              <span>Remove from Queue</span>
+                            </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))
-              )}
+                  )))
+              }
             </TableBody>
           </Table>
         </div>
@@ -745,15 +1168,21 @@ export const AutomationQueueDashboardModal: React.FC<{
           </DialogContent>
         </Dialog>
 
-        {/* Manual Send Modal */}
-        <AutomationSendNowModal
-          open={sendNowOpen}
-          onClose={() => setSendNowOpen(false)}
-          queueItem={selectedQueueItem}
-          apiUrl={apiUrl}
-          onSent={() => loadQueue()}
-          startInPreview={initialPreviewMode}
-        />
+        {/* Send Now Modal */}
+        {sendNowOpen && (
+          <AutomationSendNowModal 
+            open={sendNowOpen}
+            onClose={() => {
+              setSendNowOpen(false);
+              setSelectedIds(new Set());
+            }}
+            queueItem={selectedIds.size > 1 ? null : selectedQueueItem}
+            queueItems={selectedIds.size > 1 ? queue.filter(item => selectedIds.has(item.user_id)) : [selectedQueueItem]}
+            apiUrl={apiUrl}
+            onSent={() => loadQueue()}
+            startInPreview={initialPreviewMode}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

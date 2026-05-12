@@ -29,7 +29,7 @@ class AutomationService:
         self._initialized = True
         self._running = False
 
-    def handle_user_activity(self, user_id, activity_type='Login', username=None):
+    def handle_user_activity(self, user_id, activity_type='Login', username=None, force_reset=False):
         """Triggered when a user logs in or is active. Enforces cooldown and activity gates."""
         settings = self.model.get_settings()
         if not settings.get('enabled'):
@@ -38,17 +38,15 @@ class AutomationService:
         now = datetime.utcnow()
         state = self.model.get_user_state(user_id)
 
-        # 1. COOLDOWN GATE: Strictly block if user is within the 1-week rest period
-        if state:
+        # 1. COOLDOWN GATE (Only if not forcing a reset)
+        if state and not force_reset:
             cooldown_until = state.get('cooldown_until')
             if cooldown_until and now < cooldown_until:
                 logger.info(f"Automation GATED for user {user_id}: Cooldown active until {cooldown_until}")
-                # Ensure they aren't marked as 'active' if they are in cooldown
                 if state.get('queue_status') == 'active':
                     self.model.update_user_state(user_id, {'queue_status': 'completed'})
                 return
 
-            # 2. STATUS GATE: If already active, just update activity context but don't reset timer
             if state.get('queue_status') == 'active':
                 self.model.update_user_state(user_id, {
                     'last_login': now, 
@@ -57,17 +55,13 @@ class AutomationService:
                 })
                 return
 
-        # 3. ACTIVITY GATING: A login itself is now sufficient to participate in automation.
-        # We no longer strictly require clicks/views to ensure all recent users are captured.
-        pass
-
         # 4. INITIALIZE / RESTART CYCLE
         if not username:
             user_info = self.user_model.find_by_id(user_id)
             if user_info:
                 username = user_info.get('username', 'Unknown')
 
-        logger.info(f"Automation cycle starting for user {user_id} via {activity_type}")
+        logger.info(f"Automation cycle {'FORCED RESTART' if force_reset else 'starting'} for user {user_id} via {activity_type}")
         new_state = {
             'user_id': str(user_id),
             'username': username or "Unknown",
@@ -116,7 +110,7 @@ class AutomationService:
             offers, interests = self._get_offers_for_step(current_step, user_id, item) # Pass item (state)
             
             if offers:
-                success = self._send_automation_mail(user_id, current_step, offers)
+                success = self._send_automation_mail(user_id, current_step, offers, item)
                 if success:
                     # Track sent IDs to avoid duplicates in the same cycle
                     new_sent_ids = item.get('sent_offer_ids', [])
@@ -230,14 +224,12 @@ class AutomationService:
             
         # Sort by score descending
         scored_offers.sort(key=lambda x: x['score'], reverse=True)
-        # Take top 10 candidates and shuffle the final 5 to ensure different users get different subsets
-        candidates = scored_offers[:10]
-        random.shuffle(candidates)
-        top_offers = [x['offer'] for x in candidates[:5]]
+        # One-by-one delivery: Take only the top candidate for this step
+        top_offers = [scored_offers[0]['offer']] if scored_offers else []
         
         return top_offers, interest_cats
 
-    def _send_automation_mail(self, user_id, step, offers):
+    def _send_automation_mail(self, user_id, step, offers, state=None):
         """Actually send the automation email with proper content"""
         try:
             user = self.user_model.find_by_id(user_id)
@@ -245,11 +237,19 @@ class AutomationService:
 
             # Prepare the email content
             primary_offer = offers[0].get('offer_name') or offers[0].get('name')
-            subject = f"🔥 Personalized Outreach: {primary_offer} (Top Pick for You)"
             
-            # Premium Email Template with Table
-            body = f"""
-            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 0 auto; color: #334155; line-height: 1.6;">
+            # Check for admin overrides in state
+            subject = state.get('custom_subject') if state and state.get('custom_subject') else f"🔥 Personalized Outreach: {primary_offer} (Top Pick for You)"
+            custom_body = state.get('custom_message') if state and state.get('custom_message') else None
+            
+            if custom_body:
+                # Use custom body if provided by admin
+                body = custom_body
+                # We keep the overrides until the admin explicitly changes them or the cycle resets
+            else:
+                # Premium Email Template with Table
+                body = f"""
+                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 0 auto; color: #334155; line-height: 1.6;">
                 <div style="background: linear-gradient(135deg, #185FA5 0%, #2563EB 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
                     <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Top Performing Offers</h1>
                     <p style="color: #bfdbfe; margin: 10px 0 0 0; font-size: 14px;">Personalized for <strong>{user.get('username', 'User')}</strong> based on recent activity</p>
@@ -339,22 +339,38 @@ class AutomationService:
         self._thread.start()
         logger.info("Automation Engine background service started")
 
-    def sync_active_users(self):
-        """Find users from recent login logs and ensure they have an automation state"""
+    def sync_active_users(self, force_reset=False):
+        """Find users from recent activity logs and ensure they have an automation state"""
         try:
-            # Get users with activity in the last 48 hours to be safe
-            yesterday = datetime.utcnow() - timedelta(hours=48)
+            # 1. Get users with logins in the last 72 hours
+            three_days_ago = datetime.utcnow() - timedelta(hours=72)
             logs_col = db_instance.get_collection('login_logs')
-            recent_users = logs_col.distinct('user_id', {'login_time': {'$gte': yesterday}})
+            recent_logins = []
+            if logs_col is not None:
+                recent_logins = logs_col.distinct('user_id', {'login_time': {'$gte': three_days_ago}})
+            
+            # 2. Get users with page visits or clicks
+            visits_col = db_instance.get_collection('page_visits')
+            clicks_col = db_instance.get_collection('click_logs')
+            
+            recent_visitors = []
+            if visits_col is not None:
+                recent_visitors = visits_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
+            
+            recent_clickers = []
+            if clicks_col is not None:
+                recent_clickers = clicks_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
+            
+            all_active_ids = list(set([str(uid) for uid in (recent_logins + recent_visitors + recent_clickers) if uid]))
             
             count = 0
-            for user_id in recent_users:
+            for user_id in all_active_ids:
                 if not user_id: continue
-                # handle_user_activity will create the state if it doesn't exist
-                self.handle_user_activity(str(user_id))
+                # Pass force_reset to ensure they are added/re-initialized even if removed
+                self.handle_user_activity(user_id, force_reset=force_reset)
                 count += 1
             
-            logger.info(f"Synced {count} active users into automation engine")
+            logger.info(f"Synced {count} active users into automation engine (Force Reset: {force_reset})")
             return count
         except Exception as e:
             logger.error(f"Failed to sync active users: {e}")
@@ -363,14 +379,21 @@ class AutomationService:
     def _run_loop(self):
         # Initial sync on startup
         self.sync_active_users()
+        last_sync = time.time()
+        
         while self._running:
             try:
                 self.process_queue()
+                
+                # Auto-sync every 10 minutes
+                if time.time() - last_sync > 600:
+                    self.sync_active_users()
+                    last_sync = time.time()
             except Exception as e:
                 logger.error(f"Error in automation loop: {e}")
             time.sleep(60) # Check every minute
 
-    def override_user_state(self, user_id, action, step=None):
+    def override_user_state(self, user_id, action, step=None, data=None):
         """Manually override a user's automation state"""
         state = self.model.get_user_state(user_id)
         if not state:
@@ -434,9 +457,27 @@ class AutomationService:
             update_data['cooldown_until'] = now + timedelta(days=settings.get('cooldown_days', 7))
             update_data['next_mail_time'] = None
 
+        elif action == 'remove':
+            update_data['queue_status'] = 'removed'
+            update_data['next_mail_time'] = None
+
+        elif action == 'delete_permanent':
+            self.model.delete_user_state(user_id)
+            return True, "User permanently deleted from database"
+
+        elif action == 'restore':
+            update_data['queue_status'] = 'active'
+            # Give them a 30 min buffer to resume
+            update_data['next_mail_time'] = now + timedelta(minutes=30)
+            update_data['delivery_status'] = 'pending'
+
         elif action == 'pin' and step is not None:
             # Here 'step' parameter is repurposed as offer_id string
             update_data['pinned_offer_id'] = str(step)
+            
+        elif action == 'save-content' and data:
+            update_data['custom_subject'] = data.get('subject')
+            update_data['custom_message'] = data.get('message')
             
         if update_data:
             self.model.update_user_state(user_id, update_data)

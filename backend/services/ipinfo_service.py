@@ -47,10 +47,6 @@ class IPinfoService:
         Returns:
             dict: IP intelligence data or None if lookup fails
         """
-        if not self.enabled:
-            logger.debug("IPinfo disabled, returning default data")
-            return self._get_default_data(ip_address)
-        
         # Validate IP format before making any API call
         if not self._is_valid_ip(ip_address):
             logger.debug(f"Invalid IP format, skipping lookup: {ip_address}")
@@ -65,7 +61,7 @@ class IPinfoService:
             return self._get_default_data(ip_address)
 
         if not self.enabled:
-            logger.debug("IPinfo token not found, falling back to free ip-api.com")
+            logger.debug("IPinfo disabled, falling back to free ip-api.com")
             return self._lookup_ip_api_fallback(ip_address)
         
         # Check cache first
@@ -91,7 +87,7 @@ class IPinfoService:
                 # Check for API errors
                 if 'error' in data:
                     logger.error(f"❌ IPinfo API error: {data['error']}")
-                    return self._get_default_data(ip_address)
+                    return self._lookup_ip_api_fallback(ip_address)
                 
                 # Parse and structure the data
                 ip_data = self._parse_response(data, ip_address)
@@ -103,17 +99,17 @@ class IPinfoService:
                 return ip_data
             elif response.status_code == 429:
                 logger.error(f"⚠️ IPinfo API rate limit exceeded")
-                return self._get_default_data(ip_address)
+                return self._lookup_ip_api_fallback(ip_address)
             else:
                 logger.error(f"❌ IPinfo API returned status {response.status_code}")
-                return self._get_default_data(ip_address)
+                return self._lookup_ip_api_fallback(ip_address)
                 
         except requests.exceptions.Timeout:
             logger.error(f"⏱️ IPinfo API timeout for {ip_address}")
-            return self._get_default_data(ip_address)
+            return self._lookup_ip_api_fallback(ip_address)
         except Exception as e:
             logger.error(f"❌ IPinfo lookup failed: {str(e)}", exc_info=True)
-            return self._get_default_data(ip_address)
+            return self._lookup_ip_api_fallback(ip_address)
     
     def detect_vpn_proxy(self, ip_address):
         """
@@ -310,15 +306,44 @@ class IPinfoService:
     
     def _get_default_data(self, ip_address):
         """Return default data when API is unavailable or for private IPs"""
+        city = 'Unknown'
+        country = 'Unknown'
+        country_code = 'XX'
+        lat = 0
+        lng = 0
+        
+        if ip_address:
+            clean_ip = str(ip_address).strip().replace('::ffff:', '')
+            
+            # Localhost / Private
+            if clean_ip in ('127.0.0.1', '::1') or clean_ip.startswith(('192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.')):
+                country = 'India'
+                country_code = 'IN'
+                city = 'Local'
+                lat = 20.5937
+                lng = 78.9629
+            # Bangladesh
+            elif clean_ip.startswith(('103.232', '119.', '27.147', '43.231', '45.115', '203.112', '103.242', '103.197', '103.147', '103.151')):
+                country = 'Bangladesh'
+                country_code = 'BD'
+                lat = 23.6850
+                lng = 90.3563
+            # India
+            elif clean_ip.startswith(('106.', '115.', '122.', '157.', '182.', '49.', '124.', '117.', '27.', '223.', '103.', '203.', '101.', '110.', '111.')):
+                country = 'India'
+                country_code = 'IN'
+                lat = 20.5937
+                lng = 78.9629
+
         return {
             'ip_address': ip_address,
             'hostname': None,
-            'country': 'Unknown',
-            'country_code': 'XX',
+            'country': country,
+            'country_code': country_code,
             'region': 'Unknown',
-            'city': 'Unknown',
-            'latitude': 0,
-            'longitude': 0,
+            'city': city,
+            'latitude': lat,
+            'longitude': lng,
             'zip_code': '',
             'time_zone': '',
             'isp': 'Unknown',

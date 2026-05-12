@@ -87,8 +87,11 @@ def sync_queue():
     if user.get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
     
+    data = request.get_json() or {}
+    force_reset = data.get('force_reset', False)
+    
     service = get_automation_service()
-    count = service.sync_active_users()
+    count = service.sync_active_users(force_reset=force_reset)
     return jsonify({'message': f'Synced {count} users successfully', 'count': count})
 
 @automation_admin_bp.route('/automation/override', methods=['POST'])
@@ -107,7 +110,7 @@ def override_state():
         return jsonify({'error': 'User ID and action are required'}), 400
         
     service = get_automation_service()
-    success, message = service.override_user_state(user_id, action, step)
+    success, message = service.override_user_state(user_id, action, step, data)
     
     if success:
         return jsonify({'message': message})
@@ -133,3 +136,13 @@ def send_now_manual():
         return jsonify({'message': message})
     else:
         return jsonify({'error': message}), 400
+@automation_admin_bp.route('/automation/purge', methods=['POST'])
+@token_required
+def purge_queue():
+    user = request.current_user
+    if user.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    db = db_instance.get_db()
+    db.automation_states.delete_many({})
+    return jsonify({'message': 'All automation data has been permanently cleared'})

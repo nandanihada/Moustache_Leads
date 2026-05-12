@@ -39,8 +39,8 @@ class LocationRetryService:
             except Exception as e:
                 logger.error(f"Error in location retry service: {e}")
             
-            # Wait 5 minutes before next check
-            self.stop_event.wait(300)
+            # Wait 30 seconds before next check
+            self.stop_event.wait(30)
 
     def _retry_locations(self):
         if not db_instance.is_connected():

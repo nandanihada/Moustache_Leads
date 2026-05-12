@@ -44,8 +44,9 @@ class ActivityTrackingService:
             # Get IP address
             ip_address = self._get_client_ip(request)
             
-            # Get location (you can integrate with geolocation service)
-            location = self._get_location(ip_address)
+            # Get location from IP, using Cloudflare headers as high-priority fallback
+            country_code_header = request.headers.get('CF-IPCountry')
+            location = self._get_location(ip_address, country_code_hint=country_code_header)
             
             # 🔍 FRAUD DETECTION - Only for successful logins
             vpn_detection = {}
@@ -324,7 +325,7 @@ class ActivityTrackingService:
             logger.error(f"Error getting client IP: {str(e)}", exc_info=True)
             return 'unknown'
     
-    def _get_location(self, ip_address):
+    def _get_location(self, ip_address, country_code_hint=None):
         """Get location and IP intelligence from GeolocationService"""
         try:
             # Use IPinfoService for comprehensive IP intelligence
@@ -334,13 +335,22 @@ class ActivityTrackingService:
             ip_data = geo_service.lookup_ip(ip_address)
             
             if ip_data:
+                # If IP lookup returned Unknown country but we have a hint from Cloudflare, use it
+                country = ip_data.get('country', 'Unknown')
+                country_code = ip_data.get('country_code', 'XX')
+                
+                if (country == 'Unknown' or country_code == 'XX') and country_code_hint and country_code_hint != 'XX':
+                    country_code = country_code_hint
+                    # Map code to name if possible
+                    country = geo_service.country_names.get(country_code, country_code)
+                
                 # Return location data in expected format
                 return {
                     'ip': ip_address,
                     'city': ip_data.get('city', 'Unknown'),
                     'region': ip_data.get('region', 'Unknown'),
-                    'country': ip_data.get('country', 'Unknown'),
-                    'country_code': ip_data.get('country_code', 'XX'),
+                    'country': country,
+                    'country_code': country_code,
                     'latitude': ip_data.get('latitude', 0),
                     'longitude': ip_data.get('longitude', 0),
                     'timezone': ip_data.get('time_zone', 'UTC'),
@@ -348,26 +358,61 @@ class ActivityTrackingService:
                     'isp': ip_data.get('isp', 'Unknown'),
                     'domain': '',
                     'asn': ip_data.get('asn', ''),
-                    'org': ip_data.get('organization', 'Unknown')
+                    'org': ip_data.get('org', 'Unknown')
                 }
             else:
-                # Fallback to default
-                return self._get_default_location(ip_address)
+                # Fallback to default but apply hint if available
+                default_loc = self._get_default_location(ip_address)
+                if country_code_hint and country_code_hint != 'XX':
+                    default_loc['country_code'] = country_code_hint
+                    default_loc['country'] = geo_service.country_names.get(country_code_hint, country_code_hint)
+                return default_loc
             
         except Exception as e:
             logger.error(f"Error getting location from IPinfo: {str(e)}", exc_info=True)
             return self._get_default_location(ip_address)
     
     def _get_default_location(self, ip_address):
-        """Get default location data when IPinfo is unavailable"""
+        """Get default location data when IPinfo is unavailable, using IP pattern matching"""
+        # Basic IP-based guessing for common traffic sources
+        city = 'Unknown'
+        region = 'Unknown'
+        country = 'Unknown'
+        country_code = 'XX'
+        lat = 0
+        lng = 0
+        
+        if ip_address:
+            clean_ip = ip_address.strip().replace('::ffff:', '')
+            
+            # Localhost / Private
+            if clean_ip in ('127.0.0.1', '::1') or clean_ip.startswith(('192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.')):
+                country = 'India'
+                country_code = 'IN'
+                city = 'Local'
+                lat = 20.5937
+                lng = 78.9629
+            # Bangladesh
+            elif clean_ip.startswith(('103.232', '119.', '27.147', '43.231', '45.115', '203.112', '103.242', '103.197', '103.147', '103.151')):
+                country = 'Bangladesh'
+                country_code = 'BD'
+                lat = 23.6850
+                lng = 90.3563
+            # India
+            elif clean_ip.startswith(('106.', '115.', '122.', '157.', '182.', '49.', '124.', '117.', '27.', '223.', '103.', '203.', '101.', '110.', '111.')):
+                country = 'India'
+                country_code = 'IN'
+                lat = 20.5937
+                lng = 78.9629
+
         return {
             'ip': ip_address,
-            'city': 'Unknown',
-            'region': 'Unknown',
-            'country': 'Unknown',
-            'country_code': 'XX',
-            'latitude': 0,
-            'longitude': 0,
+            'city': city,
+            'region': region,
+            'country': country,
+            'country_code': country_code,
+            'latitude': lat,
+            'longitude': lng,
             'timezone': 'UTC',
             'isp': 'Unknown',
             'domain': '',
