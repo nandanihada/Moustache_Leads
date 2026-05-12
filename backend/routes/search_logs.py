@@ -76,6 +76,7 @@ def log_search(user_id, username, keyword, results_count, matched_offer_ids=None
             'clicked_preview': False,     # clicked preview landing page
             'clicked_request': False,     # clicked request access
             'clicked_tracking': False,    # clicked/copied tracking link
+            'ip_address': request.remote_addr if request else '0.0.0.0',
             'searched_at': datetime.utcnow()
         }
         result = collection.insert_one(doc)
