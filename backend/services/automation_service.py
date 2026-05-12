@@ -102,6 +102,12 @@ class AutomationService:
             if not next_mail_time or now < next_mail_time:
                 continue
 
+            # NEW: If we are at step 0 (initial wait phase over), we need ADMIN AUTHORIZATION to start
+            current_step = item.get('current_step', 0)
+            if current_step == 0 and not item.get('is_authorized'):
+                # We skip sending, it stays in "Ready" status until admin clicks Start
+                continue
+
             # Time to send next mail
             user_id = item.get('user_id')
             current_step = item.get('current_step', 0) + 1
@@ -479,6 +485,12 @@ class AutomationService:
             update_data['custom_subject'] = data.get('subject')
             update_data['custom_message'] = data.get('message')
             
+        elif action == 'start':
+            update_data['is_authorized'] = True
+            update_data['queue_status'] = 'active'
+            # Start immediately
+            update_data['next_mail_time'] = datetime.utcnow()
+            
         if update_data:
             self.model.update_user_state(user_id, update_data)
             return True, f"Action {action} applied successfully"
@@ -676,7 +688,8 @@ class AutomationService:
                 'current_step': current_step,
                 'sent_offer_ids': list(set(new_sent_ids)),
                 'sent_mail_count': (state.get('sent_mail_count', 0) if state else 0) + 1,
-                'delivery_status': 'sent'
+                'delivery_status': 'sent',
+                'is_authorized': True
             }
             
             if current_step >= 5:

@@ -15,7 +15,7 @@ ALL_FIELDS = [
     'name', 'payout', 'countries', 'category', 'network', 'image',
     'offer_id', 'preview_url', 'preview_url_2', 'clicks', 'payment_terms', 'description',
 ]
-DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'network', 'image', 'offer_id']
+DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'image', 'offer_id']
 
 
 def build_offer_email_html(

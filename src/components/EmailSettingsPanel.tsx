@@ -21,7 +21,7 @@ const ALL_FIELDS = [
   { key: 'payout', label: 'Payout', default: true },
   { key: 'countries', label: 'Countries', default: true },
   { key: 'category', label: 'Category', default: true },
-  { key: 'network', label: 'Network', default: true },
+  { key: 'network', label: 'Network', default: false },
   { key: 'image', label: 'Image', default: true },
   { key: 'offer_id', label: 'Offer ID', default: true },
   { key: 'preview_url', label: 'Preview URL', default: false },

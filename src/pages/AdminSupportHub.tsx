@@ -13,7 +13,7 @@ import {
   Search, Filter, Plus, Clock, CheckCircle,
   AlertCircle, Hash, Globe,
   LayoutDashboard, UserCheck, MessageCircle, MapPin, Tag, XCircle, Edit3, Eye, Save, Loader2, Reply,
-  Sparkles, Layout, Inbox, Settings, Zap, ChevronLeft, ChevronRight, X, Activity, Cpu
+  Sparkles, Layout, Inbox, Settings, Zap, ChevronLeft, ChevronRight, X, Activity, Cpu, ExternalLink
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -85,9 +85,10 @@ const getVerticalsArray = (user: any): string[] => {
 export const SupportHubContent: React.FC<{
   onClose?: () => void;
   initialUsers?: any[];
+  initialSelectedIds?: Set<string>;
   apiUrl?: string;
   className?: string;
-}> = ({ onClose, initialUsers, apiUrl, className }) => {
+}> = ({ onClose, initialUsers, initialSelectedIds, apiUrl, className }) => {
   const BASE_API_URL = apiUrl || import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const [activeTab, setActiveTab] = useState('explorer');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'replies'>('replies');
@@ -444,7 +445,16 @@ export const SupportHubContent: React.FC<{
         console.log(`Support Hub: Syncing with dashboard state (${initialUsers.length} users)`);
         const initialIds = new Set(initialUsers.map(u => String(u.user_id || u._id)));
         finalUsers = finalUsers.filter((u: any) => initialIds.has(String(u._id || u.user_id)));
-        setSelectedUsers(initialIds);
+        
+        // If specific selected IDs were passed, use those. 
+        // Otherwise, only auto-select if it's a single targeted user
+        if (initialSelectedIds && initialSelectedIds.size > 0) {
+          setSelectedUsers(new Set(initialSelectedIds));
+        } else if (initialUsers.length === 1) {
+          setSelectedUsers(initialIds);
+        } else {
+          setSelectedUsers(new Set()); // Don't auto-select large groups by default
+        }
         setInitialFilterActive(true);
       }
 
@@ -746,7 +756,12 @@ export const SupportHubContent: React.FC<{
       });
       setContactLinkerOpen(false);
       // Refresh settings to get the new mapping
-      loadData();
+      await loadData();
+      
+      // If we are in the middle of an outreach composition, jump straight to the preview
+      if (bulkModalOpen) {
+        handleOpenPreview();
+      }
     } catch (e) {
       toast({ title: "Error", description: "Failed to link contact", variant: "destructive" });
     } finally {
@@ -1902,7 +1917,7 @@ export const SupportHubContent: React.FC<{
                   ? `Connect ${selectedChannel}` 
                   : (selectedChannel !== 'Email' && !supportSettings?.channel_configs?.[selectedChannel]?.user_mappings?.[Array.from(selectedUsers)[0]])
                     ? `Link ${selectedChannel} Identity`
-                    : (scheduledTime ? "Schedule Outreach" : "Preview & Send")}
+                    : (scheduledTime ? "Schedule Outreach" : "View Final Preview")}
               </Button>
             </div>
           </div>
@@ -1934,61 +1949,138 @@ export const SupportHubContent: React.FC<{
 
           <div className="p-8 space-y-6 bg-slate-50 max-h-[60vh] overflow-y-auto custom-scrollbar">
             {isPreviewing ? (
-              <div className="py-12 flex flex-col items-center justify-center space-y-4">
-                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <p className="text-slate-500 font-bold italic">Intelligently personalizing messages...</p>
+              <div className="py-20 flex flex-col items-center justify-center space-y-6">
+                <div className="relative">
+                  <div className="w-20 h-20 border-4 border-indigo-100 rounded-full" />
+                  <div className="absolute inset-0 w-20 h-20 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+                <div className="text-center">
+                  <p className="text-slate-900 font-black uppercase tracking-widest text-sm">Personalizing Dispatch</p>
+                  <p className="text-slate-400 text-xs font-bold mt-1">Applying geo-intelligence and vertical hooks...</p>
+                </div>
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-start gap-3">
-                  <Eye className="text-amber-600 shrink-0 mt-0.5" size={18} />
-                  <div>
-                    <p className="text-sm font-bold text-amber-900 text-left">Quality Assurance Preview</p>
-                    <p className="text-xs text-amber-700 leading-relaxed text-left">Below are samples of how your messages will look for different users. Check for correct placeholders and dynamic hooks.</p>
+              <div className="space-y-8">
+                <div className="flex items-center gap-4 p-4 bg-indigo-50/50 border border-indigo-100 rounded-[2rem]">
+                  <div className="p-3 bg-white rounded-2xl text-indigo-600 shadow-sm"><Eye size={20} /></div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-black text-slate-900 leading-none">Intelligence Validation</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Reviewing {previewSamples.length} of {selectedUsers.size} personalized variants</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Verified</span>
                   </div>
                 </div>
 
-                {previewSamples.map((sample, idx) => (
-                  <div key={idx} className="space-y-2">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sample #{idx + 1}: {sample.username}</span>
-                      <Badge variant="outline" className="text-[9px] bg-white text-indigo-600 border-indigo-100">{sample.email}</Badge>
-                    </div>
-                    <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm relative group overflow-hidden text-left">
-                      <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
-                      <div className="mb-2 pb-2 border-b border-slate-50">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase mr-2">Subject:</span>
-                        <span className="text-xs font-bold text-slate-900">{sample.subject}</span>
+                <div className="grid gap-6">
+                  {previewSamples.map((sample, idx) => (
+                    <div key={idx} className="group relative">
+                      <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-1 h-12 bg-indigo-200 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-xl hover:shadow-indigo-100/50 hover:border-indigo-200">
+                        <div className="px-6 py-4 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-black">
+                              {sample.username[0].toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-xs font-black text-slate-900">{sample.username}</p>
+                              <p className="text-[9px] font-bold text-slate-400">{sample.email}</p>
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="text-[8px] font-black uppercase tracking-widest border-slate-200 text-slate-500">
+                            {selectedChannel} Variant
+                          </Badge>
+                        </div>
+                        <div className="p-6 bg-white">
+                          <div className="mb-4 flex items-start gap-2">
+                            <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mt-0.5">Subject:</span>
+                            <h5 className="text-sm font-black text-slate-800 tracking-tight">{sample.subject}</h5>
+                          </div>
+                          <div className="p-5 bg-slate-50/50 rounded-2xl border border-slate-100 relative group/msg">
+                            <div className="absolute top-4 right-4 opacity-10 group-hover/msg:opacity-30 transition-opacity"><MessageSquare size={40} /></div>
+                            <p className="text-xs text-slate-700 leading-relaxed font-medium whitespace-pre-wrap italic relative z-10">
+                              "{sample.personalized}"
+                            </p>
+                            
+                            {selectedChannel !== 'Email' && (
+                              <div className="mt-4 pt-4 border-t border-slate-200 flex justify-end">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-indigo-200 text-indigo-600 hover:bg-indigo-50 gap-2"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(sample.personalized);
+                                    toast({ title: "Copied!", description: "Message copied to clipboard." });
+                                    
+                                    // Deep link logic
+                                    const userId = Array.from(selectedUsers)[idx];
+                                    const config = supportSettings?.channel_configs?.[selectedChannel]?.user_mappings?.[userId];
+                                    if (config?.id) {
+                                      let url = '';
+                                      if (selectedChannel === 'Telegram') url = `https://t.me/${config.id}`;
+                                      if (selectedChannel === 'Teams') url = `https://teams.microsoft.com/l/chat/0/0?users=${config.id}`;
+                                      if (selectedChannel === 'Chat') url = config.id.startsWith('http') ? config.id : `https://${config.id}`;
+                                      
+                                      if (url) window.open(url, '_blank');
+                                    } else {
+                                      toast({ title: "Identity Missing", description: `Please link ${selectedChannel} identity for this user first.`, variant: "destructive" });
+                                    }
+                                  }}
+                                >
+                                  <ExternalLink size={12} /> Copy & Open {selectedChannel}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-sm text-slate-700 leading-relaxed font-serif italic whitespace-pre-wrap">
-                        {sample.personalized}
-                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-6 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2.5rem] text-white shadow-2xl shadow-indigo-200 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
+                  <div className="relative z-10 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-base font-black tracking-tight">Final Authorization</h4>
+                      <p className="text-indigo-100/70 text-[10px] font-bold uppercase tracking-widest mt-1">Ready to dispatch via {selectedChannel}</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Batch Size</p>
+                        <p className="text-xl font-black">{selectedUsers.size} Users</p>
+                      </div>
+                      <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                        <CheckCircle size={24} />
+                      </div>
                     </div>
                   </div>
-                ))}
-
-                <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-bold text-indigo-700 uppercase tracking-widest">Final Channel Selection</span>
-                    <Badge className="bg-indigo-600 text-white border-none text-[10px]">Ready for Dispatch</Badge>
-                  </div>
-                  <p className="text-xs text-indigo-600 leading-relaxed italic text-left">
-                    This batch will be sent via {selectedUsers.size > 1 ? 'the most efficient channel per user' : 'your selected channel'}.
-                  </p>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="p-6 bg-white border-t flex items-center justify-between gap-4">
-            <Button variant="ghost" onClick={() => setBulkPreviewOpen(false)} className="rounded-xl font-bold text-slate-500">Back to Compose</Button>
-            <div className="flex gap-3">
+          <div className="p-8 bg-white border-t flex items-center justify-between gap-6 shrink-0">
+            <Button variant="ghost" onClick={() => setBulkPreviewOpen(false)} className="h-12 px-6 rounded-2xl font-black text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all">
+              <ChevronLeft size={16} className="mr-2" /> Back to Compose
+            </Button>
+            <div className="flex gap-4">
               <Button
                 onClick={handleBulkSend}
                 disabled={isSending || isPreviewing || !channelConnections[selectedChannel]}
-                className={`${!channelConnections[selectedChannel] ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'} px-10 rounded-xl h-12 font-black shadow-xl transition-all active:scale-95`}
+                className={`h-14 px-12 rounded-[1.5rem] font-black shadow-[0_20px_40px_-10px_rgba(79,70,229,0.4)] transition-all active:scale-95 flex items-center gap-3 ${
+                  !channelConnections[selectedChannel] ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'
+                }`}
               >
-                {!channelConnections[selectedChannel] ? `Connect ${selectedChannel} to Send` : (isSending ? "Dispatching..." : `Confirm & Send to ${selectedUsers.size} Users`)}
+                {isSending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Zap size={18} className="fill-white" />
+                    <span>Confirm & Send to {selectedUsers.size} Users</span>
+                  </>
+                )}
               </Button>
             </div>
           </div>
