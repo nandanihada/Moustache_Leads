@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from services.automation_service import get_automation_service
 from models.automation_state import AutomationState
 from utils.auth import token_required
+from database import db_instance
 
 automation_admin_bp = Blueprint('automation_admin', __name__)
 
