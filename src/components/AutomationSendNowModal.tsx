@@ -60,7 +60,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
   const getOfferId = (o: any) => o?.offer_id || o?._id || o?.id;
 
   useEffect(() => {
-    if (activeItems.length === 0) return;
+    if (activeItems.length === 0 || !open) return;
     
     if (!isBulk && mainItem.next_offers && mainItem.next_offers.length > 0) {
       setOffers(mainItem.next_offers);
@@ -87,7 +87,8 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
         setSelected(new Set(firstIds));
       }
     }
-  }, [open, activeItems, isBulk, mainItem]);
+    // Only run when modal opens or the primary item/bulk mode changes
+  }, [open, isBulk, mainItem?.user_id]);
 
   // Initialize personal overrides for all selected users
   useEffect(() => {
@@ -142,7 +143,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
         fetchRelevant();
       }
     }
-  }, [open, offers.length, mainItem]);
+  }, [open, mainItem?.user_id]);
 
   const toggle = (id: string) => {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -599,7 +600,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                           return (
                             <div
                               key={`offer-row-${oId}`}
-                              className={`flex items-center gap-3 p-3 rounded-xl transition-all border cursor-pointer ${isSelected ? 'bg-white border-indigo-200 shadow-sm' : 'border-transparent hover:bg-white/50'}`}
+                              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${isSelected ? 'bg-white border-indigo-200 shadow-sm' : 'border-transparent hover:bg-white/50'}`}
                               onClick={() => toggle(oId)}
                             >
                               <Checkbox

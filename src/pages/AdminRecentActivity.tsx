@@ -1743,7 +1743,7 @@ const AdminRecentActivity: React.FC = () => {
                 return (
                   <div key={user.user_id} id={`user-row-${user.user_id}`}>
                     <div
-                      className={`flex items-stretch rounded-md my-1.5 overflow-hidden border-[0.5px] cursor-pointer transition-all duration-500 hover:shadow-sm ${isHighlighted ? 'bg-yellow-100 ring-2 ring-yellow-400 scale-[1.02] shadow-md border-yellow-300 z-20 relative' : theme.row} ${isSelected ? 'ring-1 ring-primary z-10 relative' : ''}`}
+                      className={`flex items-stretch rounded-md my-1.5 overflow-hidden border-[0.5px] cursor-pointer transition-colors duration-200 hover:shadow-sm ${isHighlighted ? 'bg-yellow-100 ring-2 ring-yellow-400 scale-[1.02] shadow-md border-yellow-300 z-20 relative' : theme.row} ${isSelected ? 'ring-1 ring-primary z-10 relative' : ''}`}
                       onClick={() => setExpandedId(isExpanded ? null : user.user_id)}
                     >
                       <div className={`w-[3px] shrink-0 transition-colors duration-500 ${isHighlighted ? 'bg-yellow-500' : theme.bar}`}></div>

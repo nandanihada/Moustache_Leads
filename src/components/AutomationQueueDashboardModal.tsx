@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'; // hmr-trigger-1
 import { Button } from '@/components/ui/button'; // hmr-trigger-2
 import { Input } from '@/components/ui/input';
@@ -231,40 +231,42 @@ export const AutomationQueueDashboardModal: React.FC<{
     });
   };
 
-  const filteredQueue = queue.filter(item => {
-    const searchLower = (search || '').toLowerCase();
-    const username = (item.username || '').toLowerCase();
-    const userId = (item.user_id || '').toLowerCase();
-    
-    const matchesSearch = username.includes(searchLower) || userId.includes(searchLower);
-    const matchesFilter = filter === 'all' ? item.queue_status !== 'removed' :
-                         (filter === 'active' && item.queue_status === 'active') ||
-                         (filter === 'paused' && item.queue_status === 'paused') ||
-                         (filter === 'completed' && item.queue_status === 'completed') ||
-                         (filter === 'removed' && item.queue_status === 'removed') ||
-                         (filter === 'pending' && item.queue_status === 'active' && item.delivery_status === 'pending') ||
-                         (filter === 'sent' && item.queue_status !== 'removed' && (item.current_step || 0) > 0) ||
-                         (filter === 'failed' && item.delivery_status === 'failed' && item.queue_status !== 'removed');
-    
-    // Recent Activity Filter (Expanded to 36h to handle 'Yesterday' activity and timezone drift)
-    const isReady = new Date(item.next_mail_time).getTime() <= Date.now();
-    const lastLoginTime = item.last_login ? new Date(item.last_login).getTime() : 0;
-    const isRecent = !recentOnly || isReady || (lastLoginTime > Date.now() - 36 * 60 * 60 * 1000);
-    
-    return matchesSearch && matchesFilter && isRecent;
-  }).sort((a, b) => {
-    // Sort by last login descending (most recent first)
-    const timeA = new Date(a.last_login || 0).getTime();
-    const timeB = new Date(b.last_login || 0).getTime();
-    return timeB - timeA;
-  });
+  const filteredQueue = useMemo(() => {
+    return queue.filter(item => {
+      const searchLower = (search || '').toLowerCase();
+      const username = (item.username || '').toLowerCase();
+      const userId = (item.user_id || '').toLowerCase();
+      
+      const matchesSearch = username.includes(searchLower) || userId.includes(searchLower);
+      const matchesFilter = filter === 'all' ? item.queue_status !== 'removed' :
+                           (filter === 'active' && item.queue_status === 'active') ||
+                           (filter === 'paused' && item.queue_status === 'paused') ||
+                           (filter === 'completed' && item.queue_status === 'completed') ||
+                           (filter === 'removed' && item.queue_status === 'removed') ||
+                           (filter === 'pending' && item.queue_status === 'active' && item.delivery_status === 'pending') ||
+                           (filter === 'sent' && item.queue_status !== 'removed' && (item.current_step || 0) > 0) ||
+                           (filter === 'failed' && item.delivery_status === 'failed' && item.queue_status !== 'removed');
+      
+      // Recent Activity Filter - Use a stable time reference to avoid jitter during polling
+      const isReady = new Date(item.next_mail_time).getTime() <= Date.now();
+      const lastLoginTime = item.last_login ? new Date(item.last_login).getTime() : 0;
+      const isRecent = !recentOnly || isReady || (lastLoginTime > Date.now() - 36 * 60 * 60 * 1000);
+      
+      return matchesSearch && matchesFilter && isRecent;
+    }).sort((a, b) => {
+      // Sort by last login descending (most recent first)
+      const timeA = new Date(a.last_login || 0).getTime();
+      const timeB = new Date(b.last_login || 0).getTime();
+      return timeB - timeA;
+    });
+  }, [queue, search, filter, recentOnly]);
 
   const getStepBadge = (step: number) => {
     if (step === 0) return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Delay Phase</Badge>;
     return <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">Step {step}/5</Badge>;
   };
 
-  const stats = {
+  const stats = useMemo(() => ({
     active: queue.filter(q => q.queue_status === 'active' && q.delivery_status !== 'failed').length,
     completed: queue.filter(q => q.queue_status === 'completed').length,
     totalDelivered: queue.filter(q => q.queue_status !== 'removed').reduce((acc, q) => acc + (q.current_step || 0), 0),
@@ -273,7 +275,11 @@ export const AutomationQueueDashboardModal: React.FC<{
     failed: queue.filter(q => q.delivery_status === 'failed' && q.queue_status !== 'removed').length,
     paused: queue.filter(q => q.queue_status === 'paused').length,
     removed: queue.filter(q => q.queue_status === 'removed').length
-  };
+  }), [queue]);
+
+  const bulkItems = useMemo(() => {
+    return queue.filter(item => selectedIds.has(item.user_id));
+  }, [queue, selectedIds]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -607,7 +613,7 @@ export const AutomationQueueDashboardModal: React.FC<{
                 filteredQueue.map(item => (
                   <TableRow 
                     key={item.user_id} 
-                    className={`hover:bg-slate-50/50 transition-colors cursor-pointer ${selectedIds.has(item.user_id) ? 'bg-indigo-50/30' : ''}`}
+                    className={`hover:bg-slate-50/50 cursor-pointer ${selectedIds.has(item.user_id) ? 'bg-indigo-50/30' : ''}`}
                     onClick={() => {
                       setSelectedIds(prev => {
                         const next = new Set(prev);
@@ -1193,8 +1199,8 @@ export const AutomationQueueDashboardModal: React.FC<{
               setSendNowOpen(false);
               setSelectedIds(new Set());
             }}
-            queueItem={selectedIds.size > 1 ? null : selectedQueueItem}
-            queueItems={selectedIds.size > 1 ? queue.filter(item => selectedIds.has(item.user_id)) : [selectedQueueItem]}
+            queueItem={selectedIds.size === 1 ? selectedQueueItem : null}
+            queueItems={bulkItems}
             apiUrl={apiUrl}
             onSent={() => loadQueue()}
             startInPreview={initialPreviewMode}
