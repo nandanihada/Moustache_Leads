@@ -701,7 +701,10 @@ class UserReports:
                     raw_name = offer.get('name', 'Unknown')
                     conv['offer_name'] = self._clean_offer_name(raw_name)
                 else:
-                    conv['offer_name'] = 'Unknown Offer'
+                    # Use the offer_name already stored in the record (from postback's cname param)
+                    # Only default to 'Unknown Offer' if nothing is stored
+                    stored_name = conv.get('offer_name', '')
+                    conv['offer_name'] = stored_name if stored_name and stored_name != 'Unknown Offer' else (conv.get('offer_name') or 'Unknown Offer')
                 
                 # Format datetime (forwarded_postbacks uses 'timestamp')
                 conv['time'] = conv['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if conv.get('timestamp') else ''

@@ -38,6 +38,10 @@ def process_single_postback(postback):
         survey_id = merged_data.get('survey_id')
         session_id = merged_data.get('session_id')
         
+        # Extract offer identifiers (support cid/cname aliases from partners)
+        offer_id_from_pb = merged_data.get('offer_id') or merged_data.get('cid') or merged_data.get('survey_id') or ''
+        offer_name_from_pb = merged_data.get('offer_name') or merged_data.get('cname') or ''
+        
         # Check if already processed — only if transaction_id is not empty
         if transaction_id:
             existing = conversions_collection.find_one({'transaction_id': transaction_id})
@@ -49,21 +53,106 @@ def process_single_postback(postback):
                 )
                 return True, existing['conversion_id']
         
-        # Try to find matching click by click_id ONLY — no fallback
+        # Try to find matching click by click_id (primary strategy)
         click_id_from_pb = merged_data.get('click_id') or merged_data.get('aff_sub')
         click = None
+        matched_by = 'click_id'
         
         if click_id_from_pb:
             click = clicks_collection.find_one({'click_id': click_id_from_pb})
         
-        # NO FALLBACK — if no click_id matches, log as unmatched and stop
+        # SECONDARY FALLBACK: Match by user_id + most recent unconverted click
+        # This handles partners (like cpamerchant) that only send user_id back
         if not click:
-            logger.warning(f"⚠️ UNMATCHED postback {transaction_id} — no click found for click_id={click_id_from_pb}")
+            user_id_from_pb = merged_data.get('user_id') or merged_data.get('affiliate_id') or merged_data.get('aff_id')
+            
+            if user_id_from_pb:
+                logger.info(f"🔄 Primary match failed. Trying secondary match: user_id={user_id_from_pb}, offer_id={offer_id_from_pb}")
+                
+                # Strategy A: find most recent unconverted click for this user
+                fallback_query = {
+                    'user_id': user_id_from_pb,
+                    'converted': {'$ne': True}
+                }
+                
+                # If we have offer_id (from offer_id or cid), narrow it down further
+                if offer_id_from_pb:
+                    fallback_query['offer_id'] = offer_id_from_pb
+                
+                # Get the most recent unconverted click for this user (sorted by click_time desc)
+                click = clicks_collection.find_one(
+                    fallback_query,
+                    sort=[('click_time', -1)]
+                )
+                
+                if click:
+                    # DEDUPLICATION: Check if a conversion already exists for this click
+                    existing_conv = conversions_collection.find_one({'click_id': click.get('click_id')})
+                    if existing_conv:
+                        logger.info(f"⚠️ Duplicate detected: conversion already exists for click {click.get('click_id')} — skipping")
+                        postbacks_collection.update_one(
+                            {'_id': postback['_id']},
+                            {'$set': {
+                                'status': 'duplicate',
+                                'duplicate_reason': f"Conversion {existing_conv.get('conversion_id')} already exists for click {click.get('click_id')}",
+                                'existing_conversion_id': existing_conv.get('conversion_id'),
+                                'duplicate_detected_at': datetime.utcnow()
+                            }}
+                        )
+                        return True, existing_conv.get('conversion_id')
+                    
+                    matched_by = 'user_id_fallback'
+                    logger.info(f"✅ Secondary match found: click_id={click.get('click_id')}, offer={click.get('offer_id')}, user={user_id_from_pb}")
+                else:
+                    # Strategy B: All clicks are already converted. Find the most recent click
+                    # that does NOT already have a conversion linked to THIS postback's transaction_id.
+                    # This handles partners that send multiple conversions for the same user
+                    # (e.g., user completes multiple offers or same offer multiple times).
+                    logger.info(f"🔄 Strategy A failed (no unconverted clicks). Trying Strategy B: recent click without duplicate conversion")
+                    
+                    fallback_query_b = {
+                        'user_id': user_id_from_pb,
+                    }
+                    if offer_id_from_pb:
+                        fallback_query_b['offer_id'] = offer_id_from_pb
+                    
+                    # Get recent clicks for this user (check up to 10 most recent)
+                    recent_clicks = list(clicks_collection.find(
+                        fallback_query_b,
+                        sort=[('click_time', -1)]
+                    ).limit(10))
+                    
+                    for candidate_click in recent_clicks:
+                        candidate_click_id = candidate_click.get('click_id')
+                        # Check if this click already has a conversion
+                        existing_conv = conversions_collection.find_one({'click_id': candidate_click_id})
+                        if not existing_conv:
+                            # Found a click without a conversion — use it
+                            click = candidate_click
+                            matched_by = 'user_id_fallback_strategy_b'
+                            logger.info(f"✅ Strategy B match: click_id={candidate_click_id}, offer={click.get('offer_id')}")
+                            break
+                    
+                    if not click and recent_clicks:
+                        # Strategy C: ALL clicks already have conversions. This is likely a NEW
+                        # conversion for a different offer. Use the most recent click as context
+                        # but create a fresh conversion record anyway (the user earned it).
+                        click = recent_clicks[0]
+                        matched_by = 'user_id_fallback_force'
+                        logger.info(f"✅ Strategy C (force match): using most recent click {click.get('click_id')} for user {user_id_from_pb} — all clicks already converted but postback is new")
+                    
+                    if not click:
+                        logger.warning(f"⚠️ Secondary match also failed for user_id={user_id_from_pb}")
+        
+        # If still no match after both strategies, mark as unmatched
+        if not click:
+            user_id_from_pb = merged_data.get('user_id') or merged_data.get('affiliate_id') or merged_data.get('aff_id') or ''
+            logger.warning(f"⚠️ UNMATCHED postback {transaction_id} — no click found for click_id={click_id_from_pb}, user_id={user_id_from_pb}")
             postbacks_collection.update_one(
                 {'_id': postback['_id']},
                 {'$set': {
                     'status': 'unmatched',
-                    'unmatched_reason': f'No click found for click_id={click_id_from_pb}',
+                    'unmatched_reason': f'No click found for click_id={click_id_from_pb}, user_id={user_id_from_pb}',
                     'unmatched_at': datetime.utcnow()
                 }}
             )
@@ -110,8 +199,8 @@ def process_single_postback(postback):
             
             # Data integrity fields
             'source': 'postback',  # Real postback conversion
-            'verified': True,  # Click was matched by click_id
-            'matched_by': 'click_id',
+            'verified': True,  # Click was matched
+            'matched_by': matched_by,
         }
         
         # Insert conversion

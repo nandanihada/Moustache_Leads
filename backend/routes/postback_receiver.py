@@ -174,7 +174,11 @@ def calculate_offer_points_with_bonus(offer_id, user_id=None):
 
 def calculate_downward_payout(upward_payout, offer):
     """
-    Calculate the payout to forward to downward partner based on revenue share settings.
+    Calculate the payout to forward to downward partner (publisher).
+    
+    Publisher payout rules:
+    1. If offer has revenue_share_percent > 0: publisher gets that % of upward payout
+    2. Otherwise: publisher gets 80% of the offer's payout (standard 20% platform margin)
     
     Args:
         upward_payout: The payout amount received from upward partner
@@ -208,26 +212,29 @@ def calculate_downward_payout(upward_payout, offer):
                 'calculation_method': f'{percent}% of {upward_payout}'
             }
         else:
-            # Fixed payout: use offer's fixed payout value
-            fixed_payout = float(offer.get('payout', 0))
+            # Fixed payout: publisher gets 80% of offer's payout (20% platform margin)
+            offer_payout = float(offer.get('payout', 0))
+            publisher_payout = round(offer_payout * 0.8, 2)
             
-            logger.info(f"💰 Fixed payout: {fixed_payout} (upward was {upward_payout})")
+            logger.info(f"💰 Publisher payout: {offer_payout} × 80% = {publisher_payout} (upward was {upward_payout})")
             
             return {
-                'downward_payout': fixed_payout,
+                'downward_payout': publisher_payout,
                 'is_percentage': False,
                 'revenue_share_percent': 0,
-                'calculation_method': f'Fixed: {fixed_payout}'
+                'calculation_method': f'80% of {offer_payout} = {publisher_payout}'
             }
             
     except Exception as e:
         logger.error(f"❌ Error calculating downward payout: {e}")
-        # Fallback to offer's fixed payout
+        # Fallback to 80% of offer's payout
+        offer_payout = float(offer.get('payout', 0))
+        publisher_payout = round(offer_payout * 0.8, 2)
         return {
-            'downward_payout': float(offer.get('payout', 0)),
+            'downward_payout': publisher_payout,
             'is_percentage': False,
             'revenue_share_percent': 0,
-            'calculation_method': 'Fallback to fixed payout'
+            'calculation_method': 'Fallback: 80% of offer payout'
         }
 
 def get_username_from_user_id(user_id):
@@ -388,11 +395,270 @@ def receive_postback(unique_key):
         except Exception as conv_error:
             logger.error(f"❌ Conversion creation error: {conv_error}")
 
+        # Track whether fallback already handled everything (to avoid double-processing)
+        fallback_handled = False
+
         # 🎯 FORWARD POSTBACK TO THE SPECIFIC USER WHOSE OFFERWALL WAS USED
-        # ONLY forward if a verified conversion was created from a real matched click
+        # Process forwarding + balance update regardless of conversion match status
+        # If conversion was created from a matched click, use that data.
+        # If NOT matched but we can identify the user from postback params, still credit them.
         if not conversion_created:
-            logger.warning("⚠️ Skipping forwarding — no verified conversion was created (unmatched postback)")
-        else:
+            logger.warning("⚠️ No verified conversion created — attempting fallback credit from postback params")
+            # FALLBACK: Try to identify user and credit balance even without click match
+            # This handles cases where cpamerchant sends user_id but all clicks are already converted
+            try:
+                fallback_user_id = params.get('user_id', '') or params.get('affiliate_id', '') or params.get('aff_id', '')
+                fallback_offer_id = params.get('offer_id', '') or params.get('cid', '') or params.get('survey_id', '')
+                fallback_payout = params.get('payout', '') or params.get('amount', '') or '0'
+                
+                if fallback_user_id and partner:
+                    logger.info(f"🔄 Fallback credit: user_id={fallback_user_id}, offer_id={fallback_offer_id}, payout={fallback_payout}")
+                    
+                    from bson import ObjectId as FallbackOid
+                    users_col = get_collection('users')
+                    offers_col = get_collection('offers')
+                    clicks_col = get_collection('clicks')
+                    conversions_col = get_collection('conversions')
+                    forwarded_postbacks_col = get_collection('forwarded_postbacks')
+                    pts_col = get_collection('points_transactions')
+                    
+                    # Find the user
+                    fallback_user = None
+                    if users_col is not None:
+                        try:
+                            fallback_user = users_col.find_one({'_id': FallbackOid(fallback_user_id)})
+                        except:
+                            fallback_user = users_col.find_one({'username': fallback_user_id})
+                    
+                    if fallback_user:
+                        fb_username = fallback_user.get('username', 'Unknown')
+                        fb_postback_url = fallback_user.get('postback_url', '')
+                        fb_publisher_id = str(fallback_user['_id'])
+                        
+                        # Get offer info — try click's offer_id first, then postback's
+                        fb_offer = None
+                        fb_offer_name_from_param = params.get('cname', '') or params.get('offer_name', '')  # Direct from postback
+                        fb_offer_found_from_click = False  # Track if offer came from click (not postback)
+                        if offers_col is not None and fallback_offer_id:
+                            fb_offer = offers_col.find_one({'offer_id': fallback_offer_id})
+                            # Also try by campaign_id if not found
+                            if not fb_offer:
+                                fb_offer = offers_col.find_one({'campaign_id': fallback_offer_id})
+                        
+                        # Calculate publisher payout
+                        try:
+                            fb_upward_payout = float(fallback_payout) if fallback_payout and not fallback_payout.startswith('{') else 0
+                        except (ValueError, TypeError):
+                            fb_upward_payout = 0
+                        
+                        # Try to get offer from click's offer_id (ONLY for payout calculation, not for name)
+                        if not fb_offer and clicks_col is not None:
+                            fb_click_for_offer = clicks_col.find_one({'user_id': fallback_user_id}, sort=[('click_time', -1)])
+                            if fb_click_for_offer and fb_click_for_offer.get('offer_id'):
+                                fb_offer = offers_col.find_one({'offer_id': fb_click_for_offer.get('offer_id')}) if offers_col else None
+                                if fb_offer:
+                                    fb_offer_found_from_click = True  # Mark: this offer is from click, NOT from postback
+                                    # Don't override fallback_offer_id — keep the postback's cid for the record
+                        
+                        # Also try by campaign_id if offer not found
+                        if not fb_offer and fallback_offer_id and offers_col is not None:
+                            fb_offer = offers_col.find_one({'campaign_id': fallback_offer_id})
+                            if fb_offer:
+                                fallback_offer_id = fb_offer.get('offer_id', fallback_offer_id)
+                        
+                        if fb_offer and fb_upward_payout:
+                            fb_calc = calculate_downward_payout(fb_upward_payout, fb_offer)
+                            fb_total_points = fb_calc['downward_payout']
+                        elif fb_offer:
+                            # No upward payout available — use 80% of offer's payout (standard margin)
+                            fb_total_points = round(float(fb_offer.get('payout', 0)) * 0.8, 2)
+                        else:
+                            fb_total_points = round(fb_upward_payout * 0.8, 2) if fb_upward_payout else 0
+                        
+                        # Find the most recent click for context (even if converted)
+                        fb_click = None
+                        if clicks_col is not None:
+                            fb_click_query = {'user_id': fallback_user_id}
+                            if fallback_offer_id:
+                                fb_click_query['offer_id'] = fallback_offer_id
+                            fb_click = clicks_col.find_one(fb_click_query, sort=[('click_time', -1)])
+                        
+                        # Create conversion record
+                        import secrets as fb_secrets
+                        fb_conversion_id = f"CONV-{fb_secrets.token_hex(6).upper()}"
+                        
+                        if conversions_col is not None:
+                            fb_conv_data = {
+                                'conversion_id': fb_conversion_id,
+                                'click_id': fb_click.get('click_id', 'unknown') if fb_click else 'unknown',
+                                'transaction_id': params.get('transaction_id', ''),
+                                'offer_id': fallback_offer_id or (fb_click.get('offer_id') if fb_click else 'unknown'),
+                                'user_id': fallback_user_id,
+                                'affiliate_id': fallback_user_id,
+                                'status': 'approved',
+                                'payout': fb_upward_payout,
+                                'publisher_payout': fb_total_points,
+                                'currency': 'USD',
+                                'country': params.get('country', '') or (fb_click.get('country', 'Unknown') if fb_click else 'Unknown'),
+                                'country_code': params.get('country_code', '') or (fb_click.get('country_code', '') if fb_click else ''),
+                                'device_type': fb_click.get('device_type', 'unknown') if fb_click else 'unknown',
+                                'ip_address': received_log.get('ip_address', ''),
+                                'sub_id1': fb_click.get('sub_id1', '') if fb_click else '',
+                                'sub_id2': fb_click.get('sub_id2', '') if fb_click else '',
+                                'sub_id3': fb_click.get('sub_id3', '') if fb_click else '',
+                                'conversion_time': datetime.utcnow(),
+                                'raw_postback': {**params, **(post_data or {})},
+                                'postback_id': str(result.inserted_id),
+                                'partner_id': partner_id,
+                                'partner_name': partner_name,
+                                'source': 'postback_fallback',
+                                'verified': True,
+                                'matched_by': 'user_id_fallback_direct',
+                            }
+                            conversions_col.insert_one(fb_conv_data)
+                            conversion_created = True
+                            conversion_id_result = fb_conversion_id
+                            logger.info(f"✅ Fallback conversion created: {fb_conversion_id}")
+                        
+                        # Update received postback status
+                        received_postbacks_collection.update_one(
+                            {'_id': result.inserted_id},
+                            {'$set': {'status': 'processed', 'conversion_id': fb_conversion_id, 'matched_by': 'fallback_direct'}}
+                        )
+                        
+                        # Mark click as converted if found
+                        if fb_click and clicks_col is not None:
+                            clicks_col.update_one(
+                                {'click_id': fb_click['click_id']},
+                                {'$set': {'converted': True, 'postback_received': True, 'postback_revenue': fb_upward_payout}}
+                            )
+                        
+                        # Forward postback to publisher
+                        fb_forward_status = 'no_url'
+                        fb_forward_url = ''
+                        fb_response_code = 0
+                        
+                        if fb_postback_url:
+                            fb_offer_name = fb_offer.get('name', '') if fb_offer else ''
+                            fb_macros = {
+                                '{click_id}': fb_click.get('click_id', '') if fb_click else '',
+                                '{conversion_id}': fb_conversion_id,
+                                '{transaction_id}': params.get('transaction_id', ''),
+                                '{status}': 'approved',
+                                '{payout}': str(fb_total_points),
+                                '{points}': str(fb_total_points),
+                                '{amount}': str(fb_total_points),
+                                '{reward}': str(fb_total_points),
+                                '{offer_id}': fallback_offer_id or '',
+                                '{offer_name}': fb_offer_name,
+                                '{user_id}': fallback_user_id,
+                                '{username}': fb_username,
+                                '{publisher_id}': fb_publisher_id,
+                                '{sub_id1}': fb_click.get('sub_id1', '') if fb_click else '',
+                                '{sub_id2}': fb_click.get('sub_id2', '') if fb_click else '',
+                                '{sub_id3}': fb_click.get('sub_id3', '') if fb_click else '',
+                                '{sub1}': fb_click.get('sub_id1', '') if fb_click else '',
+                                '{sub2}': fb_click.get('sub_id2', '') if fb_click else '',
+                                '{sub3}': fb_click.get('sub_id3', '') if fb_click else '',
+                                '{user_ip}': fb_click.get('ip_address', '') if fb_click else '',
+                                '{ip}': fb_click.get('ip_address', '') if fb_click else '',
+                                '{country}': fb_click.get('country', '') if fb_click else '',
+                            }
+                            fb_forward_url = fb_postback_url
+                            for macro, value in fb_macros.items():
+                                fb_forward_url = fb_forward_url.replace(macro, str(value))
+                            
+                            import requests as fb_req_lib
+                            try:
+                                resp = fb_req_lib.get(fb_forward_url, timeout=10)
+                                fb_response_code = resp.status_code
+                                fb_forward_status = 'success' if resp.status_code == 200 else 'failed'
+                                logger.info(f"📤 Fallback forwarded to {fb_username}: status={resp.status_code}")
+                            except Exception as send_err:
+                                fb_forward_status = 'failed'
+                                logger.error(f"❌ Fallback forward failed: {send_err}")
+                        
+                        # Create forwarded_postbacks record
+                        if forwarded_postbacks_col is not None:
+                            fb_fwd_record = {
+                                'timestamp': datetime.utcnow(),
+                                'original_postback_id': result.inserted_id,
+                                'received_postback_id': str(result.inserted_id),
+                                'publisher_id': fb_publisher_id,
+                                'publisher_name': fb_username,
+                                'username': fb_username,
+                                'end_user_id': fallback_user_id,
+                                'points': fb_total_points,
+                                'forward_url': fb_forward_url,
+                                'forward_status': fb_forward_status,
+                                'response_code': fb_response_code,
+                                'original_params': params,
+                                'placement_id': fb_click.get('placement_id', '') if fb_click else '',
+                                'placement_title': 'Unknown',
+                                'offer_id': fallback_offer_id or (fb_click.get('offer_id', 'unknown') if fb_click else 'unknown'),
+                                'offer_name': fb_offer_name_from_param or (fb_offer.get('name', 'Unknown Offer') if fb_offer and not fb_offer_found_from_click else 'Unknown Offer'),
+                                'click_id': fb_click.get('click_id', 'unknown') if fb_click else 'unknown',
+                                'source': 'verified_postback_fallback',
+                                'conversion_id': fb_conversion_id,
+                                'transaction_id': params.get('transaction_id', ''),
+                                'country': fb_click.get('country', '') if fb_click else '',
+                                'device_type': fb_click.get('device_type', '') if fb_click else '',
+                                'ip_address': fb_click.get('ip_address', '') if fb_click else '',
+                            }
+                            forwarded_postbacks_col.insert_one(fb_fwd_record)
+                            logger.info(f"📝 Fallback forwarded_postbacks record created (status={fb_forward_status})")
+                        
+                        # AWARD POINTS to publisher
+                        if fb_total_points > 0:
+                            # Initialize total_points if None
+                            users_col.update_one(
+                                {'_id': FallbackOid(fallback_user_id), 'total_points': None},
+                                {'$set': {'total_points': 0}}
+                            )
+                            users_col.update_one(
+                                {'_id': FallbackOid(fallback_user_id)},
+                                {'$inc': {'total_points': fb_total_points}, '$set': {'updated_at': datetime.utcnow()}}
+                            )
+                            logger.info(f"💰 Fallback points awarded: {fb_username} +{fb_total_points}")
+                            
+                            # Record points transaction
+                            if pts_col is not None:
+                                pts_col.insert_one({
+                                    'username': fb_username,
+                                    'user_id': fallback_user_id,
+                                    'points': fb_total_points,
+                                    'type': 'offer_completion',
+                                    'offer_id': fallback_offer_id or (fb_click.get('offer_id') if fb_click else ''),
+                                    'click_id': fb_click.get('click_id', '') if fb_click else '',
+                                    'conversion_id': fb_conversion_id,
+                                    'received_postback_id': str(result.inserted_id),
+                                    'timestamp': datetime.utcnow(),
+                                    'status': 'completed',
+                                    'source': 'verified_postback_fallback',
+                                })
+                                logger.info(f"✅ Fallback points transaction recorded")
+                            
+                            # Referral P2 commission
+                            try:
+                                from models.referral import Referral
+                                ref_model = Referral()
+                                if fallback_user.get('referred_by'):
+                                    ref_model.update_p2_revenue(fallback_user_id, fb_total_points)
+                            except:
+                                pass
+                        
+                        logger.info(f"🎉 Fallback processing complete: user={fb_username}, points={fb_total_points}, conversion={fb_conversion_id}")
+                        fallback_handled = True
+                    else:
+                        logger.warning(f"⚠️ Fallback failed: user not found for user_id={fallback_user_id}")
+                else:
+                    logger.warning(f"⚠️ Fallback skipped: no user_id in postback params or no partner matched")
+            except Exception as fallback_error:
+                logger.error(f"❌ Fallback credit error: {fallback_error}")
+                import traceback
+                logger.error(traceback.format_exc())
+
+        if conversion_created and not fallback_handled:
             logger.info("🚨 FORWARDING POSTBACK TO SPECIFIC USER — verified conversion exists 🚨")
             try:
                 # Re-read POST body data
@@ -487,9 +753,10 @@ def receive_postback(unique_key):
                     revenue_calc = calculate_downward_payout(upward_payout, offer_for_calc)
                     total_points = revenue_calc['downward_payout']
                 elif offer_for_calc:
-                    total_points = float(offer_for_calc.get('payout', 0))
+                    # No upward payout available — use 80% of offer's payout (standard platform margin)
+                    total_points = round(float(offer_for_calc.get('payout', 0)) * 0.8, 2)
                 else:
-                    total_points = float(upward_payout) if upward_payout else 0
+                    total_points = round(float(upward_payout) * 0.8, 2) if upward_payout else 0
 
                 # Check user promo bonus
                 if user_id_from_click and matched_offer_id:
@@ -510,17 +777,74 @@ def receive_postback(unique_key):
 
                 # Try to forward if user has a postback URL
                 if owner_postback_url:
+                    # Get offer name for macro replacement
+                    fwd_offer_name = ''
+                    if offer_for_calc:
+                        fwd_offer_name = offer_for_calc.get('name', '')
+                    elif offers_col is not None and (offer_id or matched_offer_id):
+                        o = offers_col.find_one({'offer_id': offer_id or matched_offer_id})
+                        if o:
+                            fwd_offer_name = o.get('name', '')
+
+                    # Comprehensive macro map supporting multiple naming conventions
+                    # Publishers use different macro formats depending on their platform
                     macros = {
-                        '{click_id}': click_id or '', '{status}': 'approved',
-                        '{payout}': str(total_points), '{points}': str(total_points),
-                        '{offer_id}': offer_id or '', '{conversion_id}': conversion_id_result or '',
+                        # Click & conversion identifiers
+                        '{click_id}': click_id or '',
+                        '{conversion_id}': conversion_id_result or '',
                         '{transaction_id}': get_param_value('transaction_id') or '',
-                        '{user_id}': user_id_from_click or '', '{affiliate_id}': user_id_from_click or '',
+                        '{trans}': get_param_value('transaction_id') or '',
+                        
+                        # Status
+                        '{status}': 'approved',
+                        
+                        # Payout (publisher amount) — multiple naming conventions
+                        '{payout}': str(total_points),
+                        '{points}': str(total_points),
+                        '{payout_amount}': str(total_points),
+                        '{amount}': str(total_points),
+                        '{reward}': str(total_points),
+                        
+                        # Offer info
+                        '{offer_id}': offer_id or matched_offer_id or '',
+                        '{offer_name}': fwd_offer_name,
+                        '{offerName}': fwd_offer_name,
+                        '{cid}': offer_id or matched_offer_id or '',
+                        '{cname}': fwd_offer_name,
+                        
+                        # User/affiliate identifiers
+                        '{user_id}': user_id_from_click or '',
+                        '{affiliate_id}': user_id_from_click or '',
+                        '{aff_id}': user_id_from_click or '',
+                        '{publisher_id}': publisher_id or user_id_from_click or '',
                         '{username}': actual_username or '',
+                        
+                        # Sub IDs — multiple naming conventions
                         '{sub_id1}': click.get('sub_id1', '') if click else '',
                         '{sub_id2}': click.get('sub_id2', '') if click else '',
                         '{sub_id3}': click.get('sub_id3', '') if click else '',
+                        '{sub1}': click.get('sub_id1', '') if click else '',
+                        '{sub2}': click.get('sub_id2', '') if click else '',
+                        '{sub3}': click.get('sub_id3', '') if click else '',
+                        '{aff_sub}': click.get('sub_id1', '') if click else '',
+                        '{aff_sub1}': click.get('sub_id1', '') if click else '',
+                        '{aff_sub2}': click.get('sub_id2', '') if click else '',
+                        '{aff_sub3}': click.get('sub_id3', '') if click else '',
+                        '{aff_sub4}': click.get('sub_id4', '') if click else '',
+                        '{aff_sub5}': click.get('sub_id5', '') if click else '',
+                        
+                        # IP address — multiple naming conventions
                         '{user_ip}': click.get('ip_address', '') if click else '',
+                        '{ip}': click.get('ip_address', '') if click else '',
+                        '{ip_address}': click.get('ip_address', '') if click else '',
+                        
+                        # Geo
+                        '{country}': click.get('country', '') if click else '',
+                        '{country_code}': click.get('country_code', '') if click else '',
+                        
+                        # Device
+                        '{device}': click.get('device_type', '') if click else '',
+                        '{device_type}': click.get('device_type', '') if click else '',
                     }
                     forward_url = owner_postback_url
                     for macro, value in macros.items():
@@ -541,14 +865,19 @@ def receive_postback(unique_key):
 
                 # Create the forwarded_postbacks record (ALWAYS — this is what shows in conversion report)
                 if forwarded_postbacks_col is not None:
-                    # Get offer name for display
+                    # Get offer name for display — use cname from postback as fallback
+                    offer_name_from_postback = get_param_value('cname') or get_param_value('offer_name') or ''
                     offer_name = 'Unknown Offer'
                     if offer_for_calc:
-                        offer_name = offer_for_calc.get('name', 'Unknown Offer')
+                        offer_name = offer_for_calc.get('name', offer_name_from_postback or 'Unknown Offer')
                     elif offers_col is not None and (offer_id or matched_offer_id):
                         o = offers_col.find_one({'offer_id': offer_id or matched_offer_id})
                         if o:
-                            offer_name = o.get('name', 'Unknown Offer')
+                            offer_name = o.get('name', offer_name_from_postback or 'Unknown Offer')
+                        elif offer_name_from_postback:
+                            offer_name = offer_name_from_postback
+                    elif offer_name_from_postback:
+                        offer_name = offer_name_from_postback
 
                     # Get end-user info from postback params (person who completed the offer)
                     end_user_username = get_param_value('username') or actual_username
