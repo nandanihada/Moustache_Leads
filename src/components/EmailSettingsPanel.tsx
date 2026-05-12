@@ -21,7 +21,7 @@ const ALL_FIELDS = [
   { key: 'payout', label: 'Payout', default: true },
   { key: 'countries', label: 'Countries', default: true },
   { key: 'category', label: 'Category', default: true },
-  { key: 'network', label: 'Network', default: true },
+  { key: 'network', label: 'Network', default: false },
   { key: 'image', label: 'Image', default: true },
   { key: 'offer_id', label: 'Offer ID', default: true },
   { key: 'preview_url', label: 'Preview URL', default: false },
@@ -113,21 +113,35 @@ export default function EmailSettingsPanel({ settings, onChange, compact, offerI
   };
 
   const cycleField = (key: string) => {
-    const inVisible = settings.visibleFields.includes(key);
-    const inSeeMore = settings.seeMoreFields.includes(key);
+    const visibleArr = Array.isArray(settings.visibleFields) ? settings.visibleFields : [];
+    const seeMoreArr = Array.isArray(settings.seeMoreFields) ? settings.seeMoreFields : [];
+    
+    const inVisible = visibleArr.includes(key);
+    const inSeeMore = seeMoreArr.includes(key);
+    
     if (inVisible) {
-      handleChange({ ...settings, visibleFields: settings.visibleFields.filter(f => f !== key), seeMoreFields: [...settings.seeMoreFields, key] });
+      handleChange({ 
+        ...settings, 
+        visibleFields: visibleArr.filter(f => f !== key), 
+        seeMoreFields: [...seeMoreArr, key] 
+      });
     } else if (inSeeMore) {
-      handleChange({ ...settings, seeMoreFields: settings.seeMoreFields.filter(f => f !== key) });
+      handleChange({ 
+        ...settings, 
+        seeMoreFields: seeMoreArr.filter(f => f !== key) 
+      });
     } else {
-      handleChange({ ...settings, visibleFields: [...settings.visibleFields, key] });
+      handleChange({ 
+        ...settings, 
+        visibleFields: [...visibleArr, key] 
+      });
     }
   };
 
   const addCustomTerm = () => {
     const term = customTermInput.trim();
-    if (term && !settings.customPaymentTerms.includes(term) && !PAYMENT_TERM_PRESETS.includes(term)) {
-      handleChange({ ...settings, customPaymentTerms: [...settings.customPaymentTerms, term] });
+    if (term && !(settings.customPaymentTerms || []).includes(term) && !PAYMENT_TERM_PRESETS.includes(term)) {
+      handleChange({ ...settings, customPaymentTerms: [...(settings.customPaymentTerms || []), term] });
       setCustomTermInput('');
     }
   };
@@ -135,12 +149,15 @@ export default function EmailSettingsPanel({ settings, onChange, compact, offerI
   const removeCustomTerm = (term: string) => {
     handleChange({
       ...settings,
-      customPaymentTerms: settings.customPaymentTerms.filter(t => t !== term),
+      customPaymentTerms: (settings.customPaymentTerms || []).filter(t => t !== term),
       paymentTerms: settings.paymentTerms === term ? '' : settings.paymentTerms,
     });
   };
 
-  const allTerms = [...PAYMENT_TERM_PRESETS, ...settings.customPaymentTerms];
+  const safeVisibleFields = Array.isArray(settings.visibleFields) ? settings.visibleFields : [];
+  const safeSeeMoreFields = Array.isArray(settings.seeMoreFields) ? settings.seeMoreFields : [];
+  const safeCustomTerms = Array.isArray(settings.customPaymentTerms) ? settings.customPaymentTerms : [];
+  const allTerms = [...PAYMENT_TERM_PRESETS, ...safeCustomTerms];
 
   if (compact && !expanded) {
     return (
@@ -187,30 +204,56 @@ export default function EmailSettingsPanel({ settings, onChange, compact, offerI
 
       {/* Fields — cycle: Visible → See More → Hidden */}
       <div>
-        <Label className="text-xs">Fields in email</Label>
-        <p className="text-[10px] text-muted-foreground mt-0.5 mb-1.5">
-          Click to cycle: <span className="text-violet-600 font-medium">Table</span> → <span className="text-amber-600 font-medium">See More page</span> → <span className="text-gray-400 font-medium">Hidden</span>
-        </p>
-        <div className="flex flex-wrap gap-1.5">
+        <Label className="text-xs">Field Visibility in Mail</Label>
+        <div className="grid grid-cols-3 gap-2 mt-1 mb-3">
+          <div className="flex items-center gap-1.5 p-2 rounded-xl bg-violet-50 border border-violet-100">
+            <div className="w-2.5 h-2.5 rounded-full bg-violet-500" />
+            <span className="text-[9px] font-bold text-violet-700 uppercase">Directly Visible</span>
+          </div>
+          <div className="flex items-center gap-1.5 p-2 rounded-xl bg-amber-50 border border-amber-100">
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+            <span className="text-[9px] font-bold text-amber-700 uppercase">See More</span>
+          </div>
+          <div className="flex items-center gap-1.5 p-2 rounded-xl bg-white border border-slate-200">
+            <div className="w-2.5 h-2.5 rounded-full bg-slate-300" />
+            <span className="text-[9px] font-bold text-slate-500 uppercase">Hidden</span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
           {ALL_FIELDS.map(f => {
-            const inVisible = settings.visibleFields.includes(f.key);
-            const inSeeMore = settings.seeMoreFields.includes(f.key);
-            let cls = 'bg-white border-gray-200 text-gray-400';
-            let icon = null;
-            if (inVisible) { cls = 'bg-violet-100 border-violet-300 text-violet-700'; icon = <Eye className="h-2.5 w-2.5" />; }
-            else if (inSeeMore) { cls = 'bg-amber-100 border-amber-300 text-amber-700'; icon = <EyeOff className="h-2.5 w-2.5" />; }
+            const inVisible = safeVisibleFields.includes(f.key);
+            const inSeeMore = safeSeeMoreFields.includes(f.key);
+            
+            let cls = 'bg-white border-slate-200 text-slate-400 hover:border-slate-300';
+            let dotCls = 'bg-slate-300';
+            
+            if (inVisible) { 
+              cls = 'bg-violet-600 border-violet-700 text-white shadow-md shadow-violet-100 scale-105'; 
+              dotCls = 'bg-white';
+            } else if (inSeeMore) { 
+              cls = 'bg-amber-400 border-amber-500 text-white shadow-md shadow-amber-100 scale-105'; 
+              dotCls = 'bg-white';
+            }
+
             return (
-              <button key={f.key} type="button" onClick={() => cycleField(f.key)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors flex items-center gap-1 ${cls}`}>
-                {icon}{f.label}
+              <button 
+                key={f.key} 
+                type="button" 
+                onClick={() => cycleField(f.key)}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-black border transition-all flex items-center gap-2 ${cls}`}
+              >
+                <div className={`w-1.5 h-1.5 rounded-full ${dotCls}`} />
+                {f.label}
               </button>
             );
           })}
         </div>
-        {settings.seeMoreFields.length > 0 && (
-          <div className="mt-1.5 flex items-center gap-1 text-[10px] text-amber-600">
-            <EyeOff className="h-3 w-3" />
-            On See More page: {settings.seeMoreFields.map(k => ALL_FIELDS.find(f => f.key === k)?.label || k).join(', ')}
+
+        {safeSeeMoreFields.length > 0 && (
+          <div className="mt-3 p-2 bg-amber-50/50 rounded-lg border border-dashed border-amber-200 flex items-center gap-2 text-[10px] text-amber-700 italic">
+            <EyeOff className="h-3.5 w-3.5" />
+            Hidden under "See More": {safeSeeMoreFields.map(k => ALL_FIELDS.find(f => f.key === k)?.label || k).join(', ')}
           </div>
         )}
       </div>
@@ -244,13 +287,13 @@ export default function EmailSettingsPanel({ settings, onChange, compact, offerI
                 className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${!settings.paymentTerms ? 'bg-gray-100 border-gray-300 text-gray-700' : 'bg-white border-gray-200 text-gray-400'}`}>
                 None
               </button>
-              {allTerms.map(term => (
+                  {allTerms.map(term => (
                 <div key={term} className="flex items-center gap-0.5">
                   <button type="button" onClick={() => handleChange({ ...settings, paymentTerms: settings.paymentTerms === term ? '' : term })}
                     className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
                       settings.paymentTerms === term ? 'bg-blue-100 border-blue-300 text-blue-700' : 'bg-white border-gray-200 text-gray-400 hover:bg-gray-50'
                     }`}>{term}</button>
-                  {settings.customPaymentTerms.includes(term) && (
+                  {safeCustomTerms.includes(term) && (
                     <button type="button" onClick={() => removeCustomTerm(term)} className="text-gray-400 hover:text-red-500"><X className="h-3 w-3" /></button>
                   )}
                 </div>

@@ -2015,6 +2015,7 @@ const AdminRecentActivity: React.FC = () => {
               onClose={() => setMessagingHubOpen(false)} 
               apiUrl={API_URL} 
               initialUsers={users}
+              initialSelectedIds={selectedUserIds}
               className="flex-1"
             />
           </div>

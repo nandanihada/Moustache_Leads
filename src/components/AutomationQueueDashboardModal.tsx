@@ -47,6 +47,7 @@ export interface AutomationQueueItem {
   }[];
   custom_subject?: string;
   custom_message?: string;
+  is_authorized?: boolean;
 }
 
 export const AutomationQueueDashboardModal: React.FC<{
@@ -153,7 +154,7 @@ export const AutomationQueueDashboardModal: React.FC<{
       setLoading(false);
     }
   };
-  const handleOverride = async (userId: string, action: 'pause' | 'resume' | 'complete' | 'reset' | 'skip' | 'remove' | 'restore' | 'delete_permanent' | 'pin' | 'save-content' | 'retry', step?: number | string, data?: any) => {
+  const handleOverride = async (userId: string, action: 'start' | 'pause' | 'resume' | 'complete' | 'reset' | 'skip' | 'remove' | 'restore' | 'delete_permanent' | 'pin' | 'save-content' | 'retry', step?: number | string, data?: any) => {
     try {
       const token = localStorage.getItem('token');
       const res = await fetch(`${apiUrl}/api/admin/automation/override`, {
@@ -750,18 +751,34 @@ export const AutomationQueueDashboardModal: React.FC<{
                             <div className="flex items-center text-slate-700 font-bold text-xs">
                               {new Date(item.next_mail_time).getTime() - new Date().getTime() <= 0 ? (
                                 <div className="flex items-center gap-2">
-                                  <span className="flex items-center text-emerald-600 animate-pulse">
-                                    <Zap size={12} className="mr-1 fill-emerald-600" />
-                                    READY
-                                  </span>
-                                  <Button 
-                                    size="sm" 
-                                    className="h-7 px-3 text-[10px] font-black bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg flex items-center gap-1 animate-bounce"
-                                    disabled={fetchingItem === item.user_id}
-                                    onClick={() => fetchItemDetails(item, true)}
-                                  >
-                                    <Zap size={10} className="fill-white" /> INITIATE OUTREACH
-                                  </Button>
+                                  {item.current_step === 0 && !item.is_authorized ? (
+                                    <Button 
+                                      size="sm" 
+                                      className="h-8 px-4 text-[10px] font-black bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg flex items-center gap-2 animate-in fade-in zoom-in duration-300"
+                                      disabled={fetchingItem === item.user_id}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOverride(item.user_id, 'start');
+                                      }}
+                                    >
+                                      <Play size={12} className="fill-white" /> START OUTREACH CYCLE
+                                    </Button>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <span className="flex items-center text-emerald-600 animate-pulse">
+                                        <Zap size={12} className="mr-1 fill-emerald-600" />
+                                        READY
+                                      </span>
+                                      <Button 
+                                        size="sm" 
+                                        className="h-7 px-3 text-[10px] font-black bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg flex items-center gap-1 animate-bounce"
+                                        disabled={fetchingItem === item.user_id}
+                                        onClick={() => fetchItemDetails(item, true)}
+                                      >
+                                        <Zap size={10} className="fill-white" /> INITIATE OUTREACH
+                                      </Button>
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <div className="flex flex-col gap-1 w-full">

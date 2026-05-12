@@ -15,7 +15,7 @@ ALL_FIELDS = [
     'name', 'payout', 'countries', 'category', 'network', 'image',
     'offer_id', 'preview_url', 'preview_url_2', 'clicks', 'payment_terms', 'description',
 ]
-DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'network', 'image', 'offer_id']
+DEFAULT_FIELDS = ['name', 'payout', 'countries', 'category', 'image', 'offer_id']
 
 
 def build_offer_email_html(
@@ -114,13 +114,20 @@ def build_offer_email_html(
             masked_preview_2 = preview_2
 
         # Determine which preview links show in email vs on the See More page
-        # "Table" (visible_fields) = show in email AND see-more page
-        # "See More" (see_more_fields) = show on see-more page only
-        # "Hidden" = don't show anywhere
-        email_default = masked_default if show_main.get('preview_url') else ''
-        email_preview_2 = masked_preview_2 if show_main.get('preview_url_2') else ''
-        page_default = masked_default if (show_more.get('preview_url') or show_main.get('preview_url')) else ''
-        page_preview_2 = masked_preview_2 if (show_more.get('preview_url_2') or show_main.get('preview_url_2')) else ''
+        # Respect both the field-level visibility AND the global preview settings
+        
+        # 1. Default Preview (preview_url)
+        is_default_in_email = show_main.get('preview_url') and preview_in_email in ['email', 'both']
+        is_default_on_page = (show_more.get('preview_url') or show_main.get('preview_url')) and preview_in_email in ['page', 'both']
+        
+        # 2. Custom Preview (preview_url_2)
+        is_custom_in_email = show_main.get('preview_url_2') and custom_preview_in_email in ['email', 'both']
+        is_custom_on_page = (show_more.get('preview_url_2') or show_main.get('preview_url_2')) and custom_preview_in_email in ['page', 'both']
+        
+        email_default = masked_default if is_default_in_email else ''
+        email_preview_2 = masked_preview_2 if is_custom_in_email else ''
+        page_default = masked_default if is_default_on_page else ''
+        page_preview_2 = masked_preview_2 if is_custom_on_page else ''
 
         offer_payment = per_offer_payment_terms.get(offer_id, payment_terms)
 

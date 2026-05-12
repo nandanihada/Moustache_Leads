@@ -106,8 +106,8 @@ admin_publisher_email_bp = safe_import_blueprint('routes.admin_publisher_email',
 admin_publisher_bulk_email_bp = safe_import_blueprint('routes.admin_publisher_bulk_email', 'admin_publisher_bulk_email_bp')
 admin_level_progression_bp = safe_import_blueprint('routes.admin_level_progression', 'admin_level_progression_bp')
 platform_settings_bp = safe_import_blueprint('routes.platform_settings', 'platform_settings_bp')
-email_campaigns_bp = safe_import_blueprint('routes.email_campaigns', 'email_campaigns_bp')
-admin_offerwall_management_bp = safe_import_blueprint('routes.admin_offerwall_management', 'admin_offerwall_management_bp')
+automation_admin_bp = safe_import_blueprint('routes.automation_admin', 'automation_admin_bp')
+support_hub_admin_bp = safe_import_blueprint('routes.support_hub_admin', 'support_hub_admin_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -203,8 +203,8 @@ blueprints = [
     (admin_publisher_bulk_email_bp, ''),
     (admin_level_progression_bp, ''),
     (platform_settings_bp, ''),
-    (email_campaigns_bp, '/api/admin'),
-    (admin_offerwall_management_bp, '/api/admin'),
+    (automation_admin_bp, '/api/admin'),
+    (support_hub_admin_bp, '/api/admin'),
 ]
 
 def create_app():
@@ -541,12 +541,20 @@ def start_background_services():
             logging.warning(f"⚠️ Offer rotation service failed to start: {str(e)}")
         
         try:
-            from services.campaign_processor import get_campaign_processor
-            campaign_processor = get_campaign_processor()
-            campaign_processor.start()
-            logging.info("✅ Campaign processor started (email queue processing)")
+            from services.location_retry_service import get_location_retry_service
+            location_retry_service = get_location_retry_service()
+            location_retry_service.start_service()
+            logging.info("✅ Location retry service started (auto-resolves 'Tracking...' IPs)")
         except Exception as e:
-            logging.warning(f"⚠️ Campaign processor failed to start: {str(e)}")
+            logging.warning(f"⚠️ Location retry service failed to start: {str(e)}")
+
+        try:
+            from services.automation_service import get_automation_service
+            automation_service = get_automation_service()
+            automation_service.start_service()
+            logging.info("✅ Automation Engine background service started")
+        except Exception as e:
+            logging.warning(f"⚠️ Automation Engine failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:
