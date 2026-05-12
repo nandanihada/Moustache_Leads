@@ -167,6 +167,9 @@ const Partners: React.FC = () => {
     { value: 'transaction_id', label: 'transaction_id' },
     { value: 'click_id', label: 'click_id' },
     { value: 'offer_id', label: 'offer_id' },
+    { value: 'offer_name', label: 'offer_name' },
+    { value: 'cid', label: 'cid' },
+    { value: 'cname', label: 'cname' },
     { value: 'status', label: 'status' },
     { value: 'event_type', label: 'event_type' },
     { value: 'sub_id1', label: 'sub_id1' },
@@ -339,22 +342,27 @@ const Partners: React.FC = () => {
       description: partner.description || ''
     });
     
-    // Load postback parameter mappings
-    if (partner.parameter_mapping) {
+    // Load postback parameter mappings from offer_url_params (single source of truth)
+    if (partner.offer_url_params && partner.offer_url_params.length > 0) {
+      setOfferUrlParams(partner.offer_url_params.map(p => ({ our_field: p.our_field, their_param: p.their_param })));
+      // Sync parameterMappings from offer_url_params so save works correctly
+      const mappings: ParameterMapping[] = partner.offer_url_params.map(p => ({
+        ourParam: p.our_field,
+        theirParam: p.their_param,
+        enabled: !!p.their_param
+      }));
+      setParameterMappings(mappings);
+    } else if (partner.parameter_mapping) {
+      // Fallback: build from parameter_mapping if no offer_url_params
       const mappings: ParameterMapping[] = Object.entries(partner.parameter_mapping).map(([theirParam, ourParam]) => ({
         ourParam: ourParam as string,
         theirParam,
         enabled: true
       }));
       setParameterMappings(mappings);
+      setOfferUrlParams(mappings.map(m => ({ our_field: m.ourParam, their_param: m.theirParam })));
     } else {
       setParameterMappings(PARTNER_TEMPLATES['Custom']);
-    }
-
-    // Load offer URL params
-    if (partner.offer_url_params && partner.offer_url_params.length > 0) {
-      setOfferUrlParams(partner.offer_url_params.map(p => ({ our_field: p.our_field, their_param: p.their_param })));
-    } else {
       setOfferUrlParams([{ our_field: 'user_id', their_param: '' }]);
     }
 

@@ -65,6 +65,13 @@ const adminMenuStructure = [
     type: "single" as const
   },
   {
+    title: "Offerwall Manager",
+    url: "/admin/offerwall-manager",
+    icon: Layers,
+    tab: "offerwall-manager",
+    type: "single" as const
+  },
+  {
     title: "Users & Access",
     icon: Users,
     type: "group" as const,

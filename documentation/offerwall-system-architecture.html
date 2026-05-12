@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Moustache Leads - Offerwall System Architecture</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f1117; color: #e1e4e8; line-height: 1.6; padding: 20px; }
+.container { max-width: 1200px; margin: 0 auto; }
+h1 { color: #58a6ff; font-size: 28px; margin-bottom: 8px; }
+h2 { color: #79c0ff; font-size: 20px; margin: 20px 0 10px; cursor: pointer; padding: 12px 16px; background: #161b22; border-radius: 8px; border-left: 4px solid #58a6ff; }
+h2:hover { background: #1c2128; }
+h2::before { content: '▼ '; font-size: 12px; }
+h2.collapsed::before { content: '▶ '; }
+h3 { color: #d2a8ff; font-size: 16px; margin: 14px 0 8px; }
+.subtitle { color: #8b949e; margin-bottom: 30px; }
+.section { padding: 16px; margin-bottom: 4px; }
+.section.hidden { display: none; }
+table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+th { background: #21262d; color: #79c0ff; text-align: left; padding: 10px 12px; }
+td { padding: 8px 12px; border-bottom: 1px solid #21262d; }
+tr:hover td { background: #161b22; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.badge-green { background: #1b4332; color: #6ee7b7; }
+.badge-blue { background: #1e3a5f; color: #93c5fd; }
+.badge-purple { background: #3b1f5e; color: #c4b5fd; }
+.badge-orange { background: #4a2c17; color: #fdba74; }
+.flow-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin: 10px 0; }
+.flow-arrow { text-align: center; color: #58a6ff; font-size: 20px; margin: 4px 0; }
+.code-block { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; font-family: 'Fira Code', monospace; font-size: 13px; overflow-x: auto; margin: 8px 0; white-space: pre; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+.card-title { color: #58a6ff; font-weight: 600; margin-bottom: 8px; }
+.phase-tag { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: 700; margin-right: 8px; }
+.p1 { background: #1b4332; color: #6ee7b7; }
+.p2 { background: #1e3a5f; color: #93c5fd; }
+.p3 { background: #3b1f5e; color: #c4b5fd; }
+.p4 { background: #4a2c17; color: #fdba74; }
+.toc { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 20px; margin-bottom: 30px; }
+.toc a { color: #58a6ff; text-decoration: none; display: block; padding: 4px 0; }
+.toc a:hover { color: #79c0ff; text-decoration: underline; }
+.connection-diagram { background: #0d1117; border: 2px solid #30363d; border-radius: 12px; padding: 24px; margin: 16px 0; text-align: center; font-family: monospace; font-size: 13px; line-height: 1.8; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>🏗️ Offerwall System Architecture</h1>
+<p class="subtitle">Moustache Leads — 4 Connected Features: Management Panel, Surveys, Sub-Walls, Redirect Router</p>
+
+<div class="toc">
+<strong style="color:#79c0ff;">📋 Table of Contents</strong>
+<a href="#overview">1. System Overview & Connection Map</a>
+<a href="#collections">2. MongoDB Collections</a>
+<a href="#apis">3. API Endpoints</a>
+<a href="#frontend">4. Frontend Pages & Components</a>
+<a href="#flows">5. User Flows</a>
+<a href="#build">6. Build Order & Dependencies</a>
+</div>
+
+<!-- SECTION 1: OVERVIEW -->
+<h2 id="overview" onclick="toggleSection(this)">1. System Overview & How Everything Connects</h2>
+<div class="section">
+
+<div class="connection-diagram">
+┌─────────────────────────────────────────────────────────────────────┐
+│                        ADMIN PANEL (dashboard.moustacheleads.com)                         │
+│                                                                                           │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────┐  ┌──────────────────┐  │
+│  │ Offerwall Manager │  │  Survey Builder  │  │  Sub-Wall Mgmt  │  │  Router Builder  │  │
+│  │  (Phase 1)        │  │  (Phase 2)       │  │  (Phase 3)      │  │  (Phase 4)       │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬────────┘  └────────┬─────────┘  │
+└───────────┼──────────────────────┼──────────────────────┼───────────────────┼────────────┘
+            │                      │                      │                   │
+            ▼                      ▼                      ▼                   ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                     OFFERWALL (offerwall.moustacheleads.com)                              │
+│                                                                                           │
+│  ┌────────┐ ┌────────┐ ┌────────────┐ ┌────────────┐ ┌──────────────┐                   │
+│  │ Offer  │ │ Offer  │ │ Sub-Wall   │ │ Sub-Wall   │ │   Router     │                   │
+│  │ Card   │ │ Card   │ │ Card       │ │ Card       │ │   Card       │                   │
+│  │(pinned)│ │(normal)│ │ (Phase 3)  │ │ (Phase 3)  │ │  (Phase 4)   │                   │
+│  └────────┘ └────────┘ └─────┬──────┘ └────────────┘ └──────┬───────┘                   │
+└───────────────────────────────┼──────────────────────────────┼───────────────────────────┘
+                                │                              │
+                    ┌───────────▼───────────┐      ┌───────────▼───────────┐
+                    │  PRE-SCREENING SURVEY  │      │  PRE-QUAL QUESTIONS   │
+                    │  (uses Phase 2 engine) │      │  (uses Phase 2 engine)│
+                    └───────────┬───────────┘      └───────────┬───────────┘
+                                │                              │
+                    ┌───────────▼───────────┐      ┌───────────▼───────────┐
+                    │  SUB-WALL PAGE         │      │  SURVEY ROUTING       │
+                    │  walls.moustacheleads  │      │  Pass → Show Survey   │
+                    │  .com/slug             │      │  Fail → Next in Lane  │
+                    │  (filtered offers)     │      │  Timeout → Next       │
+                    └───────────────────────┘      │  Complete → Congrats  │
+                                                   └───────────────────────┘
+</div>
+
+<h3>Key Connections</h3>
+<table>
+<tr><th>From</th><th>To</th><th>How</th></tr>
+<tr><td>Offerwall Manager</td><td>Offerwall</td><td>Controls which offers visible, order, pinned items</td></tr>
+<tr><td>Survey Builder</td><td>Sub-Walls</td><td>Pre-screening surveys reuse the survey engine</td></tr>
+<tr><td>Survey Builder</td><td>Router</td><td>Pre-qual questions reuse the survey engine</td></tr>
+<tr><td>Sub-Walls</td><td>Offerwall</td><td>Appears as a card on main offerwall</td></tr>
+<tr><td>Router</td><td>Offerwall/Sub-Wall</td><td>Appears as a card, can live in either</td></tr>
+<tr><td>Router</td><td>External Providers</td><td>Redirects to PepperAds/etc, handles DQ callbacks</td></tr>
+</table>
+</div>
+
+<!-- SECTION 2: COLLECTIONS -->
+<h2 id="collections" onclick="toggleSection(this)">2. MongoDB Collections (7 New)</h2>
+<div class="section">
+
+<h3><span class="phase-tag p1">Phase 1</span> offerwall_settings</h3>
+<div class="code-block">{
+  "_id": ObjectId,
+  "pinned_offers": ["offer_id_1", "offer_id_2"],   // shown at top
+  "hidden_offers": ["offer_id_5"],                  // hidden from wall
+  "display_order": [{"offer_id": "x", "position": 1}],
+  "theme": { "primary_color": "#6366f1", "layout": "grid", "cards_per_row": 3 },
+  "announcements": [{ "text": "New surveys!", "active": true }],
+  "updated_at": ISODate,
+  "updated_by": "admin_user_id"
+}</div>
+
+<h3><span class="phase-tag p2">Phase 2</span> surveys</h3>
+<div class="code-block">{
+  "_id": ObjectId,
+  "name": "Age & Interest Survey",
+  "type": "manual",                    // "manual" | "ai_generated"
+  "status": "active",                  // "active" | "inactive" | "draft"
+  "questions": [
+    {
+      "id": "q1",
+      "text": "What is your age?",
+      "type": "mcq",                   // "mcq" | "text" | "yes_no" | "number_range"
+      "options": ["18-24", "25-34", "35-44", "45+"],
+      "required": true,
+      "skip_logic": { "25-34": "q3" }  // skip to q3 if answer is 25-34
+    }
+  ],
+  "placement": "before_wall",          // "before_wall" | "before_offer" | "inline" | "popup"
+  "target_offer_ids": [],              // empty = applies to whole wall
+  "created_at": ISODate,
+  "created_by": "admin_id"
+}</div>
+
+<h3><span class="phase-tag p2">Phase 2</span> survey_responses</h3>
+<div class="code-block">{
+  "_id": ObjectId,
+  "survey_id": ObjectId,
+  "user_id": "end_user_123",
+  "answers": [
+    { "question_id": "q1", "answer": "25-34" },
+    { "question_id": "q2", "answer": "Technology" }
+  ],
+  "qualified": true,
+  "completed_at": ISODate,
+  "time_spent_seconds": 45
+}</div>
+
+<h3><span class="phase-tag p3">Phase 3</span> sub_walls</h3>
+<div class="code-block">{
+  "_id": ObjectId,
+  "name": "Premium Surveys",
+  "slug": "premium-surveys",           // URL: walls.moustacheleads.com/premium-surveys
+  "description": "High-paying survey offers",
+  "image_url": "/uploads/wall-banner.png",
+  "offer_ids": ["offer_1", "offer_2", "offer_3"],
+  "pre_screening_enabled": true,
+  "pre_screening_survey_id": ObjectId, // links to surveys collection
+  "filter_by_answers": true,           // true = filter offers based on answers, false = just collect
+  "filter_rules": {
+    "age": { "18-24": ["offer_1"], "25-34": ["offer_1", "offer_2"] },
+    "gender": { "male": ["offer_1"], "female": ["offer_2", "offer_3"] }
+  },
+  "status": "active",
+  "display_order": 1,                  // position on main offerwall
+  "created_at": ISODate
+}</div>
+
+<h3><span class="phase-tag p3">Phase 3</span> pre_screening_responses</h3>
+<div class="code-block">{
+  "_id": ObjectId,
+  "sub_wall_id": ObjectId,
+  "user_id": "end_user_123",
+  "answers": { "age": "25-34", "gender": "male" },
+  "eligible_offers": ["offer_1", "offer_2"],  // calculated based on filter_rules
+  "completed_at": ISODate
+}</div>
+
+<h3><span class="phase-tag p4">Phase 4</span> routers</h3>
+<div class="code-block">{
+  "_id": ObjectId,
+  "name": "PepperAds Survey Router",
+  "slug": "pepperads-router",
+  "image_url": "/uploads/router-icon.png",
+  "lanes": [
+    {
+      "lane_id": "lane_1",
+      "name": "Main Lane",
+      "surveys": [
+        {
+          "survey_position": 1,
+          "offer_id": "pepper_survey_1",
+          "pre_qual_questions": [
+            { "field": "age", "operator": "between", "value": [18, 35] },
+            { "field": "gender", "operator": "eq", "value": "male" }
+          ],
+          "timeout_seconds": 300,
+          "redirect_on_dq": true
+        },
+        {
+          "survey_position": 2,
+          "offer_id": "pepper_survey_2",
+          "pre_qual_questions": [
+            { "field": "age", "operator": "between", "value": [25, 55] }
+          ],
+          "timeout_seconds": 600,
+          "redirect_on_dq": true
+        }
+      ]
+    }
+  ],
+  "partner_redirect_permission": true,
+  "status": "active",
+  "show_on_wall": true,               // show as card on offerwall
+  "show_on_sub_wall_id": null,         // or put inside a sub-wall
+  "created_at": ISODate
+}</div>
+
+<h3><span class="phase-tag p4">Phase 4</span> router_sessions</h3>
+<div class="code-block">{
+  "_id": ObjectId,
+  "router_id": ObjectId,
+  "user_id": "end_user_123",
+  "current_lane": "lane_1",
+  "current_position": 2,              // currently on survey #2
+  "status": "in_progress",            // "in_progress" | "completed" | "exhausted"
+  "history": [
+    {
+      "survey_position": 1,
+      "offer_id": "pepper_survey_1",
+      "result": "disqualified",        // "completed" | "disqualified" | "timeout" | "pre_qual_fail"
+      "earnings": 0,
+      "time_spent_seconds": 120,
+      "timestamp": ISODate
+    }
+  ],
+  "total_earnings": 0,
+  "started_at": ISODate,
+  "last_activity": ISODate
+}</div>
+</div>
+
+<!-- SECTION 3: API ENDPOINTS -->
+<h2 id="apis" onclick="toggleSection(this)">3. API Endpoints</h2>
+<div class="section">
+
+<h3><span class="phase-tag p1">Phase 1</span> Offerwall Management</h3>
+<table>
+<tr><th>Method</th><th>Route</th><th>What it does</th></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/offerwall/settings</td><td>Get current offerwall settings</td></tr>
+<tr><td><span class="badge badge-green">PUT</span></td><td>/api/admin/offerwall/settings</td><td>Update settings (theme, announcements)</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/admin/offerwall/pin</td><td>Pin/unpin offers to top</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/admin/offerwall/visibility</td><td>Show/hide specific offers</td></tr>
+<tr><td><span class="badge badge-green">PUT</span></td><td>/api/admin/offerwall/reorder</td><td>Change offer display order</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/offerwall/stats</td><td>Get wall stats (visible count, clicks)</td></tr>
+</table>
+
+<h3><span class="phase-tag p2">Phase 2</span> Surveys</h3>
+<table>
+<tr><th>Method</th><th>Route</th><th>What it does</th></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/surveys</td><td>List all surveys</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/admin/surveys</td><td>Create survey (manual)</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/admin/surveys/generate</td><td>AI-generate survey from prompt</td></tr>
+<tr><td><span class="badge badge-green">PUT</span></td><td>/api/admin/surveys/:id</td><td>Update survey</td></tr>
+<tr><td><span class="badge badge-purple">DELETE</span></td><td>/api/admin/surveys/:id</td><td>Delete survey</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/surveys/:id/responses</td><td>View responses for a survey</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/surveys/:id</td><td>Public: get survey questions (for end user)</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/surveys/:id/submit</td><td>Public: submit survey answers</td></tr>
+</table>
+
+<h3><span class="phase-tag p3">Phase 3</span> Sub-Walls</h3>
+<table>
+<tr><th>Method</th><th>Route</th><th>What it does</th></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/sub-walls</td><td>List all sub-walls</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/admin/sub-walls</td><td>Create sub-wall</td></tr>
+<tr><td><span class="badge badge-green">PUT</span></td><td>/api/admin/sub-walls/:id</td><td>Update sub-wall (offers, settings)</td></tr>
+<tr><td><span class="badge badge-purple">DELETE</span></td><td>/api/admin/sub-walls/:id</td><td>Delete sub-wall</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/sub-walls/:id/responses</td><td>View pre-screening responses</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/walls/:slug</td><td>Public: get sub-wall data + offers</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/walls/:slug/screen</td><td>Public: submit pre-screening answers</td></tr>
+</table>
+
+<h3><span class="phase-tag p4">Phase 4</span> Redirect Router</h3>
+<table>
+<tr><th>Method</th><th>Route</th><th>What it does</th></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/routers</td><td>List all routers</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/admin/routers</td><td>Create router with lanes</td></tr>
+<tr><td><span class="badge badge-green">PUT</span></td><td>/api/admin/routers/:id</td><td>Update router (add/remove surveys, lanes)</td></tr>
+<tr><td><span class="badge badge-purple">DELETE</span></td><td>/api/admin/routers/:id</td><td>Delete router</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/admin/routers/:id/sessions</td><td>View user sessions & analytics</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/router/:id/start</td><td>Public: user starts router session</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/router/:id/qualify</td><td>Public: submit pre-qual answers</td></tr>
+<tr><td><span class="badge badge-green">POST</span></td><td>/api/router/:id/callback</td><td>Callback: survey provider DQ/complete</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/router/:id/next</td><td>Public: get next survey in lane</td></tr>
+<tr><td><span class="badge badge-blue">GET</span></td><td>/api/router/:id/status</td><td>Public: get user's current session status</td></tr>
+</table>
+</div>
+
+<!-- SECTION 4: FRONTEND -->
+<h2 id="frontend" onclick="toggleSection(this)">4. Frontend Pages & Components</h2>
+<div class="section">
+
+<h3>New Admin Pages (inside existing AdminLayout)</h3>
+<table>
+<tr><th>Page</th><th>Path</th><th>Phase</th><th>Description</th></tr>
+<tr><td>AdminOfferwallManager.tsx</td><td>/admin/offerwall-manager</td><td><span class="phase-tag p1">1</span></td><td>Main management panel with iframe preview + controls</td></tr>
+<tr><td>AdminSurveyBuilder.tsx</td><td>/admin/offerwall-manager/surveys</td><td><span class="phase-tag p2">2</span></td><td>Create/edit surveys (subtab)</td></tr>
+<tr><td>AdminSubWalls.tsx</td><td>/admin/offerwall-manager/sub-walls</td><td><span class="phase-tag p3">3</span></td><td>Manage sub-walls</td></tr>
+<tr><td>AdminRouters.tsx</td><td>/admin/offerwall-manager/routers</td><td><span class="phase-tag p4">4</span></td><td>Manage redirect routers</td></tr>
+</table>
+
+<h3>New Public Pages (offerwall subdomain)</h3>
+<table>
+<tr><th>Page</th><th>Path</th><th>Phase</th><th>Description</th></tr>
+<tr><td>SubWallPage.tsx</td><td>/wall/:slug</td><td><span class="phase-tag p3">3</span></td><td>Sub-wall with pre-screening + filtered offers</td></tr>
+<tr><td>RouterFlow.tsx</td><td>/router/:id</td><td><span class="phase-tag p4">4</span></td><td>Router qualification flow UI</td></tr>
+<tr><td>SurveyRenderer.tsx</td><td>(component)</td><td><span class="phase-tag p2">2</span></td><td>Renders survey questions (reused everywhere)</td></tr>
+</table>
+
+<h3>New Components</h3>
+<table>
+<tr><th>Component</th><th>Phase</th><th>Used In</th></tr>
+<tr><td>OfferwallPreview.tsx</td><td><span class="phase-tag p1">1</span></td><td>Admin panel — iframe of live offerwall</td></tr>
+<tr><td>PinnedOfferSelector.tsx</td><td><span class="phase-tag p1">1</span></td><td>Admin — pick offers to pin</td></tr>
+<tr><td>SurveyQuestionEditor.tsx</td><td><span class="phase-tag p2">2</span></td><td>Admin — build questions</td></tr>
+<tr><td>SurveyRenderer.tsx</td><td><span class="phase-tag p2">2</span></td><td>Public — display survey to user</td></tr>
+<tr><td>SubWallCard.tsx</td><td><span class="phase-tag p3">3</span></td><td>Offerwall — the card that represents a sub-wall</td></tr>
+<tr><td>PreScreeningForm.tsx</td><td><span class="phase-tag p3">3</span></td><td>Sub-wall page — age/gender form</td></tr>
+<tr><td>RouterCard.tsx</td><td><span class="phase-tag p4">4</span></td><td>Offerwall — the card that represents a router</td></tr>
+<tr><td>RouterLaneEditor.tsx</td><td><span class="phase-tag p4">4</span></td><td>Admin — drag/drop surveys into lanes</td></tr>
+<tr><td>QualificationStep.tsx</td><td><span class="phase-tag p4">4</span></td><td>Router flow — pre-qual question UI</td></tr>
+<tr><td>RouterCongrats.tsx</td><td><span class="phase-tag p4">4</span></td><td>Router flow — "You earned X!" page</td></tr>
+</table>
+
+<h3>New Services (API files)</h3>
+<table>
+<tr><th>File</th><th>Phase</th></tr>
+<tr><td>src/services/offerwallManagerApi.ts</td><td><span class="phase-tag p1">1</span></td></tr>
+<tr><td>src/services/surveyBuilderApi.ts</td><td><span class="phase-tag p2">2</span></td></tr>
+<tr><td>src/services/subWallApi.ts</td><td><span class="phase-tag p3">3</span></td></tr>
+<tr><td>src/services/routerApi.ts</td><td><span class="phase-tag p4">4</span></td></tr>
+</table>
+</div>
+
+<!-- SECTION 5: FLOWS -->
+<h2 id="flows" onclick="toggleSection(this)">5. User Flows</h2>
+<div class="section">
+
+<h3>Flow A: User Opens Offerwall → Enters Sub-Wall</h3>
+<div class="flow-box">
+<strong>1.</strong> User lands on offerwall.moustacheleads.com
+<br><strong>2.</strong> Offerwall loads → checks offerwall_settings → applies pinned offers, hidden offers, order
+<br><strong>3.</strong> User sees: [Pinned Offers] → [Sub-Wall Cards] → [Router Cards] → [Regular Offers]
+<br><strong>4.</strong> User clicks a Sub-Wall card (e.g., "Premium Surveys")
+<br><strong>5.</strong> Opens walls.moustacheleads.com/premium-surveys
+<br><strong>6.</strong> If pre_screening_enabled → show PreScreeningForm (age, gender)
+<br><strong>7.</strong> User submits → backend checks filter_rules → returns eligible offers
+<br><strong>8.</strong> User sees filtered offer cards inside the sub-wall
+</div>
+
+<h3>Flow B: User Clicks Router Card → Survey Routing</h3>
+<div class="flow-box">
+<strong>1.</strong> User clicks Router card on offerwall
+<br><strong>2.</strong> POST /api/router/:id/start → creates router_session
+<br><strong>3.</strong> System picks Lane 1, Survey Position 1
+<br><strong>4.</strong> Shows pre-qual questions for Survey #1 (e.g., "Are you 18-35?")
+<br><strong>5a.</strong> If PASS → redirect user to actual survey URL (PepperAds etc.)
+<br><strong>5b.</strong> If FAIL → auto-advance to Survey #2 pre-qual questions
+<br><strong>6.</strong> User is on external survey...
+<br><strong>7a.</strong> Survey COMPLETE → callback hits /api/router/:id/callback → show Congrats page
+<br><strong>7b.</strong> Survey DQ (disqualified mid-way) → callback → auto-route to next survey
+<br><strong>7c.</strong> TIMEOUT (too long) → frontend timer fires → POST next → route to next
+<br><strong>8.</strong> After congrats, user clicks "Next" → repeat from step 3 for next survey
+<br><strong>9.</strong> If all surveys exhausted → show "No more surveys available"
+</div>
+
+<h3>Flow C: Admin Creates a Sub-Wall</h3>
+<div class="flow-box">
+<strong>1.</strong> Admin goes to /admin/offerwall-manager/sub-walls
+<br><strong>2.</strong> Clicks "Create Sub-Wall"
+<br><strong>3.</strong> Fills: name, slug, image, selects offers from dropdown
+<br><strong>4.</strong> Toggles "Enable Pre-Screening" → picks/creates a survey
+<br><strong>5.</strong> Sets filter rules: "If age 18-24, show offers A,B. If 25-34, show A,B,C"
+<br><strong>6.</strong> Saves → sub-wall appears as card on main offerwall
+<br><strong>7.</strong> Also accessible directly at walls.moustacheleads.com/{slug}
+</div>
+
+<h3>Flow D: Admin Creates a Router</h3>
+<div class="flow-box">
+<strong>1.</strong> Admin goes to /admin/offerwall-manager/routers
+<br><strong>2.</strong> Clicks "Create Router"
+<br><strong>3.</strong> Names it, adds Lane 1
+<br><strong>4.</strong> Drags surveys into Lane 1 in order (Survey A → B → C)
+<br><strong>5.</strong> For each survey: sets pre-qual criteria (age range, gender) + timeout
+<br><strong>6.</strong> Toggles "Show on Offerwall" or assigns to a specific sub-wall
+<br><strong>7.</strong> Saves → router card appears on wall
+</div>
+</div>
+
+<!-- SECTION 6: BUILD ORDER -->
+<h2 id="build" onclick="toggleSection(this)">6. Build Order & Dependencies</h2>
+<div class="section">
+
+<div class="grid-2">
+<div class="card">
+<div class="card-title"><span class="phase-tag p1">Phase 1</span> Offerwall Manager</div>
+<p><strong>Depends on:</strong> Nothing (standalone)</p>
+<p><strong>Build:</strong></p>
+<ul style="margin-left:16px; margin-top:8px;">
+<li>offerwall_settings collection + model</li>
+<li>6 admin API endpoints</li>
+<li>AdminOfferwallManager page with iframe + controls</li>
+<li>Modify existing offerwall route to read settings</li>
+</ul>
+<p style="margin-top:8px;"><strong>Est:</strong> 2-3 days</p>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="phase-tag p2">Phase 2</span> Survey System</div>
+<p><strong>Depends on:</strong> Phase 1 (lives as subtab)</p>
+<p><strong>Build:</strong></p>
+<ul style="margin-left:16px; margin-top:8px;">
+<li>surveys + survey_responses collections</li>
+<li>8 API endpoints (admin + public)</li>
+<li>SurveyBuilder admin page</li>
+<li>SurveyRenderer component (reusable)</li>
+<li>AI generation endpoint (optional, can add later)</li>
+</ul>
+<p style="margin-top:8px;"><strong>Est:</strong> 3-4 days</p>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="phase-tag p3">Phase 3</span> Sub-Walls</div>
+<p><strong>Depends on:</strong> Phase 2 (reuses survey engine for pre-screening)</p>
+<p><strong>Build:</strong></p>
+<ul style="margin-left:16px; margin-top:8px;">
+<li>sub_walls + pre_screening_responses collections</li>
+<li>7 API endpoints</li>
+<li>AdminSubWalls page</li>
+<li>SubWallCard component (for main offerwall)</li>
+<li>SubWallPage (public page with pre-screening)</li>
+<li>New subdomain/route: walls.moustacheleads.com</li>
+</ul>
+<p style="margin-top:8px;"><strong>Est:</strong> 4-5 days</p>
+</div>
+
+<div class="card">
+<div class="card-title"><span class="phase-tag p4">Phase 4</span> Redirect Router</div>
+<p><strong>Depends on:</strong> Phase 2 + Phase 3</p>
+<p><strong>Build:</strong></p>
+<ul style="margin-left:16px; margin-top:8px;">
+<li>routers + router_sessions collections</li>
+<li>10 API endpoints</li>
+<li>AdminRouters page with lane editor</li>
+<li>RouterCard component</li>
+<li>RouterFlow page (qualification + routing UI)</li>
+<li>Callback handler for DQ/complete from providers</li>
+<li>Timeout detection (frontend timer)</li>
+</ul>
+<p style="margin-top:8px;"><strong>Est:</strong> 5-7 days</p>
+</div>
+</div>
+
+<h3 style="margin-top:24px;">Total Estimated: 14-19 days</h3>
+
+<div class="flow-box" style="margin-top:16px;">
+<strong>Build Sequence:</strong><br><br>
+Phase 1 (Offerwall Manager) → can start immediately<br>
+&nbsp;&nbsp;&nbsp;&nbsp;↓<br>
+Phase 2 (Surveys) → start after Phase 1 admin tab is ready<br>
+&nbsp;&nbsp;&nbsp;&nbsp;↓<br>
+Phase 3 (Sub-Walls) → needs survey engine from Phase 2<br>
+&nbsp;&nbsp;&nbsp;&nbsp;↓<br>
+Phase 4 (Router) → needs surveys + can use sub-walls<br>
+</div>
+</div>
+
+<script>
+function toggleSection(header) {
+  const section = header.nextElementSibling;
+  if (section.classList.contains('hidden')) {
+    section.classList.remove('hidden');
+    header.classList.remove('collapsed');
+  } else {
+    section.classList.add('hidden');
+    header.classList.add('collapsed');
+  }
+}
+</script>
+
+</div>
+</body>
+</html>

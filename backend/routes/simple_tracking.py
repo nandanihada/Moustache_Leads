@@ -164,10 +164,12 @@ def track_offer_click(offer_id):
             'device_type': 'unknown',
             'ip_address': ip_address,
             'offer_id': offer_id,
+            'cid': offer_id,  # Alias for offer_id (some partners use cid)
             'payout': str(offer.get('payout', 0) or 0),
             'status': offer.get('status', 'active'),
             'currency': offer.get('currency', 'USD') or 'USD',
             'offer_name': offer.get('name', ''),
+            'cname': offer.get('name', ''),  # Alias for offer_name (some partners use cname)
         }
         
         # Replace macros in target URL

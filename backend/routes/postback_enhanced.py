@@ -15,7 +15,11 @@ postback_enhanced_bp = Blueprint('postback_enhanced', __name__)
 
 def calculate_downward_payout(upward_payout, offer):
     """
-    Calculate the payout to forward to downward partner based on revenue share settings.
+    Calculate the payout to forward to downward partner (publisher).
+    
+    Publisher payout rules:
+    1. If offer has revenue_share_percent > 0: publisher gets that % of upward payout
+    2. Otherwise: publisher gets 80% of the offer's payout (standard 20% platform margin)
     
     Args:
         upward_payout: The payout amount received from upward partner
@@ -51,27 +55,29 @@ def calculate_downward_payout(upward_payout, offer):
                 'upward_payout': upward_payout
             }
         else:
-            # Fixed payout: use offer's fixed payout value
-            fixed_payout = float(offer.get('payout', 0))
+            # Fixed payout: publisher gets 80% of offer's payout (20% platform margin)
+            offer_payout = float(offer.get('payout', 0))
+            publisher_payout = round(offer_payout * 0.8, 2)
             
-            logger.info(f"💰 Fixed payout: {fixed_payout} (upward was {upward_payout})")
+            logger.info(f"💰 Publisher payout: {offer_payout} × 80% = {publisher_payout} (upward was {upward_payout})")
             
             return {
-                'downward_payout': fixed_payout,
+                'downward_payout': publisher_payout,
                 'is_percentage': False,
                 'revenue_share_percent': 0,
-                'calculation_method': f'Fixed: {fixed_payout}',
+                'calculation_method': f'80% of {offer_payout} = {publisher_payout}',
                 'upward_payout': upward_payout
             }
             
     except Exception as e:
         logger.error(f"❌ Error calculating downward payout: {e}")
-        # Fallback to offer's fixed payout
+        offer_payout = float(offer.get('payout', 0))
+        publisher_payout = round(offer_payout * 0.8, 2)
         return {
-            'downward_payout': float(offer.get('payout', 0)),
+            'downward_payout': publisher_payout,
             'is_percentage': False,
             'revenue_share_percent': 0,
-            'calculation_method': 'Fallback to fixed payout',
+            'calculation_method': 'Fallback: 80% of offer payout',
             'upward_payout': upward_payout
         }
 

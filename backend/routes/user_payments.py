@@ -21,9 +21,10 @@ def calculate_user_earnings(user_id):
         
         # 1. CONVERSIONS
         conversions_col = get_collection('forwarded_postbacks')
-        # We only count 'success' conversions, subtract 'reversed' if needed, but 'success' is the current balance addition
+        # Count ALL credited conversions (success, failed, no_url) — publisher earned it regardless of forward status
+        # Only exclude 'reversed' status
         conv_pipeline = [
-            {'$match': {'publisher_id': str(user_id), 'forward_status': 'success'}},
+            {'$match': {'publisher_id': str(user_id), 'forward_status': {'$nin': ['reversed']}, 'is_reversal': {'$ne': True}}},
             {'$group': {'_id': None, 'total': {'$sum': '$points'}}}
         ]
         conv_res = list(conversions_col.aggregate(conv_pipeline)) if conversions_col is not None else []
@@ -255,7 +256,7 @@ def fetch_user_transactions(user_id):
         # 1. Conversions
         conversions_col = get_collection('forwarded_postbacks')
         if conversions_col is not None:
-            convs = list(conversions_col.find({'publisher_id': user_id, 'forward_status': 'success'}))
+            convs = list(conversions_col.find({'publisher_id': user_id, 'forward_status': {'$nin': ['reversed']}, 'is_reversal': {'$ne': True}}))
             for c in convs:
                 transactions.append({
                     'id': str(c['_id']),
@@ -433,12 +434,16 @@ def get_user_payout_history():
         user = request.current_user
         user_id = str(user['_id'])
         
-        # In a full production app, this would query a 'user_payouts' or 'invoices' collection
-        # For demonstration matching the image, we check if collection exists or return mock
         payouts_col = get_collection('user_payouts')
         history = []
         if payouts_col is not None:
-             records = list(payouts_col.find({'user_id': ObjectId(user_id)}).sort('creation_date', -1))
+             # Only show real records from 2026+ (platform launch)
+             # Records before 2026 are test/fake data
+             platform_launch = datetime(2026, 1, 1)
+             records = list(payouts_col.find({
+                 'user_id': ObjectId(user_id),
+                 'creation_date': {'$gte': platform_launch}
+             }).sort('creation_date', -1))
              for r in records:
                  history.append({
                      'id': str(r['_id']),

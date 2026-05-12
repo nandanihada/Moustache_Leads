@@ -107,6 +107,7 @@ admin_publisher_bulk_email_bp = safe_import_blueprint('routes.admin_publisher_bu
 admin_level_progression_bp = safe_import_blueprint('routes.admin_level_progression', 'admin_level_progression_bp')
 platform_settings_bp = safe_import_blueprint('routes.platform_settings', 'platform_settings_bp')
 email_campaigns_bp = safe_import_blueprint('routes.email_campaigns', 'email_campaigns_bp')
+admin_offerwall_management_bp = safe_import_blueprint('routes.admin_offerwall_management', 'admin_offerwall_management_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -203,6 +204,7 @@ blueprints = [
     (admin_level_progression_bp, ''),
     (platform_settings_bp, ''),
     (email_campaigns_bp, '/api/admin'),
+    (admin_offerwall_management_bp, '/api/admin'),
 ]
 
 def create_app():

@@ -63,7 +63,7 @@ def get_dashboard_stats():
         # If we need exact conversion counts we keep the aggregate
         try:
             total_conv_count = list(forwarded_postbacks.aggregate([
-                {'$match': {'publisher_id': user_id, 'forward_status': 'success'}},
+                {'$match': {'publisher_id': user_id, 'forward_status': {'$nin': ['reversed']}, 'is_reversal': {'$ne': True}}},
                 {'$group': {'_id': None, 'total': {'$sum': 1}}}
             ]))
             total_conversions = total_conv_count[0]['total'] if total_conv_count else 0
@@ -211,7 +211,8 @@ def get_dashboard_stats():
             {
                 '$match': {
                     'publisher_id': user_id,
-                    'forward_status': 'success',
+                    'forward_status': {'$nin': ['reversed']},
+                    'is_reversal': {'$ne': True},
                     'timestamp': {'$gte': thirty_days_ago}
                 }
             },
@@ -233,7 +234,8 @@ def get_dashboard_stats():
             {
                 '$match': {
                     'publisher_id': user_id,
-                    'forward_status': 'success',
+                    'forward_status': {'$nin': ['reversed']},
+                    'is_reversal': {'$ne': True},
                     'timestamp': {'$gte': sixty_days_ago, '$lt': thirty_days_ago}
                 }
             },
@@ -633,7 +635,8 @@ def get_user_notifications():
                 '$or': [
                     {'publisher_id': user_id}
                 ],
-                'forward_status': 'success'
+                'forward_status': {'$nin': ['reversed']},
+                'is_reversal': {'$ne': True}
             }
             if user_obj_id:
                 conversion_query['$or'].append({'publisher_id': str(user_obj_id)})
@@ -858,7 +861,8 @@ def get_chart_data():
                 {
                     '$match': {
                         'publisher_id': user_id,
-                        'forward_status': 'success',
+                        'forward_status': {'$nin': ['reversed']},
+                        'is_reversal': {'$ne': True},
                         'timestamp': {'$gte': month_start, '$lt': month_end}
                     }
                 },
@@ -945,7 +949,8 @@ def get_top_offers():
             {
                 '$match': {
                     'publisher_id': user_id,
-                    'forward_status': 'success'
+                    'forward_status': {'$nin': ['reversed']},
+                    'is_reversal': {'$ne': True}
                 }
             },
             {

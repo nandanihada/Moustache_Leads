@@ -111,16 +111,8 @@ const PaymentsContent = () => {
     payment_terms = 'Net 30'
   } = summaryData || {};
 
-  // For visual testing & demonstration if user has zero payouts
-  const dummyData = [
-    { id: '9ydw4fqcmd4295r', creation_date: 'January 1, 2026', billing_period: 'December 1, 2025 - December 31, 2025', amount: 0.02, status: 'Deferred', due_on: 'N/A' },
-    { id: 'oct-2025', creation_date: 'October 1, 2025', billing_period: 'September 1, 2025 - September 30, 2025', amount: 26.26, status: 'Paid', due_on: 'October 31, 2025' },
-    { id: 'sep-2025', creation_date: 'September 1, 2025', billing_period: 'August 1, 2025 - August 31, 2025', amount: 148.48, status: 'Paid', due_on: 'September 30, 2025' },
-    { id: 'jun-2025', creation_date: 'June 1, 2025', billing_period: 'May 1, 2025 - May 31, 2025', amount: 0.90, status: 'Paid', due_on: 'N/A' },
-    { id: 'apr-2025', creation_date: 'April 1, 2025', billing_period: 'March 1, 2025 - March 31, 2025', amount: 0.26, status: 'Paid', due_on: 'N/A' },
-  ];
-
-  const displayHistory = history && history.length > 0 ? history : dummyData;
+  // Payment history from API (no fallback to fake data)
+  const displayHistory = history || [];
   const totalEntries = displayHistory.length;
 
   // Pagination logic
