@@ -8,20 +8,32 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { BulkMailScheduler, QueueItem } from '@/components/BulkMailScheduler';
-import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus } from 'lucide-react';
+import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus, Zap, ExternalLink, Settings, LogIn, ShieldCheck, MessageSquare } from 'lucide-react';
 import loginLogsService, { LoginLog } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
-import { UserIntelligenceProfile } from '@/components/UserIntelligenceProfile';
+import UserIntelligenceProfile from '@/components/UserIntelligenceProfile';
 import { BulkOfferAutomationDialog } from '@/components/BulkOfferAutomationDialog';
 import { OfferQueueDashboardModal } from '@/components/OfferQueueDashboardModal';
+import { AutomationQueueDashboardModal } from '@/components/AutomationQueueDashboardModal';
+import { SmartMessagePanel } from '@/components/SmartMessagePanel';
+import { SupportHubContent } from './AdminSupportHub';
 
 const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json';
 
 const COUNTRY_COORDS: Record<string, [number, number]> = {
-  'US': [37.0902, -95.7129], 'IN': [20.5937, 78.9629], 'GB': [55.3781, -3.4360], 'UK': [55.3781, -3.4360],
+  'IN': [20.5937, 78.9629],
+  'BD': [23.6850, 90.3563],
+  'US': [37.0902, -95.7129],
+  'GB': [55.3781, -3.4360],
+  'PK': [30.3753, 69.3451],
+  'XX': [0, 0],
+  'INDIA': [20.5937, 78.9629],
+  'BANGLADESH': [23.6850, 90.3563],
+  'LOCAL/INDIA': [20.5937, 78.9629],
+  'UK': [55.3781, -3.4360],
   'CA': [56.1304, -106.3468], 'AU': [-25.2744, 133.7751], 'DE': [51.1657, 10.4515], 'FR': [46.2276, 2.2137],
   'JP': [36.2048, 138.2529], 'CN': [35.8617, 104.1954], 'BR': [-14.2350, -51.9253], 'RU': [61.5240, 105.3188],
   'ZA': [-30.5595, 22.9375], 'NG': [9.0820, 8.6753], 'KE': [-0.0236, 37.9062], 'SG': [1.3521, 103.8198],
@@ -31,12 +43,33 @@ const COUNTRY_COORDS: Record<string, [number, number]> = {
   'DK': [56.2639, 9.5018], 'FI': [61.9241, 25.7482], 'PL': [51.9194, 19.1451], 'UA': [48.3794, 31.1656],
   'TR': [38.9637, 35.2433], 'EG': [26.8206, 30.8025], 'SA': [23.8859, 45.0792], 'AE': [23.4241, 53.8478],
   'IL': [31.0461, 34.8516], 'MX': [23.6345, -102.5528], 'AR': [-38.4161, -63.6167], 'CO': [4.5709, -74.2973],
-  'PE': [-9.1900, -75.0152], 'CL': [-35.6751, -71.5430], 'NZ': [-40.9006, 174.8860], 'PK': [30.3753, 69.3451],
-  'BD': [23.6850, 90.3563], 'LK': [7.8731, 80.7718], 'NP': [28.3949, 84.1240], 'RO': [45.9432, 24.9668],
+  'PE': [-9.1900, -75.0152], 'CL': [-35.6751, -71.5430], 'NZ': [-40.9006, 174.8860],
+  'LK': [7.8731, 80.7718], 'NP': [28.3949, 84.1240], 'RO': [45.9432, 24.9668],
   // Full name fallbacks
-  'INDIA': [20.5937, 78.9629], 'BANGLADESH': [23.6850, 90.3563], 'UNITED STATES': [37.0902, -95.7129],
-  'UNITED KINGDOM': [55.3781, -3.4360], 'HONG KONG': [22.3193, 114.1694], 'GLOBAL': [0, 0],
-  'XX': [0, 0] // Unknown locations map to Null Island
+  'UNITED STATES': [37.0902, -95.7129],
+  'UNITED KINGDOM': [55.3781, -3.4360], 'HONG KONG': [22.3193, 114.1694], 'GLOBAL': [0, 0]
+};
+
+// Common Sense City Fallbacks for high-traffic regions
+const CITY_COORDS: Record<string, [number, number]> = {
+  'LUCKNOW': [26.8467, 80.9462],
+  'PITHAMPUR': [22.6111, 75.6791],
+  'JESSORE': [23.1667, 89.2167],
+  'BILASPUR': [22.0790, 82.1391],
+  'DEHRADUN': [30.3165, 78.0322],
+  'AGRA': [27.1767, 78.0081],
+  'DHAKA': [23.8103, 90.4125],
+  'KOLKATA': [22.5726, 88.3639],
+  'MUMBAI': [19.0760, 72.8777],
+  'DELHI': [28.6139, 77.2090],
+  'BANGALORE': [12.9716, 77.5946],
+  'HYDERABAD': [17.3850, 78.4867],
+  'CHENNAI': [13.0827, 80.2707],
+  'PUNE': [18.5204, 73.8567],
+  'AHMEDABAD': [23.0225, 72.5714],
+  'CHITTAGONG': [22.3569, 91.7832],
+  'SYLHET': [24.8949, 91.8687],
+  'RAJSHAHI': [24.3745, 88.6042]
 };
 
 const getLocationString = (log: any) => {
@@ -68,28 +101,35 @@ const getCountry = (log: any, profile?: any) => {
 
   // 2. Strong IP Pattern Matching (Reliable Fallback)
   if (ip) {
-    const cleanIp = ip.trim();
+    const cleanIp = ip.trim().replace('::ffff:', '');
 
-    // Localhost / Private IP Handling - Map internal testing directly to India
-    if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp.startsWith('192.168.') || cleanIp.startsWith('10.')) {
-      return 'India';
+    // Localhost / Private IP Handling - Map internal testing directly to India/System
+    if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp === '0.0.0.0' || 
+        cleanIp.startsWith('192.168.') || cleanIp.startsWith('10.') || cleanIp.startsWith('172.')) {
+      return 'Local/India';
     }
 
     // 🇧🇩 Bangladesh: High Priority Specific Ranges
     if (cleanIp.startsWith('103.232') || cleanIp.startsWith('119.') || cleanIp.startsWith('27.147') || 
         cleanIp.startsWith('43.231') || cleanIp.startsWith('45.115') || cleanIp.startsWith('203.112') ||
-        cleanIp.startsWith('103.242') || cleanIp.startsWith('103.197')) return 'Bangladesh';
+        cleanIp.startsWith('103.242') || cleanIp.startsWith('103.197') || cleanIp.startsWith('103.147') ||
+        cleanIp.startsWith('103.230') || cleanIp.startsWith('103.151')) return 'Bangladesh';
 
     // 🇮🇳 India: Expanded ranges
     if (cleanIp.startsWith('106.') || cleanIp.startsWith('115.') || cleanIp.startsWith('122.') || 
         cleanIp.startsWith('157.') || cleanIp.startsWith('182.') || cleanIp.startsWith('49.') || 
         cleanIp.startsWith('124.') || cleanIp.startsWith('117.') || cleanIp.startsWith('27.') || 
-        cleanIp.startsWith('223.') || cleanIp.startsWith('103.') || cleanIp.startsWith('203.')) return 'India';
+        cleanIp.startsWith('223.') || cleanIp.startsWith('103.') || cleanIp.startsWith('203.') ||
+        cleanIp.startsWith('101.') || cleanIp.startsWith('110.') || cleanIp.startsWith('111.')) return 'India';
     
     // 🇺🇸 US / 🇬🇧 UK
     if (cleanIp.startsWith('104.') || cleanIp.startsWith('107.') || cleanIp.startsWith('108.') || 
-        cleanIp.startsWith('34.') || cleanIp.startsWith('35.') || cleanIp.startsWith('52.')) return 'United States';
-    if (cleanIp.startsWith('31.') || cleanIp.startsWith('51.') || cleanIp.startsWith('62.')) return 'United Kingdom';
+        cleanIp.startsWith('34.') || cleanIp.startsWith('35.') || cleanIp.startsWith('52.') ||
+        cleanIp.startsWith('13.') || cleanIp.startsWith('23.')) return 'United States';
+    if (cleanIp.startsWith('31.') || cleanIp.startsWith('51.') || cleanIp.startsWith('62.') ||
+        cleanIp.startsWith('25.')) return 'United Kingdom';
+    if (cleanIp.startsWith('41.')) return 'Nigeria';
+    if (cleanIp.startsWith('197.')) return 'Egypt';
   }
 
   // 3. Profile Fallback
@@ -126,6 +166,58 @@ const getCity = (log: any, profile?: any) => {
   return "";
 };
 
+const getLatLng = (locationObj: any, logObj: any, userProfile: any) => {
+  let lat: number | undefined;
+  let lng: number | undefined;
+
+  lat = locationObj?.latitude !== undefined && locationObj?.latitude !== null ? Number(locationObj.latitude) : undefined;
+  lng = locationObj?.longitude !== undefined && locationObj?.longitude !== null ? Number(locationObj.longitude) : undefined;
+
+  const city = (locationObj?.city || logObj?.city || '').toUpperCase();
+  if ((!lat || !lng || lat === 0) && city && CITY_COORDS[city]) {
+    const cityFallback = CITY_COORDS[city];
+    const seed = String(logObj?.user_id || logObj?.username || 'fixed');
+    let hash = 0;
+    for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
+    
+    const cityJitter = 0.5; 
+    lat = cityFallback[0] + ((Math.abs(hash) % 1000) / 1000 - 0.5) * cityJitter;
+    lng = cityFallback[1] + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * cityJitter;
+    return { lat, lng };
+  }
+
+  if (lat === undefined || lng === undefined || (lat === 0 && lng === 0) || isNaN(lat) || isNaN(lng)) {
+    let countryCode = locationObj?.country_code || locationObj?.country;
+
+    if (!countryCode) {
+        const countryName = getCountry(logObj, userProfile);
+        if (countryName === 'India') countryCode = 'IN';
+        else if (countryName === 'Bangladesh') countryCode = 'BD';
+        else if (countryName === 'United States') countryCode = 'US';
+        else if (countryName === 'United Kingdom') countryCode = 'GB';
+    }
+
+    if (!countryCode || countryCode === 'Unknown' || countryCode === 'Tracking...' || countryCode === 'Location Tracking...') {
+      countryCode = 'XX';
+    }
+
+    if (countryCode && typeof countryCode === 'string') {
+      const fallback = COUNTRY_COORDS[countryCode.toUpperCase()] || COUNTRY_COORDS['XX'];
+      if (fallback) {
+        const seed = String(logObj?.user_id || logObj?.username || 'fixed');
+        let hash = 0;
+        for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
+        
+        const countryJitter = 10.0; 
+        lat = fallback[0] + ((Math.abs(hash) % 1000) / 1000 - 0.5) * countryJitter;
+        lng = fallback[1] + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * countryJitter;
+      }
+    }
+  }
+
+  return { lat, lng };
+};
+
 interface AggregatedUser {
   user_id: string;
   username: string;
@@ -150,17 +242,24 @@ interface AggregatedUser {
   failedLogin?: boolean;
   verticals?: string[];
   geoPreferences?: string[];
+  hasSearchActivity?: boolean;
 }
 
 
 
-const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => void }> = ({ user, onMailSent }) => {
+const ExpandedUserDetails: React.FC<{ 
+  user: AggregatedUser; 
+  automationQueueItem?: any;
+  onMailSent?: () => void;
+  onAutomateOffers?: (userId: string) => void;
+}> = ({ user, automationQueueItem, onMailSent, onAutomateOffers }) => {
   const [pageVisits, setPageVisits] = useState<any[]>([]);
   const [offerViews, setOfferViews] = useState<any[]>([]);
   const [searchLogs, setSearchLogs] = useState<any[]>([]);
   const [signals, setSignals] = useState<any>(null);
   const [offerTargeting, setOfferTargeting] = useState<any>({});
   const [scheduledActivity, setScheduledActivity] = useState<any[]>([]);
+  const [automation, setAutomation] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('login');
   const handleQuickAction = (tab: string) => {
@@ -170,7 +269,6 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
     }, 50);
   };
 
-  // Restored Email State
   const [scheduleMailOpen, setScheduleMailOpen] = useState(false);
   const [scheduleType, setScheduleType] = useState<'welcome' | 'referral' | 'warning' | string>('welcome');
   const [scheduleTime, setScheduleTime] = useState("");
@@ -211,19 +309,19 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
     }
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem('token');
-        const [offRes, searchRes, signalsRes, offerTargetingRes, scheduledRes] = await Promise.all([
-          loginLogsService.getOfferViews(user.user_id, 20).catch(() => ({ views: [] })),
-          fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&per_page=10`, {
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+        const [offRes, searchRes, signalsRes, offerTargetingRes, scheduledRes, automationRes] = await Promise.all([
+          loginLogsService.getOfferViews(user.user_id, 20, user.username, user.email).catch(() => ({ views: [] })),
+          fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&username=${user.username}&email=${user.email}&per_page=10`, {
             headers: { 'Authorization': `Bearer ${token}` }
           }).then(res => res.json()).catch(() => ({ logs: [] })),
-          loginLogsService.getUserSignals(user.user_id).catch(() => null),
+          loginLogsService.getUserSignals(user.user_id, user.username, user.email).catch(() => null),
           loginLogsService.getInventoryMatchedOffers(user.user_id).catch(() => ({})),
-          loginLogsService.getScheduledActivity(user.user_id).catch(() => ([]))
+          loginLogsService.getScheduledActivity(user.user_id).catch(() => ([])),
+          loginLogsService.getUserAutomations(user.user_id).catch(() => null)
         ]);
 
         setOfferViews(offRes?.views || []);
@@ -231,6 +329,7 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
         setSignals(signalsRes);
         setOfferTargeting(offerTargetingRes);
         setScheduledActivity(scheduledRes?.scheduled_activity || scheduledRes?.activities || (Array.isArray(scheduledRes) ? scheduledRes : []));
+        setAutomation(automationRes);
 
         const latestSessionId = user.logs.find(l => l.session_id)?.session_id;
         if (latestSessionId) {
@@ -242,7 +341,9 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
       } finally {
         setLoading(false);
       }
-    };
+  };
+  
+  useEffect(() => {
     fetchData();
   }, [user.user_id]);
 
@@ -298,6 +399,15 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
             <Badge onClick={() => sendSingleMail('welcome')} variant="secondary" className="cursor-pointer bg-green-50 hover:bg-green-100 text-green-700 font-normal rounded-full px-3 py-1">Welcome mail</Badge>
             <Badge onClick={() => sendSingleMail('referral')} variant="secondary" className="cursor-pointer bg-green-50 hover:bg-green-100 text-green-700 font-normal rounded-full px-3 py-1">Referral mail</Badge>
             <Badge onClick={() => sendSingleMail('warning')} variant="secondary" className="cursor-pointer bg-red-50 hover:bg-red-100 text-red-700 font-normal rounded-full px-3 py-1">Warn user</Badge>
+            <Badge 
+              onClick={() => {
+                if (onAutomateOffers) onAutomateOffers(user.user_id);
+              }} 
+              variant="secondary" 
+              className="cursor-pointer bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-100 shadow-sm rounded-full px-3 py-1"
+            >
+              <Zap className="w-3 h-3 mr-1 fill-purple-500" /> Automate Offers
+            </Badge>
             <Dialog open={scheduleMailOpen} onOpenChange={setScheduleMailOpen}>
               <DialogTrigger asChild>
                 <Badge variant="secondary" className="cursor-pointer hover:bg-slate-100 font-normal rounded-full px-3 py-1">Schedule mail</Badge>
@@ -338,6 +448,108 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
         </div>
       </div>
 
+      <div className="mt-6 border-t border-slate-100 pt-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <SmartMessagePanel 
+              user={{
+                user_id: user.user_id,
+                username: user.username,
+                email: user.email,
+                country: user.country,
+                city: user.city,
+                verticals: user.verticals,
+                geoPreferences: user.geoPreferences,
+                recentOffers: offerViews.slice(0, 5).map(o => o.offer_name || o.name)
+              }}
+              onMessageSent={() => {
+                if (onMailSent) onMailSent();
+              }}
+            />
+          </div>
+          <div className="space-y-4">
+            <Card className="border-purple-100 shadow-sm h-full bg-white">
+              <CardHeader className="pb-2 border-b bg-purple-50/30">
+                <CardTitle className="text-sm font-semibold text-purple-900 flex items-center gap-2">
+                  <Activity size={16} className="text-purple-600" /> User Persona
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-4">
+                <div className="space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Core Interests</div>
+                  <div className="flex flex-wrap gap-1">
+                    {user.verticals?.slice(0, 3).map(v => (
+                      <Badge key={v} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 text-[10px]">{v}</Badge>
+                    )) || <span className="text-xs text-slate-400 italic">No vertical data</span>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Geo Preferences</div>
+                  <div className="flex flex-wrap gap-1">
+                    {user.geoPreferences?.slice(0, 3).map(g => (
+                      <Badge key={g} variant="secondary" className="bg-amber-50 text-amber-700 border-amber-100 text-[10px]">{g}</Badge>
+                    )) || <span className="text-xs text-slate-400 italic">No geo data</span>}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] text-gray-500 uppercase font-bold tracking-tight">Last Activity</div>
+                  <div className="text-xs text-gray-700 font-medium flex items-center gap-1">
+                    <Clock size={12} className="text-gray-400" />
+                    {user.latest_login ? new Date(user.latest_login).toLocaleString() : 'Recently'}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-amber-100 shadow-sm h-full bg-white">
+              <CardHeader className="pb-2 border-b bg-amber-50/30">
+                <CardTitle className="text-sm font-semibold text-amber-900 flex items-center gap-2">
+                  <Zap size={16} className="text-amber-600 fill-amber-600" /> Automation Engine
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold">Status</span>
+                  <Badge className={automation?.queue_status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}>
+                    {automation?.queue_status || 'Inactive'}
+                  </Badge>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] text-gray-500 uppercase font-bold">Current Step</span>
+                  <span className="text-xs font-bold text-slate-700">
+                    {automation ? `Step ${automation.current_step}/5` : 'N/A'}
+                  </span>
+                </div>
+                {automation?.next_mail_time && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-gray-500 uppercase font-bold">Next Outreach</span>
+                    <div className="text-[11px] text-slate-600 flex items-center gap-1">
+                      <Clock size={10} /> {new Date(automation.next_mail_time).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  className="w-full text-[10px] h-7 mt-2"
+                  onClick={async () => {
+                    try {
+                      await loginLogsService.saveUserAutomations(user.user_id, { queue_status: 'active', current_step: 0 });
+                      toast({ title: "Automation Started", description: `Triggered new cycle for ${user.username}` });
+                      fetchData();
+                    } catch (e) {
+                      toast({ title: "Error", description: "Failed to trigger automation", variant: "destructive" });
+                    }
+                  }}
+                >
+                  {automation?.queue_status === 'active' ? 'Restart Cycle' : 'Start Mail Flow'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+
       <div id="intelligence-dashboard" className="border-t border-slate-200 pt-6 mt-6">
         <UserIntelligenceProfile
           log={{ ...mockLog, user_id: user.user_id, username: user.username, email: user.email, geoPreferences: user.geoPreferences, verticals: user.verticals }}
@@ -348,7 +560,8 @@ const ExpandedUserDetails: React.FC<{ user: AggregatedUser; onMailSent?: () => v
           userSignals={signals}
           scheduledActivity={scheduledActivity}
           offerTargeting={offerTargeting}
-          allowedTabs={['login', 'activity', 'browsing', 'reco', 'automation']}
+          automationQueueItem={automationQueueItem}
+          allowedTabs={['login', 'activity', 'browsing', 'reco', 'automation', 'messaging']}
           activeTab={activeTab}
           onTabChange={setActiveTab}
         />
@@ -388,8 +601,34 @@ const AdminRecentActivity: React.FC = () => {
   const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
   const [globalMailMetrics, setGlobalMailMetrics] = useState({ total: 0, today: 0 });
   const [queueDashboardOpen, setQueueDashboardOpen] = useState(false);
+  const [automationQueueOpen, setAutomationQueueOpen] = useState(false);
+  const [automationSettingsOpen, setAutomationSettingsOpen] = useState(false);
+  const [messagingHubOpen, setMessagingHubOpen] = useState(false);
+  const [automationStats, setAutomationStats] = useState({ active: 0, completed: 0, failed: 0, inCooldown: 0 });
+  const [globalAutomationStats, setGlobalAutomationStats] = useState({ active: 0, completed: 0, failed: 0, inCooldown: 0 });
+  const [automationQueue, setAutomationQueue] = useState<any[]>([]);
+  const [automationSettings, setAutomationSettings] = useState({
+    enabled: true,
+    initial_delay_hours: 5,
+    step_interval_minutes: 200,
+    cooldown_days: 7
+  });
 
   const { toast } = useToast();
+
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  // Lock body scroll when Hub is open
+  useEffect(() => {
+    if (messagingHubOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [messagingHubOpen]);
 
   const handleMapWheel = (e: React.WheelEvent) => {
     const newZoom = Math.min(Math.max(mapZoom - e.deltaY / 200, 1), 8);
@@ -398,7 +637,6 @@ const AdminRecentActivity: React.FC = () => {
 
   const users = useMemo(() => {
     return allUsers.filter(u => {
-      // 0. Search Term
       if (searchTerm.trim() !== '') {
         const q = searchTerm.toLowerCase();
         if (!u.username.toLowerCase().includes(q) &&
@@ -408,7 +646,6 @@ const AdminRecentActivity: React.FC = () => {
           return false;
         }
       }
-      // 1. Login Count
       if (advancedFilters.loginCount !== 'Any') {
         const val = advancedFilters.loginCount;
         if (val === '5x+') {
@@ -418,28 +655,24 @@ const AdminRecentActivity: React.FC = () => {
           if (u.login_count !== req) return false;
         }
       }
-      // 2. Online Location (Geos)
       if (advancedFilters.geos.length > 0) {
         const userCountry = (u.country || '').toUpperCase();
         const matched = advancedFilters.geos.some((g: string) => g.toUpperCase() === userCountry);
         if (!matched) return false;
       }
-      // 2b. Cities
       if (advancedFilters.cities && advancedFilters.cities.length > 0) {
         if (!u.city || !advancedFilters.cities.includes(u.city)) return false;
       }
-      // 3. Status
       if (advancedFilters.status.length > 0) {
         let match = false;
         if (advancedFilters.status.includes('Suspicious') && u.isSuspicious) match = true;
         if (advancedFilters.status.includes('Normal') && !u.isSuspicious && !u.logs.some(l => l.status === 'failed')) match = true;
         if (advancedFilters.status.includes('Failed Logins Only')) {
-          // Show ONLY users with failed logins
           if (u.logs.some(l => l.status === 'failed')) match = true;
         }
+        if (advancedFilters.status.includes('Searched Something') && u.hasSearchActivity) match = true;
         if (!match) return false;
       }
-      // 4. Mail Status
       if (advancedFilters.mailStatus && advancedFilters.mailStatus.length > 0) {
         let match = false;
         if (advancedFilters.mailStatus.includes('Welcome Mail Not Sent') && !u.welcomeMailSentAt) match = true;
@@ -448,7 +681,6 @@ const AdminRecentActivity: React.FC = () => {
         if (advancedFilters.mailStatus.includes('Referral Mail Sent') && u.referralMailSentAt) match = true;
         if (!match) return false;
       }
-      // 5. Geo Preferences
       if (advancedFilters.geoPreferences.length > 0) {
         if (!u.geoPreferences || u.geoPreferences.length === 0) return false;
         const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -462,7 +694,6 @@ const AdminRecentActivity: React.FC = () => {
         );
         if (!matched) return false;
       }
-      // 6. Vertical Preferences
       if (advancedFilters.verticals.length > 0) {
         if (!u.verticals || !advancedFilters.verticals.some(v => u.verticals!.includes(v))) return false;
       }
@@ -470,14 +701,12 @@ const AdminRecentActivity: React.FC = () => {
     });
   }, [allUsers, advancedFilters, searchTerm]);
 
-  const loadData = async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-      setSelectedUserIds(new Set());
-      setExpandedId(null);
-    }
+  const loadData = async () => {
+    setLoading(true);
+    setSelectedUserIds(new Set());
+    setExpandedId(null);
     try {
-      const params: any = { page: 1, limit: 2000 };
+      const params: any = { page: 1, limit: 400 };
       const now = new Date();
       let start = new Date(now);
       let end = new Date(now);
@@ -510,17 +739,39 @@ const AdminRecentActivity: React.FC = () => {
       params.start_date = start.toISOString();
       params.end_date = end.toISOString();
 
-      // Fetch logs and mail history in parallel
       const token = localStorage.getItem('token');
-      const [logsRes, mailRes, usersRes] = await Promise.all([
-        loginLogsService.getLoginLogs(params).catch(() => ({ logs: [] })),
-        loginLogsService.getMailHistory(undefined, 2000).catch(() => ({ history: [] })),
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/admin/users`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()).catch(() => ({ users: [] }))
-      ]);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      // Process mail history
+      const [logsRes, mailRes, usersRes, searchRes, queueRes, settingsRes] = await Promise.all([
+        loginLogsService.getLoginLogs(params).catch(() => ({ logs: [] })),
+        loginLogsService.getMailHistory(undefined, 500).catch(() => ({ history: [] })),
+        fetch(`${API_URL}/api/auth/admin/users`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { users: [] }).catch(() => ({ users: [] })),
+        fetch(`${API_URL}/api/admin/search-logs?date_from=${params.start_date}&date_to=${params.end_date}&per_page=500`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { logs: [] }).catch(() => ({ logs: [] })),
+        fetch(`${API_URL}/api/admin/automation/queue`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { queue: [] }).catch(() => ({ queue: [] })),
+        fetch(`${API_URL}/api/admin/automation/settings`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { settings: {} }).catch(() => ({ settings: {} }))
+      ]);
+      clearTimeout(timeoutId);
+
+      if (settingsRes.settings) setAutomationSettings(settingsRes.settings);
+      const automationQueueRawData = queueRes.queue || [];
+      setAutomationQueue(automationQueueRawData);
+      (window as any)._rawQueue = automationQueueRawData;
+
+      const searchUserIds = new Set(searchRes.logs?.map((l: any) => l.user_id).filter(Boolean) || []);
+
       const mailMap = new Map<string, { welcome: string | null, referral: string | null, total: number }>();
       let mailsToday = 0;
       const todayString = new Date().toDateString();
@@ -541,73 +792,103 @@ const AdminRecentActivity: React.FC = () => {
       });
       setGlobalMailMetrics({ total: mailRes.total || 0, today: mailsToday });
 
-      // Process users for profiles
       const profileMap = new Map<string, any>();
       usersRes.users?.forEach((u: any) => {
-        profileMap.set(u._id, u);
-        if (u.email) profileMap.set(u.email, u);
+        profileMap.set(String(u._id), u);
+        if (u.email) profileMap.set(u.email.toLowerCase(), u);
+        if (u.username) profileMap.set(u.username.toLowerCase(), u);
       });
 
-      // Aggregate by user
       const userMap = new Map<string, AggregatedUser>();
-      for (const log of logsRes.logs) {
-        // Group by user_id, fallback to email if user_id is missing (e.g. failed logins)
-        const key = log.user_id || log.email || log.username || log._id;
-        const profile = profileMap.get(log.user_id) || profileMap.get(log.email) || profileMap.get(log.username) || {};
+      
+      const existingLogUserIds = new Set((logsRes.logs || []).map((l: any) => String(l.user_id || l._id)));
 
-        const getLatLng = (locationObj: any, logObj: any, userProfile: any) => {
-          let lat: number | undefined;
-          let lng: number | undefined;
-
-          if (locationObj) {
-            lat = locationObj.latitude !== undefined && locationObj.latitude !== null ? Number(locationObj.latitude) : undefined;
-            lng = locationObj.longitude !== undefined && locationObj.longitude !== null ? Number(locationObj.longitude) : undefined;
-          }
-
-          if (lat === undefined || lng === undefined || (lat === 0 && lng === 0) || isNaN(lat) || isNaN(lng)) {
-            let countryCode = locationObj?.country_code || locationObj?.country;
-
-            // Fallback to profile geo
-            if (!countryCode || countryCode === 'XX' || countryCode === 'Unknown') {
-              if (userProfile && userProfile.geos && userProfile.geos.length > 0) {
-                countryCode = userProfile.geos[0];
-              } else {
-                // Final fallback to getCountry (which handles IP parsing and local dev)
-                countryCode = getCountry(logObj, userProfile);
-              }
-            }
-
-            if (!countryCode || countryCode === 'Unknown' || countryCode === 'Tracking...' || countryCode === 'Location Tracking...') {
-              countryCode = 'XX';
-            }
-
-            if (countryCode && typeof countryCode === 'string') {
-              const fallback = COUNTRY_COORDS[countryCode.toUpperCase()] || COUNTRY_COORDS['XX'];
-              if (fallback) {
-                lat = fallback[0];
-                lng = fallback[1];
+      automationQueueRawData.forEach((qItem: any) => {
+        if (qItem.last_login) {
+          const qTime = new Date(qItem.last_login).getTime();
+          if (qTime >= start.getTime() && qTime <= end.getTime()) {
+            const key = String(qItem.user_id);
+            if (!userMap.has(key)) {
+              const alreadyLogged = existingLogUserIds.has(key);
+              if (!alreadyLogged) {
+                logsRes.logs.push({
+                  user_id: key,
+                  username: qItem.username,
+                  email: qItem.email || '',
+                  login_time: qItem.last_login,
+                  activity_type: qItem.activity_type || 'Active Session',
+                  ip_address: qItem.ip || '0.0.0.0',
+                  device: { type: 'pc', os: 'Windows', browser: 'Chrome', version: 'Latest', is_mobile: false, is_tablet: false, is_pc: true, is_bot: false },
+                  location: { city: 'Unknown', country: 'Unknown', ip: qItem.ip || '0.0.0.0', region: 'Unknown', country_code: qItem.country || 'WW' },
+                  login_method: 'password', status: 'success', created_at: qItem.last_login
+                } as any);
+                existingLogUserIds.add(key);
               }
             }
           }
+        }
+      });
 
-          if (lat !== undefined && lng !== undefined) {
-            // Add a larger random offset (up to ~100km) so markers are visibly scattered 
-            // and distinct even when the map is fully zoomed out to a world view.
-            lat += (Math.random() - 0.5) * 2.5;
-            lng += (Math.random() - 0.5) * 2.5;
+      searchRes.logs?.forEach((sLog: any) => {
+        if (sLog.searched_at) {
+          const sTime = new Date(sLog.searched_at).getTime();
+          if (sTime >= start.getTime() && sTime <= end.getTime()) {
+            const key = String(sLog.user_id);
+            if (!userMap.has(key)) {
+              const alreadyLogged = existingLogUserIds.has(key);
+              if (!alreadyLogged) {
+                const sCountry = sLog.country || sLog.country_code || (sLog.location?.country_code) || 'WW';
+                logsRes.logs.push({
+                  user_id: key,
+                  username: sLog.username,
+                  email: sLog.email || '', 
+                  login_time: sLog.searched_at,
+                  activity_type: 'Search Activity',
+                  ip_address: sLog.ip_address || '0.0.0.0',
+                  device: { type: 'pc', os: 'Windows', browser: 'Chrome', version: 'Latest', is_mobile: false, is_tablet: false, is_pc: true, is_bot: false },
+                  location: { 
+                    city: sLog.city || 'Unknown', 
+                    country: sLog.country || 'Unknown', 
+                    ip: sLog.ip_address || '0.0.0.0', 
+                    region: 'Unknown', 
+                    country_code: sCountry === 'Worldwide' ? 'WW' : sCountry 
+                  },
+                  login_method: 'search', status: 'success', created_at: sLog.searched_at
+                } as any);
+                existingLogUserIds.add(key);
+              }
+            }
           }
-
-          return { lat, lng };
-        };
+        }
+      });
+      for (const log of (logsRes.logs || [])) {
+        const key = String(log.user_id || log.email || log.username || log._id);
+        if (!key || key === 'undefined' || key === 'null') continue;
+        
+        const emailKey = (log.email || '').toLowerCase();
+        const userKey = (log.username || '').toLowerCase();
+        
+        const profile = profileMap.get(String(log.user_id)) || 
+                        profileMap.get(emailKey) || 
+                        profileMap.get(userKey) || {};
 
         if (!userMap.has(key)) {
           const userEmail = (log.email || '').toLowerCase();
           const mInfo = mailMap.get(userEmail) || { welcome: null, referral: null, total: 0 };
           const { lat, lng } = getLatLng(log.location, log, profile);
+          
+          const verticals = profile.verticals || 
+                           (profile.signup_preferences && profile.signup_preferences.verticals) || 
+                           profile.vertical || [];
+          
+          const geos = profile.geos || 
+                      (profile.signup_preferences && profile.signup_preferences.geos) || 
+                      profile.geos_preference || [];
+
           userMap.set(key, {
-            user_id: key, // fallback to key so actions don't break
-            username: log.username || log.email?.split('@')[0] || 'Unknown',
-            email: log.email || 'Unknown',
+            user_id: key,
+            username: log.username || profile.username || log.email?.split('@')[0] || 'Unknown',
+            email: log.email || profile.email || 'Unknown',
             latest_login: log.login_time,
             login_count: 0,
             logs: [],
@@ -618,8 +899,9 @@ const AdminRecentActivity: React.FC = () => {
             lat,
             lng,
             country: getCountry(log, profile),
-            verticals: profile.verticals || [],
-            geoPreferences: profile.geos || []
+            verticals: Array.isArray(verticals) ? verticals : (verticals ? [verticals] : []),
+            geoPreferences: Array.isArray(geos) ? geos : (geos ? [geos] : []),
+            hasSearchActivity: searchUserIds.has(key) || searchUserIds.has(log.user_id)
           });
         }
         const userAgg = userMap.get(key)!;
@@ -647,24 +929,35 @@ const AdminRecentActivity: React.FC = () => {
       }
 
       const sortedUsers = Array.from(userMap.values()).map(userAgg => {
-        const u = profileMap.get(userAgg.user_id) || profileMap.get(userAgg.email) || profileMap.get(userAgg.username);
+        const emailKey = (userAgg.email || '').toLowerCase();
+        const userKey = (userAgg.username || '').toLowerCase();
+        const u = profileMap.get(String(userAgg.user_id)) || profileMap.get(emailKey) || profileMap.get(userKey);
 
         if (u) {
           userAgg.first_name = u.first_name;
           userAgg.last_name = u.last_name;
-          userAgg.verticals = u.verticals;
-          userAgg.geoPreferences = u.geos;
+          
+          let verticals = u.verticals || 
+                           (u.signup_preferences && u.signup_preferences.verticals) || 
+                           u.vertical || [];
+          
+          if (!Array.isArray(verticals)) verticals = [verticals];
+          userAgg.verticals = verticals.filter(Boolean).map((v: any) => String(v).trim());
+          
+          let geos = u.geos || 
+                      (u.signup_preferences && u.signup_preferences.geos) || 
+                      u.geos_preference || [];
+          if (!Array.isArray(geos)) geos = [geos];
+          userAgg.geoPreferences = geos.filter(Boolean).map((g: any) => String(g).trim());
         }
 
-        // Sort logs for this user to ensure we pick the latest one for location tracking
         userAgg.logs.sort((a, b) => new Date(b.login_time).getTime() - new Date(a.login_time).getTime());
 
         const latestLog = userAgg.logs[0];
         userAgg.city = getCity(latestLog, u);
         userAgg.country = getCountry(latestLog, u);
 
-        // If latest is still indeterminate or Localhost, scan all logs for any valid historical location
-        if (userAgg.country === 'Tracking...' || userAgg.country === 'Unknown' || userAgg.country === 'Location Tracking...' || userAgg.country === 'Localhost') {
+        if (userAgg.country === 'Tracking...' || userAgg.country === 'Unknown' || userAgg.country === 'Location Tracking...' || userAgg.country === 'Localhost' || userAgg.country === 'Local/India') {
           for (const l of userAgg.logs) {
             const ci = getCity(l, u);
             const co = getCountry(l, u);
@@ -681,13 +974,37 @@ const AdminRecentActivity: React.FC = () => {
           }
         }
         
-        // Final fallback if lat/lng are still missing or Null Island, but country is known
-        if ((userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat)) && userAgg.country && userAgg.country !== 'Tracking...' && userAgg.country !== 'Unknown') {
-           const fallback = COUNTRY_COORDS[userAgg.country.toUpperCase()];
-           if (fallback) {
-             userAgg.lat = fallback[0] + (Math.random() - 0.5) * 2.5;
-             userAgg.lng = fallback[1] + (Math.random() - 0.5) * 2.5;
-           }
+        if ((userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat)) && userAgg.country && userAgg.country !== 'Unknown') {
+            const countryKey = userAgg.country.toUpperCase();
+            
+            const cityKey = (userAgg.city || '').toUpperCase();
+            const cityFallback = CITY_COORDS[cityKey];
+            
+            const countryFallback = COUNTRY_COORDS[countryKey] || 
+                             COUNTRY_COORDS[countryKey.split('/')[1] || ''] || 
+                             COUNTRY_COORDS['XX'];
+            
+            const fallback = cityFallback || countryFallback;
+            const isCity = !!cityFallback;
+
+            if (fallback) {
+              const seed = String(userAgg.user_id);
+              let hash = 0;
+              for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
+              
+              const jitterScale = isCity ? 0.8 : 12.0;
+              userAgg.lat = fallback[0] + ((Math.abs(hash) % 1000) / 1000 - 0.5) * jitterScale;
+              userAgg.lng = fallback[1] + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * jitterScale;
+            }
+        }
+        
+        if (userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat)) {
+           const seed = String(userAgg.user_id);
+           let hash = 0;
+           for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
+           userAgg.lat = 20.0 + ((Math.abs(hash) % 1000) / 1000 - 0.5) * 15;
+           userAgg.lng = 78.0 + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * 15;
+           userAgg.country = userAgg.country || 'Tracking...';
         }
 
         const uniqueCountries = new Set(userAgg.logs.map((l: any) => l.location?.country_code || l.location?.country).filter(c => c && c !== 'XX' && c !== 'Unknown'));
@@ -715,11 +1032,28 @@ const AdminRecentActivity: React.FC = () => {
 
       setAllUsers(sortedUsers);
 
+      // Sync Automation Stats with CURRENT users in view (Filtered)
+      const autoStatsQueue = (window as any)._rawQueue || [];
+      const currentIds = new Set(sortedUsers.map(u => String(u.user_id)));
+      
+      setAutomationStats({
+        active: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'active' && i.delivery_status !== 'failed').length,
+        completed: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'completed').length,
+        failed: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.delivery_status === 'failed').length,
+        inCooldown: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'completed' && i.cooldown_until && new Date(i.cooldown_until) > now).length
+      });
+
+      // Calculate GLOBAL Automation Stats (System-wide)
+      setGlobalAutomationStats({
+        active: autoStatsQueue.filter((i: any) => i.queue_status === 'active' && i.delivery_status !== 'failed').length,
+        completed: autoStatsQueue.filter((i: any) => i.queue_status === 'completed').length,
+        failed: autoStatsQueue.filter((i: any) => i.delivery_status === 'failed').length,
+        inCooldown: autoStatsQueue.filter((i: any) => i.queue_status === 'completed' && i.cooldown_until && new Date(i.cooldown_until) > now).length
+      });
+
     } catch (e) {
       console.error("Error loading recent activity", e);
-      if (!isBackgroundRefresh) {
-        toast({ title: 'Error', description: 'Failed to load activity data', variant: 'destructive' });
-      }
+      toast({ title: 'Error', description: 'Failed to load activity data', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -727,13 +1061,6 @@ const AdminRecentActivity: React.FC = () => {
 
   useEffect(() => {
     loadData();
-    
-    // Auto-refresh data every 2 minutes (background refresh preserves UI state)
-    const intervalId = setInterval(() => {
-      loadData(true);
-    }, 120000);
-    
-    return () => clearInterval(intervalId);
   }, [timeFilter]);
 
   const toggleUserSelection = (userId: string) => {
@@ -786,7 +1113,7 @@ const AdminRecentActivity: React.FC = () => {
     });
     setBulkMailSending(false);
     setScheduleMailOpen(false);
-    loadData(true); // refresh to update mail tracking state without resetting UI
+    loadData(); // refresh to update mail tracking state
   };
 
   const handleUserAction = async (userId: string, action: string) => {
@@ -823,8 +1150,6 @@ const AdminRecentActivity: React.FC = () => {
       } else if (action === 'Unflag Suspicious') {
         newU.isSuspicious = false;
         toast({ title: 'Unflagged', description: `User ${newU.username} is no longer suspicious.` });
-      } else if (action === 'Send Warning') {
-        toast({ title: 'Warning Sent', description: `Warning mail queued for ${newU.username}.` });
       } else if (action === 'View Profile') {
         toast({ title: 'View Profile', description: `Navigating to ${newU.username}'s profile.` });
       } else if (action === 'View Behavior') {
@@ -835,30 +1160,28 @@ const AdminRecentActivity: React.FC = () => {
   };
 
   const mapMarkers = useMemo(() => {
-    const validUsers = users.filter(u => 
-      typeof u.lat === 'number' && !isNaN(u.lat) && 
-      typeof u.lng === 'number' && !isNaN(u.lng) && 
-      !(Math.abs(u.lat) < 5 && Math.abs(u.lng) < 5 && u.country === 'Tracking...') // Filter out Null Island defaults
-    );
+    // 1:1 mapping from filtered users to markers (no deduplication)
+    const validUsers = users.filter(u => typeof u.lat === 'number' && !isNaN(u.lat));
     
+    // Safety check: if they have identical coordinates (down to 1 decimal place), scatter them aggressively
     const coordsMap = new Map<string, number>();
 
     return validUsers.map(u => {
-      // Round to 1 decimal place to cluster very close markers (approx 10km radius)
-      const key = `${Math.round(u.lat! * 10)}_${Math.round(u.lng! * 10)}`;
-      const count = coordsMap.get(key) || 0;
-      coordsMap.set(key, count + 1);
+      const coordKey = `${u.lat?.toFixed(1)}_${u.lng?.toFixed(1)}`;
+      const count = coordsMap.get(coordKey) || 0;
+      coordsMap.set(coordKey, count + 1);
 
       if (count === 0) return u;
 
-      // Jitter overlapping markers into a circular cluster
-      const angle = count * (Math.PI * 2 / 8);
-      const distance = 2.0 + (Math.floor(count / 8) * 2.0);
+      // More aggressive scatter for overlapping markers to ensure all 20+ markers are distinct
+      const angle = count * (Math.PI * 2 / 5); 
+      const distance = 2.5 + (Math.floor(count / 5) * 1.5); 
 
       return {
         ...u,
         lat: u.lat! + (Math.sin(angle) * distance),
-        lng: u.lng! + (Math.cos(angle) * distance)
+        lng: u.lng! + (Math.cos(angle) * distance),
+        isJittered: true 
       };
     });
   }, [users]);
@@ -867,7 +1190,10 @@ const AdminRecentActivity: React.FC = () => {
   const chartDataMap = new Map<string, number>();
 
   const getChartKey = (dateStr: string, filter: string) => {
+    if (!dateStr || dateStr === 'Unknown') return null;
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    
     if (['30m', '1h'].includes(filter)) {
       return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     } else if (['4h', '10h', 'today', 'yesterday'].includes(filter)) {
@@ -882,7 +1208,9 @@ const AdminRecentActivity: React.FC = () => {
   users.forEach(u => {
     u.logs.forEach(l => {
       const key = getChartKey(l.login_time, timeFilter);
-      chartDataMap.set(key, (chartDataMap.get(key) || 0) + 1);
+      if (key) {
+        chartDataMap.set(key, (chartDataMap.get(key) || 0) + 1);
+      }
     });
   });
   const chartData = Array.from(chartDataMap.entries()).sort((a, b) => a[0].localeCompare(b[0])).map(([k, v]) => ({ time: k, logins: v }));
@@ -962,7 +1290,7 @@ const AdminRecentActivity: React.FC = () => {
                       title: 'Bulk Mail Scheduled',
                       description: `Successfully scheduled ${successCount} out of ${queue.length} mails.`
                     });
-                    loadData(true);
+                    loadData();
                     return true;
                   } catch (e) {
                     return false;
@@ -971,8 +1299,14 @@ const AdminRecentActivity: React.FC = () => {
                   }
                 }}
               />
-              <Button size="sm" variant="outline" className="h-8 bg-background border-purple-200 text-purple-700 hover:bg-purple-50" disabled={bulkMailSending} onClick={() => setBulkAutomationOpen(true)}>
-                <CalendarClock className="w-3 h-3 mr-2 text-purple-600" /> Automate Offers
+              <Button 
+                size="sm" 
+                variant="default" 
+                className="h-8 bg-purple-600 hover:bg-purple-700 text-white border-none shadow-sm" 
+                disabled={bulkMailSending} 
+                onClick={() => setBulkAutomationOpen(true)}
+              >
+                <Zap className="w-3 h-3 mr-2 fill-white" /> Automate Offers
               </Button>
               <BulkOfferAutomationDialog
                 open={bulkAutomationOpen}
@@ -1004,6 +1338,15 @@ const AdminRecentActivity: React.FC = () => {
 
           <Button size="sm" variant="secondary" className="h-8 bg-slate-800 text-white hover:bg-slate-700 ml-2" onClick={() => setQueueDashboardOpen(true)}>
             Live Queue
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 border-amber-200 text-amber-700 hover:bg-amber-50" onClick={() => setAutomationQueueOpen(true)}>
+            <Zap className="w-3 h-3 mr-2 fill-amber-500 text-amber-500" /> Automation Flow
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => setAutomationSettingsOpen(true)}>
+            <Zap className="w-3 h-3 mr-2 text-indigo-600" /> Automation Engine
+          </Button>
+          <Button size="sm" variant="outline" className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50" onClick={() => setMessagingHubOpen(true)}>
+            <MessageSquare size={14} className="mr-2 text-indigo-600" /> Support Hub
           </Button>
           <Select value={timeFilter} onValueChange={setTimeFilter}>
             <SelectTrigger className="w-[160px] bg-background">
@@ -1128,12 +1471,77 @@ const AdminRecentActivity: React.FC = () => {
         </Card>
       </div>
 
+      {/* Automation Flow Visualizer */}
+      <Card className="shadow-sm border border-slate-200 overflow-hidden bg-white mt-6 mb-2">
+        <CardHeader className="py-2.5 px-4 border-b bg-slate-50/50">
+          <CardTitle className="text-xs font-bold flex items-center gap-2 uppercase tracking-tight text-slate-600">
+            <Zap size={14} className="text-amber-500 fill-amber-500" /> Automation Engine Flow Tracking
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="grid grid-cols-1 md:grid-cols-5 divide-x divide-slate-100">
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-slate-50/50 transition-colors">
+              <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <LogIn size={20} className="text-slate-600" />
+              </div>
+              <div className="text-xl font-bold text-slate-900">{summary.uniqueUsers}</div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase">User Logs In</div>
+              <p className="text-[9px] text-slate-400 mt-1">Total active users tracked</p>
+            </div>
+            
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-emerald-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <Users size={20} className="text-emerald-600" />
+              </div>
+              <div className="text-xl font-bold text-emerald-600">
+                {Math.max(0, (summary.uniqueUsers || 0) - (automationStats.active || 0) - (automationStats.inCooldown || 0))}
+              </div>
+              <div className="text-[10px] font-bold text-emerald-600/70 uppercase">Eligible Users</div>
+              <p className="text-[9px] text-slate-400 mt-1">Passed cooldown check</p>
+            </div>
+
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-blue-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform animate-pulse">
+                <Clock size={20} className="text-blue-600" />
+              </div>
+              <div className="text-xl font-bold text-blue-600">
+                {automationStats.active} 
+              </div>
+              <div className="text-[10px] font-bold text-blue-600/70 uppercase">Wait 5h Delay</div>
+              <p className="text-[9px] text-slate-400 mt-1">Queue start pending</p>
+            </div>
+
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-indigo-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <Send size={20} className="text-indigo-600" />
+              </div>
+              <div className="text-xl font-bold text-indigo-600">{summary.totalSent}</div>
+              <div className="text-[10px] font-bold text-indigo-600/70 uppercase">Step 1-5 Cycle</div>
+              <p className="text-[9px] text-slate-400 mt-1">Mails being delivered</p>
+            </div>
+
+            <div className="p-4 flex flex-col items-center text-center group hover:bg-amber-50/30 transition-colors relative">
+              <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                <ShieldCheck size={20} className="text-amber-600" />
+              </div>
+              <div className="text-xl font-bold text-amber-600">{automationStats.completed}</div>
+              <div className="text-[10px] font-bold text-amber-600/70 uppercase">1-Week Cooldown</div>
+              <p className="text-[9px] text-slate-400 mt-1">Locked from new cycle</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Map and Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2 shadow-sm overflow-hidden border">
           <CardHeader className="py-3 px-4 border-b bg-muted/30">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-primary" /> User Geo-Distribution
+              <MapPin className="w-4 h-4 text-primary" /> User Geo-Distribution ({mapMarkers.length} Markers)
             </CardTitle>
           </CardHeader>
           <CardContent id="map-container" className="p-0 relative h-[400px] bg-[#111827] overflow-hidden rounded-b-xl" onMouseLeave={() => setTooltip(null)} onWheel={handleMapWheel}>
@@ -1154,8 +1562,8 @@ const AdminRecentActivity: React.FC = () => {
                     <Geography key={geo.rsmKey} geography={geo} fill="#1e3a8a" stroke="#1e40af" strokeWidth={0.5} style={{ hover: { fill: '#1e40af', outline: 'none' }, default: { outline: 'none' }, pressed: { outline: 'none' } }} />
                   ))}
                 </Geographies>
-                {mapMarkers.map(u => (
-                  <Marker key={u.user_id} coordinates={[u.lng!, u.lat!]} onClick={() => {
+                {mapMarkers.map((u, idx) => (
+                  <Marker key={`${u.user_id}-${idx}`} coordinates={[u.lng!, u.lat!]} onClick={() => {
                     setExpandedId(u.user_id);
                     setHighlightedRowId(u.user_id);
                     setTimeout(() => setHighlightedRowId(null), 2500); // Clear highlight after flash
@@ -1184,17 +1592,22 @@ const AdminRecentActivity: React.FC = () => {
                         setHighlightedRowId(null);
                       }}
                     >
-                      {/* Animated Pulse */}
-                      <circle cx={0} cy={0} r={12} fill={u.isSuspicious ? '#ef4444' : '#22c55e'} opacity="0.4">
-                        <animate attributeName="r" from="8" to="18" dur="1.5s" repeatCount="indefinite" />
-                        <animate attributeName="opacity" from="0.6" to="0" dur="1.5s" repeatCount="indefinite" />
+                      {/* Animated Pulse (Enhanced visibility) */}
+                      <circle cx={0} cy={0} r={18} fill={(u as any).isJittered ? '#3b82f6' : (u.isSuspicious ? '#ef4444' : '#22c55e')} opacity="0.4">
+                        <animate attributeName="r" from="10" to="24" dur="2s" repeatCount="indefinite" />
+                        <animate attributeName="opacity" from="0.7" to="0" dur="2s" repeatCount="indefinite" />
                       </circle>
                       
                       {/* Main Marker Shadow */}
-                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 14 : 9} fill="rgba(0,0,0,0.4)" transform="translate(1, 1)" />
+                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 18 : 14} fill="rgba(0,0,0,0.5)" transform="translate(1.5, 1.5)" />
                       
-                      {/* Main Marker */}
-                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 10 : 7} fill={u.isSuspicious ? '#ef4444' : '#22c55e'} stroke="white" strokeWidth="1.5" />
+                      {/* Main Marker Circle (Larger) */}
+                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 15 : 12} fill={(u as any).isJittered ? '#3b82f6' : (u.isSuspicious ? '#ef4444' : '#22c55e')} stroke="#fff" strokeWidth={2} />
+                      
+                      {/* Marker Label */}
+                      <text textAnchor="middle" y={4} style={{ fontSize: '8px', fill: '#fff', fontWeight: 'bold', pointerEvents: 'none' }}>
+                        {u.username.substring(0, 2).toUpperCase()}
+                      </text>
 
                       {/* Username Label (Visible when zoomed in or when hover is active) */}
                       {(mapZoom >= 3 || tooltip?.text.startsWith(u.username)) && (
@@ -1308,6 +1721,7 @@ const AdminRecentActivity: React.FC = () => {
                   if (hasFailed) badges.push({ text: 'Failed', cls: 'bg-[#F7C1C1] text-[#791F1F]' });
                   if (isNewDevice) badges.push({ text: 'New device', cls: 'bg-[#FAC775] text-[#633806]' });
                   if (isMulti) badges.push({ text: `${user.login_count}x logins`, cls: 'bg-[#CECBF6] text-[#3C3489]' });
+                  if (user.hasSearchActivity) badges.push({ text: 'Searched', cls: 'bg-purple-100 text-purple-700 border border-purple-200' });
                   if (badges.length === 0) badges.push({ text: 'OK', cls: 'bg-[#C0DD97] text-[#27500A]' });
 
                   let theme = { row: 'bg-muted/10 border-transparent hover:border-border', bar: 'bg-border', avatar: 'bg-[#D3D1C7] text-[#2C2C2A]', loginBadge: 'bg-[#D3D1C7] text-[#2C2C2A]' };
@@ -1367,8 +1781,25 @@ const AdminRecentActivity: React.FC = () => {
                           ))}
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0 w-[150px] text-[10px] text-muted-foreground">
-                          <span>{new Date(user.latest_login).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <div className="flex flex-col shrink-0 w-[150px] text-[10px]">
+                          <div className="flex items-center gap-1.5 text-muted-foreground">
+                            <Clock size={10} className="opacity-50" />
+                            <span className="font-medium text-slate-700">
+                              {new Date(user.latest_login).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                            <span className="text-[9px] opacity-60">
+                              {(() => {
+                                const d = new Date(user.latest_login);
+                                const today = new Date();
+                                const yesterday = new Date();
+                                yesterday.setDate(today.getDate() - 1);
+                                
+                                if (d.toDateString() === today.toDateString()) return 'Today';
+                                if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+                                return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                              })()}
+                            </span>
+                          </div>
                           <span className="opacity-70 truncate">– {(() => {
                             const country = user.country;
                             const city = user.city;
@@ -1378,6 +1809,11 @@ const AdminRecentActivity: React.FC = () => {
                             if (isValid(city) && isValid(country)) return `${city}, ${country}`;
                             if (isValid(country)) return country;
                             if (isValid(city)) return city;
+                            
+                            // If we have an IP but still no location, show IP for debugging
+                            const ip = user.logs?.[0]?.ip_address || '';
+                            if (ip) return `Tracking... (${ip})`;
+                            
                             return 'Tracking...';
                           })()}</span>
                         </div>
@@ -1432,7 +1868,17 @@ const AdminRecentActivity: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2"><ExpandedUserDetails user={user} onMailSent={() => loadData(true)} /></div>}
+                    {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2">
+                      <ExpandedUserDetails 
+                        user={user} 
+                        automationQueueItem={automationQueue.find(q => q.user_id === user.user_id)}
+                        onMailSent={loadData} 
+                        onAutomateOffers={(userId) => {
+                          setSelectedUserIds(new Set([userId]));
+                          setBulkAutomationOpen(true);
+                        }}
+                      />
+                    </div>}
                   </div>
                 );
               })}
@@ -1440,6 +1886,140 @@ const AdminRecentActivity: React.FC = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* Automation Engine Settings Modal */}
+      <Dialog open={automationSettingsOpen} onOpenChange={setAutomationSettingsOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-2xl font-bold">
+              <Zap className="text-amber-500 fill-amber-500" /> Automation Engine Settings
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 py-4">
+            <Card className="md:col-span-1 border-slate-200">
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Settings size={16} /> Global Config
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                  <span className="text-xs font-medium">Engine Status</span>
+                  <input 
+                    type="checkbox" 
+                    checked={automationSettings.enabled} 
+                    onChange={e => setAutomationSettings({...automationSettings, enabled: e.target.checked})} 
+                    className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-500">Delay (Hours)</label>
+                  <Input type="number" value={automationSettings.initial_delay_hours} onChange={e => setAutomationSettings({...automationSettings, initial_delay_hours: parseInt(e.target.value)})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-500">Step Interval (Min)</label>
+                  <Input type="number" value={automationSettings.step_interval_minutes} onChange={e => setAutomationSettings({...automationSettings, step_interval_minutes: parseInt(e.target.value)})} />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase font-bold text-slate-500">Cooldown (Days)</label>
+                  <Input type="number" value={automationSettings.cooldown_days} onChange={e => setAutomationSettings({...automationSettings, cooldown_days: parseInt(e.target.value)})} />
+                </div>
+                <Button className="w-full bg-slate-900" onClick={async () => {
+                  try {
+                    const token = localStorage.getItem('token');
+                    // Strip internal _id and other MongoDB metadata before sending
+                    const { _id, updated_at, ...cleanSettings } = automationSettings as any;
+                    
+                    const res = await fetch(`${API_URL}/api/admin/automation/settings`, {
+                      method: 'POST',
+                      headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${token}` 
+                      },
+                      body: JSON.stringify(cleanSettings)
+                    });
+                    
+                    if (!res.ok) {
+                      const errorData = await res.json().catch(() => ({}));
+                      throw new Error(errorData.error || `Update failed with status ${res.status}`);
+                    }
+                    
+                    toast({ title: 'Success', description: 'Automation settings updated successfully' });
+                  } catch (e: any) {
+                    console.error("Settings update error:", e);
+                    toast({ 
+                      title: 'Update Failed', 
+                      description: e.message || 'Check network connection and try again', 
+                      variant: 'destructive' 
+                    });
+                  }
+                }}>Save Settings</Button>
+              </CardContent>
+            </Card>
+            <Card className="md:col-span-2 border-slate-200">
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold">Active Queue Statistics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-3 bg-blue-50 rounded-lg text-center">
+                    <p className="text-[10px] text-blue-600 font-bold uppercase">Active</p>
+                    <p className="text-xl font-bold">{globalAutomationStats.active}</p>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg text-center">
+                    <p className="text-[10px] text-green-600 font-bold uppercase">Completed</p>
+                    <p className="text-xl font-bold">{globalAutomationStats.completed}</p>
+                  </div>
+                  <div className="p-3 bg-red-50 rounded-lg text-center">
+                    <p className="text-[10px] text-red-600 font-bold uppercase">Failed</p>
+                    <p className="text-xl font-bold">{globalAutomationStats.failed}</p>
+                  </div>
+                </div>
+                <Button variant="outline" className="w-full border-amber-200 text-amber-700 hover:bg-amber-50 font-bold" onClick={() => {
+                  setAutomationSettingsOpen(false);
+                  setAutomationQueueOpen(true);
+                }}>View Detailed Automation Flow</Button>
+              </CardContent>
+            </Card>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <OfferQueueDashboardModal 
+        open={queueDashboardOpen} 
+        onOpenChange={setQueueDashboardOpen} 
+        allUsers={users.map(u => ({
+          user_id: u.user_id,
+          username: u.username,
+          logs: u.logs,
+          country: u.country,
+          isSuspicious: u.isSuspicious,
+          sharedAccount: u.sharedAccount,
+          hasDifferentLocations: u.hasDifferentLocations,
+          hasNewDevice: u.hasNewDevice,
+          failedLogin: u.failedLogin
+        }))}
+      />
+
+      <AutomationQueueDashboardModal
+        open={automationQueueOpen}
+        onOpenChange={setAutomationQueueOpen}
+        apiUrl={API_URL}
+      />
+
+      {/* Support Hub Command Center Overlay */}
+      {messagingHubOpen && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 md:p-6 lg:p-10 animate-in fade-in duration-300">
+          <div className="w-full max-w-[1600px] h-fit max-h-[90vh] bg-white rounded-[2rem] shadow-[0_32px_64px_-15px_rgba(0,0,0,0.3)] overflow-hidden border border-white/20 flex flex-col animate-in zoom-in-95 slide-in-from-bottom-10 duration-500">
+            <SupportHubContent 
+              onClose={() => setMessagingHubOpen(false)} 
+              apiUrl={API_URL} 
+              initialUsers={users}
+              className="flex-1"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1449,7 +2029,7 @@ const ALL_COUNTRIES = [
 ];
 const ADVANCED_VERTICALS = ['Sweeps', 'Finance', 'Dating', 'CPA', 'CPI', 'Crypto', 'Nutra', 'E-commerce', 'Gaming', 'Software', 'Surveys', 'Other'];
 const LOGIN_COUNTS = ['Any', '1x', '2x', '3x', '4x', '5x+'];
-const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only'];
+const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only', 'Searched Something'];
 const MAIL_STATUS_OPTIONS = ['Welcome Mail Not Sent', 'Referral Mail Not Sent', 'Welcome Mail Sent', 'Referral Mail Sent'];
 
 const AdvancedFilterModal: React.FC<{
@@ -1489,13 +2069,13 @@ const AdvancedFilterModal: React.FC<{
   // Combine all predefined countries with any dynamic available geos that might not be in the list, and remove duplicates
   const allGeoOptions = Array.from(new Set([...ALL_COUNTRIES, ...availableGeos])).sort();
 
-  const filteredGeos = allGeoOptions.filter(g => g.toLowerCase().includes(q));
-  const filteredCities = availableCities.filter(c => c.toLowerCase().includes(q));
-  const filteredLoginCounts = LOGIN_COUNTS.filter(l => l.toLowerCase().includes(q));
-  const filteredStatus = STATUS_OPTIONS.filter(s => s.toLowerCase().includes(q));
-  const filteredGeoPrefs = ALL_COUNTRIES.filter(g => g.toLowerCase().includes(q));
-  const filteredVerticals = ADVANCED_VERTICALS.filter(v => v.toLowerCase().includes(q));
-  const filteredMailStatus = MAIL_STATUS_OPTIONS.filter(m => m.toLowerCase().includes(q));
+  const filteredGeos = allGeoOptions.filter(g => typeof g === 'string' && g.toLowerCase().includes(q));
+  const filteredCities = availableCities.filter(c => typeof c === 'string' && c.toLowerCase().includes(q));
+  const filteredLoginCounts = LOGIN_COUNTS.filter(l => typeof l === 'string' && l.toLowerCase().includes(q));
+  const filteredStatus = STATUS_OPTIONS.filter(s => typeof s === 'string' && s.toLowerCase().includes(q));
+  const filteredGeoPrefs = ALL_COUNTRIES.filter(g => typeof g === 'string' && g.toLowerCase().includes(q));
+  const filteredVerticals = ADVANCED_VERTICALS.filter(v => typeof v === 'string' && v.toLowerCase().includes(q));
+  const filteredMailStatus = MAIL_STATUS_OPTIONS.filter(m => typeof m === 'string' && m.toLowerCase().includes(q));
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900 overflow-y-auto flex justify-center py-12 px-4 animate-in fade-in duration-300">

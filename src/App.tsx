@@ -105,6 +105,9 @@ import AdminNotes from "./pages/AdminNotes";
 import AdminPublisherAnalytics from "./pages/AdminPublisherAnalytics";
 import PromoTabV2 from "./components/PromoTabV2";
 import AdminPromoAnalyticsV2 from "./pages/AdminPromoAnalyticsV2";
+import AdminAutomationDashboard from "./pages/AdminAutomationDashboard";
+import AdminSupportHub from "./pages/AdminSupportHub";
+import AdminOfferwallManager from "./pages/AdminOfferwallManager";
 
 const queryClient = new QueryClient();
 
@@ -228,6 +231,9 @@ const App = () => (
                 <Route path="api-stats" element={<AdminApiStats />} />
                 <Route path="notes" element={<AdminNotes />} />
                 <Route path="publisher-analytics" element={<AdminPublisherAnalytics />} />
+                <Route path="automation" element={<AdminAutomationDashboard />} />
+                <Route path="support-hub" element={<AdminSupportHub />} />
+                <Route path="offerwall-manager" element={<AdminOfferwallManager />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

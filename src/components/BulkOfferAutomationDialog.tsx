@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
-import { X, RotateCcw, AlertTriangle, RefreshCw, Info, XCircle, Clock, Calendar, Mail, ChevronRight, CheckCircle2, AlertCircle, RotateCw } from 'lucide-react';
+import { X, RotateCcw, AlertTriangle, RefreshCw, Info, XCircle, Clock, Calendar, Mail, ChevronRight, CheckCircle2, AlertCircle, RotateCw, Eye } from 'lucide-react';
 import { loginLogsService } from '@/services/loginLogsService';
 import { offerQueueService } from '@/services/offerQueueService';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -38,6 +38,8 @@ export const BulkOfferAutomationDialog: React.FC<BulkOfferAutomationDialogProps>
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewItems, setPreviewItems] = useState<any[]>([]);
+  const [showMailPreview, setShowMailPreview] = useState(false);
+  const [selectedPreviewItem, setSelectedPreviewItem] = useState<any>(null);
   const { toast } = useToast();
 
   const getOfferWarnings = (userId: string, offerId: string | undefined, scheduledTime: number) => {
@@ -429,17 +431,31 @@ export const BulkOfferAutomationDialog: React.FC<BulkOfferAutomationDialogProps>
                              </div>
                           </td>
                           <td className="p-2 text-center">
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full"
-                              onClick={() => {
-                                setPreviewItems(prev => prev.filter((_, i) => i !== idx));
-                              }}
-                              title="Exclude from schedule"
-                            >
-                              <X className="w-3 h-3" />
-                            </Button>
+                            <div className="flex items-center justify-center gap-1">
+                                <Button 
+                                    variant="outline" 
+                                    size="icon" 
+                                    className="h-6 w-6 text-blue-600 border-blue-200 hover:bg-blue-50 rounded-full"
+                                    onClick={() => {
+                                        setSelectedPreviewItem(item);
+                                        setShowMailPreview(true);
+                                    }}
+                                    title="Preview Email"
+                                >
+                                    <Eye className="w-3 h-3" />
+                                </Button>
+                                <Button 
+                                    variant="ghost" 
+                                    size="icon" 
+                                    className="h-6 w-6 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full"
+                                    onClick={() => {
+                                        setPreviewItems(prev => prev.filter((_, i) => i !== idx));
+                                    }}
+                                    title="Exclude from schedule"
+                                >
+                                    <X className="w-3 h-3" />
+                                </Button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -523,6 +539,67 @@ export const BulkOfferAutomationDialog: React.FC<BulkOfferAutomationDialogProps>
           )}
         </DialogFooter>
       </DialogContent>
+      
+      {/* Email Preview Modal */}
+      <Dialog open={showMailPreview} onOpenChange={setShowMailPreview}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto p-0 border-none shadow-2xl">
+              <div style={{ fontFamily: 'Segoe UI, Tahoma, Geneva, Verdana, sans-serif', width: '100%', margin: '0 auto', color: '#334155', lineHeight: '1.6', background: '#f8fafc' }}>
+                  <div style={{ background: 'linear-gradient(135deg, #185FA5 0%, #2563EB 100%)', padding: '25px', textAlign: 'center' }}>
+                      <h1 style={{ color: '#ffffff', margin: 0, fontSize: '22px' }}>Email Preview: Top Performing Offers</h1>
+                      <p style={{ color: '#bfdbfe', margin: '8px 0 0 0', fontSize: '13px' }}>Recipient: <strong>{selectedPreviewItem?.username}</strong></p>
+                  </div>
+                  
+                  <div style={{ padding: '25px', background: '#ffffff', border: '1px solid #e2e8f0', margin: '20px', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)' }}>
+                      <p style={{ fontSize: '15px', marginBottom: '15px' }}>Hello {selectedPreviewItem?.username},</p>
+                      <p style={{ marginBottom: '20px', fontSize: '14px' }}>Our intelligence engine has identified several high-converting opportunities tailored to your traffic profile. Here are your top matches for today:</p>
+                      
+                      <div style={{ overflowX: 'auto', marginBottom: '25px' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '500px' }}>
+                              <thead>
+                                  <tr style={{ backgroundColor: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+                                      <th style={{ padding: '10px 6px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>ID</th>
+                                      <th style={{ padding: '10px 6px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Offer Name</th>
+                                      <th style={{ padding: '10px 6px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Payout</th>
+                                      <th style={{ padding: '10px 6px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Network</th>
+                                      <th style={{ padding: '10px 6px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Countries</th>
+                                      <th style={{ padding: '10px 6px', textAlign: 'left', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase' }}>Category</th>
+                                  </tr>
+                              </thead>
+                              <tbody>
+                                  <tr style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                      <td style={{ padding: '10px 6px', fontSize: '10px', fontFamily: 'monospace', color: '#94a3b8' }}>{selectedPreviewItem?.offerId?.slice(-6).toUpperCase() || 'ABCDEF'}</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>{selectedPreviewItem?.offerName}</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '12px', fontWeight: '700', color: '#059669' }}>$2.50+</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '11px', color: '#64748b' }}>Direct</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '10px', color: '#64748b' }}>{selectedPreviewItem?.country || 'WW'}</td>
+                                      <td style={{ padding: '10px 6px' }}>
+                                          <span style={{ display: 'inline-block', padding: '2px 6px', background: '#eff6ff', color: '#3b82f6', borderRadius: '4px', fontSize: '9px', fontWeight: '700', textTransform: 'uppercase' }}>Installs</span>
+                                      </td>
+                                  </tr>
+                                  <tr style={{ borderBottom: '1px solid #f1f5f9', opacity: 0.5 }}>
+                                      <td style={{ padding: '10px 6px', fontSize: '10px', fontFamily: 'monospace', color: '#94a3b8' }}>GHIKLM</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>Sample Offer B</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '12px', fontWeight: '700', color: '#059669' }}>$4.00</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '11px', color: '#64748b' }}>Network X</td>
+                                      <td style={{ padding: '10px 6px', fontSize: '10px', color: '#64748b' }}>US, CA</td>
+                                      <td style={{ padding: '10px 6px' }}>
+                                          <span style={{ display: 'inline-block', padding: '2px 6px', background: '#eff6ff', color: '#3b82f6', borderRadius: '4px', fontSize: '9px', fontWeight: '700', textTransform: 'uppercase' }}>CPA</span>
+                                      </td>
+                                  </tr>
+                              </tbody>
+                          </table>
+                      </div>
+                      
+                      <div style={{ textAlign: 'center', margin: '20px 0' }}>
+                          <div style={{ background: '#2563EB', color: '#ffffff', padding: '10px 25px', borderRadius: '8px', display: 'inline-block', fontWeight: '700', fontSize: '14px' }}>Grab Your Deals Now</div>
+                      </div>
+                  </div>
+                  <div className="p-4 flex justify-center">
+                      <Button variant="secondary" size="sm" onClick={() => setShowMailPreview(false)}>Close Preview</Button>
+                  </div>
+              </div>
+          </DialogContent>
+      </Dialog>
     </Dialog>
   );
 };
