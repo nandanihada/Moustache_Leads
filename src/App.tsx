@@ -108,6 +108,10 @@ import AdminPromoAnalyticsV2 from "./pages/AdminPromoAnalyticsV2";
 import AdminAutomationDashboard from "./pages/AdminAutomationDashboard";
 import AdminSupportHub from "./pages/AdminSupportHub";
 import AdminOfferwallManager from "./pages/AdminOfferwallManager";
+import AdminSurveyBuilder from "./pages/AdminSurveyBuilder";
+import AdminSubWalls from "./pages/AdminSubWalls";
+import SubWallPage from "./pages/SubWallPage";
+import SurveyPage from "./pages/SurveyPage";
 
 const queryClient = new QueryClient();
 
@@ -138,6 +142,8 @@ const App = () => (
                 <Route path="/offerwall" element={<OfferwallPage />} />
                 <Route path="/smart-link-preview" element={<PublicSmartLink />} />
                 <Route path="/smart/:slug" element={<SmartLinkRedirector />} />
+                <Route path="/wall/:slug" element={<SubWallPage />} />
+                <Route path="/survey/:surveyId" element={<SurveyPage />} />
 
               {/* Protected dashboard routes */}
               <Route
@@ -234,6 +240,8 @@ const App = () => (
                 <Route path="automation" element={<AdminAutomationDashboard />} />
                 <Route path="support-hub" element={<AdminSupportHub />} />
                 <Route path="offerwall-manager" element={<AdminOfferwallManager />} />
+                <Route path="survey-builder" element={<AdminSurveyBuilder />} />
+                <Route path="sub-walls" element={<AdminSubWalls />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

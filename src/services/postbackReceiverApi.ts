@@ -15,6 +15,7 @@ export interface ReceivedPostback {
   user_agent: string;
   timestamp: string;
   status: string;
+  resolved_username?: string;
 }
 
 class PostbackReceiverApi {

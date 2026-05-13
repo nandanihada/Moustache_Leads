@@ -70,11 +70,29 @@ def get_forwarded_postbacks():
         
         logger.info(f"Found {len(forwarded_postbacks)} forwarded postbacks")
         
-        # Convert ObjectId to string
+        # Convert ObjectId to string and resolve usernames
+        users_collection = db_instance.get_collection('users')
+        user_cache = {}
+        
         for postback in forwarded_postbacks:
             postback['_id'] = str(postback['_id'])
             if 'original_postback_id' in postback and isinstance(postback['original_postback_id'], ObjectId):
                 postback['original_postback_id'] = str(postback['original_postback_id'])
+            
+            # Resolve username from publisher_id or end_user_id
+            pub_id = postback.get('publisher_id', '') or postback.get('end_user_id', '')
+            if pub_id and users_collection is not None and not postback.get('publisher_name'):
+                if pub_id not in user_cache:
+                    try:
+                        user = users_collection.find_one({'_id': ObjectId(pub_id)}, {'username': 1})
+                        user_cache[pub_id] = user.get('username', '') if user else ''
+                    except:
+                        user_cache[pub_id] = ''
+                if user_cache[pub_id]:
+                    postback['publisher_name'] = user_cache[pub_id]
+            
+            # Also add resolved_username field for consistency
+            postback['resolved_username'] = postback.get('publisher_name', '') or postback.get('username', '')
         
         total = forwarded_postbacks_collection.count_documents(query)
         

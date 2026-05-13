@@ -6,7 +6,9 @@ import { getCurrentSubdomain } from '../config/subdomains';
 const SUBDOMAIN_ROUTES: Record<string, string> = {
   dashboard: '/admin',
   offers: '/dashboard/offers',
-  offerwall: '/offerwall'
+  offerwall: '/offerwall',
+  walls: '/wall',
+  survey: '/survey'
 };
 
 export const SubdomainRouter: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -34,6 +36,12 @@ export const SubdomainRouter: React.FC<{ children: React.ReactNode }> = ({ child
     // Redirect offers subdomain to offers page
     if (subdomain === 'offers' && currentPath === '/') {
       window.location.href = `https://offers.moustacheleads.com/dashboard/offers`;
+      return;
+    }
+
+    // Walls subdomain: redirect root to /wall (slug will be in the path)
+    if (subdomain === 'walls' && currentPath === '/') {
+      // On walls subdomain root, show a landing or do nothing (slug is required in path)
       return;
     }
 

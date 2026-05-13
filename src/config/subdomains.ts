@@ -3,6 +3,8 @@ export const SUBDOMAINS = {
   admin: 'dashboard.moustacheleads.com',      // Admin dashboard
   offers: 'offers.moustacheleads.com',        // Publisher offers
   offerwall: 'offerwall.moustacheleads.com',  // User offerwall
+  walls: 'walls.moustacheleads.com',          // Sub-walls (curated offer collections)
+  survey: 'survey.moustacheleads.com',        // Public surveys
   landing: 'landing.moustacheleads.com',      // Landing page
   main: 'moustacheleads.com'                  // Main domain
 } as const;

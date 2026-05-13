@@ -929,6 +929,7 @@ const PostbackReceiver: React.FC = () => {
                         </TableHead>
                         <TableHead>Timestamp</TableHead>
                         <TableHead>Partner</TableHead>
+                        <TableHead>Username</TableHead>
                         <TableHead>Method</TableHead>
                         <TableHead>Parameters</TableHead>
                         <TableHead>IP Address</TableHead>
@@ -938,7 +939,7 @@ const PostbackReceiver: React.FC = () => {
                     <TableBody>
                       {filteredReceivedPostbacks.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-gray-500">
+                          <TableCell colSpan={8} className="text-center text-gray-500">
                             No postbacks found
                           </TableCell>
                         </TableRow>
@@ -958,6 +959,11 @@ const PostbackReceiver: React.FC = () => {
                               <div>
                                 <div className="font-medium">{postback.partner_name}</div>
                                 <div className="text-xs text-gray-500">{postback.partner_id}</div>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium text-sm">
+                                {postback.resolved_username || postback.query_params?.user_id || '-'}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -1151,7 +1157,7 @@ const PostbackReceiver: React.FC = () => {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <code className="text-xs bg-gray-100 px-2 py-1 rounded">{postback.username}</code>
+                              <code className="text-xs bg-gray-100 px-2 py-1 rounded">{postback.resolved_username || postback.username || postback.publisher_name}</code>
                             </TableCell>
                             <TableCell>
                               <Badge variant="secondary">{postback.points} pts</Badge>

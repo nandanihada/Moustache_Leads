@@ -452,7 +452,7 @@ const AdminOfferwallManager = () => {
             <CardContent className="space-y-6">
               {/* Primary Color */}
               <div className="space-y-2">
-                <Label>Primary Color</Label>
+                <Label>Primary Color (Buttons & Accents)</Label>
                 <div className="flex items-center gap-3">
                   <input
                     type="color"
@@ -468,19 +468,39 @@ const AdminOfferwallManager = () => {
                 </div>
               </div>
 
+              {/* Background Color */}
+              <div className="space-y-2">
+                <Label>Background Color</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={(theme as any).background_color || '#0f172a'}
+                    onChange={(e) => setLocalTheme({ ...theme, background_color: e.target.value } as any)}
+                    className="w-10 h-10 rounded border cursor-pointer"
+                  />
+                  <Input
+                    value={(theme as any).background_color || '#0f172a'}
+                    onChange={(e) => setLocalTheme({ ...theme, background_color: e.target.value } as any)}
+                    className="max-w-[150px]"
+                  />
+                  <span className="text-xs text-muted-foreground">Default: #0f172a (dark navy)</span>
+                </div>
+              </div>
+
               {/* Layout */}
               <div className="space-y-2">
                 <Label>Layout</Label>
                 <Select
                   value={theme.layout}
-                  onValueChange={(val: 'grid' | 'list') => setLocalTheme({ ...theme, layout: val })}
+                  onValueChange={(val: 'grid' | 'list' | 'table') => setLocalTheme({ ...theme, layout: val })}
                 >
                   <SelectTrigger className="max-w-[200px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="grid">Grid</SelectItem>
-                    <SelectItem value="list">List</SelectItem>
+                    <SelectItem value="grid">Grid (Cards)</SelectItem>
+                    <SelectItem value="list">List (Vertical)</SelectItem>
+                    <SelectItem value="table">Table (Rows)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

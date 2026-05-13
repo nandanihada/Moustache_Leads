@@ -11,7 +11,8 @@ export interface OfferwallSettings {
   display_order: Array<{offer_id: string; position: number}>;
   theme: {
     primary_color: string;
-    layout: 'grid' | 'list';
+    background_color: string;
+    layout: 'grid' | 'list' | 'table';
     cards_per_row: number;
     show_categories: boolean;
     show_search: boolean;

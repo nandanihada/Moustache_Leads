@@ -7,6 +7,7 @@ reordering offers, theme settings, and announcements.
 from flask import Blueprint, request, jsonify
 from utils.auth import token_required
 from database import db_instance
+from services.health_check_service import HealthCheckService
 from datetime import datetime
 from bson import ObjectId
 import logging
@@ -55,6 +56,52 @@ def get_settings_doc():
     return settings
 
 
+def get_offerwall_base_query(hidden_offers=None):
+    """Build the base query filter matching what the actual offerwall uses."""
+    query_filter = {
+        '$and': [
+            {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]},
+            {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
+            {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]},
+            {'status': 'active'}
+        ]
+    }
+    if hidden_offers:
+        query_filter['offer_id'] = {'$nin': hidden_offers}
+    return query_filter
+
+
+def count_offerwall_visible():
+    """Count offers actually visible on the offerwall (after health check)."""
+    offers_collection = get_collection('offers')
+    settings_collection = get_collection('offerwall_settings')
+    if offers_collection is None:
+        return 0
+
+    settings = settings_collection.find_one({}) if settings_collection is not None else {}
+    hidden_offers = (settings or {}).get('hidden_offers', [])
+    query_filter = get_offerwall_base_query(hidden_offers)
+
+    # Fetch all matching offers for health check (need full docs for evaluation)
+    projection = {
+        'offer_id': 1, 'name': 1, 'network': 1, 'target_url': 1,
+        'image_url': 1, 'countries': 1, 'allowed_countries': 1,
+        'payout': 1, 'payout_model': 1, 'offer_type': 1,
+        'vertical': 1, 'category': 1
+    }
+    offers_list = list(offers_collection.find(query_filter, projection))
+
+    # Apply health check filter
+    try:
+        health_service = HealthCheckService()
+        health_results = health_service.evaluate_offers_batch(offers_list)
+        healthy_count = sum(1 for o in offers_list if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy')
+        return healthy_count
+    except Exception as e:
+        logger.warning(f"Health check failed in count, returning raw count: {e}")
+        return len(offers_list)
+
+
 def serialize_settings(settings):
     """Serialize settings for JSON response."""
     if not settings:
@@ -95,6 +142,57 @@ def get_settings():
     except Exception as e:
         logger.error(f"Error getting offerwall settings: {str(e)}")
         return jsonify({'error': 'Failed to fetch settings'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/display-settings', methods=['GET'])
+def get_display_settings():
+    """Public endpoint - returns display settings for the offerwall (no auth needed)."""
+    try:
+        settings = get_settings_doc()
+        if settings is None:
+            # Return defaults if no settings exist
+            return jsonify({
+                'theme': {
+                    'primary_color': '#6366f1',
+                    'background_color': '#0f172a',
+                    'layout': 'grid',
+                    'cards_per_row': 3,
+                    'show_categories': True,
+                    'show_search': True
+                },
+                'announcements': []
+            }), 200
+
+        theme = settings.get('theme', {
+            'primary_color': '#6366f1',
+            'background_color': '#0f172a',
+            'layout': 'grid',
+            'cards_per_row': 3,
+            'show_categories': True,
+            'show_search': True
+        })
+        # Ensure background_color has a default
+        if 'background_color' not in theme:
+            theme['background_color'] = '#0f172a'
+        announcements = [a for a in settings.get('announcements', []) if a.get('active')]
+
+        return jsonify({
+            'theme': theme,
+            'announcements': announcements
+        }), 200
+    except Exception as e:
+        logger.error(f"Error getting display settings: {str(e)}")
+        return jsonify({
+            'theme': {
+                'primary_color': '#6366f1',
+                'background_color': '#0f172a',
+                'layout': 'grid',
+                'cards_per_row': 3,
+                'show_categories': True,
+                'show_search': True
+            },
+            'announcements': []
+        }), 200
 
 
 @admin_offerwall_management_bp.route('/offerwall-management/settings', methods=['PUT'])
@@ -287,7 +385,7 @@ def reorder_offers():
 @admin_offerwall_management_bp.route('/offerwall-management/offerwall-offers', methods=['GET'])
 @token_required
 def get_offerwall_offers():
-    """Get only the offers that are currently visible on the offerwall."""
+    """Get only the offers that are currently visible on the offerwall (with health check)."""
     try:
         current_user = request.current_user
         if current_user.get('role') != 'admin':
@@ -296,7 +394,6 @@ def get_offerwall_offers():
         search = request.args.get('search', '')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 50))
-        skip = (page - 1) * per_page
 
         offers_collection = get_collection('offers')
         settings_collection = get_collection('offerwall_settings')
@@ -304,21 +401,12 @@ def get_offerwall_offers():
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
 
-        # Same filter as the actual offerwall uses
-        query_filter = {
-            '$and': [
-                {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]},
-                {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
-                {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]},
-                {'status': 'active'}
-            ]
-        }
-
         # Get hidden offers from settings to exclude them
-        settings = settings_collection.find_one({}) if settings_collection else None
+        settings = settings_collection.find_one({}) if settings_collection is not None else None
         hidden_offers = (settings or {}).get('hidden_offers', [])
-        if hidden_offers:
-            query_filter['offer_id'] = {'$nin': hidden_offers}
+
+        # Same filter as the actual offerwall uses
+        query_filter = get_offerwall_base_query(hidden_offers)
 
         # Add search filter
         if search:
@@ -329,19 +417,32 @@ def get_offerwall_offers():
                 ]
             })
 
-        # Only fetch needed fields
+        # Fetch ALL matching offers (we need to health-check them before paginating)
         projection = {
             'offer_id': 1, 'name': 1, 'status': 1, 'category': 1, 'vertical': 1,
-            'payout': 1, 'network': 1, 'image_url': 1, 'countries': 1, 'created_at': 1
+            'payout': 1, 'network': 1, 'image_url': 1, 'countries': 1, 'allowed_countries': 1,
+            'created_at': 1, 'target_url': 1, 'payout_model': 1, 'offer_type': 1
         }
 
-        total = offers_collection.count_documents(query_filter)
-        offers_cursor = offers_collection.find(query_filter, projection).sort('created_at', -1).skip(skip).limit(per_page)
-        offers_list = list(offers_cursor)
+        all_offers = list(offers_collection.find(query_filter, projection).sort('created_at', -1))
+
+        # Apply health check filter (same as offerwall does)
+        try:
+            health_service = HealthCheckService()
+            health_results = health_service.evaluate_offers_batch(all_offers)
+            healthy_offers = [o for o in all_offers if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
+        except Exception as e:
+            logger.warning(f"Health check failed, returning all matching offers: {e}")
+            healthy_offers = all_offers
+
+        # Now paginate the healthy offers
+        total = len(healthy_offers)
+        skip = (page - 1) * per_page
+        paginated_offers = healthy_offers[skip:skip + per_page]
 
         # Serialize
         serialized = []
-        for offer in offers_list:
+        for offer in paginated_offers:
             serialized.append({
                 'offer_id': offer.get('offer_id', ''),
                 'name': offer.get('name', ''),
@@ -359,7 +460,7 @@ def get_offerwall_offers():
                 'page': page,
                 'per_page': per_page,
                 'total': total,
-                'pages': (total + per_page - 1) // per_page
+                'pages': (total + per_page - 1) // per_page if total > 0 else 1
             }
         }), 200
     except Exception as e:
@@ -370,7 +471,7 @@ def get_offerwall_offers():
 @admin_offerwall_management_bp.route('/offerwall-management/stats', methods=['GET'])
 @token_required
 def get_stats():
-    """Get offerwall statistics: total active, visible, pinned, featured."""
+    """Get offerwall statistics: total active, visible (actual offerwall count), pinned, featured."""
     try:
         current_user = request.current_user
         if current_user.get('role') != 'admin':
@@ -392,9 +493,11 @@ def get_stats():
         featured_offers = settings.get('featured_offers', [])
 
         hidden_count = len(hidden_offers)
-        total_visible = total_active - hidden_count if total_active > hidden_count else 0
         pinned_count = len(pinned_offers)
         featured_count = len(featured_offers)
+
+        # Get actual offerwall-visible count (same query + health check as the real offerwall)
+        total_visible = count_offerwall_visible()
 
         stats = {
             'total_active': total_active,

@@ -72,6 +72,20 @@ const adminMenuStructure = [
     type: "single" as const
   },
   {
+    title: "Survey Builder",
+    url: "/admin/survey-builder",
+    icon: ClipboardList,
+    tab: "survey-builder",
+    type: "single" as const
+  },
+  {
+    title: "Sub-Walls",
+    url: "/admin/sub-walls",
+    icon: Layers,
+    tab: "sub-walls",
+    type: "single" as const
+  },
+  {
     title: "Users & Access",
     icon: Users,
     type: "group" as const,

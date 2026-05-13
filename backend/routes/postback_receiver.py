@@ -1055,9 +1055,28 @@ def get_received_postbacks():
                    .skip(skip)
                    .limit(limit))
         
-        # Convert ObjectId to string
+        # Resolve usernames from user_id in query_params
+        users_collection = get_collection('users')
+        user_cache = {}  # Cache to avoid repeated lookups
+        
         for log in logs:
             log['_id'] = str(log['_id'])
+            
+            # Resolve username from user_id in query_params
+            user_id = (log.get('query_params', {}).get('user_id', '') or 
+                      log.get('query_params', {}).get('affiliate_id', '') or
+                      log.get('query_params', {}).get('aff_id', ''))
+            
+            if user_id and users_collection is not None:
+                if user_id not in user_cache:
+                    try:
+                        user = users_collection.find_one({'_id': ObjectId(user_id)}, {'username': 1})
+                        user_cache[user_id] = user.get('username', user_id) if user else user_id
+                    except:
+                        user_cache[user_id] = user_id
+                log['resolved_username'] = user_cache[user_id]
+            else:
+                log['resolved_username'] = user_id or ''
         
         total = received_postbacks_collection.count_documents(query)
         

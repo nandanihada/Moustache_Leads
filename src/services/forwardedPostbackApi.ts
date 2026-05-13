@@ -6,10 +6,11 @@ export interface ForwardedPostback {
   publisher_id: string;
   publisher_name: string;
   username: string;
+  resolved_username?: string;
   points: number;
   original_postback_id: string;
   forward_url: string;
-  forward_status: 'success' | 'failed';
+  forward_status: 'success' | 'failed' | 'no_url';
   response_code?: number;
   error_message?: string;
   original_params: Record<string, any>;

@@ -21,6 +21,7 @@ interface Offer {
   device_targeting?: string;
   payout?: number;
   star_rating?: number;
+  status?: string;
   timer_enabled?: boolean;
   timer_end_date?: string;
   urgency?: {
@@ -241,6 +242,23 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [todayEarnings, setTodayEarnings] = useState(0);
+  const [displaySettings, setDisplaySettings] = useState<{
+    primary_color: string;
+    background_color: string;
+    layout: 'grid' | 'list' | 'table';
+    cards_per_row: number;
+    show_categories: boolean;
+    show_search: boolean;
+  }>({
+    primary_color: '#6366f1',
+    background_color: '#0f172a',
+    layout: 'grid',
+    cards_per_row: 3,
+    show_categories: true,
+    show_search: true
+  });
+  const [announcements, setAnnouncements] = useState<Array<{text: string; id: string}>>([]);
+  const [subWalls, setSubWalls] = useState<Array<{_id: string; name: string; slug: string; description: string; image_url: string; offer_count: number; theme_color?: string; heading_text?: string}>>([]);
 
   // 11 predefined categories
   const categories = [
@@ -260,6 +278,8 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   useEffect(() => {
     trackImpression();
     loadOffers();
+    loadDisplaySettings();
+    loadSubWalls();
   }, [placementId, userId]);
 
   useEffect(() => {
@@ -303,6 +323,31 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
       setError(err instanceof Error ? err.message : 'Failed to load offers');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadDisplaySettings = async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/offerwall-management/display-settings`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.theme) setDisplaySettings(prev => ({ ...prev, ...data.theme }));
+        if (data.announcements) setAnnouncements(data.announcements);
+      }
+    } catch (e) {
+      // Silently fail - use defaults
+    }
+  };
+
+  const loadSubWalls = async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/admin/sub-walls/public/list?user_id=${encodeURIComponent(userId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.sub_walls) setSubWalls(data.sub_walls);
+      }
+    } catch (e) {
+      // Silently fail - sub-walls are optional
     }
   };
 
@@ -408,7 +453,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+    <div className="min-h-screen" style={{ background: displaySettings.background_color || '#0f172a', '--primary-color': displaySettings.primary_color } as React.CSSProperties}>
       {/* Header */}
       <div className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-lg border-b border-slate-700/50">
         <div className="max-w-7xl mx-auto px-4 py-4">
@@ -429,6 +474,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
           </div>
 
           {/* Search Bar */}
+          {displaySettings.show_search && (
           <div className="relative">
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
@@ -447,9 +493,11 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
               </button>
             )}
           </div>
+          )}
         </div>
 
         {/* Category Filter Dropdown */}
+        {displaySettings.show_categories && (
         <div className="border-t border-slate-700/50 bg-slate-800/30">
           <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
             <span className="text-gray-400 text-sm whitespace-nowrap">Filter by:</span>
@@ -473,7 +521,19 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
             </div>
           </div>
         </div>
+        )}
       </div>
+
+      {/* Announcements Banner */}
+      {announcements.length > 0 && (
+        <div className="max-w-7xl mx-auto px-4 pt-4">
+          {announcements.map(ann => (
+            <div key={ann.id} className="bg-blue-500/20 border border-blue-500/30 rounded-lg px-4 py-2 mb-2 text-blue-200 text-sm">
+              📢 {ann.text}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Offers Grid */}
       <div className="max-w-7xl mx-auto px-4 py-8">
@@ -495,7 +555,115 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {/* Sub-Wall Cards - rendered inside the grid below */}
+
+            {/* Table Layout */}
+            {displaySettings.layout === 'table' ? (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-slate-700">
+                      <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Offer</th>
+                      <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Category</th>
+                      <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Countries</th>
+                      <th className="text-right text-gray-400 text-sm font-medium py-3 px-4">Points</th>
+                      <th className="text-right text-gray-400 text-sm font-medium py-3 px-4">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredOffers.map((offer) => {
+                      const points = payoutToPoints(offer.payout || offer.reward_amount || 0);
+                      return (
+                        <tr
+                          key={offer.id}
+                          onClick={() => handleOfferClick(offer)}
+                          className="border-b border-slate-700/50 hover:bg-slate-800/50 cursor-pointer transition-colors"
+                        >
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              {offer.image_url && !offer.image_url.includes('placeholder') ? (
+                                <img src={offer.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: getDefaultImage(offer.category) }}>
+                                  {getCategoryEmoji(offer.category)}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-white font-medium truncate max-w-[250px]">{truncateTitle(offer.title, 8)}</p>
+                                <p className="text-gray-500 text-xs truncate max-w-[250px]">{offer.description?.substring(0, 50)}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="text-xs bg-slate-700 text-gray-300 px-2 py-1 rounded">{offer.category}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            {getCountryDisplay(getOfferCountries(offer))}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="text-green-400 font-bold">{points.toLocaleString()}</span>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <button className="text-xs px-3 py-1.5 rounded-lg text-white font-medium" style={{ background: displaySettings.primary_color }}>
+                              Earn
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+            <div className="grid grid-cols-1 gap-6" style={{ gridTemplateColumns: displaySettings.layout === 'list' ? '1fr' : `repeat(auto-fill, minmax(${displaySettings.cards_per_row === 2 ? '400px' : displaySettings.cards_per_row === 4 ? '250px' : '300px'}, 1fr))` }}>
+              {/* Sub-Wall Cards inside the grid */}
+              {!searchTerm && subWalls.map((wall) => (
+                <div
+                  key={`wall-${wall._id}`}
+                  onClick={() => window.open(`https://walls.moustacheleads.com/wall/${wall.slug}`, '_blank')}
+                  className="group bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl overflow-hidden hover:border-blue-500/50 hover:shadow-xl hover:shadow-blue-500/10 transition-all duration-300 cursor-pointer"
+                >
+                  <div className="relative h-48 overflow-hidden">
+                    {wall.image_url ? (
+                      <img src={wall.image_url} alt={wall.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${wall.theme_color || '#6366f1'}, #7c3aed)` }}>
+                        <span className="text-6xl">📦</span>
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent"></div>
+                    <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-medium text-white">
+                      📦 COLLECTION
+                    </div>
+                  </div>
+                  <div className="p-5">
+                    <div className="mb-2">
+                      <div className="flex items-center gap-0.5">
+                        {[...Array(5)].map((_, i) => (
+                          <span key={i} className="text-sm text-yellow-400">★</span>
+                        ))}
+                      </div>
+                    </div>
+                    <h3 className="text-white font-bold text-lg mb-2 group-hover:text-blue-400 transition-colors">
+                      {wall.heading_text || wall.name}
+                    </h3>
+                    <p className="text-gray-400 text-sm mb-4 line-clamp-2">
+                      {wall.description || `${wall.offer_count} curated offers`}
+                    </p>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-3xl font-bold text-green-400">{wall.offer_count}</span>
+                        <span className="text-sm text-gray-400 uppercase">offers</span>
+                      </div>
+                    </div>
+                    <button className="w-full hover:opacity-90 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group-hover:shadow-lg" style={{ background: `linear-gradient(to right, ${wall.theme_color || displaySettings.primary_color}, #7c3aed)` }}>
+                      <span>View Collection</span>
+                      <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+
               {filteredOffers.map((offer) => {
                 const points = payoutToPoints(offer.payout || offer.reward_amount || 0);
                 
@@ -570,7 +738,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
                       </div>
 
                       {/* Action Button */}
-                      <button className="w-full bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group-hover:shadow-lg group-hover:shadow-blue-500/50">
+                      <button className="w-full hover:opacity-90 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group-hover:shadow-lg" style={{ background: `linear-gradient(to right, ${displaySettings.primary_color}, #7c3aed)` }}>
                         <span>Click to Earn</span>
                         <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                       </button>
@@ -579,6 +747,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
                 );
               })}
             </div>
+            )}
           </>
         )}
       </div>
@@ -586,7 +755,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
       {/* Offer Modal */}
       {selectedOffer && (
         <OfferModal
-          offer={selectedOffer}
+          offer={{...selectedOffer, status: selectedOffer.status || 'active'}}
           open={modalOpen}
           onClose={() => setModalOpen(false)}
           onStartOffer={async (offer) => {
