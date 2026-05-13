@@ -285,13 +285,33 @@ def delete_sub_wall(sub_wall_id):
 
 @admin_sub_walls_bp.route('/sub-walls/public/list', methods=['GET'])
 def list_public_sub_walls():
-    """List all active sub-walls visible to the given user (for offerwall display, no auth)."""
+    """List all active sub-walls visible to the given publisher (for offerwall display, no auth)."""
     try:
         collection = db_instance.get_collection('sub_walls')
         if collection is None:
             return jsonify({'success': True, 'sub_walls': []}), 200
 
         user_id = request.args.get('user_id', '').strip()
+        placement_id = request.args.get('placement_id', '').strip()
+
+        # Resolve publisher from placement_id
+        publisher_id = None
+        publisher_username = None
+        if placement_id:
+            placements_col = db_instance.get_collection('placements')
+            if placements_col is not None:
+                placement = placements_col.find_one({'placement_id': placement_id})
+                if placement:
+                    publisher_id = str(placement.get('publisher_id', '')) or str(placement.get('user_id', ''))
+                    # Also get publisher username
+                    users_col = db_instance.get_collection('users')
+                    if users_col is not None and publisher_id:
+                        try:
+                            pub_user = users_col.find_one({'_id': ObjectId(publisher_id)})
+                            if pub_user:
+                                publisher_username = pub_user.get('username', '')
+                        except Exception:
+                            pass
 
         # Get all active sub-walls
         all_active = list(collection.find({'status': 'active'}).sort('display_order', 1))
@@ -304,33 +324,19 @@ def list_public_sub_walls():
             if visibility == 'everyone':
                 pass  # Always show
             elif visibility == 'link_only':
-                pass  # Show in offerwall too (accessible via link and listing)
+                pass  # Show in offerwall too
             elif visibility == 'specific_publishers' or visibility == 'specific_users':
-                # Only show if user_id is in the visible_to_publishers list
+                # Check if the publisher (owner of placement) is in the visible list
                 visible_users = sw.get('visible_to_publishers', [])
-                if not user_id:
+                matched = False
+                # Check by publisher_id, publisher_username, or user_id from URL
+                for check_val in [publisher_id, publisher_username, user_id]:
+                    if check_val and check_val in visible_users:
+                        matched = True
+                        break
+                if not matched:
                     continue
-                # Check if user_id matches any entry (could be _id, user_id, or username)
-                if user_id not in visible_users:
-                    # Also try to look up the user by user_id field to get their _id
-                    users_collection = db_instance.get_collection('users')
-                    if users_collection is not None:
-                        user_doc = users_collection.find_one({
-                            '$or': [
-                                {'user_id': user_id},
-                                {'username': user_id}
-                            ]
-                        })
-                        if user_doc:
-                            user_mongo_id = str(user_doc['_id'])
-                            if user_mongo_id not in visible_users:
-                                continue
-                        else:
-                            continue
-                    else:
-                        continue
             elif visibility == 'by_country':
-                # Skip country-based filtering for now (would need geo lookup)
                 continue
             else:
                 continue

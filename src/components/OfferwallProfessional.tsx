@@ -341,7 +341,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
 
   const loadSubWalls = async () => {
     try {
-      const res = await fetch(`${baseUrl}/api/admin/sub-walls/public/list?user_id=${encodeURIComponent(userId)}`);
+      const res = await fetch(`${baseUrl}/api/admin/sub-walls/public/list?user_id=${encodeURIComponent(userId)}&placement_id=${encodeURIComponent(placementId)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.sub_walls) setSubWalls(data.sub_walls);

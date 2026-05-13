@@ -161,9 +161,29 @@ const SubWallPage: React.FC = () => {
   };
 
   const handleSurveySubmit = async () => {
-    if (!slug) return;
+    if (!slug || !subWall) return;
     setSubmittingSurvey(true);
     try {
+      // First, store the survey response
+      if (subWall.pre_screening_survey_id) {
+        const formattedAnswers = survey?.questions.map((q, idx) => ({
+          question_id: q.id || `q_${idx}`,
+          question_text: q.text,
+          answer: surveyAnswers[q.id || `q_${idx}`] || ''
+        })) || [];
+
+        await fetch(`${API_BASE}/api/admin/surveys/public/${subWall.pre_screening_survey_id}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            answers: formattedAnswers,
+            user_id: 'subwall_' + slug + '_' + Date.now(),
+            time_spent_seconds: 0
+          })
+        });
+      }
+
+      // Then submit to sub-wall screen endpoint
       const res = await fetch(`${API_BASE}/api/admin/sub-walls/public/${slug}/screen`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,7 +195,6 @@ const SubWallPage: React.FC = () => {
       if (res.ok) {
         setShowSurvey(false);
         setSurveyCompleted(true);
-        // Save completion for frequency tracking
         localStorage.setItem(`subwall_survey_${slug}`, new Date().toISOString());
         // Open the pending offer
         if (pendingOffer) {
