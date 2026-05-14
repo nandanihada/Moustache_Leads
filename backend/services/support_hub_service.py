@@ -57,7 +57,7 @@ class SupportHubService:
     def get_conversations(self):
         return self.model.get_conversations()
 
-    def bulk_send(self, user_ids, template_id, channel, scheduled_at=None, message_prefix=None):
+    def bulk_send(self, user_ids, template_id, channel, scheduled_at=None, message_prefix=None, email_settings=None, offer_ids=None, payout_overrides=None):
         """Send personalized messages to multiple users using templates"""
         if scheduled_at:
             logger.info(f"Bulk outreach scheduled for {scheduled_at} for {len(user_ids)} users")
@@ -89,7 +89,7 @@ class SupportHubService:
             # Route to channel
             # If scheduled, we might skip immediate send here, but for this implementation 
             # we'll proceed and log the intent.
-            success = self._send_to_channel(user, channel, body)
+            success = self._send_to_channel(user, channel, body, email_settings, offer_ids, payout_overrides)
             
             if success:
                 # Log in support hub
@@ -163,7 +163,7 @@ class SupportHubService:
             return {'connected': True, 'status': 'Email Service Active'}
         return {'connected': False, 'status': 'Unknown Channel'}
 
-    def _send_to_channel(self, user, channel, body):
+    def _send_to_channel(self, user, channel, body, email_settings=None, offer_ids=None, payout_overrides=None):
         """Actual delivery logic for each channel with connection verification"""
         try:
             # Check connection first
@@ -178,7 +178,47 @@ class SupportHubService:
             config = settings.get('channel_configs', {}).get(channel, {})
 
             if channel == 'Email':
-                # Existing email service logic placeholder
+                email_body = body
+                if email_settings and offer_ids:
+                    # Inject HTML offers via the centralized email builder
+                    from routes.admin_offer_requests import _build_email_html
+                    import os
+                    frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
+                    
+                    offers_col = db_instance.get_collection('offers')
+                    offers = list(offers_col.find({'offer_id': {'$in': offer_ids}}))
+                    
+                    if payout_overrides:
+                        for o in offers:
+                            o_id = o.get('offer_id')
+                            if o_id in payout_overrides:
+                                custom_val = payout_overrides[o_id]
+                                try:
+                                    o['payout'] = float(custom_val)
+                                    o['payout_display'] = f"${float(custom_val):,.2f}"
+                                except:
+                                    o['payout_display'] = custom_val
+
+                    html_body = _build_email_html(
+                        body, 
+                        frontend_url, 
+                        offers=offers, 
+                        payout_type=email_settings.get('payoutType', 'publisher'), 
+                        template_style=email_settings.get('templateStyle', 'table'), 
+                        visible_fields=email_settings.get('visibleFields', ['image', 'name', 'payout']), 
+                        default_image=email_settings.get('defaultImage', ''), 
+                        see_more_fields=email_settings.get('seeMoreFields', []), 
+                        mask_preview_links=email_settings.get('maskPreviewLinks', False), 
+                        payment_terms=email_settings.get('paymentTerms', ''), 
+                        custom_preview_url=email_settings.get('customPreviewUrl', ''), 
+                        custom_preview_urls=email_settings.get('customPreviewUrls', {}), 
+                        preview_in_email=email_settings.get('previewInEmail', 'both'), 
+                        custom_preview_in_email=email_settings.get('customPreviewInEmail', 'both')
+                    )
+                    email_body = html_body
+
+                # Here we would actually dispatch the email via SendGrid/SMTP.
+                # For now we simulate success.
                 return True
             elif channel == 'Telegram':
                 token = config.get('token')
@@ -207,7 +247,7 @@ class SupportHubService:
             logger.error(f"Failed to send to channel {channel}: {e}")
             return False
 
-    def send_outreach(self, user_id, subject, body, channel, scheduled_at=None):
+    def send_outreach(self, user_id, subject, body, channel, scheduled_at=None, email_settings=None, offer_ids=None, payout_overrides=None):
         """Send a single personalized outreach message and track it"""
         user = self.user_model.find_by_id(user_id)
         if not user:
@@ -217,7 +257,7 @@ class SupportHubService:
             logger.info(f"Outreach scheduled for {user_id} at {scheduled_at} via {channel}")
             # Placeholder for scheduling persistence
             
-        success = self._send_to_channel(user, channel, body)
+        success = self._send_to_channel(user, channel, body, email_settings, offer_ids, payout_overrides)
         if success:
             # Create/Get conversation
             conv = self.model.create_conversation(user_id, channel)

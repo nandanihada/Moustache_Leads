@@ -91,6 +91,8 @@ import Landing from "./pages/Landing";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import Team from "./pages/Team";
+import { AgreementPage } from "./pages/AgreementPage";
+import { SignaturePage } from "./pages/SignaturePage";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthDebug } from "./components/AuthDebug";
@@ -137,6 +139,8 @@ const App = () => (
                 <Route path="/offerwall" element={<OfferwallPage />} />
                 <Route path="/smart-link-preview" element={<PublicSmartLink />} />
                 <Route path="/smart/:slug" element={<SmartLinkRedirector />} />
+                <Route path="/agreement" element={<AgreementPage />} />
+                <Route path="/signature" element={<SignaturePage />} />
 
               {/* Protected dashboard routes */}
               <Route

@@ -157,31 +157,37 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
   React.useEffect(() => {
     if (!offerTargeting) return;
     
-    // PRIORITY: If we have an automation queue item for this user, use its 'next_offers'
-    if (automationQueueItem && automationQueueItem.next_offers && automationQueueItem.next_offers.length > 0) {
-        const queueOffers = automationQueueItem.next_offers.map((o: any) => ({
-            ...o,
-            source: 'Automation Queue',
-            type: 'Primary',
-            matchScore: 100
-        }));
-        setQueueOffers(queueOffers.slice(0, 6));
-        return;
-    }
-
+    // COMBINED: Priority to Backend Automation, then fill with Intelligence Matches
     const allOffers: any[] = [];
     const seenIds = new Set();
     
+    // 1. Backend Priority
+    if (automationQueueItem && automationQueueItem.next_offers && Array.isArray(automationQueueItem.next_offers)) {
+        automationQueueItem.next_offers.forEach((o: any) => {
+            const id = o.offer_id || o._id || o.id;
+            if (id && !seenIds.has(id)) {
+                seenIds.add(id);
+                allOffers.push({
+                    ...o,
+                    id,
+                    source: 'Automation Queue',
+                    type: 'Primary',
+                    matchScore: 100 // Top priority
+                });
+            }
+        });
+    }
+
     const addSection = (sectionName: string, sourceLabel: string, baseScore: number, typeLabel: string) => {
         if (offerTargeting[sectionName] && Array.isArray(offerTargeting[sectionName])) {
             offerTargeting[sectionName].forEach((o: any, idx: number) => {
-                const id = o.offer_id || o._id;
-                if (!seenIds.has(id)) {
+                const id = o.offer_id || o._id || o.id;
+                if (id && !seenIds.has(id)) {
                     seenIds.add(id);
                     let matchScore = Math.max(50, baseScore - (idx * 4));
                     if (verticalData && verticalData.length > 0 && verticalData[0].name !== 'Unknown') {
                         const topCats = verticalData.slice(0, 2).map((v:any) => v.name.toLowerCase());
-                        const offerCat = (o.category || '').toLowerCase();
+                        const offerCat = (o.category || o.vertical || '').toLowerCase();
                         if (offerCat && topCats.includes(offerCat)) {
                             matchScore = Math.min(99, matchScore + 15);
                         } else if (offerCat && verticalData.some((v:any) => v.name.toLowerCase() === offerCat)) {
@@ -190,6 +196,7 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                     }
                     allOffers.push({
                         ...o,
+                        id,
                         source: sourceLabel,
                         type: typeLabel,
                         matchScore: matchScore
@@ -205,10 +212,10 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
     addSection('recently_edited', 'Recently Edited', 79, 'Discount');
     addSection('recently_deleted', 'Clearance', 74, 'Discount');
     
-    allOffers.sort((a, b) => b.matchScore - a.matchScore);
-    
+    // Final sort and slice to top 6
+    allOffers.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
     setQueueOffers(allOffers.slice(0, 6));
-  }, [offerTargeting, automationQueueItem]);
+  }, [offerTargeting, automationQueueItem, verticalData]);
 
   const historyData = React.useMemo(() => {
     // Show actual scheduled activity / mail history instead of offer views
@@ -1423,8 +1430,35 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
             </div>
           </div>
 
-          {/* 5 buckets */}
+          {/* Intelligence Buckets */}
           <div className="grid-5">
+            {/* NEW: Automation Flow Bucket */}
+            <div className="bucket-card" style={{ borderTop: '2px solid #6366f1' }}>
+              <div style={{ fontSize: '11px', fontWeight: '500', color: '#6366f1', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <Zap size={10} className="text-indigo-500 fill-indigo-500" />
+                Automation Flow
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {automationQueueItem?.next_offers && automationQueueItem.next_offers.length > 0 ? automationQueueItem.next_offers.slice(0, 3).map((o: any, i: number) => (
+                  <div key={i} className="offer-chip"><span className="dot" style={{ background: '#6366f1' }}></span><span className="truncate">{o.name || o.offer_name}</span></div>
+                )) : <div className="text-xs text-gray-500 italic py-1">No active automation cycle.</div>}
+              </div>
+              {recoMode === '1-by-1' && (
+                <button 
+                  className="send-btn" 
+                  style={{ marginTop: '8px', width: '100%', opacity: (!automationQueueItem?.next_offers?.length || sendingOffers) ? 0.5 : 1 }}
+                  disabled={!automationQueueItem?.next_offers?.length || sendingOffers}
+                  onClick={() => {
+                    const idx = recoSendIdx['automation'] || 0;
+                    const o = automationQueueItem.next_offers[idx % automationQueueItem.next_offers.length];
+                    handleSendOffers([o.offer_id || o._id]);
+                    setRecoSendIdx(prev => ({ ...prev, automation: idx + 1 }));
+                  }}
+                >
+                  Initiate Step ↗
+                </button>
+              )}
+            </div>
 
             <div className="bucket-card" style={{ borderTop: '2px solid #185FA5' }}>
               <div style={{ fontSize: '11px', fontWeight: '500', color: '#185FA5', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>

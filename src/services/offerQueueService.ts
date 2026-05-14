@@ -16,6 +16,8 @@ export interface OfferQueueItem {
   ip?: string;
   city?: string;
   country?: string;
+  payout?: string;
+  vertical?: string;
 }
 
 class OfferQueueService {
@@ -114,6 +116,22 @@ class OfferQueueService {
   clearQueue() {
     this.queue = [];
     this.save();
+  }
+
+  pauseItem(id: string) {
+    const item = this.queue.find(q => q.id === id);
+    if (item) {
+      item.isPaused = true;
+      this.save();
+    }
+  }
+
+  resumeItem(id: string) {
+    const item = this.queue.find(q => q.id === id);
+    if (item) {
+      item.isPaused = false;
+      this.save();
+    }
   }
 
   resendItem(id: string, customTime?: number) {

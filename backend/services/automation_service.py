@@ -403,7 +403,13 @@ class AutomationService:
         """Manually override a user's automation state"""
         state = self.model.get_user_state(user_id)
         if not state:
-            return False, "User automation state not found"
+            if action == 'start':
+                self.handle_user_activity(user_id, force_reset=True)
+                state = self.model.get_user_state(user_id)
+                if not state:
+                    return False, "Failed to initialize user automation state"
+            else:
+                return False, "User automation state not found"
 
         now = datetime.utcnow()
         settings = self.model.get_settings()

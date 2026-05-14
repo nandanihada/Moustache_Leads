@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Eye, EyeOff, Check } from "lucide-react";
+import { Eye, EyeOff, Check, User, Building2 } from "lucide-react";
 import { AuthLoadingOverlay } from "../components/LoadingSpinner";
 import { toast } from "sonner";
 
@@ -10,9 +10,14 @@ export default function Register() {
   const totalSteps = 8;
 
   const [formData, setFormData] = useState({
-    fullName: "",
+    accountType: "individual" as "individual" | "company",
+    firstName: "",
+    lastName: "",
+    companyName: "",
+    registrationNo: "",
     email: "",
     password: "",
+    confirmPassword: "",
     promotionMethod: "",
     trafficSources: [] as string[],
     verticals: [] as string[],
@@ -67,6 +72,7 @@ export default function Register() {
   const [partners, setPartners] = useState([{ network: "", email: "" }]);
   const [showStats, setShowStats] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -106,14 +112,30 @@ export default function Register() {
   const handleStep1Continue = async () => {
     setErrorMessage("");
     
-    if (!formData.fullName || !formData.email || !formData.password || !formData.acceptTerms || !captchaVerified) {
-      const err = "Please fill in all fields, confirm captcha, and accept Terms.";
+    const { accountType, firstName, lastName, companyName, registrationNo, email, password, confirmPassword, acceptTerms } = formData;
+
+    if (!firstName || !lastName || !email || !password || !confirmPassword || !acceptTerms || !captchaVerified) {
+      const err = "Please fill in all required fields, confirm captcha, and accept Terms.";
+      setErrorMessage(err);
+      toast.error(err);
+      return;
+    }
+
+    if (accountType === 'company' && (!companyName || !registrationNo)) {
+      const err = "Please provide Company Name and Registration Number.";
       setErrorMessage(err);
       toast.error(err);
       return;
     }
     
-    if (formData.password.length < 6) {
+    if (password !== confirmPassword) {
+      const err = "Passwords do not match.";
+      setErrorMessage(err);
+      toast.error(err);
+      return;
+    }
+
+    if (password.length < 6) {
       const err = "Password must be at least 6 characters.";
       setErrorMessage(err);
       toast.error(err);
@@ -125,11 +147,7 @@ export default function Register() {
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       
-      const names = formData.fullName.split(' ');
-      const firstName = names[0];
-      const lastName = names.slice(1).join(' ') || '';
-      
-      const userEmail = formData.email.toLowerCase().trim();
+      const userEmail = email.toLowerCase().trim();
       const username = userEmail.split('@')[0] + Math.floor(Math.random() * 100);
       
       const res = await fetch(`${API_URL}/api/auth/register`, {
@@ -138,11 +156,14 @@ export default function Register() {
         body: JSON.stringify({
           username: username,
           email: userEmail,
-          password: formData.password,
+          password: password,
           first_name: firstName,
           last_name: lastName,
+          company_name: companyName,
+          registration_no: registrationNo,
+          account_type: accountType,
           role: 'partner',
-          terms_accepted: formData.acceptTerms,
+          terms_accepted: acceptTerms,
           newsletter_consent: formData.acceptMarketing,
           referral_code: referralCode,
           referral_program: referralProgram,
@@ -187,7 +208,6 @@ export default function Register() {
           username: username,
           token: data.token
         });
-        // Don't auto-login — user must verify email first
         toast.success("Account created! Please complete your profile.");
         setStep(2);
       } else {
@@ -196,7 +216,6 @@ export default function Register() {
         toast.error(errorText);
       }
     } catch (error) {
-        // Fallback for network issues
         const errorText = "Network error. Please make sure the backend server is running.";
         setErrorMessage(errorText);
         toast.error(errorText);
@@ -257,11 +276,29 @@ export default function Register() {
           partners: partners.filter(p => p.network || p.email),
         }),
       });
+      
+      // Save data for the agreement flow
+      localStorage.setItem('onboarding_user_data', JSON.stringify({
+        ...formData,
+        fullName: `${formData.firstName} ${formData.lastName}`,
+        fullAddress: `${formData.streetAddress}, ${formData.unitAddress ? formData.unitAddress + ', ' : ''}${formData.city}, ${formData.stateProvince}, ${formData.country} ${formData.postalCode}`
+      }));
+      localStorage.setItem('registration_data', JSON.stringify(registrationData));
+      
+      // Move to the agreement review page
+      navigate('/agreement');
     } catch (err) {
       // Non-blocking — profile save failure shouldn't block registration completion
       console.error('Profile save error:', err);
+      // Even on error, we should probably let them proceed to agreement if they registered successfully
+      localStorage.setItem('onboarding_user_data', JSON.stringify({
+        ...formData,
+        fullName: `${formData.firstName} ${formData.lastName}`,
+        fullAddress: `${formData.streetAddress}, ${formData.unitAddress ? formData.unitAddress + ', ' : ''}${formData.city}, ${formData.stateProvince}, ${formData.country} ${formData.postalCode}`
+      }));
+      localStorage.setItem('registration_data', JSON.stringify(registrationData));
+      navigate('/agreement');
     }
-    nextStep();
   };
 
   // Visual enhancements for bigger font and shorter aesthetic
@@ -292,29 +329,88 @@ export default function Register() {
         {/* Step 1: Account basics */}
         {step === 1 && (
           <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 text-center sm:text-left">
-            <h2 className="text-3xl font-bold text-white mb-8 tracking-tight">Create Account</h2>
+            <h2 className="text-3xl font-bold text-white mb-2 tracking-tight">Account Information</h2>
+            <p className="text-purple-200/70 text-sm mb-8">Please select your account type and provide basic details.</p>
 
-            <div className={fieldClass}>
-              <label className={labelClass}>Full Name</label>
-              <input type="text" name="fullName" value={formData.fullName} onChange={handleChange} className={inputClass} placeholder="John Doe" />
+            {/* Account Type Tabs */}
+            <div className="flex bg-white/5 p-1.5 rounded-2xl border border-white/10 mb-8 max-w-sm">
+              <button
+                onClick={() => setFormData({ ...formData, accountType: 'individual' })}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold transition-all ${
+                  formData.accountType === 'individual'
+                    ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+                    : 'text-purple-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <User size={18} />
+                Individual
+              </button>
+              <button
+                onClick={() => setFormData({ ...formData, accountType: 'company' })}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-semibold transition-all ${
+                  formData.accountType === 'company'
+                    ? 'bg-gradient-to-r from-purple-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+                    : 'text-purple-300 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Building2 size={18} />
+                Company
+              </button>
             </div>
+
+            {formData.accountType === 'company' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className={fieldClass}>
+                  <label className={labelClass}>Registration No.</label>
+                  <input type="text" name="registrationNo" value={formData.registrationNo} onChange={handleChange} className={inputClass} placeholder="Enter reg number" />
+                </div>
+                <div className={fieldClass}>
+                  <label className={labelClass}>Company Name</label>
+                  <input type="text" name="companyName" value={formData.companyName} onChange={handleChange} className={inputClass} placeholder="Enter company name" />
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className={fieldClass}>
+                <label className={labelClass}>First Name</label>
+                <input type="text" name="firstName" value={formData.firstName} onChange={handleChange} className={inputClass} placeholder="Enter first name" />
+              </div>
+              <div className={fieldClass}>
+                <label className={labelClass}>Last Name</label>
+                <input type="text" name="lastName" value={formData.lastName} onChange={handleChange} className={inputClass} placeholder="Enter last name" />
+              </div>
+            </div>
+
             <div className={fieldClass}>
               <label className={labelClass}>Email Address</label>
               <input type="email" name="email" value={formData.email} onChange={handleChange} className={inputClass} placeholder="you@example.com" />
             </div>
-            <div className={fieldClass}>
-              <label className={labelClass}>Password</label>
-              <div className="relative">
-                <input type={showPassword ? "text" : "password"} name="password" value={formData.password} onChange={handleChange} className={inputClass} placeholder="••••••••" />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-300 hover:text-white transition-colors">
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className={fieldClass}>
+                <label className={labelClass}>Password</label>
+                <div className="relative">
+                  <input type={showPassword ? "text" : "password"} name="password" value={formData.password} onChange={handleChange} className={inputClass} placeholder="••••••••" />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-300 hover:text-white transition-colors">
+                    {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
+              </div>
+              <div className={fieldClass}>
+                <label className={labelClass}>Confirm Password</label>
+                <div className="relative">
+                  <input type={showConfirmPassword ? "text" : "password"} name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} className={inputClass} placeholder="••••••••" />
+                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-300 hover:text-white transition-colors">
+                    {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                  </button>
+                </div>
               </div>
             </div>
 
             <div className="mb-5 p-4 bg-white/5 border border-white/10 rounded-lg flex items-center justify-between">
                <div className="flex items-center gap-3">
-                 <input type="checkbox" checked={captchaVerified} onChange={(e) => setCaptchaVerified(e.target.checked)} className="w-5 h-5 rounded cursor-pointer" />
+                 <input type="checkbox" checked={captchaVerified} onChange={(e) => setCaptchaVerified(e.target.checked)} className="w-5 h-5 rounded cursor-pointer accent-purple-500" />
                  <span className="text-white text-sm font-medium">I am not a robot</span>
                </div>
                <img src="https://www.gstatic.com/recaptcha/api2/logo_48.png" width="30" alt="reCAPTCHA" />
@@ -322,12 +418,8 @@ export default function Register() {
 
             <div className="flex flex-col gap-3 mt-4 mb-6">
               <label className="flex items-center gap-2 text-sm text-purple-200 cursor-pointer">
-                <input type="checkbox" name="acceptTerms" checked={formData.acceptTerms} onChange={(e) => setFormData({...formData, acceptTerms: e.target.checked})} className="w-4 h-4 rounded cursor-pointer" />
-                I accept the Terms and Conditions
-              </label>
-              <label className="flex items-center gap-2 text-sm text-purple-200 cursor-pointer">
-                <input type="checkbox" name="acceptMarketing" checked={formData.acceptMarketing} onChange={(e) => setFormData({...formData, acceptMarketing: e.target.checked})} className="w-4 h-4 rounded cursor-pointer" />
-                I would like to receive marketing emails
+                <input type="checkbox" name="acceptTerms" checked={formData.acceptTerms} onChange={(e) => setFormData({...formData, acceptTerms: e.target.checked})} className="w-4 h-4 rounded cursor-pointer accent-purple-500" />
+                I accept the <span className="text-purple-400 font-semibold underline underline-offset-2">Terms of Service</span> and have read the <span className="text-purple-400 font-semibold underline underline-offset-2">Privacy Policy</span>.
               </label>
             </div>
             
@@ -608,7 +700,7 @@ export default function Register() {
               <button className={btnBack} onClick={prevStep}>Back</button>
               <div className="flex gap-2">
                 <button className={btnSkip} onClick={saveProfileAndFinish}>Skip</button>
-                <button className={btnPrimary} onClick={saveProfileAndFinish}>Finish &rarr;</button>
+                <button className={btnPrimary} onClick={saveProfileAndFinish}>Continue &rarr;</button>
               </div>
             </div>
           </div>

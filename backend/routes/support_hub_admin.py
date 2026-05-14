@@ -81,9 +81,12 @@ def bulk_send():
     channel = data.get('channel', 'Email')
     scheduled_at = data.get('scheduled_at')
     message_prefix = data.get('message_prefix')
+    email_settings = data.get('email_settings')
+    offer_ids = data.get('offer_ids')
+    payout_overrides = data.get('payout_overrides')
     
     service = get_support_hub_service()
-    results = service.bulk_send(user_ids, template_id, channel, scheduled_at, message_prefix)
+    results = service.bulk_send(user_ids, template_id, channel, scheduled_at, message_prefix, email_settings, offer_ids, payout_overrides)
     return jsonify({'results': results})
 
 @support_hub_admin_bp.route('/support/conversations/<conv_id>/messages', methods=['GET'])
@@ -125,13 +128,15 @@ def send_outreach():
     subject = data.get('subject')
     body = data.get('body')
     channel = data.get('channel', 'Email')
-    scheduled_at = data.get('scheduled_at')
+    email_settings = data.get('email_settings')
+    offer_ids = data.get('offer_ids')
+    payout_overrides = data.get('payout_overrides')
     
     if not user_id or not body:
         return jsonify({'error': 'User ID and body are required'}), 400
         
     service = get_support_hub_service()
-    result = service.send_outreach(user_id, subject, body, channel, scheduled_at)
+    result = service.send_outreach(user_id, subject, body, channel, scheduled_at, email_settings, offer_ids, payout_overrides)
     return jsonify(result)
 
 @support_hub_admin_bp.route('/support/settings', methods=['GET'])

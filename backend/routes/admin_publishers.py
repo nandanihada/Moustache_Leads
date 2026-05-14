@@ -60,7 +60,12 @@ def get_all_publishers():
                 'status': 1,
                 'created_at': 1,
                 'updated_at': 1,
-                'lastLogin': 1
+                'lastLogin': 1,
+                'agreement_signed': 1,
+                'agreement_signed_at': 1,
+                'company_name': 1,
+                'digital_signature': 1,
+                'signed_agreement_pdf': 1
             }
         ).sort('created_at', -1).skip(skip).limit(size))
         
@@ -90,9 +95,9 @@ def get_all_publishers():
                 'id': publisher_id,
                 'username': publisher['username'],
                 'email': publisher['email'],
-                'firstName': publisher.get('firstName', ''),
-                'lastName': publisher.get('lastName', ''),
-                'companyName': publisher.get('companyName', ''),
+                'firstName': publisher.get('firstName', publisher.get('first_name', '')),
+                'lastName': publisher.get('lastName', publisher.get('last_name', '')),
+                'companyName': publisher.get('companyName', publisher.get('company_name', '')),
                 'website': publisher.get('website', ''),
                 'postbackUrl': publisher.get('postbackUrl', ''),
                 'role': publisher.get('role', 'user'),
@@ -101,6 +106,11 @@ def get_all_publishers():
                 'createdAt': publisher['created_at'].isoformat() if publisher.get('created_at') and hasattr(publisher.get('created_at'), 'isoformat') else None,
                 'updatedAt': publisher.get('updated_at').isoformat() if publisher.get('updated_at') and hasattr(publisher.get('updated_at'), 'isoformat') else None,
                 'lastLogin': publisher.get('lastLogin').isoformat() if publisher.get('lastLogin') and hasattr(publisher.get('lastLogin'), 'isoformat') else None,
+                'agreement_signed': publisher.get('agreement_signed', False),
+                'agreement_signed_at': publisher.get('agreement_signed_at').isoformat() if publisher.get('agreement_signed_at') and hasattr(publisher.get('agreement_signed_at'), 'isoformat') else None,
+                'digital_signature': publisher.get('digital_signature'),
+                'signed_agreement_pdf': publisher.get('signed_agreement_pdf'),
+                'company_name': publisher.get('company_name', publisher.get('companyName', '')),
                 'placementStats': stats
             }
             publisher_list.append(publisher_data)
@@ -172,9 +182,9 @@ def get_publisher_details(publisher_id):
             'id': str(publisher['_id']),
             'username': publisher['username'],
             'email': publisher['email'],
-            'firstName': publisher.get('firstName', ''),
-            'lastName': publisher.get('lastName', ''),
-            'companyName': publisher.get('companyName', ''),
+            'firstName': publisher.get('firstName', publisher.get('first_name', '')),
+            'lastName': publisher.get('lastName', publisher.get('last_name', '')),
+            'companyName': publisher.get('companyName', publisher.get('company_name', '')),
             'website': publisher.get('website', ''),
             'postbackUrl': publisher.get('postbackUrl', ''),
             'role': publisher.get('role', 'user'),
@@ -193,7 +203,12 @@ def get_publisher_details(publisher_id):
             'smartLinkInterest': publisher.get('smart_link_interest', 'none'),
             'smartLinkTrafficSource': publisher.get('smart_link_traffic_source', ''),
             'address': publisher.get('address', {}),
-            'payoutDetails': publisher.get('payout_details', {})
+            'payoutDetails': publisher.get('payout_details', {}),
+            'agreement_signed': publisher.get('agreement_signed', False),
+            'agreement_signed_at': publisher.get('agreement_signed_at').isoformat() if publisher.get('agreement_signed_at') and hasattr(publisher.get('agreement_signed_at'), 'isoformat') else None,
+            'digital_signature': publisher.get('digital_signature'),
+            'signed_agreement_pdf': publisher.get('signed_agreement_pdf'),
+            'company_name': publisher.get('company_name', publisher.get('companyName', ''))
         }
         
         return jsonify(publisher_data), 200

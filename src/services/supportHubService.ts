@@ -78,14 +78,16 @@ class SupportHubService {
     return response.data;
   }
 
-  async bulkSend(userIds: string[], templateId: string, channel: string, scheduledTime?: string, emailSettings?: any, messagePrefix?: string): Promise<any> {
+  async bulkSend(userIds: string[], templateId: string, channel: string, scheduledTime?: string, emailSettings?: any, messagePrefix?: string, offerIds?: string[], payoutOverrides?: any): Promise<any> {
     const response = await axios.post(`${this.baseUrl}/api/admin/support/bulk-send`, {
       user_ids: userIds,
       template_id: templateId,
       channel: channel,
       scheduled_at: scheduledTime,
       email_settings: emailSettings,
-      message_prefix: messagePrefix
+      message_prefix: messagePrefix,
+      offer_ids: offerIds,
+      payout_overrides: payoutOverrides
     }, {
       headers: this.getHeaders()
     });
@@ -122,14 +124,16 @@ class SupportHubService {
     return response.data;
   }
 
-  async sendOutreach(userId: string, subject: string, body: string, channel: string, scheduledAt?: string, emailSettings?: any): Promise<any> {
+  async sendOutreach(userId: string, subject: string, body: string, channel: string, scheduledAt?: string, emailSettings?: any, offerIds?: string[], payoutOverrides?: any): Promise<any> {
     const response = await axios.post(`${this.baseUrl}/api/admin/support/send`, {
       user_id: userId,
       subject,
       body,
       channel,
       scheduled_at: scheduledAt,
-      email_settings: emailSettings
+      email_settings: emailSettings,
+      offer_ids: offerIds,
+      payout_overrides: payoutOverrides
     }, {
       headers: this.getHeaders()
     });

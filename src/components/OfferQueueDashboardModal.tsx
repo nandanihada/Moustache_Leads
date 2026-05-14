@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { offerQueueService, OfferQueueItem, QueueStatus } from '@/services/offerQueueService';
 import { Pencil, Trash2, SkipForward, Play, Pause, Settings2, RotateCcw, AlertTriangle, XCircle, Info, RefreshCw, Clock, ShieldAlert, X } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -40,6 +41,7 @@ export const OfferQueueDashboardModal: React.FC<{
   const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'yesterday' | 'custom'>('all');
   const [customDate, setCustomDate] = useState('');
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
 
   useEffect(() => {
     if (open) {
@@ -78,11 +80,52 @@ export const OfferQueueDashboardModal: React.FC<{
   const lastPending = pendingItems.length > 0 ? pendingItems[pendingItems.length - 1] : null;
 
   const userSummary = React.useMemo(() => {
-    const summary: Record<string, any> = {};
+    const summary: Record<string, {
+      userId: string;
+      username: string;
+      ip: string;
+      city: string;
+      country: string;
+      sent: number;
+      pending: number;
+      skipped: number;
+      nextScheduled: number | null;
+      lastSentName: string;
+      lastSentTime: number | null;
+      isPaused: boolean;
+    }> = {};
     
+    let filteredQueueSource = queue;
+    if (currentUser) {
+      const currentUserId = String(currentUser.id);
+      const currentUserEmail = currentUser.email?.toLowerCase();
+      const currentUserUsername = currentUser.username?.toLowerCase();
+      
+      filteredQueueSource = queue.filter((item: OfferQueueItem) => {
+        const itemId = String(item.userId || '');
+        const itemUsername = (item.username || '').toLowerCase();
+        return itemId === currentUserId || 
+               (currentUserUsername && itemUsername === currentUserUsername);
+      });
+    }
+
     // Seed with all available users if provided
     if (allUsers) {
-      allUsers.forEach(u => {
+      let filteredAllUsers = allUsers;
+      if (currentUser) {
+        const currentUserId = String(currentUser.id);
+        const currentUserEmail = currentUser.email?.toLowerCase();
+        const currentUserUsername = currentUser.username?.toLowerCase();
+        filteredAllUsers = allUsers.filter(u => {
+           const uId = String(u.user_id || '');
+           const uEmail = (u as any).email?.toLowerCase() || '';
+           const uUsername = u.username?.toLowerCase() || '';
+           return uId === currentUserId || 
+                  (currentUserEmail && uEmail === currentUserEmail) || 
+                  (currentUserUsername && uUsername === currentUserUsername);
+        });
+      }
+      filteredAllUsers.forEach(u => {
         summary[u.user_id] = {
           userId: u.user_id,
           username: u.username,
@@ -100,8 +143,14 @@ export const OfferQueueDashboardModal: React.FC<{
       });
     }
 
-    queue.forEach(item => {
+    const dashboardUserIds = allUsers ? new Set(allUsers.map(u => String(u.user_id))) : null;
+
+    filteredQueueSource.forEach(item => {
       if (item.status === 'removed') return;
+      
+      // If we have a dashboard filter, ignore items not in that list
+      if (dashboardUserIds && !dashboardUserIds.has(String(item.userId))) return;
+
       if (!summary[item.userId]) {
         summary[item.userId] = {
           userId: item.userId,
@@ -135,6 +184,7 @@ export const OfferQueueDashboardModal: React.FC<{
       }
       if (item.status === 'skipped') s.skipped++;
     });
+
     let result = Object.values(summary).sort((a, b) => {
         if (b.sent !== a.sent) return b.sent - a.sent;
         if (b.pending !== a.pending) return b.pending - a.pending;
@@ -152,7 +202,7 @@ export const OfferQueueDashboardModal: React.FC<{
       return result.filter(u => u.isPaused);
     }
     return result;
-  }, [queue, allUsers, statusFilter, userSearch]);
+  }, [queue, allUsers, statusFilter, userSearch, currentUser]);
 
   const getOfferWarnings = (userId: string, offerId: string | undefined, scheduledTime: number) => {
     const warnings: { type: 'A' | 'B' | 'C' | 'D' | 'E', message: string, icon: any, color: string }[] = [];
@@ -248,6 +298,20 @@ export const OfferQueueDashboardModal: React.FC<{
 
   const filteredQueue = queue.filter(item => {
     let matches = true;
+    
+    if (currentUser) {
+      const currentUserId = String(currentUser.id);
+      const currentUserUsername = currentUser.username?.toLowerCase();
+      
+      const itemId = String(item.userId || '');
+      const itemUsername = (item.username || '').toLowerCase();
+      
+      const isCurrentUser = itemId === currentUserId || 
+                           (currentUserUsername && itemUsername === currentUserUsername);
+      
+      if (!isCurrentUser) return false;
+    }
+
     if (statusFilter !== 'all') {
       if (statusFilter === 'paused') {
         matches = matches && item.status === 'queued' && item.isPaused;

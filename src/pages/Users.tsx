@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX, UserPlus, RefreshCw, Eye, EyeOff, ChevronDown, ChevronRight, Globe, Activity, BarChart2, PieChart, MessageSquare, Send, TrendingUp, ShieldAlert, Award, Filter, Users as UsersIcon } from "lucide-react";
+import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX, UserPlus, RefreshCw, Eye, EyeOff, ChevronDown, ChevronRight, Globe, Activity, BarChart2, PieChart, MessageSquare, Send, TrendingUp, ShieldAlert, Award, Filter, Users as UsersIcon, FileCheck, Download, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,10 @@ interface User {
   payout_details?: { tax_id?: string; vat_id?: string; bank_name?: string; account_name?: string; account_number?: string; routing_number?: string };
   partners?: { network?: string; email?: string }[];
   registration_profile_completed?: boolean;
+  agreement_signed?: boolean;
+  agreement_signed_at?: string;
+  digital_signature?: string;
+  signed_agreement_pdf?: string;
 }
 
 interface UserCounts {
@@ -84,6 +88,8 @@ const Users = () => {
   const [rejectReason, setRejectReason] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [previewUser, setPreviewUser] = useState<User | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [inlineMailTo, setInlineMailTo] = useState<string | null>(null);
   const [selectedLevel, setSelectedLevel] = useState<string>("");
@@ -423,6 +429,35 @@ const Users = () => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleDownloadAgreement = async (filename: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/auth/download-agreement/${filename}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to download agreement');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Download Error",
+        description: "Failed to download the signed agreement PDF.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -1133,6 +1168,110 @@ const Users = () => {
                                       </div>
                                     </div>
 
+                                    {/* LEGAL AGREEMENT SECTION */}
+                                    <div className="bg-white p-6 rounded-2xl border-2 border-slate-200 shadow-md">
+                                      <h4 className="text-base font-bold text-slate-800 mb-5 flex items-center gap-2">
+                                        <FileCheck className="w-5 h-5 text-blue-600" /> Digital Agreement & Signature
+                                      </h4>
+                                      
+                                      {user.agreement_signed ? (
+                                        <div className="space-y-6">
+                                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                            {/* Column 1: Status & Actions */}
+                                            <div className="space-y-4">
+                                              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Signed On</p>
+                                                <p className="text-sm font-bold text-slate-900">{formatDate(user.agreement_signed_at || '')}</p>
+                                              </div>
+                                              <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                                <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Agreement Version</p>
+                                                <p className="text-sm font-bold text-slate-900">v1.0 (Publisher + NDA)</p>
+                                              </div>
+                                              <Button 
+                                                 variant="outline" 
+                                                 className="w-full flex items-center justify-center gap-2 border-blue-600 text-blue-600 hover:bg-blue-50 font-bold"
+                                                 onClick={() => {
+                                                   setPreviewUser(user);
+                                                   setShowPreviewDialog(true);
+                                                 }}
+                                               >
+                                                 <Eye className="h-4 w-4" /> View Signed Agreement
+                                               </Button>
+                                            </div>
+                                            
+                                            {/* Column 2: Contract Information */}
+                                            <div className="bg-slate-50 p-5 rounded-xl border border-slate-100">
+                                              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-4 border-b pb-2">Contract Information</p>
+                                              <div className="space-y-3">
+                                                <div>
+                                                  <p className="text-[10px] text-slate-400 font-medium">Legal Name</p>
+                                                  <p className="text-sm font-bold text-slate-800">{user.first_name} {user.last_name}</p>
+                                                </div>
+                                                <div>
+                                                  <p className="text-[10px] text-slate-400 font-medium">Company Name</p>
+                                                  <p className="text-sm font-bold text-slate-800">{user.company_name || 'N/A'}</p>
+                                                </div>
+                                                <div>
+                                                  <p className="text-[10px] text-slate-400 font-medium">Business Address</p>
+                                                  <p className="text-xs font-medium text-slate-700">
+                                                    {user.address ? (
+                                                      <>
+                                                        {user.address.street}{user.address.unit ? `, ${user.address.unit}` : ''}<br />
+                                                        {user.address.city}, {user.address.state} {user.address.postal}<br />
+                                                        {user.address.country}
+                                                      </>
+                                                    ) : 'Address not provided'}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                            </div>
+
+                                            {/* Column 3: Payout & Tax Details */}
+                                            <div className="bg-slate-50 p-5 rounded-xl border border-slate-100">
+                                              <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-4 border-b pb-2">Payout & Tax Details</p>
+                                              <div className="space-y-3">
+                                                <div className="grid grid-cols-2 gap-2">
+                                                  <div>
+                                                    <p className="text-[10px] text-slate-400 font-medium">Tax ID / VAT</p>
+                                                    <p className="text-sm font-bold text-slate-800">{user.payout_details?.tax_id || user.payout_details?.vat_id || 'N/A'}</p>
+                                                  </div>
+                                                  <div>
+                                                    <p className="text-[10px] text-slate-400 font-medium">Bank Name</p>
+                                                    <p className="text-sm font-bold text-slate-800">{user.payout_details?.bank_name || 'N/A'}</p>
+                                                  </div>
+                                                </div>
+                                                <div>
+                                                  <p className="text-[10px] text-slate-400 font-medium">Account Holder</p>
+                                                  <p className="text-sm font-bold text-slate-800">{user.payout_details?.account_name || 'N/A'}</p>
+                                                </div>
+                                                <div>
+                                                  <p className="text-[10px] text-slate-400 font-medium">Account Number</p>
+                                                  <p className="text-sm font-bold text-slate-800 font-mono">{user.payout_details?.account_number || 'N/A'}</p>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+
+                                          {/* Signature Preview */}
+                                          <div className="border-t pt-6">
+                                            <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-2">Digital Signature</p>
+                                            <div className="bg-white border-2 border-dashed border-slate-200 rounded-xl p-4 flex items-center justify-center h-[180px] w-full">
+                                              {user.digital_signature ? (
+                                                <img src={user.digital_signature} alt="Signature" className="max-h-40 object-contain" />
+                                              ) : (
+                                                <span className="text-sm text-slate-400 italic">Signature image not found</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <div className="py-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                          <ShieldAlert className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+                                          <p className="text-sm font-medium text-slate-600">This user has not signed the legal agreement yet.</p>
+                                        </div>
+                                      )}
+                                    </div>
+
                                     {/* RECOMMENDED OFFERS */}
                                     <div className="bg-gradient-to-br from-indigo-50 to-white p-5 rounded-2xl border border-indigo-200 shadow-sm">
                                       <h4 className="text-base font-bold text-indigo-800 mb-4 flex items-center gap-2">
@@ -1325,8 +1464,409 @@ const Users = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Agreement Preview Dialog */}
+      <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto p-0 border-none shadow-2xl bg-slate-50">
+          <DialogHeader className="p-6 bg-slate-900 text-white sticky top-0 z-50 flex flex-row items-center justify-between space-y-0">
+            <div>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <FileCheck className="w-6 h-6 text-blue-400" /> Publisher Agreement Preview
+              </DialogTitle>
+              <DialogDescription className="text-slate-400 mt-1">
+                Official Document for {previewUser?.first_name} {previewUser?.last_name} ({previewUser?.company_name || 'Individual'})
+              </DialogDescription>
+            </div>
+            <Button variant="ghost" size="icon" onClick={() => setShowPreviewDialog(false)} className="text-slate-400 hover:text-white hover:bg-slate-800 rounded-full">
+              <X className="h-6 w-6" />
+            </Button>
+          </DialogHeader>
+
+          <div className="p-12 bg-white mx-auto my-8 shadow-sm border border-slate-200 max-w-4xl rounded-sm font-serif text-slate-800">
+            {/* Header section similar to PDF/Preview */}
+            <div className="text-center mb-12">
+              <h1 className="text-3xl font-bold uppercase tracking-tight border-b-2 border-slate-900 pb-4">Publisher Agreement</h1>
+              <p className="mt-4 text-sm text-slate-500 font-sans italic">Effective Date: {previewUser?.agreement_signed_at ? formatDate(previewUser.agreement_signed_at) : 'May 13, 2026'}</p>
+            </div>
+
+            <div className="space-y-8 text-[15px] leading-relaxed text-justify">
+              <p>This Agreement (the <b>"Agreement"</b>), is entered into and made effective as of the Effective Date, by and between:</p>
+              
+              <div className="pl-6 space-y-4">
+                <p><b>SURVTIT MARKET RESEARCH SURVEY LLP</b>, a Limited Liability Partnership duly incorporated under the laws of India (LLPIN: ACB-8160, PAN: AFAFS9301P, TAN: MRTS28234D), with its address at 11/1117/48, Mehndi Sarai, Jankipuram Police Station, Saharanpur-247001, Uttar Pradesh, India (<b>"Company"</b>), of the one part;</p>
+                <p className="font-bold text-center">AND</p>
+                <p><b>{previewUser?.first_name} {previewUser?.last_name}</b>, an individual residing at <b>{previewUser?.address?.street}{previewUser?.address?.unit ? `, ${previewUser.address.unit}` : ''}, {previewUser?.address?.city}, {previewUser?.address?.state} {previewUser?.address?.postal}, {previewUser?.address?.country}</b> (hereinafter referred to as the <b>"Publisher"</b>), of the other part;</p>
+              </div>
+
+              <p>(Hereinafter collectively referred to as "the Parties" and individually as a "Party").</p>
+
+              <div className="space-y-4">
+                <p><b>WHEREAS:</b> Company provides, among other services, a service that enables web users to obtain virtual currency, which may be used for various websites, online games, social applications, social networks, and other similar online applications by either earning (by completing offers) or purchasing such virtual currency; and</p>
+                <p><b>WHEREAS,</b> the Publisher desires to collaborate with the Company, on a non-exclusive basis, for the purpose of promoting and providing the Service as defined hereunder, in accordance with the terms and conditions set forth below, and the Company desires to accept the Publisher's collaboration.</p>
+                <p><b>NOW, THEREFORE,</b> in consideration of the mutual agreements contained herein, and upon the terms and subject to the conditions hereinafter set forth, the Parties do hereby agree as follows:</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold text-lg border-b border-slate-200 pb-1">1. DEFINITIONS</h3>
+                <table className="w-full border-collapse border border-slate-200 text-sm font-sans">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className="border border-slate-200 p-3 text-left font-bold w-1/3">Term</th>
+                      <th className="border border-slate-200 p-3 text-left font-bold">Definition</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {DEFINITIONS.map(([term, def]) => (
+                      <tr key={term}>
+                        <td className="border border-slate-200 p-3 font-bold bg-slate-50/50">{term}</td>
+                        <td className="border border-slate-200 p-3">{def}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">2. IMPLEMENTATION</h3>
+                <p>2.1 Company shall provide Publisher with the Service, including Company Content, to enable Publisher to make Offers available to Users via the Publisher Application.</p>
+                <p>2.2 During the term of this Agreement and for this Agreement only, Company will integrate and optimise the platform used to publish Offers on the Publisher Application.</p>
+                <p>2.3 The Publisher may log in to the Dashboard to monitor information relating to Transactions.</p>
+                <p>2.4 User and/or Publisher support – Company will respond to User's inquiries relating to Transactions made via the Service and provide technical support to Publisher, according to its policies and regulations.</p>
+                <p>2.5 Territory – Service included in this Agreement is not geographically restricted.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">3. REPRESENTATION AND WARRANTIES</h3>
+                <p>Each party represents, warrants, and covenants that:</p>
+                <p>3.1 It has full power to execute and deliver this Agreement and to perform its obligations hereunder, and all necessary corporate and other actions have been taken to authorise the execution and delivery of this Agreement and the performance of such obligations.</p>
+                <p>3.2 The execution of this Agreement shall not infringe on any third party's intellectual property rights.</p>
+                <p>3.3 It will ensure that any confidential information, trade secrets or any intellectual property rights of any other person or entity are not used without their permission.</p>
+                <p>3.4 It shall comply with all applicable international, state, and local laws and government rules and regulations and shall use only legitimate and ethical business practices in connection with this Agreement.</p>
+                <p>3.5 It shall maintain, display to Users, and abide by a privacy policy that complies with all applicable laws and regulations with respect to the collection, use, and transfer of User Data, including but not limited to any restrictions and/or regulations regarding PII and/or Profile Data. The Party's failure to maintain and comply with said policy shall constitute a material breach of this Agreement.</p>
+                <p>3.6 It will ensure that any of its systems and/or access it may have to systems of the other Party (including affiliates) will not impair the integrity and availability of such systems and will not deliver any (i) viruses, worms, time bombs, trojan horses or other harmful, malicious, or destructive code; and (ii) software disabling devices, time-out devices, counter devices, and devices intended to collect data regarding usage or related statistics without the prior written authorization of the other Party.</p>
+                <p>3.7 It will not promote or contain content that is illegal, harmful, threatening, defamatory, obscene, sexually explicit, harassing, promotes violence and/or discrimination, and/or illegal activities of any kind.</p>
+                <p>3.8 It shall be responsible for its own compliance with any applicable data protection laws and regulations.</p>
+                <p>3.9 Offers and/or Publisher Application may include links to other websites or resources that either Party has no control over and is not responsible or liable for such third-party's content, products, advertising, or availability.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">4. PAYOUT TERMS</h3>
+                <p>4.1 Payout currency: Payouts shall be processed in USD.</p>
+                <p>4.2 Payout timeline: Payment will be made within thirty (30) days after the end of each calendar month, for Transactions occurring during such month. The Publisher will provide the Company with a valid invoice.</p>
+                <p>4.3 Payout methods: PayPal or Bank Transfer.</p>
+                <p>4.4 Taxation: The Publisher is solely responsible for assessing and remitting its own local taxes.</p>
+                <p>4.5 Minimum Payout: It is agreed that any monthly Payout that does not meet the minimum threshold of $50 USD will be carried over to the Payout of the following month.</p>
+                <p>4.6 Fraudulent Activity and Chargebacks - Company will have the right, in its full discretion, to deduct and/or chargeback Payouts resulting from Fraudulent Activity. Furthermore, the Company reserves the right to claw back or deduct funds from future Payouts for a period of ninety (90) days post-transaction if leads/actions are subsequently rejected by the Company Client.</p>
+                <p>4.7 Tax Clause: No Indian GST applies as this is an export of services to a publisher outside India. Publisher is solely responsible for any taxes in its own jurisdiction.</p>
+                <p>4.8 Except for the Payout, Publisher will not be entitled to other payments, reimbursements, royalties, or expenses unless otherwise agreed in writing by the Parties. The Payout constitutes the entire payment due to Publisher under this Agreement, and Publisher shall not be entitled to any payments (including any reimbursement) other than those contained herein or specifically agreed in writing by Company.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">5. INDEMNIFICATION</h3>
+                <p>Each Party (in this article, "Indemnifying Party") shall defend, indemnify, protect and hold harmless the Other Party (in this article, "Injured Party"), and each of their officers, employees and agents from and against any claims, losses, demands, attorneys' fees, expenses, costs, damages, judgments, liabilities, causes of action, obligations or suits resulting from:</p>
+                <p>5.1 Any actual or alleged breach of any representation, warranty or other provision of this agreement by the Indemnifying Party or its personnel.</p>
+                <p>5.2 Any actual or alleged infringement of any third party's Intellectual Property rights.</p>
+                <p>5.3 Any negligent act or omission or willful misconduct, dishonesty or fraud of the Indemnifying Party or its personnel.</p>
+                <p>The Indemnifying Party's obligation to indemnify the Injured Party shall only apply in case the Injured Party:
+                  <p className="pl-6">5.4 Has given the Indemnifying Party prompt written notice of any third-party claim.</p>
+                  <p className="pl-6">5.5 Cooperates reasonably with the Indemnifying Party in connection with the defence and settlement of such claim.</p>
+                  <p className="pl-6">5.6 Shall not settle any such third-party claim without the Indemnifying Party's prior written approval.</p></p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">6. CONFIDENTIALITY</h3>
+                <p>6.1 Mutual NDA - The Parties will enter into a "Mutual Non-Disclosure Agreement" (the "NDA"), which is incorporated herein as Exhibit A. During the term of this Agreement, any confidential information disclosed shall be governed under the terms of the NDA. The NDA and the Parties' obligations, accordingly, shall remain in effect with respect to the confidential information exchanged under this Agreement throughout the term of this Agreement and for a period of three (3) years thereafter.</p>
+                <p>6.2 Publicity - Neither Party will use the other Party's name, logo, or trademarks or issue public announcements or press releases, make any statements, or confirm or comment on any information, public or otherwise, concerning the other Party's business, or the existence or subject matter of this Agreement.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">7. OWNERSHIP AND LICENSING</h3>
+                <p>7.1 Company's Ownership - As between Company and Publisher, Company shall retain sole and exclusive ownership of all rights, title, and interest, in and to the Service (except for any of Publisher's content or Offers included therein), including, but not limited to all software, information, data, documents, know-how, methods, processes, hardware and other intellectual property rights that are provided or used by Company in connection with the Service, including all intellectual property rights related thereto.</p>
+                <p>7.2 Publisher's Ownership - As between Company and Publisher, Publisher shall retain sole and exclusive ownership of all rights, title, and interest, in and to the Publisher Application (except for any Offer and/or Company Content included therein), including, but not limited to all software, information, data, documents, know-how, methods, processes, hardware and other intellectual property rights related thereto.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">8. LIABILITY</h3>
+                <p>EXCEPT FOR BREACH OF ARTICLES 6-7, BREACH OF ARTICLES 7.1-7.2, BREACH OF ARTICLE 3.1, BREACH OF ARTICLES 3.2-3.7, AND THE PARTIES OBLIGATIONS UNDER ARTICLE 5, IN NO EVENT WILL EITHER PARTY BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL, EXEMPLARY OR PUNITIVE DAMAGES, WHETHER SUCH DAMAGES ARE BASED ON CONTRACT, TORT, STATUTE, IMPLIED DUTIES OR OBLIGATIONS, OR OTHER LEGAL THEORY, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. IF EITHER PARTY IS FOUND LIABLE FOR DAMAGES IN CONNECTION WITH THIS AGREEMENT, ITS TOTAL LIABILITY SHALL NOT EXCEED THE TOTAL PAYOUT ACTUALLY PAID UNDER THIS AGREEMENT.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">9. TERM AND TERMINATION</h3>
+                <p>9.1 The term of this Agreement will begin on the Effective Date and will remain in effect until terminated in accordance with this Agreement.</p>
+                <p>9.2 Termination for convenience - Either Party may terminate this Agreement for its convenience, without liability, at any time, upon thirty (30) days' written notice to the other Party.</p>
+                <p>9.3 Termination for cause - Each Party may terminate this Agreement due to a breach of the other Party, which was not cured within 30 days from receipt of notice thereto (to the extent such breach can be cured), without derogating its right to seek and obtain all remedies available to it in law or in equity.</p>
+                <p>9.4 Either Party may terminate this Agreement immediately and without notice, upon discovery of Fraudulent Activity.</p>
+                <p>9.5 In addition, either party may terminate this Agreement if the other party seeks protection under any bankruptcy, receivership, trust deed, creditors' arrangement, personal insolvency, or comparable proceeding.</p>
+                <p>9.6 Payment Upon Termination – In the event of termination for whatever reason, Company will pay Publisher the undisputed Payout due and payable to Publisher through the date of termination, regardless of whether such Payout reaches the Minimum Payout.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">10. UPON TERMINATION OR EXPIRATION</h3>
+                <p>Upon termination or expiration of this Agreement, whichever occurs first, each Party shall promptly return or destroy and erase from all its systems all originals and copies of all documents, materials, and other expressions in any form or medium of Confidential Information and materials provided by the other Party.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">11. NON-EXCLUSIVE RELATIONSHIP</h3>
+                <p>Each party expressly reserves the right to contract with other third parties to provide or acquire Services similar or identical to Services provided under this Agreement.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">12. MUTUAL NON-SOLICITATION</h3>
+                <p>During the term of the Agreement and for a period of twelve (12) months thereafter, neither Party will, either directly or indirectly (whether through its respective employees, independent contractors, consultants, or otherwise), employ or engage, or solicit for employment or engagement, any employee, independent contractor, consultant, agent, or representative of the other Party.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">13. ASSIGNABILITY</h3>
+                <p>Publisher may not assign or transfer this Agreement or any rights or obligations hereunder without the prior written consent of Company. Company shall not assign or transfer this Agreement or any rights or obligations hereunder without providing a prior written notice to the Publisher.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">14. APPLICABLE LAW AND JURISDICTION</h3>
+                <p>It is hereby agreed between the parties that the laws of the State of India shall apply to this Agreement and that the sole and exclusive place of jurisdiction in any matter arising out of or in connection with this Agreement shall be the competent courts at Saharanpur, Uttar Pradesh, India.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">15. ENTIRETY OF THE AGREEMENT</h3>
+                <p>This Agreement constitutes the full and complete statement of the agreement of the Parties with respect to the subject matter hereof and supersedes all prior agreements, representations, warranties, understandings, relationships, whether written or oral, between the Parties, with respect to the subject matter hereof.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">16. AMENDMENTS</h3>
+                <p>Changes or modifications to this Agreement may not be made orally, but only by a written amendment signed by both Parties.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">17. GENERAL</h3>
+                <p>17.1 This Agreement shall not be construed to create a partnership, joint venture, or the relationship of principal and agent, employer, or employee between the parties.</p>
+                <p>17.2 The waiver of any right herein contained by either Party shall not be construed as a waiver of the same right at a future date or as a waiver of any other right herein contained.</p>
+                <p>17.3 The article headings used in this Agreement are for convenience of reference only and will not affect the interpretation hereof. Unless the context otherwise requires, all terms used in the singular will be deemed to refer to the plural as well, and vice versa. As used in this Agreement, the word "including" is not a word of limitation.</p>
+                <p>17.4 If any provision of this Agreement shall be determined to be illegal or unenforceable, that provision will be limited or eliminated to the minimum extent necessary so that this Agreement shall otherwise remain in full force and effect and enforceable.</p>
+                <p>17.5 The parties may execute this Agreement in counterparts. Each counterpart shall constitute an original document, and all counterparts shall constitute the same agreement.</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold underline uppercase">18. NOTICES</h3>
+                <p>All notices or other communications that either Party must make to the other shall be made in writing and shall be understood to have been done correctly if delivered by hand, mail, email, or facsimile and addressed to the Party at the address contained in this Agreement or such other address as shall have been notified to the other for this Agreement. Any notice given by mail shall be deemed given upon the expiration of five (5) days after mailing and in proving such mailing it shall be sufficient to show that the envelope containing the notice was properly addressed and posted as an airmail or first class pre-paid letter.
+                  Any notice given by facsimile shall be deemed to have been given at midnight (in the country of dispatch) on the date on which it was dispatched.
+                  E-mail correspondence shall constitute a notice under this Agreement, provided that the receipt of such e-mail by the recipient can be reasonably proved by the sender.
+                </p>
+                <p><strong>Company:</strong> SURVTIT MARKET RESEARCH SURVEY LLP, 11/1117/48, Mehndi Sarai, Jankipuram Police Station, Saharanpur-247001, UP, India. Email: shivam@survtit.com</p>
+                <p><strong>Publisher:</strong> {previewUser?.first_name} {previewUser?.last_name}, {previewUser?.address?.street}. Email: {previewUser?.email}</p>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="font-bold text-lg border-b border-slate-200 pb-1">19. SIGNATURES</h3>
+                <p className="text-sm italic">IN WITNESS WHEREOF, the Parties hereto, each by a duly authorised officer, have caused this Agreement to be executed on the last date written below.</p>
+                
+                <div className="grid grid-cols-2 gap-12 mt-8">
+                  <div className="space-y-4">
+                    <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">For Company</p>
+                    <div className="h-32 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-4">
+                      <img src="https://i.imgur.com/7bQ6p2v.png" alt="Stamp" className="h-24 object-contain opacity-90" />
+                    </div>
+                    <div className="pt-2 border-t-2 border-slate-900">
+                      <p className="font-bold text-slate-900 uppercase">Shivam Julka</p>
+                      <p className="text-xs text-slate-500">CMO / Co-founder</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Date: {previewUser?.agreement_signed_at ? formatDate(previewUser.agreement_signed_at) : 'May 13, 2026'}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">For Publisher</p>
+                    <div className="h-32 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-4">
+                      {previewUser?.digital_signature && (
+                        <img src={previewUser.digital_signature} alt="Signature" className="h-24 object-contain" />
+                      )}
+                    </div>
+                    <div className="pt-2 border-t-2 border-slate-900">
+                      <p className="font-bold text-slate-900 uppercase">{previewUser?.first_name} {previewUser?.last_name}</p>
+                      <p className="text-xs text-slate-500">Authorized Representative</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Date: {previewUser?.agreement_signed_at ? formatDate(previewUser.agreement_signed_at) : 'May 13, 2026'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="py-24 flex items-center justify-center gap-6">
+                <div className="h-px bg-slate-200 flex-1"></div>
+                <span className="text-slate-300 font-sans text-xs uppercase tracking-[0.5em] font-bold">Exhibit A Attached Below</span>
+                <div className="h-px bg-slate-200 flex-1"></div>
+              </div>
+
+              <div className="text-center space-y-4 mb-16">
+                <h1 className="text-3xl font-bold text-slate-900 uppercase underline">EXHIBIT A — MUTUAL NON-DISCLOSURE AGREEMENT</h1>
+              </div>
+
+              <div className="space-y-6">
+                <p>This Mutual Non-Disclosure Agreement (this "Agreement") is entered into and made effective as of <strong>{previewUser?.agreement_signed_at ? formatDate(previewUser.agreement_signed_at) : 'May 13, 2026'}</strong> (the "Effective Date"), by and between:</p>
+                <p className="pl-6"><strong>SURVTIT MARKET RESEARCH SURVEY LLP</strong>, a Limited Liability Partnership duly incorporated under the laws of India (LLPIN: ACB-8160, PAN: AFAFS9301P, TAN: MRTS28234D), with its address at 11/1117/48, Mehndi Sarai, Jankipuram Police Station, Saharanpur-247001, Uttar Pradesh, India(<strong>"Company"</strong>), of the one part;</p>
+                <p className="font-bold text-center italic">— AND —</p>
+                <p className="pl-6"><strong>{previewUser?.first_name} {previewUser?.last_name}</strong>, an individual residing at <strong>{previewUser?.address?.street}, {previewUser?.address?.city}, {previewUser?.address?.state}, {previewUser?.address?.country} {previewUser?.address?.zipCode}</strong> (<strong>"Publisher"</strong>), of the other party;</p>
+                <p>(Hereinafter collectively referred to as "the Parties" and individually as a "Party").</p>
+              </div>
+
+              <div className="space-y-4">
+                <p><strong>WHEREAS:</strong> Company provides, among other services, a service that enables web users to obtain virtual currency, which may be used for various websites, online games, social applications, social networks, and other similar online applications by either earning (by completing offers) or purchasing such virtual currency; and</p>
+                <p><strong>WHEREAS,</strong> the Publisher desires to collaborate with the Company, on a non-exclusive basis, for the purpose of promoting and providing the Service as defined under the main Publisher Agreement, in accordance with the terms and conditions set forth below, and the Company desires to accept the Publisher's collaboration.</p>
+                <p><strong>NOW, THEREFORE,</strong> in consideration of the mutual agreements contained herein, and upon the terms and subject to the conditions hereinafter set forth, the Parties do hereby agree as follows:</p>
+              </div>
+
+              <div className="space-y-6 text-sm">
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">1. CONFIDENTIAL INFORMATION</h3>
+                  <p>For this Agreement "Confidential Information" means all information, disclosed by one party (the "Disclosing Party") to the other party (the "Receiving Party"), whether in oral or in written form, including but not limited to documentation, scientific, designs, software, prototypes, product descriptions, technical or business information, ideas, discoveries, inventions, specifications, formulas, processes, programs, plans, drawings, models, network configuration and rights-of-way, requirements, standards, financial and non-financial data, marketing, trade secrets, know-how, customer lists, prices, as well as all intellectual and industrial property rights contained therein and/or in relation thereto; provided however, that Confidential Information shall not include information which:</p>
+                  <p className="pl-6">1.1 is or becomes lawfully in the public domain other than through a breach of any non-disclosure agreement or any confidentiality obligation,</p>
+                  <p className="pl-6">1.2 was known to the Receiving Party before the disclosure, as evidenced by its business records,</p>
+                  <p className="pl-6">1.3 was independently developed by or for the Receiving Party without reference to or use of Confidential Information received from the Disclosing Party,</p>
+                  <p className="pl-6">1.4 was lawfully obtained by the Receiving Party from a third party without violation of a confidentiality obligation,</p>
+                  <p className="pl-6">1.5 The Disclosing Party agrees in writing that it may be disclosed by the Receiving Party.</p>
+                  <p>The Receiving Party shall have the burden of proving that any of the above exceptions apply by means of documentary evidence available at the time the Receiving Party claims the exception first became applicable.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">2. NONDISCLOSURE OBLIGATIONS</h3>
+                  <p><b>2.1 CONFIDENTIAL INFORMATION USE</b></p>
+                  <p>Confidential Information of a Disclosing Party shall be used by the Receiving Party solely for the purpose of the agreement to which this non-disclosure agreement is annexed and shall not be used for any other purpose. Each party shall hold the other party's Confidential Information in strictest confidence and shall not disclose the other party's Confidential Information without the prior written consent of such other party. Each party may disclose the other party's Confidential Information to such party's employees on a need-to-know basis. Each party agrees to take all reasonable precautions to protect the Confidential Information of the other party from falling into the public domain or the possession of persons other than those persons authorized to have any such Confidential Information according to this Agreement, which precautions shall include the highest degree of care that such party utilizes to protect its own information of a similar nature, but in no event less than a reasonable degree of care.</p>
+                  <p><b>2.2 REQUIRED DISCLOSURE</b></p>
+                  <p>Nothing in this Agreement shall prohibit either party from disclosing Confidential Information of the other party if legally required to do so by judicial or governmental order or in a judicial or governmental proceeding ("Required Disclosure"), provided that the discloser then shall: 2.2.1 give the other party prompt notice of such Required Disclosure before disclosure; 2.2.2 cooperate with the other party if the other party elects to contest such disclosure or seek a protective order with respect thereto, and/or 2.2.3 in any event only disclose the exact Confidential Information, or portion thereof, specifically requested by the Required Disclosure.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">3. OWNERSHIP</h3>
+                  <p>All Confidential Information of a Disclosing Party is and shall remain the property of the Disclosing Party. Nothing contained in this Agreement shall be construed as granting or conferring any rights by license or otherwise, either express, implied or by estoppel, to any Confidential Information of a Disclosing Party, or under any patent, copyright, trademark or trade secret of the Disclosing Party.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">4. DISCLAIMER OF WARRANTIES</h3>
+                  <p>ALL CONFIDENTIAL INFORMATION FURNISHED UNDER THIS AGREEMENT IS PROVIDED BY THE DISCLOSING PARTY "AS IS". NEITHER PARTY MAKES ANY WARRANTIES, EXPRESS OR IMPLIED, REGARDING THE ACCURACY, COMPLETENESS, PERFORMANCE, MERCHANTABILITY, FITNESS FOR USE, OR OTHER ATTRIBUTES OF ITS RESPECTIVE CONFIDENTIAL INFORMATION.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">5. RETURN OF CONFIDENTIAL INFORMATION</h3>
+                  <p>Immediately upon (i) request by the Disclosing Party at any time, or (ii) the termination of this Agreement, the Receiving Party shall return to the Disclosing Party all copies or extracts of the Disclosing Party's Confidential Information, in any medium and upon the Disclosing Party's request to certify in writing by an authorized officer of the Receiving Party, the destruction of the same to the Disclosing Party, except for one archival copy that may be retained by the Receiving Party's legal counsel to monitor compliance with the terms of this agreement only.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">6. ASSIGNMENT AND TRANSFER</h3>
+                  <p>Neither party may assign or transfer this Agreement or any of its rights hereunder or delegate any of its obligations hereunder (whether by merger, operation of law or in any other manner) without the prior written consent of the other party, which consent may be withheld at such party's sole discretion. Subject to the foregoing, this Agreement shall inure to the benefit of and be binding upon the parties, their permitted successors and permitted assigns.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">7. NON-LIMITATION OF RIGHTS</h3>
+                  <p>Nothing contained in this Agreement shall be construed: 7.1 to limit either party's right to independently develop or acquire products without the use or benefit of the other party's Confidential Information, 7.2 as obligating either party to purchase or provide products from or to the other party, 7.3 to require either party to disclose or receive Confidential Information of the other party. Nothing in this Agreement shall be construed to require either party to negotiate or enter into any business transaction with the other party and any such business transaction shall be governed solely by its applicable written agreement entered into by the parties if, when and as executed by the parties.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">8. INDEPENDENT CONTRACTORS</h3>
+                  <p>The parties are independent contractors. Nothing in this Agreement or in the activities contemplated by the parties hereunder shall be deemed to create an agency, partnership, employment or joint venture relationship between the parties.Each party shall be deemed to be acting solely on its own behalf and has no authority to incur obligations or perform any acts or make any statements on behalf of the other party.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">9. NOTICES</h3>
+                  <p>All notices or other communications that either Party must make to the other shall be made in writing and shall be understood to have been done correctly if delivered by hand, mail, email, or facsimile and addressed to the Party at the address contained in this Agreement or such other address as shall have been notified to the other for the purposes of this Agreement. Any notice given by mail shall be deemed given upon the expiration of five (5) days after mailing and in proving such mailing it shall be sufficient to show that the envelope containing the notice was properly addressed and posted as an airmail or first class pre-paid letter.
+                    Any notice given by facsimile shall be deemed to have been given at midnight (in the country of dispatch) on the date on which it was dispatched.
+                    E-mail correspondence shall constitute a notice under this Agreement, provided that the receipt of such e-mail by the recipient can be reasonably proved by the sender.
+                  </p>
+                  <p><strong>Company:</strong> SURVTIT MARKET RESEARCH SURVEY LLP, 11/1117/48, Mehndi Sarai, Jankipuram Police Station, Saharanpur-247001, UP, India. Email: shivam@survtit.com</p>
+                  <p><strong>Publisher:</strong> {previewUser?.first_name} {previewUser?.last_name}, {previewUser?.address?.street}. Email: {previewUser?.email}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">10. APPLICABLE LAW AND DISPUTE RESOLUTION</h3>
+                  <p>This Agreement and any matters that are connected directly and/or indirectly to it, shall be governed, construed and interpreted according to the laws of India. Any dispute shall be settled exclusively in the venue of the competent court of Saharanpur, Uttar Pradesh, India.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">11. EQUITABLE RELIEF</h3>
+                  <p>Each party acknowledges and agrees that due to the unique nature of the Disclosing Party's Confidential Information, there can be no adequate remedy at law for any breach of its obligations hereunder, that any such breach may allow the Receiving Party or third parties to unfairly compete with the Disclosing Party resulting in irreparable harm to the Disclosing Party resulting in irreparable harm to the Disclosing Party and, therefore, that upon any such breach or any threat thereof, the Disclosing Party shall be entitled to appropriate equitable relief in addition to whatever remedies it might have at law.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">12. TERMINATION AND SURVIVAL</h3>
+                  <p>This Agreement shall terminate upon termination of the main Publisher Agreement to which this non-disclosure agreement is annexed. Nevertheless, the obligations of the Receiving Party with respect to Confidential Information received prior to termination, will survive for a period of three (3) years following termination or expiration of this Agreement.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">13. SEVERABILITY</h3>
+                  <p>If any provision of this Agreement shall be held by a court of competent jurisdiction to be illegal, invalid or unenforceable, the remaining provisions shall remain in full force and effect.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">14. ENTIRE AGREEMENT</h3>
+                  <p> This Agreement shall not be modified except by a written agreement signed by both partiesNo delay, failure or waiver of either party's exercise or partial exercise of any right or remedy under this Agreement shall operate to limit, impair, preclude, cancel, waive or otherwise affect such right or remedy. No waiver of any provision of this Agreement shall constitute a waiver of any other provision(s) or of the same provision on another occasion.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="font-bold underline uppercase">15. COUNTERPARTS</h3>
+                  <p>This Agreement may be executed in counterparts, each of which shall be deemed an original but all of which together shall constitute one and the same instrument.</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-12 border-t border-slate-100">
+                <div className="space-y-4">
+                  <h3 className="font-bold text-lg uppercase underline">16. SIGNATURES</h3>
+                  <p className="text-slate-600 italic text-sm">IN WITNESS WHEREOF, the Parties hereto have caused this NDA Agreement to be executed on the last date written below.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-12 mt-8">
+                  <div className="space-y-4">
+                    <div className="h-24 border border-slate-50 bg-slate-50/50 flex items-center justify-center p-4">
+                      <img src="https://i.imgur.com/7bQ6p2v.png" alt="Stamp" className="h-16 object-contain opacity-70" />
+                    </div>
+                    <div className="pt-1 border-t border-slate-900">
+                      <p className="font-bold text-sm">Shivam Julka</p>
+                      <p className="text-[10px] text-slate-500">CMO / Co-founder</p>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className="h-24 border border-slate-50 bg-slate-50/50 flex items-center justify-center p-4">
+                      {previewUser?.digital_signature && (
+                        <img src={previewUser.digital_signature} alt="Signature" className="h-16 object-contain" />
+                      )}
+                    </div>
+                    <div className="pt-1 border-t border-slate-900">
+                      <p className="font-bold text-sm">{previewUser?.first_name} {previewUser?.last_name}</p>
+                      <p className="text-[10px] text-slate-500">Authorized Representative</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="text-center py-12">
+                <p className="text-xs text-slate-400 font-sans uppercase tracking-widest">End of Document</p>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="p-6 border-t bg-white sticky bottom-0 z-50">
+            <Button onClick={() => setShowPreviewDialog(false)} className="px-8 bg-slate-900 hover:bg-slate-800 text-white font-bold h-12 rounded-xl">
+              Close Preview
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
+
+const DEFINITIONS = [
+  ["Publisher Application", "Means a website and/or application and/or other virtual space provided, owned, or controlled by Publisher."],
+  ["User", "Means any individual engaging with the Publisher Application."],
+  ["User Data", "Means any data provided by Users to either Party (or its affiliates) in connection with an Offer."],
+  ["PII", "Means any information relating to an identified or identifiable specific individual."],
+  ["Profile Data", "Means demographic and other similar data provided by a User to either Party (excluding any data considered PII)."],
+  ["Company Content", "Means text, information, branding, and/or other material provided by Company to Publisher for use in connection with the Service."],
+  ["Company Client", "Means any individual or entity providing an Offer."],
+  ["Service", "Means Company's service, which enables a User to complete an Offer."],
+  ["Offer", "Means an offer from a Company Client that is made available to Users on or through the Service."],
+  ["VC", "Means the virtual currency Publisher provides to Users, including, but not limited to, awards made in connection with a Transaction."],
+  ["Action", "Means any User action linked to an Offer, including, but not limited to, any registration, form submission, response, or other action specified by the Company Client."],
+  ["Transaction", "Means the occurrence of a User completing an Offer and taking all relevant actions and/or meeting all requirements established by the Company Client with respect to said Offer."],
+  ["Exchange Rate", "Means a representation, set, if not agreed otherwise by both Parties, by the Company Client, of the amount of VC that can be obtained by a User for each U.S. Dollar payable to Publisher."],
+  ["Gross Monthly Revenue", "Means the total revenue generated by Transactions during a calendar month, based solely on data recorded by the Company."],
+  ["Payout", "Means the Gross Monthly Revenue paid by the Company to the Publisher, in accordance with the terms of this Agreement, derived from the accumulated number of Transactions and according to the Exchange Rate."],
+  ["Fraudulent Activity", "Means any activity, including, but not limited to, the use of any spyware, proxy servers, program, robot, redirects, or any automated and/or artificial and/or fraudulent methods designed to appear like an individual, real-life person performing a payout-generating event."],
+  ["Dashboard", "Means an online element of the Service that enables managing and monitoring aspects of the Service, including, but not limited to, real-time daily aggregating and reporting of transactions and support tools."]
+];
 
 export default Users;

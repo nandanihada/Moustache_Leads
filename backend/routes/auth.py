@@ -4,7 +4,10 @@ from utils.auth import generate_token, token_required
 from services.email_verification_service import get_email_verification_service
 import re
 import logging
+import os
 from datetime import datetime
+from services.pdf_service import PDFService
+from utils.agreement_content import AGREEMENT_TEXT
 from database import db_instance
 
 auth_bp = Blueprint('auth', __name__)
@@ -418,6 +421,10 @@ def register():
             optional_fields['last_name'] = data.get('last_name').strip()
         if data.get('company_name'):
             optional_fields['company_name'] = data.get('company_name').strip()
+        if data.get('registration_no'):
+            optional_fields['registration_no'] = data.get('registration_no').strip()
+        if data.get('account_type'):
+            optional_fields['account_type'] = data.get('account_type').strip()
         if data.get('website'):
             optional_fields['website'] = data.get('website').strip()
         if data.get('postback_url'):
@@ -583,6 +590,8 @@ def register():
                 'first_name': user_data.get('first_name'),
                 'last_name': user_data.get('last_name'),
                 'company_name': user_data.get('company_name'),
+                'registration_no': user_data.get('registration_no'),
+                'account_type': user_data.get('account_type'),
                 'website': user_data.get('website'),
                 'postback_url': user_data.get('postback_url'),
                 'api_key': user_data.get('api_key')
@@ -724,6 +733,8 @@ def get_profile():
                 'first_name': user.get('first_name'),
                 'last_name': user.get('last_name'),
                 'company_name': user.get('company_name'),
+                'registration_no': user.get('registration_no'),
+                'account_type': user.get('account_type'),
                 'website': user.get('website'),
                 'postback_url': user.get('postback_url'),
                 'postback_method': user.get('postback_method', 'GET'),
@@ -750,7 +761,7 @@ def update_profile():
         update_doc = {}
         
         # Allowed fields for update
-        allowed_fields = ['first_name', 'last_name', 'company_name', 'website', 'postback_url', 'postback_method']
+        allowed_fields = ['first_name', 'last_name', 'company_name', 'registration_no', 'account_type', 'website', 'postback_url', 'postback_method']
         for field in allowed_fields:
             if field in data:
                 update_doc[field] = data[field].strip() if isinstance(data[field], str) else data[field]
@@ -775,6 +786,8 @@ def update_profile():
                     'first_name': updated_user.get('first_name'),
                     'last_name': updated_user.get('last_name'),
                     'company_name': updated_user.get('company_name'),
+                    'registration_no': updated_user.get('registration_no'),
+                    'account_type': updated_user.get('account_type'),
                     'website': updated_user.get('website'),
                     'postback_url': updated_user.get('postback_url'),
                     'postback_method': updated_user.get('postback_method', 'GET'),
@@ -824,6 +837,87 @@ def update_registration_profile():
             return jsonify({'error': 'Failed to save profile data'}), 500
     except Exception as e:
         logging.error(f"Registration profile update error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+        
+@auth_bp.route('/sign-agreement', methods=['POST'])
+@token_required
+def sign_agreement():
+    """Save user digital signature and mark agreement as signed"""
+    try:
+        user = request.current_user
+        data = request.get_json()
+        
+        if not data or 'signature_data' not in data:
+            return jsonify({'error': 'Signature data is required'}), 400
+            
+        update_doc = {
+            'agreement_signed': True,
+            'agreement_signed_at': datetime.utcnow(),
+            'digital_signature': data['signature_data'],
+            'agreement_version': '1.0'
+        }
+        
+        user_model = User()
+        success = user_model.update_user(str(user['_id']), update_doc)
+        
+        filename = None
+        if success:
+            # Generate PDF in background or synchronously
+            try:
+                pdf_service = PDFService()
+                user_data = {
+                    'firstName': user.get('first_name', user.get('username')),
+                    'lastName': user.get('last_name', ''),
+                    'companyName': user.get('company_name', 'N/A'),
+                    'address': f"{user.get('address', {}).get('city', '')}, {user.get('address', {}).get('country', '')}" if isinstance(user.get('address'), dict) else 'N/A',
+                    'email': user.get('email', '')
+                }
+                
+                pdf_buffer = pdf_service.generate_agreement_pdf(user_data, data['signature_data'], AGREEMENT_TEXT)
+                if pdf_buffer:
+                    filename = f"agreement_{str(user['_id'])}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+                    filepath = pdf_service.save_pdf_to_file(pdf_buffer, filename)
+                    
+                    # Update user with PDF path
+                    user_model.update_user(str(user['_id']), {'signed_agreement_pdf': filename})
+                    logging.info(f"📄 PDF Agreement generated: {filepath}")
+            except Exception as pdf_err:
+                logging.error(f"PDF Generation failed: {str(pdf_err)}")
+                # Don't fail the whole request if only PDF generation fails
+            
+            logging.info(f"✅ Agreement signed by user {user.get('username')}")
+            return jsonify({
+                'success': True, 
+                'message': 'Agreement signed successfully',
+                'pdf_filename': filename
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to save agreement signature'}), 500
+            
+    except Exception as e:
+        logging.error(f"Sign agreement error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+        
+@auth_bp.route('/download-agreement/<filename>', methods=['GET'])
+@token_required
+def download_agreement(filename):
+    """Download a signed agreement PDF"""
+    try:
+        # Security: ensure filename doesn't contain path traversal
+        if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+            return jsonify({'error': 'Invalid filename'}), 400
+            
+        upload_dir = os.path.join(os.getcwd(), 'uploads', 'agreements')
+        filepath = os.path.join(upload_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'File not found'}), 404
+            
+        from flask import send_file
+        return send_file(filepath, as_attachment=True)
+        
+    except Exception as e:
+        logging.error(f"Download agreement error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 

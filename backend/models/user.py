@@ -81,6 +81,10 @@ class User:
             user_data['last_name'] = kwargs.get('last_name')
         if kwargs.get('company_name'):
             user_data['company_name'] = kwargs.get('company_name')
+        if kwargs.get('registration_no'):
+            user_data['registration_no'] = kwargs.get('registration_no')
+        if kwargs.get('account_type'):
+            user_data['account_type'] = kwargs.get('account_type')
         if kwargs.get('website'):
             user_data['website'] = kwargs.get('website')
         if kwargs.get('postback_url'):
