@@ -1911,6 +1911,13 @@ def get_tab_counts():
         rejected = count_with_breakdown({'status': 'rejected'})
         in_review = count_with_breakdown({'status': {'$in': ['pending', 'review']}})
 
+        # Add pending count to all_requests for display purposes
+        # "pending" here means requests that haven't been approved or rejected yet
+        pending_count = in_review['total']
+        all_requests['pending'] = pending_count
+        all_requests['approved'] = approved['total']
+        all_requests['rejected'] = rejected['total']
+
         dp_count = 0
         dp_today = 0
         dp_week = 0

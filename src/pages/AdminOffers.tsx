@@ -43,6 +43,7 @@ import {
   Gift,
   Rows3,
   Maximize2,
+  Mail,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -78,6 +79,7 @@ import FilterPanel from '@/components/FilterPanel';
 import HealthIcon from '@/components/HealthIcon';
 import HealthPopup from '@/components/HealthPopup';
 import { OfferRenamingModal } from '@/components/OfferRenamingModal';
+import MailOfferScheduleModal from '@/components/MailOfferScheduleModal';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 const AdminOffers = () => {
@@ -183,6 +185,10 @@ const AdminOffers = () => {
   const [renamingModalOpen, setRenamingModalOpen] = useState(false);
   // Track recently renamed offers for visual feedback
   const [recentlyRenamed, setRecentlyRenamed] = useState<Record<string, string>>({});
+
+  // Mail offer schedule modal state
+  const [mailScheduleModalOpen, setMailScheduleModalOpen] = useState(false);
+  const [mailScheduleOffers, setMailScheduleOffers] = useState<Offer[]>([]);
 
   // Inline price editing
   const [editingPriceOfferId, setEditingPriceOfferId] = useState<string | null>(null);
@@ -2024,6 +2030,15 @@ const AdminOffers = () => {
             onAssignImages={handleAssignRandomImages}
             onCarouselView={() => openCarouselView(0)}
             onManageDomains={() => setDomainManagementModalOpen(true)}
+            onMailSchedule={() => {
+              const selected = offers.filter(o => selectedOffers.has(o.offer_id));
+              if (selected.length === 0) {
+                toast({ title: "No Selection", description: "Please select offers to mail", variant: "destructive" });
+                return;
+              }
+              setMailScheduleOffers(selected);
+              setMailScheduleModalOpen(true);
+            }}
           />
         </div>
       </TooltipProvider>
@@ -2346,6 +2361,7 @@ const AdminOffers = () => {
                                 <DropdownMenuContent align="end">
                                   <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setOfferDetailsModalOpen(true); }}><Eye className="h-4 w-4 mr-2" />View</DropdownMenuItem>
                                   <DropdownMenuItem onClick={() => { setSelectedOffer(offer); setEditOfferModalOpen(true); }}><Edit className="h-4 w-4 mr-2" />Edit</DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => { setMailScheduleOffers([offer as any]); setMailScheduleModalOpen(true); }}><Mail className="h-4 w-4 mr-2" />Mail Schedule</DropdownMenuItem>
                                   <DropdownMenuItem className="text-red-600" onClick={() => handleDeleteOffer(offer.offer_id, offer.name)}><Trash2 className="h-4 w-4 mr-2" />Delete</DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -3082,6 +3098,13 @@ const AdminOffers = () => {
                           }}>
                             <ExternalLink className="h-4 w-4 mr-2" />
                             Open Offer
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => {
+                            setMailScheduleOffers([offer]);
+                            setMailScheduleModalOpen(true);
+                          }}>
+                            <Mail className="h-4 w-4 mr-2" />
+                            Mail Schedule
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-red-600"
@@ -4505,6 +4528,14 @@ const AdminOffers = () => {
         onOpenChange={setRenamingModalOpen}
         selectedOffers={offers.filter(o => selectedOffers.has(o.offer_id))}
         onApply={handleApplyRenames}
+      />
+
+      {/* Mail Offer Schedule Modal */}
+      <MailOfferScheduleModal
+        open={mailScheduleModalOpen}
+        onClose={() => { setMailScheduleModalOpen(false); setMailScheduleOffers([]); }}
+        offers={mailScheduleOffers}
+        onSuccess={() => fetchOffers()}
       />
     </div>
   );

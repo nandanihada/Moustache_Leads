@@ -188,7 +188,7 @@ function AdminOfferAccessRequests() {
   const [tabCounts, setTabCounts] = useState<Record<TabId, number>>({
     all_requests: 0, approved: 0, rejected: 0, in_review: 0, direct_partner: 0, affiliate: 0, most_requested: 0, placement_proofs: 0, recent_changes: 0, history: 0, campaign_queue: 0,
   });
-  const [tabBreakdowns, setTabBreakdowns] = useState<Record<string, { total: number; today: number; week: number }>>({});
+  const [tabBreakdowns, setTabBreakdowns] = useState<Record<string, { total: number; today: number; week: number; pending?: number; approved?: number; rejected?: number }>>({});
   const [recentlyAdded, setRecentlyAdded] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
   const [recentlyEdited, setRecentlyEdited] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
   const [recentlyDeleted, setRecentlyDeleted] = useState<{ offer_id: string; name: string; network: string; at: string }[]>([]);
@@ -235,7 +235,7 @@ function AdminOfferAccessRequests() {
   const token = localStorage.getItem('token');
 
   // Fetch tab counts
-  useEffect(() => {
+  const fetchTabCounts = useCallback(() => {
     fetch(`${API_BASE_URL}/api/admin/offer-access-requests/tab-counts`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.json()).then(d => {
@@ -256,8 +256,9 @@ function AdminOfferAccessRequests() {
         history: 0,
         campaign_queue: 0,
       });
+      const allReqData = typeof d.all_requests === 'number' ? { total: d.all_requests, today: 0, week: 0 } : (d.all_requests || {});
       setTabBreakdowns({
-        all_requests: getBreakdown(d.all_requests),
+        all_requests: { ...getBreakdown(d.all_requests), pending: allReqData.pending || 0, approved: allReqData.approved || 0, rejected: allReqData.rejected || 0 },
         approved: getBreakdown(d.approved),
         rejected: getBreakdown(d.rejected),
         in_review: getBreakdown(d.in_review),
@@ -271,7 +272,9 @@ function AdminOfferAccessRequests() {
       setRecentlyDeleted(d.recently_deleted || []);
       setRecentCounts({ added: d.added_today || 0, edited: d.edited_today || 0, deleted: d.deleted_today || 0 });
     }).catch(() => {});
-  }, [token, activeTab]);
+  }, [token]);
+
+  useEffect(() => { fetchTabCounts(); }, [fetchTabCounts, activeTab]);
 
   // Sync tab to URL
   const handleTabChange = (tab: string) => {
@@ -341,7 +344,7 @@ function AdminOfferAccessRequests() {
             <Download className="h-4 w-4 mr-2" /> Export
           </Button>
           {activeTab === 'all_requests' && (
-            <Button variant="outline" size="sm" onClick={fetchProfiles} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => { fetchProfiles(); fetchTabCounts(); }} disabled={loading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} /> Refresh
             </Button>
           )}
@@ -356,6 +359,7 @@ function AdminOfferAccessRequests() {
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/50 p-1">
           {visibleTabs.map(t => {
             const bd = tabBreakdowns[t.id];
+            const isAllRequests = t.id === 'all_requests';
             return (
             <TabsTrigger key={t.id} value={t.id} className="gap-1.5 text-xs data-[state=active]:bg-background flex-col items-start py-1.5 px-3">
               <div className="flex items-center gap-1.5">
@@ -367,7 +371,17 @@ function AdminOfferAccessRequests() {
                   </Badge>
                 )}
               </div>
-              {bd && bd.total > 0 && (
+              {isAllRequests && bd && bd.total > 0 ? (
+                <div className="text-[9px] text-muted-foreground font-normal">
+                  {bd.today > 0 && <span className="text-green-600">today {bd.today}</span>}
+                  {bd.today > 0 && <span> · </span>}
+                  {bd.pending !== undefined && bd.pending > 0 && <span className="text-amber-600 font-medium">pending {bd.pending}</span>}
+                  {bd.pending !== undefined && bd.pending > 0 && <span> · </span>}
+                  {bd.approved !== undefined && bd.approved > 0 && <span className="text-green-600">approved {bd.approved}</span>}
+                  {bd.approved !== undefined && bd.approved > 0 && <span> · </span>}
+                  {bd.rejected !== undefined && bd.rejected > 0 && <span className="text-red-500">rejected {bd.rejected}</span>}
+                </div>
+              ) : bd && bd.total > 0 && (
                 <div className="text-[9px] text-muted-foreground font-normal">
                   {bd.today > 0 && <span className="text-green-600">today {bd.today}</span>}
                   {bd.today > 0 && bd.week > 0 && <span> · </span>}
@@ -541,12 +555,12 @@ function AdminOfferAccessRequests() {
                 <Input placeholder="Search publishers..." value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
               </div>
               <Select value={status} onValueChange={setStatus}>
-                <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pending">Pending ({tabBreakdowns.all_requests?.pending ?? tabCounts.in_review})</SelectItem>
+                  <SelectItem value="approved">Approved ({tabCounts.approved})</SelectItem>
+                  <SelectItem value="rejected">Rejected ({tabCounts.rejected})</SelectItem>
+                  <SelectItem value="all">All ({tabCounts.all_requests})</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={riskFilter} onValueChange={setRiskFilter}>
@@ -619,7 +633,7 @@ function AdminOfferAccessRequests() {
                     onToggleExpand={() => setExpandedId(prev => prev === pub.user_id ? null : pub.user_id)}
                     onToggleSelect={() => toggleSelect(pub.user_id)}
                     onSendOffers={(p, offers) => setSendModal({ pub: p, offers })}
-                    onRefreshList={fetchProfiles}
+                    onRefreshList={() => { fetchProfiles(); fetchTabCounts(); }}
                   />
                 ))}
               </div>
@@ -691,6 +705,7 @@ function AdminOfferAccessRequests() {
         onSuccess={() => {
           setSelectedIds(new Set());
           fetchProfiles();
+          fetchTabCounts();
         }}
       />
 

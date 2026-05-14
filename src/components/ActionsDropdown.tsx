@@ -21,6 +21,7 @@ import {
   Image,
   LayoutGrid,
   Globe,
+  Mail,
 } from 'lucide-react';
 
 interface ActionsDropdownProps {
@@ -36,6 +37,7 @@ interface ActionsDropdownProps {
   onAssignImages: () => void;
   onCarouselView: () => void;
   onManageDomains: () => void;
+  onMailSchedule?: () => void;
 }
 
 const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
@@ -51,6 +53,7 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
   onAssignImages,
   onCarouselView,
   onManageDomains,
+  onMailSchedule,
 }) => {
   return (
     <DropdownMenu>
@@ -112,6 +115,15 @@ const ActionsDropdown: React.FC<ActionsDropdownProps> = ({
           <Globe className="mr-2 h-4 w-4" />
           Manage Domains
         </DropdownMenuItem>
+        {onMailSchedule && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onMailSchedule}>
+              <Mail className="mr-2 h-4 w-4" />
+              Mail Schedule
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
