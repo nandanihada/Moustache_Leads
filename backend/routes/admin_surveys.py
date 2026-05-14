@@ -485,6 +485,66 @@ def get_survey_responses(survey_id):
 # PUBLIC ENDPOINTS (no auth required)
 # ============================================================
 
+@admin_surveys_bp.route('/surveys/qualification', methods=['GET'])
+def get_qualification_survey():
+    """Get the qualification survey (no auth, public)."""
+    try:
+        collection = db_instance.get_collection('surveys')
+        if collection is None:
+            return jsonify({'error': 'Database unavailable'}), 500
+
+        survey = collection.find_one({'type': 'qualification', 'status': 'active'})
+        if not survey:
+            return jsonify({'error': 'Qualification survey not found'}), 404
+
+        public_survey = {
+            '_id': str(survey['_id']),
+            'name': survey.get('name', ''),
+            'description': survey.get('description', ''),
+            'questions': survey.get('questions', []),
+            'type': 'qualification',
+            'placement': survey.get('placement', 'offerwall_qualification')
+        }
+
+        return jsonify({'success': True, 'survey': public_survey}), 200
+
+    except Exception as e:
+        logger.error(f"Error getting qualification survey: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_surveys_bp.route('/surveys/qualification/check', methods=['GET'])
+def check_qualification_status():
+    """Check if user_id has completed the qualification survey."""
+    try:
+        user_id = request.args.get('user_id', '').strip()
+        if not user_id:
+            return jsonify({'qualified': False, 'error': 'user_id required'}), 400
+
+        collection = db_instance.get_collection('surveys')
+        responses_collection = db_instance.get_collection('survey_responses')
+        if collection is None or responses_collection is None:
+            return jsonify({'qualified': False, 'error': 'Database unavailable'}), 500
+
+        # Find the qualification survey
+        survey = collection.find_one({'type': 'qualification', 'status': 'active'})
+        if not survey:
+            # No qualification survey exists — user is qualified by default
+            return jsonify({'qualified': True}), 200
+
+        # Check if user has submitted a response for this survey
+        response = responses_collection.find_one({
+            'survey_id': survey['_id'],
+            'user_id': user_id
+        })
+
+        return jsonify({'qualified': response is not None}), 200
+
+    except Exception as e:
+        logger.error(f"Error checking qualification status: {str(e)}")
+        return jsonify({'qualified': False, 'error': str(e)}), 500
+
+
 @admin_surveys_bp.route('/surveys/public/<survey_id>', methods=['GET'])
 def get_public_survey(survey_id):
     """Get survey questions for end user to fill (no auth)."""

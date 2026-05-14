@@ -1936,6 +1936,7 @@ def get_offers():
     - Limits default to 100 offers with pagination support
     - Computes tracking base URL once, not per-offer
     - Removed per-offer logging (was logging every single offer)
+    - Starter offers (new_user_offer_ids) bypass ALL filters (health, status, is_active)
     """
     try:
         from database import db_instance
@@ -1952,7 +1953,18 @@ def get_offers():
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
         
-        # Build query filter
+        # Fetch starter offer IDs from offerwall_settings so they always appear
+        starter_offer_ids = []
+        try:
+            settings_col = db_instance.get_collection('offerwall_settings')
+            if settings_col is not None:
+                settings_doc = settings_col.find_one({})
+                if settings_doc:
+                    starter_offer_ids = settings_doc.get('new_user_offer_ids', [])
+        except Exception as e:
+            logger.warning(f"Failed to fetch starter offer IDs: {e}")
+        
+        # Build query filter for REGULAR offers (excludes starter offers — they're fetched separately)
         query_filter = {
             '$and': [
                 {'$or': [
@@ -1970,6 +1982,10 @@ def get_offers():
                 ]}
             ]
         }
+        
+        # Exclude starter offers from the regular query (they'll be added unconditionally)
+        if starter_offer_ids:
+            query_filter['offer_id'] = {'$nin': starter_offer_ids}
         
         if status and status != 'all':
             query_filter['status'] = status.lower()
@@ -2003,23 +2019,39 @@ def get_offers():
             'partner_id': 1, 'payout_model': 1
         }
         
-        # Get total count for pagination
+        # === STARTER OFFERS: Fetch unconditionally (bypass ALL filters) ===
+        starter_offers_list = []
+        if starter_offer_ids:
+            starter_query = {
+                'offer_id': {'$in': starter_offer_ids},
+                '$or': [
+                    {'deleted': {'$exists': False}},
+                    {'deleted': False},
+                    {'deleted': None}
+                ]
+            }
+            starter_offers_list = list(offers_collection.find(starter_query, projection))
+            logger.info(f"✅ Fetched {len(starter_offers_list)} starter offers (bypass all filters)")
+        
+        # === REGULAR OFFERS: Fetch with normal filters ===
         total_count = offers_collection.count_documents(query_filter)
-        
-        # Fetch offers with projection and pagination
         offers_cursor = offers_collection.find(query_filter, projection).sort('created_at', -1).skip(skip).limit(limit)
-        offers_list = list(offers_cursor)
+        regular_offers_list = list(offers_cursor)
         
-        logger.info(f"✅ Found {len(offers_list)} offers (page {page}, total {total_count})")
+        logger.info(f"✅ Found {len(regular_offers_list)} regular offers (page {page}, total {total_count})")
         
-        # Filter out unhealthy offers so publishers only see complete, actionable offers
+        # Filter out unhealthy REGULAR offers (starter offers bypass health check)
         try:
             health_service = HealthCheckService()
-            health_results = health_service.evaluate_offers_batch(offers_list)
-            offers_list = [o for o in offers_list if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
-            logger.info(f"✅ Health filter: {len(offers_list)} healthy offers remaining")
+            health_results = health_service.evaluate_offers_batch(regular_offers_list)
+            regular_offers_list = [o for o in regular_offers_list if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
+            logger.info(f"✅ Health filter: {len(regular_offers_list)} healthy regular offers remaining")
         except Exception as e:
             logger.warning(f"Offerwall health check failed, returning all offers: {e}")
+        
+        # Merge: starter offers first, then regular offers
+        offers_list = starter_offers_list + regular_offers_list
+        total_count += len(starter_offers_list)  # Include starter offers in total
         
         # OPTIMIZATION: Compute tracking base URL ONCE (not per-offer)
         if 'localhost' in request.host or '127.0.0.1' in request.host:

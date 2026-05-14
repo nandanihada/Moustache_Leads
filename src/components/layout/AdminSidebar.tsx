@@ -86,6 +86,13 @@ const adminMenuStructure = [
     type: "single" as const
   },
   {
+    title: "Survey Funnel Router",
+    url: "/admin/redirect-router",
+    icon: RefreshCw,
+    tab: "redirect-router",
+    type: "single" as const
+  },
+  {
     title: "Users & Access",
     icon: Users,
     type: "group" as const,

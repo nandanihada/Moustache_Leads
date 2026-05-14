@@ -58,12 +58,29 @@ def get_settings_doc():
 
 def get_offerwall_base_query(hidden_offers=None):
     """Build the base query filter matching what the actual offerwall uses."""
+    # Fetch starter offer IDs so they are always included regardless of status
+    starter_offer_ids = []
+    try:
+        settings_col = get_collection('offerwall_settings')
+        if settings_col is not None:
+            settings_doc = settings_col.find_one({})
+            if settings_doc:
+                starter_offer_ids = settings_doc.get('new_user_offer_ids', [])
+    except Exception:
+        pass
+
+    # Status filter: include 'active' offers + any starter offers (which may be 'running')
+    if starter_offer_ids:
+        status_condition = {'$or': [{'status': 'active'}, {'offer_id': {'$in': starter_offer_ids}}]}
+    else:
+        status_condition = {'status': 'active'}
+
     query_filter = {
         '$and': [
             {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]},
             {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
             {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]},
-            {'status': 'active'}
+            status_condition
         ]
     }
     if hidden_offers:
@@ -466,6 +483,63 @@ def get_offerwall_offers():
     except Exception as e:
         logger.error(f"Error getting offerwall offers: {str(e)}")
         return jsonify({'error': 'Failed to fetch offerwall offers'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/new-user-offers', methods=['GET'])
+def get_new_user_offers():
+    """GET: returns the list of new_user_offer_ids (public)."""
+    try:
+        collection = get_collection('offerwall_settings')
+        if collection is None:
+            return jsonify({'offer_ids': []}), 200
+
+        settings = collection.find_one({})
+        offer_ids = (settings or {}).get('new_user_offer_ids', [])
+        return jsonify({'offer_ids': offer_ids, 'new_user_offer_ids': offer_ids}), 200
+    except Exception as e:
+        logger.error(f"Error getting new user offers: {str(e)}")
+        return jsonify({'offer_ids': []}), 200
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/new-user-offers', methods=['PUT'])
+@token_required
+def update_new_user_offers():
+    """PUT: updates the list of starter offer IDs (admin only)."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        collection = get_collection('offerwall_settings')
+        if collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        collection.update_one(
+            {},
+            {'$set': {
+                'new_user_offer_ids': offer_ids,
+                'updated_at': datetime.utcnow()
+            }},
+            upsert=True
+        )
+
+        # Also set show_in_offerwall=True and status=running for these offers so they appear in the offerwall
+        offers_collection = get_collection('offers')
+        if offers_collection is not None and offer_ids:
+            offers_collection.update_many(
+                {'offer_id': {'$in': offer_ids}},
+                {'$set': {'show_in_offerwall': True, 'status': 'running'}}
+            )
+
+        return jsonify({'success': True, 'message': f'{len(offer_ids)} starter offers saved'}), 200
+    except Exception as e:
+        logger.error(f"Error updating new user offers: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 
 @admin_offerwall_management_bp.route('/offerwall-management/stats', methods=['GET'])

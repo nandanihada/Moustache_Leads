@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { offerwallManagerApi, OfferwallSettings, OfferwallStats } from "@/services/offerwallManagerApi";
 import { useToast } from "@/hooks/use-toast";
@@ -35,6 +35,15 @@ const AdminOfferwallManager = () => {
   const [showAnnouncementDialog, setShowAnnouncementDialog] = useState(false);
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [offerwallPage, setOfferwallPage] = useState(1);
+  const [starterOfferIds, setStarterOfferIds] = useState<string[]>([]);
+
+  // Fetch starter offers
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/new-user-offers`)
+      .then(r => r.ok ? r.json() : { offer_ids: [] })
+      .then(d => setStarterOfferIds(d.offer_ids || []))
+      .catch(() => {});
+  }, []);
 
   // Fetch settings
   const { data: settings, isLoading: settingsLoading } = useQuery<OfferwallSettings>({
@@ -182,6 +191,50 @@ const AdminOfferwallManager = () => {
     });
   };
 
+  const handleToggleStarter = async (offerId: string) => {
+    const isStarter = starterOfferIds.includes(offerId);
+    const newIds = isStarter 
+      ? starterOfferIds.filter(id => id !== offerId)
+      : [...starterOfferIds, offerId];
+    
+    try {
+      const { getAuthToken } = await import('@/utils/cookies');
+      const token = getAuthToken();
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/new-user-offers`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ offer_ids: newIds })
+      });
+      if (res.ok) {
+        setStarterOfferIds(newIds);
+        toast({ title: isStarter ? "Removed from starter offers" : "Added as starter offer" });
+      }
+    } catch (e) {
+      toast({ title: "Failed to update", variant: "destructive" });
+    }
+  };
+
+  const handleBulkStarter = async () => {
+    if (selectedOffers.size === 0) return;
+    const newIds = [...new Set([...starterOfferIds, ...Array.from(selectedOffers)])];
+    try {
+      const { getAuthToken } = await import('@/utils/cookies');
+      const token = getAuthToken();
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/new-user-offers`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ offer_ids: newIds })
+      });
+      if (res.ok) {
+        setStarterOfferIds(newIds);
+        toast({ title: `${selectedOffers.size} offers marked as starter` });
+        setSelectedOffers(new Set());
+      }
+    } catch (e) {
+      toast({ title: "Failed to update", variant: "destructive" });
+    }
+  };
+
   const allSelected = offers.length > 0 && offers.every((o: any) => selectedOffers.has(o.offer_id || o._id));
 
   return (
@@ -246,6 +299,7 @@ const AdminOfferwallManager = () => {
         <TabsList>
           <TabsTrigger value="preview">Preview</TabsTrigger>
           <TabsTrigger value="offers">Offer Controls</TabsTrigger>
+          <TabsTrigger value="starter">Starter Offers ({starterOfferIds.length})</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="announcements">Announcements</TabsTrigger>
         </TabsList>
@@ -303,6 +357,15 @@ const AdminOfferwallManager = () => {
                     Remove from Offerwall
                   </Button>
                   <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleBulkStarter}
+                    className="bg-yellow-600 hover:bg-yellow-700"
+                  >
+                    <Star className="h-4 w-4 mr-2" />
+                    Mark as Starter Offer
+                  </Button>
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={() => setSelectedOffers(new Set())}
@@ -332,6 +395,7 @@ const AdminOfferwallManager = () => {
                         <TableHead className="text-center">Pin</TableHead>
                         <TableHead className="text-center">Visible</TableHead>
                         <TableHead className="text-center">Featured</TableHead>
+                        <TableHead className="text-center">Starter</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -393,12 +457,23 @@ const AdminOfferwallManager = () => {
                                 <Sparkles className="h-4 w-4" fill={isFeatured ? 'currentColor' : 'none'} />
                               </Button>
                             </TableCell>
+                            <TableCell className="text-center">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleToggleStarter(offerId)}
+                                className={starterOfferIds.includes(offerId) ? 'text-yellow-500' : 'text-muted-foreground'}
+                                title={starterOfferIds.includes(offerId) ? 'Remove from starter' : 'Add as starter offer (visible to new users)'}
+                              >
+                                <Pin className="h-4 w-4" fill={starterOfferIds.includes(offerId) ? 'currentColor' : 'none'} />
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
                       {offers.length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                          <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                             No offers found
                           </TableCell>
                         </TableRow>
@@ -435,6 +510,90 @@ const AdminOfferwallManager = () => {
                     </div>
                   )}
                 </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Starter Offers Tab */}
+        <TabsContent value="starter">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-yellow-500" />
+                Starter Offers (New User Offers)
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                These offers are shown to new users who haven't completed the qualification survey yet.
+                They bypass all filters (health check, status, visibility) and always appear in the offerwall.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {starterOfferIds.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Star className="h-10 w-10 mx-auto mb-3 text-muted-foreground/50" />
+                  <p>No starter offers configured</p>
+                  <p className="text-xs mt-1">Go to "Offer Controls" tab and mark offers as starter using the ⭐ button</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-medium">{starterOfferIds.length} starter offer(s) configured</span>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={async () => {
+                        if (!confirm('Remove ALL starter offers? New users will see no offers until you add new ones.')) return;
+                        try {
+                          const { getAuthToken } = await import('@/utils/cookies');
+                          const token = getAuthToken();
+                          const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/new-user-offers`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                            body: JSON.stringify({ offer_ids: [] })
+                          });
+                          if (res.ok) {
+                            setStarterOfferIds([]);
+                            toast({ title: "All starter offers removed" });
+                          }
+                        } catch (e) {
+                          toast({ title: "Failed to clear", variant: "destructive" });
+                        }
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Clear All
+                    </Button>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Offer ID</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {starterOfferIds.map((offerId) => (
+                        <TableRow key={offerId}>
+                          <TableCell>
+                            <span className="font-mono text-sm">{offerId}</span>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-500 hover:text-red-700"
+                              onClick={() => handleToggleStarter(offerId)}
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Remove
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>

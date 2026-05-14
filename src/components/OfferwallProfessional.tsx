@@ -241,6 +241,14 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  // Survey Funnel State
+  const [activeFunnel, setActiveFunnel] = useState<any>(null);
+  const [funnelSession, setFunnelSession] = useState('');
+  const [funnelStep, setFunnelStep] = useState(0);
+  const [funnelSurvey, setFunnelSurvey] = useState<any>(null);
+  const [funnelAnswers, setFunnelAnswers] = useState<Record<number, string>>({});
+  const [funnelResult, setFunnelResult] = useState<{type: 'pass' | 'fail'; message: string; redirect_url?: string; has_next?: boolean} | null>(null);
+  const [funnelSubmitting, setFunnelSubmitting] = useState(false);
   const [todayEarnings, setTodayEarnings] = useState(0);
   const [displaySettings, setDisplaySettings] = useState<{
     primary_color: string;
@@ -259,6 +267,14 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   });
   const [announcements, setAnnouncements] = useState<Array<{text: string; id: string}>>([]);
   const [subWalls, setSubWalls] = useState<Array<{_id: string; name: string; slug: string; description: string; image_url: string; offer_count: number; theme_color?: string; heading_text?: string}>>([]);
+
+  // Qualification Survey State
+  const [isQualified, setIsQualified] = useState<boolean | null>(null); // null = loading, don't show anything yet
+  const [qualificationSurvey, setQualificationSurvey] = useState<any>(null);
+  const [showQualificationSurvey, setShowQualificationSurvey] = useState(false);
+  const [qualificationSection, setQualificationSection] = useState(0);
+  const [qualificationAnswers, setQualificationAnswers] = useState<Record<string, any>>({});
+  const [newUserOfferIds, setNewUserOfferIds] = useState<string[]>([]);
 
   // 11 predefined categories
   const categories = [
@@ -280,18 +296,101 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
     loadOffers();
     loadDisplaySettings();
     loadSubWalls();
+    checkQualification();
   }, [placementId, userId]);
 
   useEffect(() => {
     filterOffers();
-  }, [offers, searchTerm, selectedCategory]);
+  }, [offers, searchTerm, selectedCategory, isQualified, newUserOfferIds]);
+
+  const checkQualification = async () => {
+    try {
+      // ALWAYS check the API for qualification status — localStorage is only a cache hint
+      const res = await fetch(`${baseUrl}/api/admin/surveys/qualification/check?user_id=${encodeURIComponent(userId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.qualified) {
+          setIsQualified(true);
+          localStorage.setItem(`offerwall_qualified_${userId}`, 'true');
+        } else {
+          setIsQualified(false);
+          localStorage.removeItem(`offerwall_qualified_${userId}`);
+          // Fetch the qualification survey
+          const surveyRes = await fetch(`${baseUrl}/api/admin/surveys/qualification`);
+          if (surveyRes.ok) {
+            const surveyData = await surveyRes.json();
+            if (surveyData.survey) {
+              setQualificationSurvey(surveyData.survey);
+            }
+          }
+          // Fetch new user offer IDs (starter offers)
+          const offersRes = await fetch(`${baseUrl}/api/admin/offerwall-management/new-user-offers`);
+          if (offersRes.ok) {
+            const offersData = await offersRes.json();
+            setNewUserOfferIds(offersData.offer_ids || offersData.new_user_offer_ids || []);
+          }
+        }
+      } else {
+        // API error — check localStorage as fallback
+        const localKey = `offerwall_qualified_${userId}`;
+        const localValue = localStorage.getItem(localKey);
+        setIsQualified(localValue === 'true');
+      }
+    } catch (e) {
+      console.warn('Failed to check qualification:', e);
+      // On network error, use localStorage as fallback
+      const localKey = `offerwall_qualified_${userId}`;
+      const localValue = localStorage.getItem(localKey);
+      setIsQualified(localValue === 'true');
+    }
+  };
+
+  const handleQualificationSubmit = async () => {
+    if (!qualificationSurvey) return;
+    try {
+      const answers = Object.entries(qualificationAnswers).map(([questionId, answer]) => ({
+        question_id: questionId,
+        answer: answer
+      }));
+
+      const res = await fetch(`${baseUrl}/api/admin/surveys/public/${qualificationSurvey._id}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          answers: answers,
+          time_spent_seconds: 0
+        })
+      });
+
+      if (res.ok) {
+        localStorage.setItem(`offerwall_qualified_${userId}`, 'true');
+        setIsQualified(true);
+        setShowQualificationSurvey(false);
+        setQualificationAnswers({});
+        setQualificationSection(0);
+        loadOffers();
+      }
+    } catch (e) {
+      console.error('Failed to submit qualification survey:', e);
+    }
+  };
 
   const trackImpression = async () => {
     try {
+      // Generate or retrieve session ID for this offerwall visit
+      const sessionKey = `offerwall_session_${placementId}_${userId}`;
+      let sessionId = sessionStorage.getItem(sessionKey);
+      if (!sessionId) {
+        sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        sessionStorage.setItem(sessionKey, sessionId);
+      }
+
       await fetch(`${baseUrl}/api/offerwall/track/impression`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          session_id: sessionId,
           placement_id: placementId,
           user_id: userId,
           user_agent: navigator.userAgent,
@@ -317,7 +416,20 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      setOffers(data.offers || []);
+      // Also fetch active survey funnels and inject them as offer cards
+      let funnelOffers: any[] = [];
+      try {
+        const funnelRes = await fetch(`${baseUrl}/api/survey-funnel/active?placement=offerwall`);
+        if (funnelRes.ok) {
+          const funnelData = await funnelRes.json();
+          funnelOffers = funnelData.funnels || [];
+        }
+      } catch (e) {
+        console.warn('Failed to load survey funnels:', e);
+      }
+
+      // Merge: funnels at the top, then regular offers
+      setOffers([...funnelOffers, ...(data.offers || [])]);
     } catch (err) {
       console.error('Error loading offers:', err);
       setError(err instanceof Error ? err.message : 'Failed to load offers');
@@ -353,6 +465,25 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
 
   const filterOffers = () => {
     let filtered = offers;
+
+    // If qualification status is still loading (null), show nothing yet
+    if (isQualified === null) {
+      setFilteredOffers([]);
+      return;
+    }
+
+    // If user is NOT qualified, ONLY show starter offers — no exceptions
+    if (!isQualified) {
+      if (newUserOfferIds.length > 0) {
+        filtered = filtered.filter(offer => 
+          newUserOfferIds.includes(offer.id) || 
+          newUserOfferIds.includes((offer as any).offer_id) ||
+          newUserOfferIds.includes((offer as any)._id)
+        );
+      } else {
+        filtered = []; // No offers for new users until admin sets starter offers
+      }
+    }
 
     // Map category names for backward compatibility (all uppercase)
     const categoryMappings: Record<string, string[]> = {
@@ -394,8 +525,94 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   };
 
   const handleOfferClick = (offer: Offer) => {
+    // Check if this is a survey funnel offer
+    if ((offer as any).is_funnel && (offer as any).funnel_id) {
+      startFunnel((offer as any).funnel_id);
+      return;
+    }
     setSelectedOffer(offer);
     setModalOpen(true);
+  };
+
+  const startFunnel = async (funnelId: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/survey-funnel/${funnelId}/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFunnelSession(data.session_id);
+        setFunnelStep(data.step_index);
+        setFunnelSurvey(data.survey);
+        setActiveFunnel(funnelId);
+        setFunnelResult(null);
+        setFunnelAnswers({});
+      }
+    } catch (e) {
+      console.error('Failed to start funnel:', e);
+    }
+  };
+
+  const submitFunnelStep = async () => {
+    if (!activeFunnel || !funnelSurvey) return;
+    setFunnelSubmitting(true);
+    try {
+      const answers = Object.entries(funnelAnswers).map(([qIdx, answer]) => ({
+        question_index: Number(qIdx),
+        answer
+      }));
+
+      const res = await fetch(`${baseUrl}/api/survey-funnel/${activeFunnel}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: funnelSession,
+          step_index: funnelStep,
+          answers
+        })
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.result === 'passed') {
+          setFunnelResult({ type: 'pass', message: data.message, redirect_url: data.redirect_url });
+          // Auto-redirect after 2 seconds
+          if (data.redirect_url) {
+            setTimeout(() => { window.open(data.redirect_url, '_blank'); }, 2000);
+          }
+        } else {
+          // Failed
+          if (data.has_next && data.next_survey) {
+            setFunnelResult({ type: 'fail', message: data.message, has_next: true });
+            // After showing fail message briefly, load next survey
+            setTimeout(() => {
+              setFunnelStep(data.next_step_index);
+              setFunnelSurvey(data.next_survey);
+              setFunnelResult(null);
+              setFunnelAnswers({});
+            }, 2000);
+          } else {
+            // Final fail — no more surveys
+            setFunnelResult({ type: 'fail', message: data.message, has_next: false });
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to submit funnel step:', e);
+    } finally {
+      setFunnelSubmitting(false);
+    }
+  };
+
+  const closeFunnel = () => {
+    setActiveFunnel(null);
+    setFunnelSession('');
+    setFunnelSurvey(null);
+    setFunnelResult(null);
+    setFunnelAnswers({});
+    setFunnelStep(0);
   };
 
   const getDefaultImage = (category: string) => {
@@ -537,11 +754,40 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
 
       {/* Offers Grid */}
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {filteredOffers.length === 0 ? (
+        {/* Qualification Survey Card — always show for unqualified users */}
+        {!isQualified && qualificationSurvey && !searchTerm && (
+          <div
+            onClick={() => setShowQualificationSurvey(true)}
+            className="mb-6 group bg-white rounded-2xl overflow-hidden hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-300 cursor-pointer border-2 border-purple-200 hover:border-purple-400"
+          >
+            <div className="flex items-center gap-5 p-6">
+              <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl bg-gradient-to-br from-purple-500 to-indigo-600 shadow-lg">
+                📋
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs bg-purple-100 text-purple-700 px-2.5 py-0.5 rounded-full font-semibold">⭐ Featured</span>
+                </div>
+                <h3 className="text-gray-900 font-bold text-lg group-hover:text-purple-700 transition-colors">Qualification Survey</h3>
+                <p className="text-gray-500 text-sm">Complete this survey to unlock all offers and start earning</p>
+              </div>
+              <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl px-5 py-3 text-center shadow-lg">
+                <span className="text-white font-bold text-xl">+6</span>
+                <span className="text-purple-100 text-xs block">points</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {filteredOffers.length === 0 && isQualified ? (
           <div className="text-center py-16">
             <div className="text-6xl mb-4">🔍</div>
             <h3 className="text-white text-xl font-bold mb-2">No offers found</h3>
             <p className="text-gray-400">Try adjusting your search or filters</p>
+          </div>
+        ) : filteredOffers.length === 0 && !isQualified ? (
+          <div className="text-center py-8">
+            <p className="text-gray-400">Complete the qualification survey above to unlock all offers</p>
           </div>
         ) : (
           <>
@@ -581,8 +827,13 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
                         >
                           <td className="py-3 px-4">
                             <div className="flex items-center gap-3">
-                              {offer.image_url && !offer.image_url.includes('placeholder') ? (
-                                <img src={offer.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                              {offer.image_url && offer.image_url.startsWith('http') ? (
+                                <img 
+                                  src={offer.image_url} 
+                                  alt="" 
+                                  className="w-10 h-10 rounded-lg object-cover bg-slate-700"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).style.background = getDefaultImage(offer.category); }}
+                                />
                               ) : (
                                 <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: getDefaultImage(offer.category) }}>
                                   {getCategoryEmoji(offer.category)}
@@ -675,11 +926,12 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
                   >
                     {/* Image */}
                     <div className="relative h-48 overflow-hidden">
-                      {offer.image_url && !offer.image_url.includes('placeholder') ? (
+                      {offer.image_url && offer.image_url.startsWith('http') ? (
                         <img
                           src={offer.image_url}
                           alt={offer.title}
                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                         />
                       ) : (
                         <div
@@ -751,6 +1003,277 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
           </>
         )}
       </div>
+
+      {/* Survey Funnel Overlay */}
+      {activeFunnel && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
+            {/* Funnel Result */}
+            {funnelResult ? (
+              <div className="p-8 text-center">
+                {funnelResult.type === 'pass' ? (
+                  <>
+                    <div className="text-6xl mb-4">🎉</div>
+                    <h2 className="text-2xl font-bold text-green-600 mb-2">Congratulations!</h2>
+                    <p className="text-gray-600 mb-4">{funnelResult.message}</p>
+                    {funnelResult.redirect_url && (
+                      <p className="text-sm text-gray-400">Redirecting to your offer...</p>
+                    )}
+                    <button onClick={closeFunnel} className="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
+                      Close
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-6xl mb-4">{funnelResult.has_next ? '😕' : '😔'}</div>
+                    <h2 className="text-xl font-bold text-gray-800 mb-2">
+                      {funnelResult.has_next ? "Not quite..." : "Sorry!"}
+                    </h2>
+                    <p className="text-gray-600 mb-4">{funnelResult.message}</p>
+                    {funnelResult.has_next ? (
+                      <p className="text-sm text-blue-500 animate-pulse">Loading next survey...</p>
+                    ) : (
+                      <button onClick={closeFunnel} className="mt-4 px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors">
+                        Back to Offers
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            ) : funnelSurvey ? (
+              <>
+                {/* Survey Header */}
+                <div className="p-6 border-b border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-xl font-bold text-gray-900">{funnelSurvey.title}</h2>
+                      <p className="text-sm text-gray-500 mt-1">Step {funnelStep + 1} — Answer to qualify</p>
+                    </div>
+                    <button onClick={closeFunnel} className="text-gray-400 hover:text-gray-600 p-2">✕</button>
+                  </div>
+                </div>
+
+                {/* Questions */}
+                <div className="p-6 space-y-6">
+                  {funnelSurvey.questions?.map((q: any, qIdx: number) => (
+                    <div key={qIdx} className="space-y-3">
+                      <p className="font-medium text-gray-800">{qIdx + 1}. {q.text}</p>
+                      <div className="space-y-2">
+                        {q.options?.map((opt: string, optIdx: number) => (
+                          <label
+                            key={optIdx}
+                            className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                              funnelAnswers[qIdx] === opt
+                                ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`funnel-q-${qIdx}`}
+                              checked={funnelAnswers[qIdx] === opt}
+                              onChange={() => setFunnelAnswers(prev => ({ ...prev, [qIdx]: opt }))}
+                              className="w-4 h-4 text-blue-500"
+                            />
+                            <span className="text-sm">{opt}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Submit */}
+                <div className="p-6 border-t border-gray-200">
+                  <button
+                    onClick={submitFunnelStep}
+                    disabled={funnelSubmitting || Object.keys(funnelAnswers).length < (funnelSurvey.questions?.length || 0)}
+                    className="w-full py-3 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {funnelSubmitting ? 'Checking...' : 'Submit Answers'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="p-8 text-center text-gray-500">Loading survey...</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Qualification Survey Overlay */}
+      {showQualificationSurvey && qualificationSurvey && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between p-6 border-b border-slate-700">
+              <div>
+                <h2 className="text-xl font-bold text-white">Qualification Survey</h2>
+                <p className="text-sm text-gray-400 mt-1">Complete to unlock all offers</p>
+              </div>
+              <button
+                onClick={() => setShowQualificationSurvey(false)}
+                className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-1 overflow-hidden">
+              {/* Section Tabs - Right Side */}
+              <div className="w-48 border-r border-slate-700 p-4 overflow-y-auto hidden md:block">
+                {(() => {
+                  const sections = ["General", "Background", "Work", "Role", "Address"];
+                  return sections.map((section, idx) => (
+                    <button
+                      key={section}
+                      onClick={() => setQualificationSection(idx)}
+                      className={`w-full text-left px-3 py-2 rounded-lg mb-2 text-sm font-medium transition-colors ${
+                        qualificationSection === idx
+                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                          : 'text-gray-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {section}
+                    </button>
+                  ));
+                })()}
+              </div>
+
+              {/* Questions Area */}
+              <div className="flex-1 p-6 overflow-y-auto">
+                {(() => {
+                  const sections = ["General", "Background", "Work", "Role", "Address"];
+                  const currentSection = sections[qualificationSection];
+                  const sectionQuestions = (qualificationSurvey.questions || []).filter(
+                    (q: any) => q.section === currentSection
+                  );
+
+                  return (
+                    <div className="space-y-6">
+                      <h3 className="text-lg font-semibold text-white mb-4">{currentSection}</h3>
+                      {sectionQuestions.map((question: any) => (
+                        <div key={question.id} className="space-y-2">
+                          <label className="text-white font-medium text-sm">
+                            {question.text}
+                            {question.required && <span className="text-red-400 ml-1">*</span>}
+                          </label>
+
+                          {question.type === 'text' && (
+                            <input
+                              type={question.text.toLowerCase().includes('date') ? 'date' : question.text.toLowerCase().includes('email') ? 'email' : question.text.toLowerCase().includes('phone') ? 'tel' : 'text'}
+                              value={qualificationAnswers[question.id] || ''}
+                              onChange={(e) => setQualificationAnswers(prev => ({ ...prev, [question.id]: e.target.value }))}
+                              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder={`Enter ${question.text.toLowerCase().replace('what is your ', '').replace('select your ', '')}`}
+                            />
+                          )}
+
+                          {question.type === 'mcq' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {(question.options || []).map((option: string) => (
+                                <button
+                                  key={option}
+                                  onClick={() => setQualificationAnswers(prev => ({ ...prev, [question.id]: option }))}
+                                  className={`text-left px-4 py-2.5 rounded-lg border text-sm transition-colors ${
+                                    qualificationAnswers[question.id] === option
+                                      ? 'bg-blue-500/20 border-blue-500 text-blue-300'
+                                      : 'bg-slate-800 border-slate-600 text-gray-300 hover:border-slate-500'
+                                  }`}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {question.type === 'mcq_multi' && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {(question.options || []).map((option: string) => {
+                                const selected = (qualificationAnswers[question.id] || []) as string[];
+                                const isSelected = selected.includes(option);
+                                return (
+                                  <button
+                                    key={option}
+                                    onClick={() => {
+                                      setQualificationAnswers(prev => {
+                                        const current = (prev[question.id] || []) as string[];
+                                        if (current.includes(option)) {
+                                          return { ...prev, [question.id]: current.filter(o => o !== option) };
+                                        } else {
+                                          return { ...prev, [question.id]: [...current, option] };
+                                        }
+                                      });
+                                    }}
+                                    className={`text-left px-4 py-2.5 rounded-lg border text-sm transition-colors ${
+                                      isSelected
+                                        ? 'bg-blue-500/20 border-blue-500 text-blue-300'
+                                        : 'bg-slate-800 border-slate-600 text-gray-300 hover:border-slate-500'
+                                    }`}
+                                  >
+                                    {isSelected ? '☑ ' : '☐ '}{option}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {question.type === 'yes_no' && (
+                            <div className="flex gap-3">
+                              {['Yes', 'No'].map((option) => (
+                                <button
+                                  key={option}
+                                  onClick={() => setQualificationAnswers(prev => ({ ...prev, [question.id]: option }))}
+                                  className={`flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                                    qualificationAnswers[question.id] === option
+                                      ? 'bg-blue-500/20 border-blue-500 text-blue-300'
+                                      : 'bg-slate-800 border-slate-600 text-gray-300 hover:border-slate-500'
+                                  }`}
+                                >
+                                  {option}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Navigation Buttons */}
+                <div className="flex items-center justify-between mt-8 pt-4 border-t border-slate-700">
+                  <button
+                    onClick={() => setQualificationSection(prev => Math.max(0, prev - 1))}
+                    disabled={qualificationSection === 0}
+                    className="px-6 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-slate-800 border border-slate-600 text-gray-300 hover:bg-slate-700"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-sm text-gray-400">
+                    Section {qualificationSection + 1} of 5
+                  </span>
+                  {qualificationSection < 4 ? (
+                    <button
+                      onClick={() => setQualificationSection(prev => Math.min(4, prev + 1))}
+                      className="px-6 py-2.5 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors"
+                    >
+                      Next
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleQualificationSubmit}
+                      className="px-6 py-2.5 rounded-lg text-sm font-medium bg-green-500 hover:bg-green-600 text-white transition-colors"
+                    >
+                      Submit
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Offer Modal */}
       {selectedOffer && (

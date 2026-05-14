@@ -110,6 +110,7 @@ import AdminSupportHub from "./pages/AdminSupportHub";
 import AdminOfferwallManager from "./pages/AdminOfferwallManager";
 import AdminSurveyBuilder from "./pages/AdminSurveyBuilder";
 import AdminSubWalls from "./pages/AdminSubWalls";
+import AdminRedirectRouter from "./pages/AdminRedirectRouter";
 import SubWallPage from "./pages/SubWallPage";
 import SurveyPage from "./pages/SurveyPage";
 
@@ -242,6 +243,7 @@ const App = () => (
                 <Route path="offerwall-manager" element={<AdminOfferwallManager />} />
                 <Route path="survey-builder" element={<AdminSurveyBuilder />} />
                 <Route path="sub-walls" element={<AdminSubWalls />} />
+                <Route path="redirect-router" element={<AdminRedirectRouter />} />
               </Route>
 
               {/* Advertiser Dashboard routes */}

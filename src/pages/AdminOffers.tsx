@@ -1064,6 +1064,38 @@ const AdminOffers = () => {
     setRenamingModalOpen(true);
   };
 
+  const handleBulkMarkStarter = async () => {
+    const ids = Array.from(selectedOffers);
+    if (ids.length === 0) {
+      toast({ title: "No Selection", description: "Please select offers", variant: "destructive" });
+      return;
+    }
+    try {
+      // Fetch current starter offers
+      const getRes = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/new-user-offers`);
+      const current = getRes.ok ? await getRes.json() : { offer_ids: [] };
+      const currentIds = current.offer_ids || current.new_user_offer_ids || [];
+      
+      // Merge with selected
+      const newIds = [...new Set([...currentIds, ...ids])];
+      
+      const token = localStorage.getItem('token') || document.cookie.split('auth_token=')[1]?.split(';')[0] || '';
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/new-user-offers`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ offer_ids: newIds })
+      });
+      if (res.ok) {
+        toast({ title: "Starter Offers Updated", description: `${ids.length} offer(s) marked as starter (visible to new users)` });
+        setSelectedOffers(new Set());
+      } else {
+        toast({ title: "Failed", description: "Could not update starter offers", variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "Error", description: "Failed to mark as starter", variant: "destructive" });
+    }
+  };
+
   const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string, perOfferImages?: Record<string, string>, perOfferDescs?: Record<string, string>, perOfferVerticals?: Record<string, string>) => {
     const result = await adminOfferApi.bulkRenameOffers(renames);
     toast({ title: "Renamed", description: result.message });
@@ -1996,6 +2028,9 @@ const AdminOffers = () => {
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleBulkRename}>
                     <span className="mr-2">✨</span> Smart Rename
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleBulkMarkStarter}>
+                    <span className="mr-2">🌟</span> Mark as Starter Offer
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
