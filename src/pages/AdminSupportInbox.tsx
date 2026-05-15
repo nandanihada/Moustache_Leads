@@ -19,7 +19,7 @@ const StatusBadge: React.FC<{ status: SupportMessage['status']; readByAdmin?: bo
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${map[status]}`}>{status}</span>;
 };
 
-type FilterType = 'all' | 'new' | 'open' | 'replied' | 'closed';
+type FilterType = 'all' | 'new' | 'open' | 'replied' | 'closed' | 'drafts';
 
 const AdminSupportInbox: React.FC = () => {
   const [messages, setMessages] = useState<SupportMessage[]>([]);
@@ -28,8 +28,18 @@ const AdminSupportInbox: React.FC = () => {
   const [filter, setFilter] = useState<FilterType>('all');
   const [selected, setSelected] = useState<SupportMessage | null>(null);
   const [replyText, setReplyText] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('admin_support_drafts');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
   const [replying, setReplying] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    localStorage.setItem('admin_support_drafts', JSON.stringify(drafts));
+  }, [drafts]);
 
   // Broadcast modal state
   const [showCompose, setShowCompose] = useState(false);
@@ -68,13 +78,16 @@ const AdminSupportInbox: React.FC = () => {
   const load = async () => {
     setLoading(true);
     try {
-      // For "new" filter, fetch open and filter client-side
-      const apiFilter = filter === 'new' ? 'open' : filter;
+      // For "new" or "drafts" filter, fetch all and filter client-side
+      const apiFilter = (filter === 'new' || filter === 'drafts') ? 'all' : filter;
       const res = await supportApi.adminGetAll(apiFilter);
       if (res.success) {
         let msgs = res.messages;
         if (filter === 'new') {
           msgs = msgs.filter(m => !m.read_by_admin);
+        }
+        if (filter === 'drafts') {
+          msgs = msgs.filter(m => !!drafts[m._id]);
         }
         setMessages(msgs);
         if (res.counts) setCounts(res.counts);
@@ -97,7 +110,7 @@ const AdminSupportInbox: React.FC = () => {
 
   const openMessage = async (msg: SupportMessage) => {
     setSelected(msg);
-    setReplyText('');
+    setReplyText(drafts[msg._id] || '');
     if (!msg.read_by_admin) {
       await supportApi.adminMarkRead(msg._id);
       setMessages(prev => prev.map(m => m._id === msg._id ? { ...m, read_by_admin: true } : m));
@@ -114,6 +127,12 @@ const AdminSupportInbox: React.FC = () => {
         toast.success('Reply sent');
         setReplyText('');
         setReplyImageUrl('');
+        // Clear draft
+        setDrafts(prev => {
+          const next = { ...prev };
+          delete next[selected._id];
+          return next;
+        });
         setSelected(res.message);
         setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
       } else {
@@ -242,6 +261,7 @@ const AdminSupportInbox: React.FC = () => {
     { key: 'open', label: 'Open', count: counts.open },
     { key: 'replied', label: 'Replied', count: counts.replied },
     { key: 'closed', label: 'Closed', count: counts.closed },
+    { key: 'drafts', label: 'Drafts', count: Object.keys(drafts).length },
   ];
 
   return (
@@ -311,21 +331,27 @@ const AdminSupportInbox: React.FC = () => {
         {/* Message list */}
         <div className={`${selected ? 'hidden md:flex' : 'flex'} w-full md:w-80 flex-shrink-0 flex-col border border-border rounded-xl overflow-hidden bg-card`}>
           {/* Filter tabs */}
-          <div className="flex border-b border-border overflow-x-auto">
+          <div className="flex border-b border-border overflow-x-auto scrollbar-hide bg-muted/30">
             {filterTabs.map(f => (
               <button
                 key={f.key}
                 onClick={() => setFilter(f.key)}
-                className={`flex-1 py-2 text-xs font-medium capitalize transition-colors whitespace-nowrap px-2 ${
-                  filter === f.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+                className={`flex-none py-2.5 text-[11px] font-semibold capitalize transition-all px-3 border-b-2 ${
+                  filter === f.key 
+                    ? 'border-primary text-primary bg-primary/5' 
+                    : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50'
                 }`}
               >
-                {f.label}
-                {f.count > 0 && (
-                  <span className={`ml-1 ${filter === f.key ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                    ({f.count})
-                  </span>
-                )}
+                <div className="flex items-center gap-1">
+                  {f.label}
+                  {f.count > 0 && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      filter === f.key ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {f.count}
+                    </span>
+                  )}
+                </div>
               </button>
             ))}
           </div>
@@ -386,6 +412,11 @@ const AdminSupportInbox: React.FC = () => {
                         <p className={`text-sm truncate ${!msg.read_by_admin ? 'font-bold' : 'font-medium'}`}>
                           {msg.username || msg.email}
                         </p>
+                        {drafts[msg._id] && (
+                          <span className="ml-auto text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-bold flex-shrink-0">
+                            Draft
+                          </span>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.subject}</p>
                       {!msg.read_by_admin && (
@@ -606,7 +637,18 @@ const AdminSupportInbox: React.FC = () => {
                     </button>
                     <textarea
                       value={replyText}
-                      onChange={e => setReplyText(e.target.value)}
+                      onChange={e => {
+                        const val = e.target.value;
+                        setReplyText(val);
+                        if (selected) {
+                          setDrafts(prev => {
+                            const next = { ...prev };
+                            if (val.trim()) next[selected._id] = val;
+                            else delete next[selected._id];
+                            return next;
+                          });
+                        }
+                      }}
                       placeholder="Type your reply..."
                       rows={3}
                       className="flex-1 text-sm border border-border rounded-xl px-4 py-3 bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-none"

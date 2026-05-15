@@ -280,7 +280,7 @@ export const AutomationQueueDashboardModal: React.FC<{
 
   const mergedQueue = useMemo(() => {
     // START WITH A FILTERED VIEW: Only show users who are in the current dashboard view (Recent Activity)
-    // This solves the "Showing 23 users instead of 2" bug.
+    // This ensures parity between the main dashboard and the engine.
     const dashboardUserIds = new Set(allUsers.map(u => String(u.user_id)));
     
     // 1. Get users who are in BOTH the backend queue AND the current dashboard view
@@ -371,7 +371,7 @@ export const AutomationQueueDashboardModal: React.FC<{
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col p-0 overflow-hidden border border-slate-200 shadow-2xl rounded-2xl">
+      <DialogContent className="max-w-[95vw] w-[95vw] h-auto max-h-[92vh] min-h-[500px] flex flex-col p-0 overflow-hidden border border-slate-200 shadow-2xl rounded-2xl">
         <DialogHeader className="px-0 py-0 border-b bg-slate-50 shrink-0">
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-6">
