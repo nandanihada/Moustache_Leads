@@ -89,10 +89,8 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
       const u = JSON.parse(localStorage.getItem('user') || '{}');
       userId = u._id || u.id || '';
     } catch {}
-    const p = new URLSearchParams();
-    if (userId) p.append('user_id', userId);
-    p.append('sub1', sub || customSubId || 'default');
-    return `${base}/track/${offer.offer_id}?${p.toString()}`;
+    const sub1Value = sub || customSubId || '{your_user_id}';
+    return `${base}/track/${offer.offer_id}?user_id=${userId}&sub1=${sub1Value}`;
   };
 
   useEffect(() => {
@@ -308,7 +306,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
               </div>
               <div className="flex gap-2">
                 <Input
-                  placeholder="Custom Sub ID (e.g. twitter, campaign1)"
+                  placeholder="Enter your end user's ID here"
                   value={customSubId}
                   onChange={(e) => setCustomSubId(e.target.value)}
                   className="flex-1 bg-white/5 border-white/10 text-white placeholder:text-white/30 text-xs h-8"
@@ -331,6 +329,9 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                   <QrCode className="h-3.5 w-3.5 mr-1" /> QR
                 </Button>
               </div>
+              <p className="text-[10px] text-white/40 mt-1">
+                💡 Replace <code className="text-violet-300/70">{'{your_user_id}'}</code> in the link with your platform's user identifier so we can track which user completed the offer.
+              </p>
               {showQRCode && trackingLink && (
                 <div className="flex justify-center mt-3 p-4 rounded-xl bg-white/5 border border-white/10">
                   <div className="text-center">

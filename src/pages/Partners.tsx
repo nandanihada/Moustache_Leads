@@ -103,7 +103,8 @@ const Partners: React.FC = () => {
   }
 
   const AVAILABLE_OUR_PARAMS = [
-    { value: 'user_id', label: 'user_id', description: 'User MongoDB ID' },
+    { value: 'user_id', label: 'user_id', description: 'Publisher ID (registered on our platform)' },
+    { value: 'sub1', label: 'sub1', description: 'End user identifier (the person who completed the offer)' },
     { value: 'click_id', label: 'click_id', description: 'Unique click identifier' },
     { value: 'payout', label: 'payout', description: 'Conversion payout amount' },
     { value: 'status', label: 'status', description: 'Conversion status' },
@@ -162,7 +163,8 @@ const Partners: React.FC = () => {
     their_param: string;
   }
   const OFFER_URL_FIELD_OPTIONS = [
-    { value: 'user_id', label: 'user_id' },
+    { value: 'user_id', label: 'user_id (Publisher)' },
+    { value: 'sub1', label: 'sub1 (End User)' },
     { value: 'payout', label: 'payout' },
     { value: 'transaction_id', label: 'transaction_id' },
     { value: 'click_id', label: 'click_id' },

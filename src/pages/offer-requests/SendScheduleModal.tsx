@@ -60,10 +60,10 @@ export default function SendScheduleModal({ open, onClose, offerIds, defaultMode
   useEffect(() => {
     if (!open) return;
     setLoadingPubs(true);
-    fetch(`${API_BASE_URL}/api/admin/offer-access-requests/publisher-profiles?status=all&per_page=200`, {
+    fetch(`${API_BASE_URL}/api/admin/insights/partners`, {
       headers: { Authorization: `Bearer ${token}` },
     }).then(r => r.json()).then(d => {
-      setPublishers((d.profiles || []).map((p: any) => ({ user_id: p.user_id, username: p.username, email: p.email })));
+      setPublishers((d.partners || []).map((p: any) => ({ user_id: p._id || p.id, username: p.username, email: p.email })));
     }).catch(() => {}).finally(() => setLoadingPubs(false));
   }, [open, token]);
 

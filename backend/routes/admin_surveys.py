@@ -503,13 +503,58 @@ def get_qualification_survey():
             'description': survey.get('description', ''),
             'questions': survey.get('questions', []),
             'type': 'qualification',
-            'placement': survey.get('placement', 'offerwall_qualification')
+            'placement': survey.get('placement', 'offerwall_qualification'),
+            'points': survey.get('points', 6),
+            'display_title': survey.get('display_title', 'Qualification Survey'),
+            'display_description': survey.get('display_description', 'Complete this survey to unlock all offers and start earning'),
+            'display_image_url': survey.get('display_image_url', ''),
         }
 
         return jsonify({'success': True, 'survey': public_survey}), 200
 
     except Exception as e:
         logger.error(f"Error getting qualification survey: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_surveys_bp.route('/surveys/qualification/settings', methods=['PUT'])
+@token_required
+def update_qualification_settings():
+    """Update qualification survey display settings (points, title, description, image)."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        collection = db_instance.get_collection('surveys')
+        if collection is None:
+            return jsonify({'error': 'Database unavailable'}), 500
+
+        survey = collection.find_one({'type': 'qualification', 'status': 'active'})
+        if not survey:
+            return jsonify({'error': 'Qualification survey not found'}), 404
+
+        update_fields = {}
+        if 'points' in data:
+            update_fields['points'] = int(data['points'])
+        if 'display_title' in data:
+            update_fields['display_title'] = data['display_title']
+        if 'display_description' in data:
+            update_fields['display_description'] = data['display_description']
+        if 'display_image_url' in data:
+            update_fields['display_image_url'] = data['display_image_url']
+
+        if update_fields:
+            collection.update_one({'_id': survey['_id']}, {'$set': update_fields})
+
+        return jsonify({'success': True, 'message': 'Qualification survey settings updated'}), 200
+
+    except Exception as e:
+        logger.error(f"Error updating qualification settings: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 

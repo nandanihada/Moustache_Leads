@@ -16,7 +16,8 @@ class MacroReplacementService:
     
     # Supported macros
     SUPPORTED_MACROS = {
-        'user_id': 'MongoDB user ID',
+        'user_id': 'MongoDB user ID (Publisher ID)',
+        'sub1': 'End user identifier (the actual person who completes the offer)',
         'username': 'User username',
         'user_email': 'User email address',
         'click_id': 'Unique click identifier',
@@ -70,6 +71,7 @@ class MacroReplacementService:
         # Build replacement map
         macro_values = {
             '{user_id}': str(context.get('user_id', '')),
+            '{sub1}': str(context.get('sub1', '')),
             '{username}': str(context.get('username', '')),
             '{user_email}': str(context.get('user_email', '')),
             '{click_id}': str(context.get('click_id', '')),

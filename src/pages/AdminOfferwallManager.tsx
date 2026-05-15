@@ -36,12 +36,28 @@ const AdminOfferwallManager = () => {
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [offerwallPage, setOfferwallPage] = useState(1);
   const [starterOfferIds, setStarterOfferIds] = useState<string[]>([]);
+  const [qualSurveySettings, setQualSurveySettings] = useState<{points: number; display_title: string; display_description: string; display_image_url: string} | null>(null);
+  const [qualSaving, setQualSaving] = useState(false);
 
   // Fetch starter offers
   useEffect(() => {
     fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offerwall-management/new-user-offers`)
       .then(r => r.ok ? r.json() : { offer_ids: [] })
       .then(d => setStarterOfferIds(d.offer_ids || []))
+      .catch(() => {});
+    // Fetch qualification survey settings
+    fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/surveys/qualification`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.survey) {
+          setQualSurveySettings({
+            points: d.survey.points || 6,
+            display_title: d.survey.display_title || 'Qualification Survey',
+            display_description: d.survey.display_description || 'Complete this survey to unlock all offers and start earning',
+            display_image_url: d.survey.display_image_url || '',
+          });
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -300,6 +316,7 @@ const AdminOfferwallManager = () => {
           <TabsTrigger value="preview">Preview</TabsTrigger>
           <TabsTrigger value="offers">Offer Controls</TabsTrigger>
           <TabsTrigger value="starter">Starter Offers ({starterOfferIds.length})</TabsTrigger>
+          <TabsTrigger value="qualification">Qualification Survey</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="announcements">Announcements</TabsTrigger>
         </TabsList>
@@ -593,6 +610,94 @@ const AdminOfferwallManager = () => {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Qualification Survey Tab */}
+        <TabsContent value="qualification">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Star className="h-5 w-5 text-purple-500" />
+                Qualification Survey Settings
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Configure how the qualification survey appears on the offerwall (title, points, image).
+                This is the survey new users must complete before seeing all offers.
+              </p>
+            </CardHeader>
+            <CardContent>
+              {!qualSurveySettings ? (
+                <p className="text-muted-foreground text-center py-8">No qualification survey found. Create one in Survey Builder first.</p>
+              ) : (
+                <div className="space-y-4 max-w-lg">
+                  <div>
+                    <Label>Display Title (shown on offer card)</Label>
+                    <Input
+                      value={qualSurveySettings.display_title}
+                      onChange={(e) => setQualSurveySettings({ ...qualSurveySettings, display_title: e.target.value })}
+                      placeholder="Qualification Survey"
+                    />
+                  </div>
+                  <div>
+                    <Label>Display Description</Label>
+                    <Input
+                      value={qualSurveySettings.display_description}
+                      onChange={(e) => setQualSurveySettings({ ...qualSurveySettings, display_description: e.target.value })}
+                      placeholder="Complete this survey to unlock all offers"
+                    />
+                  </div>
+                  <div>
+                    <Label>Points (reward shown to user)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={qualSurveySettings.points}
+                      onChange={(e) => setQualSurveySettings({ ...qualSurveySettings, points: Number(e.target.value) })}
+                      placeholder="6"
+                    />
+                  </div>
+                  <div>
+                    <Label>Image URL (optional — shown on offer card)</Label>
+                    <Input
+                      value={qualSurveySettings.display_image_url}
+                      onChange={(e) => setQualSurveySettings({ ...qualSurveySettings, display_image_url: e.target.value })}
+                      placeholder="https://example.com/survey-image.jpg"
+                    />
+                    {qualSurveySettings.display_image_url && (
+                      <img src={qualSurveySettings.display_image_url} alt="Preview" className="mt-2 h-16 w-auto rounded border object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
+                    )}
+                  </div>
+                  <Button
+                    disabled={qualSaving}
+                    onClick={async () => {
+                      setQualSaving(true);
+                      try {
+                        const { getAuthToken } = await import('@/utils/cookies');
+                        const token = getAuthToken();
+                        const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/surveys/qualification/settings`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                          body: JSON.stringify(qualSurveySettings)
+                        });
+                        if (res.ok) {
+                          toast({ title: "Saved", description: "Qualification survey settings updated." });
+                        } else {
+                          toast({ title: "Error", description: "Failed to save.", variant: "destructive" });
+                        }
+                      } catch {
+                        toast({ title: "Error", description: "Failed to save.", variant: "destructive" });
+                      } finally {
+                        setQualSaving(false);
+                      }
+                    }}
+                  >
+                    <Save className="h-4 w-4 mr-2" />
+                    {qualSaving ? 'Saving...' : 'Save Settings'}
+                  </Button>
                 </div>
               )}
             </CardContent>

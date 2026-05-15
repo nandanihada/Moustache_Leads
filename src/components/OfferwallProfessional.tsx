@@ -762,17 +762,19 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
           >
             <div className="flex items-center gap-5 p-6">
               <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl bg-gradient-to-br from-purple-500 to-indigo-600 shadow-lg">
-                📋
+                {qualificationSurvey.display_image_url ? (
+                  <img src={qualificationSurvey.display_image_url} alt="" className="w-full h-full object-cover rounded-2xl" />
+                ) : '📋'}
               </div>
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs bg-purple-100 text-purple-700 px-2.5 py-0.5 rounded-full font-semibold">⭐ Featured</span>
                 </div>
-                <h3 className="text-gray-900 font-bold text-lg group-hover:text-purple-700 transition-colors">Qualification Survey</h3>
-                <p className="text-gray-500 text-sm">Complete this survey to unlock all offers and start earning</p>
+                <h3 className="text-gray-900 font-bold text-lg group-hover:text-purple-700 transition-colors">{qualificationSurvey.display_title || 'Qualification Survey'}</h3>
+                <p className="text-gray-500 text-sm">{qualificationSurvey.display_description || 'Complete this survey to unlock all offers and start earning'}</p>
               </div>
               <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl px-5 py-3 text-center shadow-lg">
-                <span className="text-white font-bold text-xl">+6</span>
+                <span className="text-white font-bold text-xl">+{qualificationSurvey.points || 6}</span>
                 <span className="text-purple-100 text-xs block">points</span>
               </div>
             </div>

@@ -17,15 +17,15 @@ logger = logging.getLogger(__name__)
 # Maps network identifier to tracking URL template
 NETWORK_TRACKING_TEMPLATES = {
     'leadads': {
-        'template': 'https://leadads.go2jump.org/aff_c?offer_id={offer_id}&aff_id=10843&aff_sub={user_id}&aff_click_id={click_id}',
+        'template': 'https://leadads.go2jump.org/aff_c?offer_id={offer_id}&aff_id=10843&aff_sub={sub1}&aff_click_id={click_id}&payout={payout}&status={status}',
         'name': 'LeadAds'
     },
     'cpamerchant': {
-        'template': 'https://tracking.cpamerchant.com/aff_c?offer_id={offer_id}&aff_id=3394&aff_sub={user_id}&aff_click_id={click_id}',
+        'template': 'https://tracking.cpamerchant.com/aff_c?offer_id={offer_id}&aff_id=3394&aff_sub={sub1}&aff_click_id={click_id}&payout={payout}&status={status}',
         'name': 'CPA Merchant'
     },
     'chameleonads': {
-        'template': 'https://chameleonads.go2cloud.org/aff_c?offer_id={offer_id}&aff_id=5696&aff_sub={user_id}&aff_click_id={click_id}',
+        'template': 'https://chameleonads.go2cloud.org/aff_c?offer_id={offer_id}&aff_id=5696&aff_sub={sub1}&aff_click_id={click_id}&payout={payout}&status={status}',
         'name': 'ChameleonAds'
     }
 }

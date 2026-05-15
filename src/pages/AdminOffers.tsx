@@ -698,8 +698,7 @@ const AdminOffers = () => {
     } catch (e) {}
     const params = new URLSearchParams();
     if (userId) params.append('user_id', userId);
-    params.append('sub1', 'default');
-    return `${baseUrl}/track/${offer.offer_id}?${params.toString()}`;
+    return `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1={your_user_id}`;
   };
 
   // Bulk copy tracking links for selected offers
@@ -3128,7 +3127,7 @@ const AdminOffers = () => {
                                 userId = user._id || user.id || '';
                               }
                             } catch (e) {}
-                            const trackingUrl = `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1=default`;
+                            const trackingUrl = `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1={your_user_id}`;
                             window.open(trackingUrl, '_blank');
                           }}>
                             <ExternalLink className="h-4 w-4 mr-2" />

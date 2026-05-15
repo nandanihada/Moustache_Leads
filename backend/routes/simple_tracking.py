@@ -156,6 +156,7 @@ def track_offer_click(offer_id):
 
         macro_context = {
             'user_id': user_id or '',
+            'sub1': sub1 or '',  # End user identifier
             'username': actual_username,
             'click_id': click_id,
             'session_id': sub1 or '',  # Use sub1 as session_id

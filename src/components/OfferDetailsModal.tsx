@@ -68,8 +68,7 @@ const generateTrackingLink = (offer: Offer, userId?: string) => {
   }
   const params = new URLSearchParams();
   if (userId) params.append('user_id', userId);
-  params.append('sub1', 'default');
-  return `${baseUrl}/track/${offer.offer_id}?${params.toString()}`;
+  return `${baseUrl}/track/${offer.offer_id}?user_id=${userId}&sub1={your_user_id}`;
 };
 
 const generateQRCode = (url: string) => {

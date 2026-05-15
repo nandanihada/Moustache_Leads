@@ -479,12 +479,12 @@ def get_partners_for_email():
     """Get list of partners (publishers) to send emails to"""
     try:
         search = request.args.get('search', '')
-        status = request.args.get('status', 'active')
+        status = request.args.get('status', 'all')
         
         users_collection = db_instance.get_collection('users')
         
-        # Include all non-admin users as potential partners (publishers)
-        query = {'role': {'$in': ['user', 'publisher', 'partner']}}
+        # Get all non-admin users
+        query = {'role': {'$nin': ['admin', 'superadmin']}}
         if status == 'active':
             query['is_active'] = True
         if search:
@@ -495,21 +495,7 @@ def get_partners_for_email():
         
         partners = list(users_collection.find(query, {
             '_id': 1, 'username': 1, 'email': 1, 'is_active': 1, 'created_at': 1, 'role': 1
-        }).sort('username', 1).limit(100))
-        
-        # If still no partners, get all users except admins
-        if not partners:
-            query = {'role': {'$nin': ['admin', 'superadmin']}}
-            if status == 'active':
-                query['is_active'] = True
-            if search:
-                query['$or'] = [
-                    {'username': {'$regex': search, '$options': 'i'}},
-                    {'email': {'$regex': search, '$options': 'i'}}
-                ]
-            partners = list(users_collection.find(query, {
-                '_id': 1, 'username': 1, 'email': 1, 'is_active': 1, 'created_at': 1, 'role': 1
-            }).sort('username', 1).limit(100))
+        }).sort('username', 1))
         
         # Convert ObjectId to string
         for p in partners:

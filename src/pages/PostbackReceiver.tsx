@@ -132,7 +132,8 @@ const PostbackReceiver: React.FC = () => {
     { key: 'payout', label: 'Payout', placeholder: '{payout}' },
     { key: 'transaction_id', label: 'Transaction ID', placeholder: '{transaction_id}' },
     { key: 'click_id', label: 'Click ID', placeholder: '{click_id}' },
-    { key: 'user_id', label: 'User ID', placeholder: '{user_id}' },
+    { key: 'user_id', label: 'User ID (Publisher)', placeholder: '{user_id}' },
+    { key: 'sub1', label: 'End User (sub1)', placeholder: '{sub1}' },
     { key: 'offer_id', label: 'Offer ID', placeholder: '{offer_id}' }
   ];
 
