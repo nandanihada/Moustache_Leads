@@ -186,6 +186,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
     finally { setLoadingEdit(null); }
   };
 
+  const displayName = `${pub.first_name || ''} ${pub.last_name || ''}`.trim() || pub.username || 'Publisher';
   const initials = ((pub.first_name?.[0] || '') + (pub.last_name?.[0] || pub.username?.[1] || '')).toUpperCase() || '??';
 
   const toggleExpandOffer = (offerId: string, offerName: string) => {
@@ -202,9 +203,9 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   const cleanOfferName = (name: string) => name.replace(/\s*\[(?:INHOUSE|[A-Z][A-Za-z0-9_ ]*)\]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
 
   const buildProofMessage = (offerName: string, fields: Record<string, boolean>, req?: { offer_network?: string; offer_payout?: number; offer_countries?: string[] }) => {
-    const name = pub.first_name || pub.username;
-    const displayName = fields.offer_name !== false ? (fields.network ? offerName : cleanOfferName(offerName)) : '';
-    let offerLine = displayName ? `"${displayName}"` : 'the requested offer';
+    const name = displayName;
+    const offerDisplayName = fields.offer_name !== false ? (fields.network ? offerName : cleanOfferName(offerName)) : '';
+    let offerLine = offerDisplayName ? `"${offerDisplayName}"` : 'the requested offer';
     const details: string[] = [];
     if (fields.payout && req?.offer_payout) details.push(`Payout: $${req.offer_payout.toFixed(2)}`);
     if (fields.countries && req?.offer_countries?.length) details.push(`Countries: ${req.offer_countries.slice(0, 5).join(', ')}`);
@@ -272,7 +273,22 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
   return (
     <div className="border rounded-xl overflow-hidden bg-card shadow-sm hover:shadow-md transition-shadow">
       {/* Collapsed row */}
-      <div className="flex items-center gap-3 px-4 py-3 cursor-pointer" onClick={onToggleExpand}>
+      <div
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('button') || target.closest('input')) return;
+          onToggleExpand();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onToggleExpand();
+          }
+        }}
+      >
         <div onClick={e => e.stopPropagation()}>
           <Checkbox checked={isSelected} onCheckedChange={() => onToggleSelect()} />
         </div>
@@ -281,7 +297,7 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm truncate">{pub.username}</span>
+            <span className="font-semibold text-sm truncate">{displayName}</span>
             {risk.lb && <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${risk.bd}`}>{risk.lb}</Badge>}
             <Badge variant="outline" className="text-[10px] px-1.5 py-0">{pub.account_status}</Badge>
             {(pub.mail_sent_today || 0) > 0 && (
@@ -327,13 +343,13 @@ export default function PublisherRow({ pub, isExpanded, isSelected, onToggleExpa
                   {initials}
                 </div>
                 <div className="flex-1 min-w-[200px]">
-                  <h3 className="font-semibold text-base">{pub.first_name} {pub.last_name}</h3>
+                  <h3 className="font-semibold text-base">{displayName}</h3>
                   <p className="text-sm text-muted-foreground">{pub.email}</p>
                   <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />Joined {fd(pub.created_at)}</span>
                     <Badge variant="outline" className="text-[10px]">{pub.account_status}</Badge>
                     {pub.company_name && <span>· {pub.company_name}</span>}
-                    {pub.website && <a href={pub.website} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-blue-500 hover:underline"><ExternalLink className="w-3 h-3" />{pub.website}</a>}
+                    {pub.website && <a href={pub.website} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="flex items-center gap-0.5 text-blue-500 hover:underline"><ExternalLink className="w-3 h-3" />{pub.website}</a>}
                   </div>
                   <div className="mt-1.5">
                     <UserPreferenceBadges user={pub} compact />

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import {
   Search, Users, AlertTriangle, AlertCircle, Sparkles, RefreshCw,
@@ -196,6 +197,13 @@ function AdminOfferAccessRequests() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [sendModal, setSendModal] = useState<{ pub: PProf; offers?: Inv[] } | null>(null);
   const [bulkMsgModal, setBulkMsgModal] = useState<{ mode: 'email' | 'support' } | null>(null);
+  const [detailMetric, setDetailMetric] = useState<string | null>(null);
+  const [detailFilter, setDetailFilter] = useState('all');
+  const [detailSearch, setDetailSearch] = useState('');
+  const [detailItems, setDetailItems] = useState<any[]>([]);
+  const [detailTotalCount, setDetailTotalCount] = useState<number | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState('');
   const token = localStorage.getItem('token');
 
   // Fetch tab counts
@@ -279,6 +287,57 @@ function AdminOfferAccessRequests() {
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   };
+
+  const fetchDetailMetric = useCallback(async () => {
+    if (!detailMetric) return;
+    const serverMetric = detailMetric === 'total_publishers_mailed' ? 'publishers_mailed' : detailMetric;
+    setDetailLoading(true);
+    setDetailError('');
+
+    try {
+      const params = new URLSearchParams({
+        metric: serverMetric,
+        filter: detailFilter,
+        search: detailSearch,
+        limit: '1000'
+      });
+      const res = await fetch(`${API_BASE_URL}/api/admin/email-send-stat-details?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      setDetailItems(data.items || []);
+      setDetailTotalCount(data.total_count);
+    } catch (error) {
+      setDetailError('Failed to load details');
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [detailMetric, detailFilter, detailSearch, token]);
+
+  useEffect(() => {
+    fetchDetailMetric();
+  }, [fetchDetailMetric]);
+
+  const toggleDetailMetric = (metric: string) => {
+    if (detailMetric === metric) {
+      setDetailMetric(null);
+    } else {
+      setDetailMetric(metric);
+      setDetailSearch('');
+      setDetailFilter('all');
+    }
+  };
+
+  const metricLabels: Record<string, { title: string; subtitle: string }> = {
+    total_mails_sent: { title: 'Recent Mail Recipients', subtitle: 'Email recipients and send times' },
+    total_publishers_mailed: { title: 'Publishers Mailed', subtitle: 'Unique publisher recipients' },
+    total_interactions: { title: 'Users Interacted', subtitle: 'Unique interaction sources and dates' },
+    offers_interacted_total: { title: 'Offers Interacted', subtitle: 'Offers that saw interaction' },
+    total_clicks: { title: 'Total Clicks', subtitle: 'Top clicked offers and items' },
+  };
+
+  const activeMetricCount = detailMetric ? (emailStats as Record<string, number>)[detailMetric] : undefined;
 
   const selectedPubs = profiles.filter(p => selectedIds.has(p.user_id));
 
@@ -403,48 +462,203 @@ function AdminOfferAccessRequests() {
                   <p className="text-xl font-bold">{s.value}</p>
                 </Card>
               ))}
-              {/* Email Stats Boxes */}
-              <Card className="p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Mail className="h-4 w-4 text-violet-500" />
-                  <span className="text-xs text-muted-foreground">Mails Sent</span>
-                </div>
-                <p className="text-xl font-bold">{emailStats.total_mails_sent}</p>
-                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_mails_sent}</p>
-              </Card>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <UserCheck className="h-4 w-4 text-indigo-500" />
-                  <span className="text-xs text-muted-foreground">Publishers Mailed</span>
-                </div>
-                <p className="text-xl font-bold">{emailStats.total_publishers_mailed}</p>
-                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_publishers_mailed}</p>
-              </Card>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <MousePointerClick className="h-4 w-4 text-orange-500" />
-                  <span className="text-xs text-muted-foreground">Users Interacted</span>
-                </div>
-                <p className="text-xl font-bold">{emailStats.total_interactions}</p>
-                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_interactions}</p>
-              </Card>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Briefcase className="h-4 w-4 text-cyan-500" />
-                  <span className="text-xs text-muted-foreground">Offers Interacted</span>
-                </div>
-                <p className="text-xl font-bold">{emailStats.offers_interacted_total}</p>
-                <p className="text-[10px] text-green-600 font-medium">today {emailStats.offers_interacted_today}</p>
-              </Card>
-              <Card className="p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingUp className="h-4 w-4 text-pink-500" />
-                  <span className="text-xs text-muted-foreground">Total Clicks</span>
-                </div>
-                <p className="text-xl font-bold">{emailStats.total_clicks}</p>
-                <p className="text-[10px] text-green-600 font-medium">today {emailStats.today_clicks}</p>
-              </Card>
             </div>
+            {/* Email Stats Boxes */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              {[
+                { key: 'total_mails_sent', label: 'Mails Sent', total: emailStats.total_mails_sent, today: emailStats.today_mails_sent, icon: Mail, color: 'text-violet-500' },
+                { key: 'total_publishers_mailed', label: 'Publishers Mailed', total: emailStats.total_publishers_mailed, today: emailStats.today_publishers_mailed, icon: UserCheck, color: 'text-indigo-500' },
+                { key: 'total_interactions', label: 'Users Interacted', total: emailStats.total_interactions, today: emailStats.today_interactions, icon: MousePointerClick, color: 'text-orange-500' },
+                { key: 'offers_interacted_total', label: 'Offers Interacted', total: emailStats.offers_interacted_total, today: emailStats.offers_interacted_today, icon: Briefcase, color: 'text-cyan-500' },
+                { key: 'total_clicks', label: 'Total Clicks', total: emailStats.total_clicks, today: emailStats.today_clicks, icon: TrendingUp, color: 'text-pink-500' },
+              ].map(s => (
+                <Card 
+                  key={s.key} 
+                  className={`p-3 cursor-pointer transition-all duration-200 border-2 ${detailMetric === s.key ? 'border-primary shadow-md bg-primary/5' : 'hover:shadow-md'}`} 
+                  onClick={() => toggleDetailMetric(s.key)}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <s.icon className={`h-4 w-4 ${s.color}`} />
+                    <span className="text-xs text-muted-foreground">{s.label}</span>
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <p className="text-xl font-bold">{s.total}</p>
+                    <p className="text-[10px] text-green-600 font-medium">today {s.today}</p>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Metric Detailed Table (Expandable below cards) */}
+            {detailMetric && (
+              <Card className="border-2 border-primary/20 bg-muted/20 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
+                <div className="p-4 border-b bg-background/50 flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h3 className="font-bold flex items-center gap-2 text-lg">
+                      {metricLabels[detailMetric]?.title}
+                      <Badge variant="secondary">{detailTotalCount ?? 0} records</Badge>
+                    </h3>
+                    <p className="text-sm text-muted-foreground">{metricLabels[detailMetric]?.subtitle}</p>
+                  </div>
+                  
+                  <div className="flex items-center gap-3">
+                    <div className="relative w-64">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input 
+                        placeholder="Search by name, email or offer..." 
+                        value={detailSearch} 
+                        onChange={(e) => setDetailSearch(e.target.value)}
+                        className="pl-9 h-9"
+                      />
+                    </div>
+                    <Select value={detailFilter} onValueChange={setDetailFilter}>
+                      <SelectTrigger className="w-[130px] h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="today">Today</SelectItem>
+                        <SelectItem value="week">This Week</SelectItem>
+                        <SelectItem value="all">All Time</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="sm" onClick={() => setDetailMetric(null)}>Close</Button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto max-h-[500px]">
+                  {detailLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-3">
+                      <RefreshCw className="h-8 w-8 animate-spin text-primary" />
+                      <p className="text-sm text-muted-foreground">Fetching detailed data...</p>
+                    </div>
+                  ) : detailError ? (
+                    <div className="text-center py-20 text-destructive">{detailError}</div>
+                  ) : detailItems.length === 0 ? (
+                    <div className="text-center py-20 text-muted-foreground">No records found matching your criteria.</div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50 sticky top-0 z-10 border-b">
+                        <tr className="text-left font-medium text-muted-foreground">
+                          {detailMetric === 'total_mails_sent' && (
+                            <>
+                              <th className="p-3">Publisher Name</th>
+                              <th className="p-3">Email</th>
+                              <th className="p-3">Offers Sent</th>
+                              <th className="p-3">Sent At</th>
+                              <th className="p-3">Status</th>
+                            </>
+                          )}
+                          {detailMetric === 'total_publishers_mailed' && (
+                            <>
+                              <th className="p-3">Publisher Name</th>
+                              <th className="p-3">Email</th>
+                              <th className="p-3">Total Mails</th>
+                              <th className="p-3">Last Mailed</th>
+                              <th className="p-3">Risk Level</th>
+                            </>
+                          )}
+                          {detailMetric === 'total_interactions' && (
+                            <>
+                              <th className="p-3">User Name</th>
+                              <th className="p-3">Email</th>
+                              <th className="p-3">Action Type</th>
+                              <th className="p-3">Offer Name</th>
+                              <th className="p-3">Exact Date & Time</th>
+                            </>
+                          )}
+                          {detailMetric === 'offers_interacted_total' && (
+                            <>
+                              <th className="p-3">User Name</th>
+                              <th className="p-3">Offer Name</th>
+                              <th className="p-3">Action</th>
+                              <th className="p-3">Date & Time</th>
+                              <th className="p-3">Status</th>
+                            </>
+                          )}
+                          {detailMetric === 'total_clicks' && (
+                            <>
+                              <th className="p-3">User Name</th>
+                              <th className="p-3">Offer Clicked</th>
+                              <th className="p-3">Email</th>
+                              <th className="p-3">Country</th>
+                              <th className="p-3">Date & Time</th>
+                              <th className="p-3">Device</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y bg-background">
+                        {detailItems.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-muted/30 transition-colors">
+                            {detailMetric === 'total_mails_sent' && (
+                              <>
+                                <td className="p-3 font-medium">{item.publisher_name}</td>
+                                <td className="p-3 text-muted-foreground">{item.email}</td>
+                                <td className="p-3"><Badge variant="outline">{item.offers_sent}</Badge></td>
+                                <td className="p-3 text-muted-foreground whitespace-nowrap">{new Date(item.sent_at).toLocaleString()}</td>
+                                <td className="p-3">
+                                  <Badge className={item.status === 'Sent' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}>
+                                    {item.status}
+                                  </Badge>
+                                </td>
+                              </>
+                            )}
+                            {detailMetric === 'total_publishers_mailed' && (
+                              <>
+                                <td className="p-3 font-medium">{item.publisher_name}</td>
+                                <td className="p-3 text-muted-foreground">{item.email}</td>
+                                <td className="p-3"><Badge variant="outline">{item.total_mails_sent}</Badge></td>
+                                <td className="p-3 text-muted-foreground whitespace-nowrap">{new Date(item.last_mailed_at).toLocaleString()}</td>
+                                <td className="p-3">
+                                  <Badge className={
+                                    item.risk_level === 'high_risk' ? 'bg-red-100 text-red-700' : 
+                                    item.risk_level === 'warn' ? 'bg-amber-100 text-amber-700' : 
+                                    'bg-emerald-100 text-emerald-700'
+                                  }>
+                                    {item.risk_level === 'high_risk' ? 'High Risk' : item.risk_level === 'warn' ? 'Warning' : 'Clean'}
+                                  </Badge>
+                                </td>
+                              </>
+                            )}
+                            {detailMetric === 'total_interactions' && (
+                              <>
+                                <td className="p-3 font-medium">{item.user_name}</td>
+                                <td className="p-3 text-muted-foreground">{item.email}</td>
+                                <td className="p-3"><Badge variant="secondary">{item.action}</Badge></td>
+                                <td className="p-3 font-medium">{item.offer_name}</td>
+                                <td className="p-3 text-muted-foreground whitespace-nowrap">{new Date(item.date_time).toLocaleString()}</td>
+                              </>
+                            )}
+                            {detailMetric === 'offers_interacted_total' && (
+                              <>
+                                <td className="p-3 font-medium">{item.user_name}</td>
+                                <td className="p-3 font-medium">{item.offer_name}</td>
+                                <td className="p-3"><Badge variant="outline">{item.action}</Badge></td>
+                                <td className="p-3 text-muted-foreground whitespace-nowrap">{new Date(item.date_time).toLocaleString()}</td>
+                                <td className="p-3 text-green-600 font-medium">{item.status}</td>
+                              </>
+                            )}
+                            {detailMetric === 'total_clicks' && (
+                              <>
+                                <td className="p-3 font-medium">{item.user_name}</td>
+                                <td className="p-3 font-medium">{item.offer_name}</td>
+                                <td className="p-3 text-muted-foreground">{item.email}</td>
+                                <td className="p-3">{item.country}</td>
+                                <td className="p-3 text-muted-foreground whitespace-nowrap">{new Date(item.date_time).toLocaleString()}</td>
+                                <td className="p-3"><Badge variant="secondary">{item.device}</Badge></td>
+                              </>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+                
+                <div className="p-3 border-t bg-muted/30 flex justify-between items-center">
+                  <p className="text-xs text-muted-foreground">Showing {detailItems.length} records</p>
+                  <Button variant="ghost" size="xs" className="h-7 text-xs" onClick={() => setDetailMetric(null)}>Collapse Table</Button>
+                </div>
+              </Card>
+            )}
 
             {/* Filters */}
             <div className="flex flex-wrap items-center gap-3">
@@ -551,6 +765,7 @@ function AdminOfferAccessRequests() {
           defaultMode={bulkMsgModal.mode}
         />
       )}
+
     </div>
   );
 }
