@@ -28,7 +28,7 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def send_test_postback(user_id: str, username: str, offer_name: str, points: float, delay_seconds: int, test_id: str, iteration: int):
+def send_test_postback(user_id: str, username: str, offer_name: str, points: float, delay_seconds: int, test_id: str, iteration: int, click_id: str = '', sub1: str = ''):
     """
     Send a test postback after specified delay
     Runs in background thread
@@ -60,6 +60,7 @@ def send_test_postback(user_id: str, username: str, offer_name: str, points: flo
         test_data = {
             'user_id': username,
             'username': username,
+            'sub1': sub1 or 'test_end_user',
             'offer_name': offer_name,
             'offer_id': f'test_offer_{int(time.time())}',
             'points': str(points),
@@ -67,7 +68,7 @@ def send_test_postback(user_id: str, username: str, offer_name: str, points: flo
             'status': 'approved',
             'conversion_id': f'test_conv_{int(time.time())}',
             'transaction_id': f'test_txn_{int(time.time())}',
-            'click_id': f'test_click_{int(time.time())}',
+            'click_id': click_id or f'test_click_{int(time.time())}',
             'timestamp': str(int(time.time())),
             'test_mode': 'true'
         }
@@ -236,7 +237,9 @@ def send_test_postbacks():
                         float(pb['points']),
                         delay,
                         test_id,
-                        i + 1  # Iteration number (1-based)
+                        i + 1,  # Iteration number (1-based)
+                        pb.get('click_id', ''),
+                        pb.get('sub1', '')
                     )
                 )
                 thread.daemon = True
@@ -260,15 +263,23 @@ def send_test_postbacks():
 @token_required
 @admin_required
 def get_publishers_with_postback():
-    """Get all registered users/publishers with postback URLs configured"""
+    """Get all users from database (all roles) for simulation and test postback features"""
     try:
         users_collection = db_instance.get_collection('users')
         
-        # Find users with postback URLs (these are downward partners/publishers)
-        users = list(users_collection.find({
-            'postback_url': {'$exists': True, '$ne': ''},
-            'role': {'$ne': 'admin'}  # Exclude admins
-        }).sort('username', 1))
+        # Optional search query
+        search = request.args.get('search', '').strip()
+        
+        # Build query — return ALL users (all roles)
+        query = {}
+        if search:
+            query['$or'] = [
+                {'username': {'$regex': search, '$options': 'i'}},
+                {'email': {'$regex': search, '$options': 'i'}}
+            ]
+        
+        # Fetch all users sorted by username
+        users = list(users_collection.find(query).sort('username', 1))
         
         # Format response
         publishers = []
@@ -279,7 +290,8 @@ def get_publishers_with_postback():
                 'email': user.get('email', ''),
                 'postback_url': user.get('postback_url', ''),
                 'postback_method': user.get('postback_method', 'GET'),
-                'status': user.get('status', 'active')
+                'status': user.get('status', 'active'),
+                'role': user.get('role', 'publisher')
             })
         
         return jsonify({
@@ -323,6 +335,367 @@ def get_test_postback_logs():
     except Exception as e:
         logger.error(f"❌ Error fetching test postback logs: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+@test_postback_bp.route('/test-postback/simulate-conversion', methods=['POST'])
+@token_required
+@admin_required
+def simulate_conversion():
+    """
+    Simulate a full end-to-end conversion flow.
+    Takes a click_id, fires the real postback pipeline, and returns step-by-step results.
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        click_id = data.get('click_id', '').strip()
+        payout = data.get('payout')
+        override_postback_url = data.get('override_postback_url', '').strip()
+        
+        if not click_id:
+            return jsonify({'error': 'click_id is required'}), 400
+        if payout is None or float(payout) <= 0:
+            return jsonify({'error': 'payout must be greater than 0'}), 400
+        
+        payout = float(payout)
+        steps = []
+        
+        # Step 1: Find the click
+        clicks_collection = db_instance.get_collection('clicks')
+        click = clicks_collection.find_one({'click_id': click_id})
+        
+        if not click:
+            steps.append({'step': 'Find Click', 'status': 'failed', 'detail': f'Click ID "{click_id}" not found in database'})
+            return jsonify({'success': False, 'steps': steps}), 404
+        
+        steps.append({
+            'step': 'Find Click',
+            'status': 'success',
+            'detail': f'Click found — offer_id: {click.get("offer_id", "N/A")}, user: {click.get("user_id", "N/A")}, placement: {click.get("placement_id", "N/A")}'
+        })
+        
+        offer_id = click.get('offer_id', '')
+        user_id_from_click = click.get('user_id', '') or click.get('username', '')
+        
+        # Step 2: Check if click already has a conversion (warn but proceed)
+        conversions_collection = db_instance.get_collection('conversions')
+        existing_conv = conversions_collection.find_one({'click_id': click_id})
+        if existing_conv:
+            steps.append({
+                'step': 'Duplicate Check',
+                'status': 'warning',
+                'detail': f'This click already has conversion {existing_conv.get("conversion_id")}. Simulation will be blocked by the pipeline duplicate check. Use a different click_id.'
+            })
+            return jsonify({'success': False, 'steps': steps, 'error': 'Click already has a conversion'}), 409
+        
+        steps.append({'step': 'Duplicate Check', 'status': 'success', 'detail': 'No existing conversion for this click'})
+        
+        # Step 3: Find the partner key to fire the postback through the real pipeline
+        # We need any valid partner key to hit the /postback/<key> endpoint
+        partners_collection = db_instance.get_collection('partners')
+        partner = partners_collection.find_one({'status': 'active', 'unique_postback_key': {'$exists': True, '$ne': ''}})
+        
+        if not partner:
+            # Create a temporary test partner key
+            import secrets as sec
+            temp_key = sec.token_urlsafe(24)
+            partners_collection.insert_one({
+                'partner_id': f'test_sim_{int(time.time())}',
+                'partner_name': 'Admin Test Simulation Partner',
+                'unique_postback_key': temp_key,
+                'status': 'active',
+                'is_test_partner': True,
+                'created_at': datetime.utcnow()
+            })
+            partner_key = temp_key
+        else:
+            partner_key = partner['unique_postback_key']
+        
+        # Step 4: If override_postback_url is provided, temporarily set it on the user
+        users_collection = db_instance.get_collection('users')
+        original_postback_url = None
+        publisher_user = None
+        
+        if user_id_from_click:
+            try:
+                publisher_user = users_collection.find_one({'_id': ObjectId(user_id_from_click)})
+            except:
+                publisher_user = users_collection.find_one({'username': user_id_from_click})
+            
+            if not publisher_user:
+                # Try via placement
+                placement_id = click.get('placement_id', '')
+                if placement_id and placement_id != 'default':
+                    placements_collection = db_instance.get_collection('placements')
+                    try:
+                        placement = placements_collection.find_one({'_id': ObjectId(placement_id)})
+                    except:
+                        placement = None
+                    if placement:
+                        owner_id = placement.get('created_by') or placement.get('user_id')
+                        if owner_id:
+                            try:
+                                publisher_user = users_collection.find_one({'_id': ObjectId(owner_id)})
+                            except:
+                                pass
+        
+        if override_postback_url and publisher_user:
+            original_postback_url = publisher_user.get('postback_url', '')
+            users_collection.update_one(
+                {'_id': publisher_user['_id']},
+                {'$set': {'postback_url': override_postback_url}}
+            )
+            steps.append({
+                'step': 'Override Postback URL',
+                'status': 'success',
+                'detail': f'Temporarily set postback URL to: {override_postback_url}'
+            })
+        
+        # Step 5: Fire the real postback receiver endpoint internally
+        transaction_id = f'TEST-{int(time.time())}'
+        
+        try:
+            # Build the internal request to the postback receiver
+            # We call the endpoint directly via Flask's test client or internal function
+            from flask import current_app
+            
+            postback_params = {
+                'click_id': click_id,
+                'payout': str(payout),
+                'status': 'approved',
+                'offer_id': offer_id,
+                'transaction_id': transaction_id,
+                'event_type': 'conversion',
+                'user_id': user_id_from_click,
+                'sub_id1': click.get('sub_id1', ''),
+                'sub_id2': click.get('sub_id2', ''),
+                'sub_id3': click.get('sub_id3', ''),
+            }
+            
+            # Use Flask test client to fire the real endpoint
+            with current_app.test_client() as client:
+                resp = client.get(
+                    f'/postback/{partner_key}',
+                    query_string=postback_params
+                )
+                
+                response_data = resp.get_json() if resp.content_type and 'json' in resp.content_type else {}
+                pipeline_success = resp.status_code == 200
+            
+            if pipeline_success:
+                steps.append({
+                    'step': 'Postback Pipeline',
+                    'status': 'success',
+                    'detail': f'Postback processed through real pipeline (status {resp.status_code})'
+                })
+            else:
+                steps.append({
+                    'step': 'Postback Pipeline',
+                    'status': 'failed',
+                    'detail': f'Pipeline returned status {resp.status_code}: {response_data.get("message", "Unknown error")}'
+                })
+        
+        except Exception as pipeline_err:
+            steps.append({
+                'step': 'Postback Pipeline',
+                'status': 'failed',
+                'detail': f'Pipeline error: {str(pipeline_err)}'
+            })
+            pipeline_success = False
+        
+        # Step 6: Check if conversion was created
+        new_conv = conversions_collection.find_one({'click_id': click_id})
+        if new_conv:
+            # Mark it as admin test simulation
+            conversions_collection.update_one(
+                {'_id': new_conv['_id']},
+                {'$set': {'source': 'admin_test_simulation', 'simulated_at': datetime.utcnow()}}
+            )
+            steps.append({
+                'step': 'Conversion Created',
+                'status': 'success',
+                'detail': f'Conversion {new_conv.get("conversion_id")} created successfully'
+            })
+        else:
+            steps.append({
+                'step': 'Conversion Created',
+                'status': 'failed',
+                'detail': 'No conversion was created by the pipeline'
+            })
+        
+        # Step 7: Check balance update
+        balance_updated = False
+        balance_amount = 0
+        if new_conv and publisher_user:
+            updated_user = users_collection.find_one({'_id': publisher_user['_id']})
+            if updated_user:
+                old_points = publisher_user.get('total_points', 0) or 0
+                new_points = updated_user.get('total_points', 0) or 0
+                balance_amount = round(new_points - old_points, 2)
+                if balance_amount > 0:
+                    balance_updated = True
+                    steps.append({
+                        'step': 'Balance Updated',
+                        'status': 'success',
+                        'detail': f'+${balance_amount:.2f} added to {updated_user.get("username", "publisher")}'
+                    })
+                else:
+                    steps.append({
+                        'step': 'Balance Updated',
+                        'status': 'warning',
+                        'detail': f'No balance change detected (old: {old_points}, new: {new_points})'
+                    })
+        elif new_conv:
+            steps.append({
+                'step': 'Balance Updated',
+                'status': 'warning',
+                'detail': 'Could not verify balance update — publisher user not identified'
+            })
+        
+        # Step 8: Check postback forwarding
+        forwarded_collection = db_instance.get_collection('forwarded_postbacks')
+        fwd_record = forwarded_collection.find_one({'click_id': click_id, 'conversion_id': new_conv.get('conversion_id') if new_conv else ''})
+        
+        if fwd_record:
+            fwd_status = fwd_record.get('forward_status', 'unknown')
+            fwd_url = fwd_record.get('forward_url', 'N/A')
+            fwd_code = fwd_record.get('response_code', 'N/A')
+            
+            if fwd_status == 'success':
+                steps.append({
+                    'step': 'Postback Forwarded',
+                    'status': 'success',
+                    'detail': f'Forwarded to {fwd_url} ({fwd_code} OK)'
+                })
+            elif fwd_status == 'no_url':
+                steps.append({
+                    'step': 'Postback Forwarded',
+                    'status': 'warning',
+                    'detail': 'Publisher has no postback URL configured — conversion recorded without forwarding'
+                })
+            else:
+                steps.append({
+                    'step': 'Postback Forwarded',
+                    'status': 'failed',
+                    'detail': f'Forward failed to {fwd_url} (status: {fwd_code})'
+                })
+        elif new_conv:
+            # Check if there's a forwarded record by conversion_id
+            fwd_record2 = forwarded_collection.find_one({'conversion_id': new_conv.get('conversion_id')})
+            if fwd_record2:
+                fwd_status = fwd_record2.get('forward_status', 'unknown')
+                fwd_url = fwd_record2.get('forward_url', 'N/A')
+                fwd_code = fwd_record2.get('response_code', 'N/A')
+                steps.append({
+                    'step': 'Postback Forwarded',
+                    'status': 'success' if fwd_status == 'success' else 'warning',
+                    'detail': f'Forwarded to {fwd_url} (status: {fwd_code})'
+                })
+            else:
+                steps.append({
+                    'step': 'Postback Forwarded',
+                    'status': 'warning',
+                    'detail': 'No forwarding record found — publisher may not have a postback URL'
+                })
+        
+        # Step 9: Restore original postback URL if we overrode it
+        if override_postback_url and publisher_user and original_postback_url is not None:
+            users_collection.update_one(
+                {'_id': publisher_user['_id']},
+                {'$set': {'postback_url': original_postback_url}}
+            )
+            steps.append({
+                'step': 'Restore Postback URL',
+                'status': 'success',
+                'detail': f'Restored original postback URL for publisher'
+            })
+        
+        # Mark the conversion source for cleanup
+        if new_conv:
+            conversions_collection.update_one(
+                {'_id': new_conv['_id']},
+                {'$set': {'source': 'admin_test_simulation'}}
+            )
+        
+        overall_success = pipeline_success and new_conv is not None
+        
+        return jsonify({
+            'success': overall_success,
+            'steps': steps,
+            'conversion_id': new_conv.get('conversion_id') if new_conv else None,
+            'transaction_id': transaction_id,
+            'balance_change': balance_amount if balance_updated else 0
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error in simulate_conversion: {str(e)}", exc_info=True)
+        
+        # Restore postback URL on error
+        if 'override_postback_url' in locals() and override_postback_url and 'publisher_user' in locals() and publisher_user and 'original_postback_url' in locals() and original_postback_url is not None:
+            try:
+                users_collection = db_instance.get_collection('users')
+                users_collection.update_one(
+                    {'_id': publisher_user['_id']},
+                    {'$set': {'postback_url': original_postback_url}}
+                )
+            except:
+                pass
+        
+        return jsonify({'error': str(e), 'steps': steps if 'steps' in locals() else []}), 500
+
+
+@test_postback_bp.route('/test-postback/publisher-clicks/<user_id>', methods=['GET'])
+@token_required
+@admin_required
+def get_publisher_recent_clicks(user_id):
+    """
+    Get the last 10 clicks for a specific publisher.
+    Used by the Simulate Conversion UI to let admin pick a click.
+    """
+    try:
+        clicks_collection = db_instance.get_collection('clicks')
+        conversions_collection = db_instance.get_collection('conversions')
+        
+        # Find clicks for this user (by user_id field which stores the ObjectId as string)
+        query = {'$or': [
+            {'user_id': user_id},
+            {'username': user_id}
+        ]}
+        
+        # Also try with ObjectId
+        try:
+            query['$or'].append({'user_id': ObjectId(user_id)})
+        except:
+            pass
+        
+        clicks = list(clicks_collection.find(query).sort('timestamp', -1).limit(10))
+        
+        result = []
+        for click in clicks:
+            click_id = click.get('click_id', '')
+            
+            # Check if this click already has a conversion
+            has_conversion = conversions_collection.find_one({'click_id': click_id}) is not None
+            
+            result.append({
+                'click_id': click_id,
+                'offer_id': click.get('offer_id', ''),
+                'sub1': click.get('sub_id1', '') or click.get('sub1', ''),
+                'timestamp': click.get('timestamp', ''),
+                'has_conversion': has_conversion,
+                'country': click.get('country', ''),
+                'device_type': click.get('device_type', ''),
+                'placement_id': click.get('placement_id', '')
+            })
+        
+        return jsonify({'clicks': result}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching publisher clicks: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
 
 @test_postback_bp.route('/test-postback/logs/<test_id>', methods=['GET'])
 @token_required

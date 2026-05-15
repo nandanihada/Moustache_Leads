@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, Send, Clock, CheckCircle, XCircle, Loader2, Users, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Send, Clock, CheckCircle, XCircle, Loader2, Users, RefreshCw, Zap, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface Publisher {
@@ -14,6 +14,24 @@ interface Publisher {
   postback_url: string;
   postback_method: string;
   status: string;
+  role: string;
+}
+
+interface RecentClick {
+  click_id: string;
+  offer_id: string;
+  sub1: string;
+  timestamp: string;
+  has_conversion: boolean;
+  country: string;
+  device_type: string;
+  placement_id: string;
+}
+
+interface SimulationStep {
+  step: string;
+  status: 'success' | 'failed' | 'warning';
+  detail: string;
 }
 
 interface TestPostback {
@@ -22,6 +40,8 @@ interface TestPostback {
   username: string;
   offer_name: string;
   points: string;
+  click_id: string;
+  sub1: string;
   count: string;
   interval_seconds: string;
 }
@@ -46,12 +66,24 @@ const AdminTestPostback = () => {
   const { toast } = useToast();
   const [publishers, setPublishers] = useState<Publisher[]>([]);
   const [testPostbacks, setTestPostbacks] = useState<TestPostback[]>([
-    { id: '1', user_id: '', username: '', offer_name: '', points: '', count: '5', interval_seconds: '10' }
+    { id: '1', user_id: '', username: '', offer_name: '', points: '', click_id: '', sub1: '', count: '5', interval_seconds: '10' }
   ]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [logs, setLogs] = useState<TestLog[]>([]);
   const [currentTestId, setCurrentTestId] = useState<string | null>(null);
+
+  // Simulate Conversion state
+  const [simPublisherId, setSimPublisherId] = useState('');
+  const [simRecentClicks, setSimRecentClicks] = useState<RecentClick[]>([]);
+  const [simSelectedClick, setSimSelectedClick] = useState('');
+  const [simManualClickId, setSimManualClickId] = useState('');
+  const [simPayout, setSimPayout] = useState('');
+  const [simOverrideUrl, setSimOverrideUrl] = useState('');
+  const [simLoading, setSimLoading] = useState(false);
+  const [simClicksLoading, setSimClicksLoading] = useState(false);
+  const [simResults, setSimResults] = useState<SimulationStep[] | null>(null);
+  const [userSearch, setUserSearch] = useState('');
 
   useEffect(() => {
     fetchPublishers();
@@ -95,6 +127,98 @@ const AdminTestPostback = () => {
     }
   };
 
+  const fetchPublisherClicks = async (userId: string) => {
+    try {
+      setSimClicksLoading(true);
+      setSimRecentClicks([]);
+      setSimSelectedClick('');
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const token = localStorage.getItem('token');
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/test-postback/publisher-clicks/${userId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch clicks');
+
+      const data = await response.json();
+      setSimRecentClicks(data.clicks || []);
+    } catch (error) {
+      console.error('Error fetching publisher clicks:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to load recent clicks for this publisher',
+        variant: 'destructive'
+      });
+    } finally {
+      setSimClicksLoading(false);
+    }
+  };
+
+  const handleSimPublisherChange = (userId: string) => {
+    setSimPublisherId(userId);
+    setSimResults(null);
+    if (userId) {
+      fetchPublisherClicks(userId);
+    } else {
+      setSimRecentClicks([]);
+      setSimSelectedClick('');
+    }
+  };
+
+  const runSimulation = async () => {
+    const clickId = simSelectedClick || simManualClickId.trim();
+    
+    if (!clickId) {
+      toast({ title: 'Validation Error', description: 'Please select a click or enter a Click ID', variant: 'destructive' });
+      return;
+    }
+    if (!simPayout || parseFloat(simPayout) <= 0) {
+      toast({ title: 'Validation Error', description: 'Please enter a valid payout amount greater than 0', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setSimLoading(true);
+      setSimResults(null);
+      const { API_BASE_URL } = await import('../services/apiConfig');
+      const token = localStorage.getItem('token');
+
+      const payload: any = {
+        click_id: clickId,
+        payout: parseFloat(simPayout)
+      };
+      if (simOverrideUrl.trim()) {
+        payload.override_postback_url = simOverrideUrl.trim();
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/admin/test-postback/simulate-conversion`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await response.json();
+      setSimResults(data.steps || []);
+
+      if (data.success) {
+        toast({ title: 'Simulation Complete', description: `Conversion ${data.conversion_id} created successfully` });
+      } else {
+        toast({ title: 'Simulation Issue', description: data.error || 'Check the step-by-step results below', variant: 'destructive' });
+      }
+    } catch (error: any) {
+      console.error('Simulation error:', error);
+      toast({ title: 'Error', description: error.message || 'Failed to run simulation', variant: 'destructive' });
+    } finally {
+      setSimLoading(false);
+    }
+  };
+
   const fetchTestLogs = async (testId: string) => {
     try {
       const { API_BASE_URL } = await import('../services/apiConfig');
@@ -119,7 +243,7 @@ const AdminTestPostback = () => {
     const newId = (testPostbacks.length + 1).toString();
     setTestPostbacks([
       ...testPostbacks,
-      { id: newId, user_id: '', username: '', offer_name: '', points: '', count: '5', interval_seconds: '10' }
+      { id: newId, user_id: '', username: '', offer_name: '', points: '', click_id: '', sub1: '', count: '5', interval_seconds: '10' }
     ]);
   };
 
@@ -209,6 +333,8 @@ const AdminTestPostback = () => {
           username: pb.username,
           offer_name: pb.offer_name,
           points: parseFloat(pb.points),
+          click_id: pb.click_id || `test_click_${Date.now()}`,
+          sub1: pb.sub1 || 'test_end_user',
           count: parseInt(pb.count),
           interval_seconds: parseInt(pb.interval_seconds)
         }))
@@ -271,6 +397,156 @@ const AdminTestPostback = () => {
 
       <Card>
         <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-amber-500" />
+            Simulate Conversion
+          </CardTitle>
+          <CardDescription>
+            Simulate a full end-to-end conversion flow through the real postback pipeline. Select a publisher's click and fire a test conversion.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Publisher Selection with Search */}
+            <div className="space-y-2">
+              <Label>Select User</Label>
+              <Input
+                placeholder="Search by username or email..."
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                className="mb-1"
+              />
+              <Select value={simPublisherId} onValueChange={handleSimPublisherChange} disabled={loading}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose a user..." />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {publishers
+                    .filter(pub => {
+                      if (!userSearch.trim()) return true;
+                      const q = userSearch.toLowerCase();
+                      return pub.username.toLowerCase().includes(q) || pub.email.toLowerCase().includes(q);
+                    })
+                    .map(pub => (
+                      <SelectItem key={pub.user_id} value={pub.user_id}>
+                        {pub.username} <span className="text-xs text-muted-foreground ml-1">({pub.role})</span> {pub.postback_url ? '✓' : ''}
+                      </SelectItem>
+                    ))}
+                  {publishers.filter(pub => {
+                    if (!userSearch.trim()) return true;
+                    const q = userSearch.toLowerCase();
+                    return pub.username.toLowerCase().includes(q) || pub.email.toLowerCase().includes(q);
+                  }).length === 0 && (
+                    <div className="p-2 text-sm text-muted-foreground">No users found</div>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Recent Click Selection */}
+            <div className="space-y-2">
+              <Label>Select Recent Click</Label>
+              <Select
+                value={simSelectedClick}
+                onValueChange={(val) => { setSimSelectedClick(val); setSimManualClickId(''); }}
+                disabled={!simPublisherId || simClicksLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={simClicksLoading ? 'Loading clicks...' : 'Choose a click...'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {simRecentClicks.length === 0 && !simClicksLoading && (
+                    <div className="p-2 text-sm text-muted-foreground">No recent clicks found</div>
+                  )}
+                  {simRecentClicks.map(click => (
+                    <SelectItem
+                      key={click.click_id}
+                      value={click.click_id}
+                      disabled={click.has_conversion}
+                    >
+                      <span className={click.has_conversion ? 'line-through text-muted-foreground' : ''}>
+                        {click.click_id.substring(0, 16)}... | {click.offer_id} | {click.sub1 || 'no sub1'} | {new Date(click.timestamp).toLocaleDateString()}
+                      </span>
+                      {click.has_conversion && <span className="ml-2 text-xs text-red-500">(already converted)</span>}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Manual Click ID */}
+            <div className="space-y-2">
+              <Label>OR Enter Click ID Manually</Label>
+              <Input
+                placeholder="e.g., CLK-abc123def456"
+                value={simManualClickId}
+                onChange={(e) => { setSimManualClickId(e.target.value); setSimSelectedClick(''); }}
+              />
+            </div>
+
+            {/* Payout Amount */}
+            <div className="space-y-2">
+              <Label>Payout Amount ($) *</Label>
+              <Input
+                type="number"
+                placeholder="e.g., 5.00"
+                value={simPayout}
+                onChange={(e) => setSimPayout(e.target.value)}
+                min="0.01"
+                step="0.01"
+              />
+            </div>
+
+            {/* Override Postback URL */}
+            <div className="space-y-2 md:col-span-2">
+              <Label>Override Postback URL (optional)</Label>
+              <Input
+                placeholder="e.g., https://webhook.site/your-unique-id — leave empty to use publisher's saved URL"
+                value={simOverrideUrl}
+                onChange={(e) => setSimOverrideUrl(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                If provided, this URL will be used for forwarding instead of the publisher's saved postback URL (only for this test).
+              </p>
+            </div>
+          </div>
+
+          <Button onClick={runSimulation} disabled={simLoading} className="bg-amber-600 hover:bg-amber-700">
+            {simLoading ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Simulating...
+              </>
+            ) : (
+              <>
+                <Zap className="h-4 w-4 mr-2" />
+                Simulate Conversion
+              </>
+            )}
+          </Button>
+
+          {/* Simulation Results */}
+          {simResults && (
+            <div className="mt-4 space-y-2 border rounded-lg p-4 bg-muted/30">
+              <h4 className="font-semibold text-sm mb-3">Simulation Results</h4>
+              {simResults.map((step, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-sm">
+                  {step.status === 'success' && <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />}
+                  {step.status === 'failed' && <XCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />}
+                  {step.status === 'warning' && <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5 shrink-0" />}
+                  <div>
+                    <span className="font-medium">{step.step}</span>
+                    <span className="text-muted-foreground ml-2">— {step.detail}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Configure Test Postbacks</CardTitle>
           <CardDescription>
             Add multiple publisher configurations. Each can send multiple postbacks with custom intervals in seconds.
@@ -280,7 +556,7 @@ const AdminTestPostback = () => {
           {testPostbacks.map((pb, index) => (
             <Card key={pb.id} className="p-4">
               <div className="flex items-start gap-4">
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-4">
                   <div className="space-y-2">
                     <Label>Publisher *</Label>
                     <Select
@@ -338,10 +614,28 @@ const AdminTestPostback = () => {
                   </div>
 
                   <div className="space-y-2">
+                    <Label>Click ID</Label>
+                    <Input
+                      placeholder="e.g., CLK-ABC123"
+                      value={pb.click_id}
+                      onChange={(e) => updatePostback(pb.id, 'click_id', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>End User (sub1)</Label>
+                    <Input
+                      placeholder="e.g., user123"
+                      value={pb.sub1}
+                      onChange={(e) => updatePostback(pb.id, 'sub1', e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
                     <Label>Count *</Label>
                     <Input
                       type="number"
-                      placeholder="e.g., 5"
+                      placeholder="5"
                       value={pb.count}
                       onChange={(e) => updatePostback(pb.id, 'count', e.target.value)}
                       min="1"
@@ -353,7 +647,7 @@ const AdminTestPostback = () => {
                     <Label>Interval (seconds) *</Label>
                     <Input
                       type="number"
-                      placeholder="e.g., 10"
+                      placeholder="10"
                       value={pb.interval_seconds}
                       onChange={(e) => updatePostback(pb.id, 'interval_seconds', e.target.value)}
                       min="0"
