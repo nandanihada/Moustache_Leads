@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,18 +8,32 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Separator } from '@/components/ui/separator';
 import {
   MessageSquare, Send, Users, Mail, Phone,
   Search, Filter, Plus, Clock, CheckCircle,
   AlertCircle, Hash, Globe,
   LayoutDashboard, UserCheck, MessageCircle, MapPin, Tag, XCircle, Edit3, Eye, Save, Loader2, Reply,
-  Sparkles, Layout, Inbox, Settings, Zap, ChevronLeft, ChevronRight, X, Activity, Cpu
+  Sparkles, Layout, Inbox, Settings, Zap, ChevronLeft, ChevronRight, X, Activity, Cpu, ExternalLink,
+  ListTodo, Package, Play, Pause, Trash2
 } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { supportHubService, SupportTemplate, SupportConversation, SupportMessage } from '../services/supportHubService';
 import loginLogsService from '@/services/loginLogsService';
+import { useAuth } from '@/contexts/AuthContext';
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
+import { Switch } from '@/components/ui/switch';
+import { offerQueueService, OfferQueueItem } from '@/services/offerQueueService';
+import { adminOfferApi } from '@/services/adminOfferApi';
+
+const formatTimeAgo = (date: any) => {
+  if (!date) return '—';
+  try { return formatDistanceToNow(new Date(date), { addSuffix: true }); }
+  catch (e) { return String(date); }
+};
 
 const normalizeVertical = (v: any): string => {
   if (!v) return '';
@@ -85,19 +99,21 @@ const getVerticalsArray = (user: any): string[] => {
 export const SupportHubContent: React.FC<{
   onClose?: () => void;
   initialUsers?: any[];
+  initialSelectedIds?: Set<string>;
   apiUrl?: string;
   className?: string;
-}> = ({ onClose, initialUsers, apiUrl, className }) => {
+}> = ({ onClose, initialUsers, initialSelectedIds, apiUrl, className }) => {
   const BASE_API_URL = apiUrl || import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const [activeTab, setActiveTab] = useState('explorer');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'replies'>('replies');
   const [loading, setLoading] = useState(true);
+  const { user: currentUser } = useAuth();
   const [allSupportUsers, setAllSupportUsers] = useState<any[]>(initialUsers || []);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [templates, setTemplates] = useState<SupportTemplate[]>([]);
   const [conversations, setConversations] = useState<SupportConversation[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [initialFilterActive, setInitialFilterActive] = useState(false);
+  const [initialFilterActive, setInitialFilterActive] = useState(!!initialUsers);
   const [channelConnections, setChannelConnections] = useState<Record<string, boolean>>({
     'Telegram': false,
     'Teams': false,
@@ -106,10 +122,24 @@ export const SupportHubContent: React.FC<{
   });
 
   const toggleSelectAll = () => {
-    if (selectedUsers.size === filteredUsers.length && filteredUsers.length > 0) {
-      setSelectedUsers(new Set());
+    // Check if ALL currently filtered users are already selected
+    const allFilteredSelected = filteredUsers.length > 0 && 
+      filteredUsers.every(u => selectedUsers.has(String(u.user_id || u._id)));
+
+    if (allFilteredSelected) {
+      // If all are selected, deselect only these filtered users
+      setSelectedUsers(prev => {
+        const next = new Set(prev);
+        filteredUsers.forEach(u => next.delete(String(u.user_id || u._id)));
+        return next;
+      });
     } else {
-      setSelectedUsers(new Set(filteredUsers.map(u => String(u.user_id || u._id))));
+      // Otherwise, add all filtered users to the selection
+      setSelectedUsers(prev => {
+        const next = new Set(prev);
+        filteredUsers.forEach(u => next.add(String(u.user_id || u._id)));
+        return next;
+      });
     }
   };
 
@@ -145,9 +175,315 @@ export const SupportHubContent: React.FC<{
   const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewSamples, setPreviewSamples] = useState<any[]>([]);
-  const [personalOverrides, setPersonalOverrides] = useState<Record<string, { subject: string; body: string }>>({});
+  const [userQueueItems, setUserQueueItems] = useState<OfferQueueItem[]>([]);
+  const [selectedQueueOfferIds, setSelectedQueueOfferIds] = useState<Set<string>>(new Set());
+  const [visibleFields, setVisibleFields] = useState({
+    payout: true,
+    vertical: true,
+    country: true,
+    description: false
+  });
+
   const [previewIdx, setPreviewIdx] = useState(0);
+  const [personalOverrides, setPersonalOverrides] = useState<Record<string, { subject: string; body: string }>>({});
+  const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set());
   const [emailSubject, setEmailSubject] = useState('Recommended Offers');
+  const [automationQueue, setAutomationQueue] = useState<any[]>([]);
+  const [currentAutomationItem, setCurrentAutomationItem] = useState<any>(null);
+
+  const [matchedOffers, setMatchedOffers] = useState<any[]>([]);
+  const [isLoadingMatched, setIsLoadingMatched] = useState(false);
+  const lastUserRef = useRef<string | null>(null);
+
+  const combinedOffers = useMemo(() => {
+    const selectedIdsArr = Array.from(selectedUsers);
+    const currentUserId = selectedIdsArr[previewIdx];
+    
+    // Combine queue items, intelligence matched offers, and BACKEND automation offers for ALL SELECTED USERS
+    const offers: any[] = [];
+    const seenOfferUserKeys = new Set<string>();
+
+    // 1. Add Frontend Queue Items for all selected users
+    userQueueItems.forEach(q => {
+      if (selectedUsers.has(String(q.userId)) && q.status === 'queued') {
+        const offerId = q.offerId || q.id;
+        if (offerId && !seenOfferUserKeys.has(String(offerId))) {
+          seenOfferUserKeys.add(String(offerId));
+          offers.push({
+            ...q,
+            id: String(offerId)
+          });
+        }
+      }
+    });
+
+    // 2. Add Backend Automation Offers for all selected users
+    selectedIdsArr.forEach(uId => {
+      const autoItem = automationQueue.find(q => String(q.user_id) === uId);
+      const userProfile = allSupportUsers.find(u => String(u.user_id || u._id) === uId);
+      
+      if (autoItem?.next_offers && Array.isArray(autoItem.next_offers)) {
+        autoItem.next_offers.forEach((o: any) => {
+          const offerId = o.id || o.offer_id;
+          if (offerId && !seenOfferUserKeys.has(String(offerId))) {
+            seenOfferUserKeys.add(String(offerId));
+            offers.push({
+              ...o,
+              id: String(offerId),
+              userId: uId,
+              username: userProfile?.username || 'User',
+              offerId: String(offerId),
+              offerName: o.name || o.offer_name || 'Automation Offer',
+              payout: o.payout,
+              vertical: o.vertical || o.category || 'Global',
+              status: 'queued',
+              isBackendAuto: true,
+              sendMode: 'combined',
+              addedAt: Date.now(),
+              scheduledTime: Date.now(),
+              matchScore: 100 // Priority
+            });
+          }
+        });
+      }
+    });
+
+    // 3. Add Intelligence Matches for the CURRENT preview user (for precision)
+    matchedOffers.forEach(mo => {
+      const offerId = mo.id || mo.offer_id;
+      if (offerId && !seenOfferUserKeys.has(String(offerId))) {
+        seenOfferUserKeys.add(String(offerId));
+        offers.push({
+          ...mo,
+          id: String(offerId),
+          userId: String(currentUserId),
+          username: allSupportUsers.find(u => String(u.user_id || u._id) === String(currentUserId))?.username || 'User',
+          offerId: String(offerId),
+          offerName: mo.offerName || mo.name || mo.offer_name || 'Matched Offer',
+          payout: mo.payout,
+          vertical: mo.category || mo.vertical || 'Global',
+          status: 'queued',
+          isIntelligence: true,
+          sendMode: 'combined',
+          addedAt: Date.now(),
+          scheduledTime: Date.now()
+        });
+      }
+    });
+
+    // Final sorting to ensure Backend/Priority is at top
+    offers.sort((a, b) => ((b as any).matchScore || 0) - ((a as any).matchScore || 0));
+    return offers;
+  }, [userQueueItems, automationQueue, matchedOffers, selectedUsers, previewIdx, allSupportUsers]);
+
+  // Load queue items, intelligence-matched offers, and backend automation state for selected users
+  useEffect(() => {
+    let active = true;
+    const fetchOffers = async () => {
+      if (selectedUsers.size > 0) {
+        const currentUserId = Array.from(selectedUsers)[previewIdx];
+        if (!currentUserId) return;
+
+        const isNewUser = lastUserRef.current !== currentUserId;
+        lastUserRef.current = currentUserId;
+
+        // Immediately clear previous matched offers to show fresh state for new user
+        if (isNewUser) {
+          setMatchedOffers([]);
+        }
+
+        const q = offerQueueService.getQueue();
+        setUserQueueItems(q);
+
+        const token = localStorage.getItem('token');
+        
+        // Prepare initial selection for NEW users only
+        const userOffers = q.filter(item => String(item.userId) === String(currentUserId) && item.status === 'queued');
+        const initialSelected = new Set(userOffers.map(o => String(o.id || o.offerId)));
+
+        const currentUserProfile = allSupportUsers.find(u => String(u.user_id || u._id) === String(currentUserId));
+
+          // Fetch intelligence matched offers, Backend Automation state, and User Signals in parallel
+          setIsLoadingMatched(true);
+          try {
+            // Check if we already have automation data in the global queue to provide immediate context
+            const globalAutoItem = automationQueue.find(q => String(q.user_id) === String(currentUserId));
+            if (globalAutoItem) {
+              setCurrentAutomationItem(globalAutoItem);
+            }
+
+            const [intelRes, autoRes, signalsRes, viewsRes, fallbackRes] = await Promise.all([
+              loginLogsService.getInventoryMatchedOffers(currentUserId).catch(() => ({})),
+              fetch(`${BASE_API_URL}/api/admin/automation/queue/${currentUserId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+              }).then(r => r.json()).catch(() => ({ item: null })),
+              loginLogsService.getUserSignals(currentUserId, currentUserProfile?.username || '', currentUserProfile?.email || '').catch(() => null),
+              loginLogsService.getOfferViews(currentUserId).catch(() => ({ logs: [] })),
+              adminOfferApi.getOffers({ status: 'active', per_page: 6 }).catch(() => ({ offers: [] }))
+            ]);
+
+            if (!active) return; 
+
+            let currentSessionVerticals = null;
+            if (viewsRes?.logs && viewsRes.logs.length > 0) {
+              const verticalCounts: Record<string, number> = {};
+              viewsRes.logs.forEach((log: any) => {
+                const vertical = (log.vertical || 'Unknown').toLowerCase();
+                verticalCounts[vertical] = (verticalCounts[vertical] || 0) + 1;
+              });
+              const sessionVerts = Object.keys(verticalCounts).map(name => ({
+                name: name.charAt(0).toUpperCase() + name.slice(1),
+                value: verticalCounts[name]
+              })).sort((a, b) => b.value - a.value);
+              if (sessionVerts.length > 0) {
+                currentSessionVerticals = sessionVerts.slice(0, 5);
+              }
+            }
+
+            // Extract vertical preferences for boosting - Use a Set for O(1) lookups
+            const verticalData = currentSessionVerticals || (signalsRes?.top_verticals?.length > 0 ? signalsRes.top_verticals : [{name: currentUserProfile?.verticals?.[0] || 'Unknown', value: 100}]);
+            const topCats = new Set(verticalData.slice(0, 2).map((v: any) => (v.name || '').toLowerCase()));
+            const allKnownCats = new Set(verticalData.map((v: any) => (v.name || '').toLowerCase()));
+
+            // Handle Intelligence Matches (Normalized like UserIntelligenceProfile)
+            const matched: any[] = [];
+            const seenIds = new Set();
+            
+            // PRIORITY: Use backend automation queue (Next steps in the cycle)
+            const queueItems = (autoRes.item?.next_offers || globalAutoItem?.next_offers || []);
+            if (Array.isArray(queueItems)) {
+              queueItems.forEach((o: any) => {
+                const id = o.offer_id || o._id || o.id;
+                if (id && !seenIds.has(id)) {
+                  seenIds.add(id);
+                  matched.push({ 
+                    ...o, 
+                    id: id,
+                    offer_id: id,
+                    offerName: o.name || o.offer_name || 'Automation Offer',
+                    source: 'Automation Queue', 
+                    matchScore: 100, // Top priority
+                    isBackend: true 
+                  });
+                }
+              });
+            }
+
+            const addSection = (sectionName: string, sourceLabel: string, baseScore: number) => {
+              if (intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
+                intelRes[sectionName].forEach((o: any, idx: number) => {
+                  const id = o.offer_id || o._id || o.id;
+                  if (!seenIds.has(id)) {
+                    seenIds.add(id);
+                    
+                    // Apply optimized vertical-boosting logic
+                    let matchScore = Math.max(50, baseScore - (idx * 4));
+                    if (allKnownCats.size > 0) {
+                      const offerCat = (o.category || o.vertical || '').toLowerCase();
+                      if (offerCat && topCats.has(offerCat)) {
+                        matchScore = Math.min(99, matchScore + 15);
+                      } else if (offerCat && allKnownCats.has(offerCat)) {
+                        matchScore = Math.min(99, matchScore + 5);
+                      }
+                    }
+
+                    matched.push({
+                      ...o,
+                      id: id,
+                      offer_id: id,
+                      offerName: o.name || o.offer_name || 'Matched Offer',
+                      matchScore: matchScore,
+                      source: sourceLabel,
+                      isIntelligenceMatch: true
+                    });
+                  }
+                });
+              }
+            };
+
+            // Standard sections from loginLogsService.getInventoryMatchedOffers
+            addSection('most_approved', 'Most Approved', 98);
+            addSection('newly_added', 'Newly Added', 91);
+            addSection('highly_clicked', 'Highly Clicked', 87);
+            addSection('recently_edited', 'Recently Edited', 79);
+            addSection('recently_deleted', 'Clearance', 74);
+
+            // Fallback for generic 'offers' or 'matched_offers' keys
+            const genericOffers = intelRes.matched_offers || intelRes.offers || [];
+            if (Array.isArray(genericOffers)) {
+              genericOffers.forEach((o: any) => {
+                const id = o.offer_id || o._id || o.id;
+                if (!seenIds.has(id)) {
+                  seenIds.add(id);
+                  matched.push({
+                    ...o,
+                    id: id,
+                    offer_id: id,
+                    offerName: o.name || o.offer_name || 'Matched Offer',
+                    matchScore: o.matchScore || 85,
+                    source: 'AI Recommendation',
+                    isIntelligenceMatch: true
+                  });
+                }
+              });
+            }
+
+            // Fallback to pre-fetched global offers if nothing was matched
+            if (matched.length === 0 && fallbackRes?.offers) {
+              fallbackRes.offers.forEach((o: any) => {
+                const id = o._id || o.id;
+                if (!seenIds.has(id)) {
+                  seenIds.add(id);
+                  matched.push({
+                    ...o,
+                    id: id,
+                    offer_id: id,
+                    offerName: o.name || o.offer_name || 'Global Offer',
+                    matchScore: 50,
+                    source: 'Global Match',
+                    isIntelligenceMatch: true
+                  });
+                }
+              });
+            }
+
+            if (!active) return;
+
+            // Sort by match score and limit to top 6
+            matched.sort((a, b) => b.matchScore - a.matchScore);
+            setMatchedOffers(matched.slice(0, 6));
+
+            // Handle Backend Automation Item
+            const autoItem = autoRes.item || globalAutoItem;
+            setCurrentAutomationItem(autoItem);
+
+            // If backend has assigned offers, add them to selected by default if they are the primary target
+            if (autoItem && autoItem.next_offers && autoItem.next_offers.length > 0) {
+              autoItem.next_offers.forEach((o: any) => {
+                initialSelected.add(String(o.id || o.offer_id));
+              });
+            }
+          } catch (e) {
+            console.error("Failed to fetch detailed offer intelligence", e);
+            if (active) {
+              setMatchedOffers([]);
+              setCurrentAutomationItem(null);
+            }
+          } finally {
+            if (active) {
+              setIsLoadingMatched(false);
+              // ONLY reset selection if it's a new user switch
+              if (isNewUser) {
+                setSelectedQueueOfferIds(initialSelected);
+              }
+            }
+          }
+      }
+    };
+
+    fetchOffers();
+    return () => { active = false; };
+  }, [selectedUsers, previewIdx, allSupportUsers]);
 
   // Inbox State
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
@@ -182,24 +518,59 @@ export const SupportHubContent: React.FC<{
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   // Template Preview Helper
-  const getPreview = (templateBody: string, user?: any) => {
+  const getPreview = (templateBody: string, user?: any, intelOffers: any[] = [], autoOffers: any[] = []) => {
     if (!templateBody) return "";
     const u = user || (filteredUsers[0] || { username: "{user}", country: "{location}", verticals: ["{vertical}"] });
     let body = templateBody;
 
-    // Core Placeholders
-    body = body.replace(/{user}/g, u.username || "User");
-    body = body.replace(/{location}/g, u.city || u.country || "your location");
+    // Robust Placeholder Replacement (handles {user}, {{user}}, [user], [USER], etc.)
+    body = body.replace(/{user}|{{user}}|\[user\]/gi, u.username || "User");
+    body = body.replace(/{location}|{{location}}|\[location\]/gi, u.city || u.country || "your area");
+    
+    const v = Array.isArray(u.verticals) ? u.verticals[0] : (u.verticals || u.vertical || "");
+    body = body.replace(/{vertical}|{{vertical}}|\[vertical\]/gi, v || "exclusive");
 
-    const v = Array.isArray(u.verticals) ? u.verticals[0] : u.verticals;
-    body = body.replace(/{vertical}/g, v || "exclusive");
+    // Strategy based hooks are now handled by the caller or passed in templateBody
+    
+    // Color-coded categorization logic:
+    // 1. Purple (Intelligence Matches) -> Show directly in mail
+    // 2. Yellow (Automation/Queued) -> Show under "See More"
+    
+    const primaryOffers = intelOffers.filter(mo => 
+      selectedQueueOfferIds.has(String(mo.id || mo.offer_id))
+    ).map(mo => {
+      let text = `[${mo.offerName || mo.name || mo.offer_name}]`;
+      if (visibleFields.payout) text += ` - $${mo.payout || 'Premium'}`;
+      if (visibleFields.vertical) text += ` (${mo.vertical || 'Targeted'})`;
+      return text;
+    });
 
-    // Strategy based hooks
-    if (activeStrategyHook) {
-      body = activeStrategyHook.replace(/{user}/g, u.username || 'User').replace(/{location}/g, u.city || u.country || 'your area').replace(/{vertical}/g, v || 'offers') + " " + body;
+    const secondaryOffers = autoOffers.filter((o: any) => 
+      selectedQueueOfferIds.has(String(o.id || o.offer_id))
+    ).map((o: any) => {
+      let text = `[${o.name || o.offer_name}]`;
+      if (visibleFields.payout) text += ` - $${o.payout || 'Premium'}`;
+      if (visibleFields.vertical) text += ` (${o.vertical || 'Optimized'})`;
+      return text;
+    });
+
+    let offerText = "";
+    if (primaryOffers.length > 0) {
+      offerText = primaryOffers.join(', ');
+    }
+    
+    if (secondaryOffers.length > 0) {
+      const secondaryDisplay = secondaryOffers.join(', ');
+      if (offerText) {
+        offerText += `\n\n--- [Click See More for Additional High-Value Matches] ---\n${secondaryDisplay}`;
+      } else {
+        offerText = secondaryDisplay;
+      }
     }
 
-    body = body.replace(/{offer}/g, "High-Payout Bundle");
+    if (!offerText) offerText = "Premium Intelligence Bundle";
+
+    body = body.replace(/{offer}/g, offerText);
     return body;
   };
 
@@ -216,6 +587,63 @@ export const SupportHubContent: React.FC<{
       setEditingTemplateName('');
     }
   }, [activeTemplate]);
+
+  useEffect(() => {
+    if (selectedUsers.size > 0) {
+      const selectedId = Array.from(selectedUsers)[0];
+      const user = allSupportUsers.find(u => String(u._id || u.user_id) === selectedId);
+      if (user && user.automationState) {
+        switch (user.automationState) {
+          case 'missing_welcome':
+            setSelectedMessageType('Welcome Match');
+            break;
+          case 'missing_referral':
+            setSelectedMessageType('Referral Match');
+            break;
+          case 'suspicious':
+            setSelectedMessageType('Suspicious Alert');
+            break;
+          case '1_week_cooldown':
+          case '2_week_cooldown':
+          case 'cooldown_completed':
+            setSelectedMessageType('Re-engagement');
+            break;
+        }
+      }
+    }
+  }, [selectedUsers, allSupportUsers]);
+
+  const handleSaveToQueueBulk = async (allSelected = false) => {
+    setIsSending(true);
+    try {
+      const token = localStorage.getItem('token');
+      const userIds = allSelected ? Array.from(selectedUsers) : [Array.from(selectedUsers)[previewIdx]];
+      
+      const promises = userIds.map(uId => {
+        const personal = personalOverrides[uId] || { subject: emailSubject, body: editingTemplateBody };
+        return fetch(`${BASE_API_URL}/api/admin/automation/override`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            user_id: uId,
+            action: 'save-content',
+            subject: personal.subject,
+            message: personal.body
+          }),
+        });
+      });
+      
+      await Promise.all(promises);
+      toast({ 
+        title: 'Content Saved', 
+        description: `Subject and message persisted for ${userIds.length} user(s) into their automation flow.` 
+      });
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to save to automation queue', variant: 'destructive' });
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   useEffect(() => {
     const defaultHook = supportSettings.strategy_hooks?.[selectedMessageType] || '';
@@ -284,8 +712,14 @@ export const SupportHubContent: React.FC<{
         if (!next[uId] || !next[uId].body) {
           const user = allSupportUsers.find(u => String(u.user_id || u._id) === uId);
           const bodyText = activeTemplate?.body || editingTemplateBody || '';
+          const userAuto = automationQueue.find(q => String(q.user_id) === String(uId));
           const hookText = activeStrategyHook || supportSettings.strategy_hooks?.[selectedMessageType] || '';
-          const personalizedBody = getPreview(`${hookText} ${bodyText}`, user);
+          const personalizedBody = getPreview(
+            `${hookText} ${bodyText}`, 
+            user, 
+            user?.inventory_matched_offers || [], 
+            userAuto?.next_offers || []
+          );
 
           next[uId] = {
             subject: activeTemplate?.subject || editingTemplateName || 'Recommended Offers',
@@ -365,7 +799,7 @@ export const SupportHubContent: React.FC<{
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [initialFilterActive]);
   const loadData = async () => {
     setLoading(true);
     try {
@@ -376,7 +810,7 @@ export const SupportHubContent: React.FC<{
       const settingsRes = await supportHubService.getSettings().catch(() => null);
       if (settingsRes) {
         setSupportSettings(settingsRes);
-        
+
         // Sync connection status for all channels
         const connections: Record<string, boolean> = {};
         const channels = ['Telegram', 'Teams', 'Chat', 'Email'];
@@ -408,22 +842,35 @@ export const SupportHubContent: React.FC<{
       }
 
       const templatesRes = await supportHubService.getTemplates().catch(() => []);
-      setTemplates(Array.isArray(templatesRes) ? templatesRes : []);
+      const templatesList = Array.isArray(templatesRes) ? templatesRes : [];
+      setTemplates(templatesList);
+      
+      // Auto-select first template if none selected
+      if (templatesList.length > 0 && !selectedTemplateId) {
+        setSelectedTemplateId(templatesList[0]._id);
+      }
 
       const conversationsRes = await supportHubService.getConversations().catch(() => []);
       setConversations(Array.isArray(conversationsRes) ? conversationsRes : []);
 
-      // ALWAYS fetch the full user list to ensure "entire page" visibility
-      const [usersRes, intelRes] = await Promise.all([
+      const [usersRes, intelRes, autoQueueRes] = await Promise.all([
         fetch(`${BASE_API_URL}/api/auth/admin/users`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }).then(r => r.json()).catch(() => ({ users: [] })),
         fetch(`${BASE_API_URL}/api/admin/all-user-intelligence`, {
           headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json()).catch(() => ({ intelligence: [] }))
+        }).then(r => r.json()).catch(() => ({ intelligence: [] })),
+        fetch(`${BASE_API_URL}/api/admin/automation/queue`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).catch(() => ({ queue: [] }))
       ]);
 
-      let finalUsers = usersRes.users || [];
+      if (autoQueueRes.queue) {
+        setAutomationQueue(autoQueueRes.queue);
+      }
+
+      let finalUsers = (initialUsers && initialFilterActive) ? [...initialUsers] : (usersRes.users || []);
+
       if (intelRes.intelligence && intelRes.intelligence.length > 0) {
         const intelMap = new Map(intelRes.intelligence.map((i: any) => [String(i.user_id), i]));
         finalUsers = finalUsers.map((u: any) => {
@@ -439,12 +886,31 @@ export const SupportHubContent: React.FC<{
         });
       }
 
-      // If initialUsers were provided (e.g. from dashboard), show ONLY those users
-      if (initialUsers) {
+      // Filter finalUsers to exclude other administrators and mock data (only if we didn't get initialUsers)
+      if (!initialUsers || !initialFilterActive) {
+        finalUsers = finalUsers.filter((u: any) => {
+          const isNotAdmin = u.role !== 'admin';
+          const isNotMock = !u.isMock && !u.username?.toLowerCase().includes('test_');
+          return isNotAdmin && isNotMock;
+        });
+      }
+
+      // If initialUsers were provided (e.g. from dashboard), set the correct selection state
+      if (initialUsers && initialFilterActive) {
         console.log(`Support Hub: Syncing with dashboard state (${initialUsers.length} users)`);
-        const initialIds = new Set(initialUsers.map(u => String(u.user_id || u._id)));
-        finalUsers = finalUsers.filter((u: any) => initialIds.has(String(u._id || u.user_id)));
-        setSelectedUsers(initialIds);
+        
+        // If specific selected IDs were passed, use those. 
+        if (initialSelectedIds && initialSelectedIds.size > 0) {
+          setSelectedUsers(new Set(initialSelectedIds));
+        } else if (initialUsers.length === 1) {
+          // If only one user was passed (e.g. from a single user action), select them
+          const singleId = String(initialUsers[0].user_id || initialUsers[0]._id);
+          setSelectedUsers(new Set([singleId]));
+        } else {
+          // If we came from the dashboard with multiple users but NO explicit selection,
+          // default to NO selection instead of selecting all (prevents user surprise)
+          setSelectedUsers(new Set());
+        }
         setInitialFilterActive(true);
       }
 
@@ -465,7 +931,7 @@ export const SupportHubContent: React.FC<{
   async function handleOpenPreview() {
     console.log("Support Hub: Opening preview for", selectedUsers.size, "users");
     if (selectedUsers.size === 0) return;
-    
+
     if (!channelConnections[selectedChannel]) {
       toast({
         title: "Channel Not Connected",
@@ -478,29 +944,43 @@ export const SupportHubContent: React.FC<{
     setIsPreviewing(true);
     setBulkPreviewOpen(true);
 
-    // Generate 2-3 preview samples
-    const userIds = Array.from(selectedUsers).slice(0, 3);
-    const samples = [];
+    try {
+      // Generate 2-3 preview samples
+      const userIds = Array.from(selectedUsers).slice(0, 3);
+      const samples = [];
 
-    for (const uId of userIds) {
-      const user = allSupportUsers.find(u => String(u.user_id || u._id) === uId);
-      if (!user) continue;
+      for (const uId of userIds) {
+        const user = allSupportUsers.find(u => String(u.user_id || u._id) === uId);
+        if (!user) continue;
 
-      const override = personalOverrides[uId];
-      const personalized = override ? override.body : getPreview(`${activeStrategyHook || ''} ${activeTemplate?.body || ''}`, user);
-      const subject = override ? override.subject : (activeTemplate?.subject || 'Recommended Offers');
+        const userAuto = automationQueue.find(q => String(q.user_id) === uId);
+        const hookText = activeStrategyHook || supportSettings.strategy_hooks?.[selectedMessageType] || '';
+        
+        const override = personalOverrides[uId];
+        const personalized = override ? override.body : getPreview(
+          `${hookText} ${activeTemplate?.body || ''}`, 
+          user, 
+          user?.inventory_matched_offers || [], 
+          userAuto?.next_offers || []
+        );
+        const subject = override ? override.subject : (activeTemplate?.subject || 'Recommended Offers');
 
-      samples.push({
-        username: user.username,
-        email: user.email,
-        channel: Array.from(selectedUsers).length > 1 ? 'Bulk' : 'Single',
-        personalized,
-        subject
-      });
+        samples.push({
+          username: user.username || 'User',
+          email: user.email || 'No email',
+          channel: Array.from(selectedUsers).length > 1 ? 'Bulk' : 'Single',
+          personalized,
+          subject
+        });
+      }
+
+      setPreviewSamples(samples);
+    } catch (error) {
+      console.error("Preview generation failed:", error);
+      toast({ title: "Preview Error", description: "Failed to generate outreach samples.", variant: "destructive" });
+    } finally {
+      setIsPreviewing(false);
     }
-
-    setPreviewSamples(samples);
-    setIsPreviewing(false);
   }
 
   const filteredUsers = useMemo(() => {
@@ -511,11 +991,17 @@ export const SupportHubContent: React.FC<{
         String(u.email || '').toLowerCase().includes(searchTerm.toLowerCase());
     });
   }, [allSupportUsers, searchTerm]);
-  const toggleUserSelection = (id: string) => {
-    const next = new Set(selectedUsers);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setSelectedUsers(next);
+  const toggleUserSelection = (userId: string) => {
+    setSelectedUsers(prev => {
+      const newSelected = new Set(prev);
+      const idStr = String(userId);
+      if (newSelected.has(idStr)) {
+        newSelected.delete(idStr);
+      } else {
+        newSelected.add(idStr);
+      }
+      return newSelected;
+    });
   };
 
   const handleBulkSend = async () => {
@@ -534,7 +1020,8 @@ export const SupportHubContent: React.FC<{
             override.body,
             selectedChannel,
             scheduledTime || undefined,
-            supportSettings.email_settings
+            supportSettings.email_settings,
+            Array.from(selectedQueueOfferIds)
           );
         } else {
           // Fallback to bulk if no override (shouldn't happen with our effect)
@@ -544,7 +1031,8 @@ export const SupportHubContent: React.FC<{
             selectedChannel,
             scheduledTime,
             supportSettings.email_settings,
-            activeStrategyHook
+            activeStrategyHook,
+            Array.from(selectedQueueOfferIds)
           );
         }
       }
@@ -632,11 +1120,11 @@ export const SupportHubContent: React.FC<{
     setIsSavingSettings(true);
     try {
       await supportHubService.updateSettings(supportSettings);
-      
+
       // After saving, verify connections for channels that have configs
       const channelsToVerify = ['Telegram', 'Teams'];
       const results: Record<string, boolean> = { ...channelConnections };
-      
+
       for (const ch of channelsToVerify) {
         try {
           const status = await supportHubService.verifyConnection(ch);
@@ -646,11 +1134,11 @@ export const SupportHubContent: React.FC<{
           results[ch] = false;
         }
       }
-      
+
       setChannelConnections(results);
-      toast({ 
-        title: "Settings Saved", 
-        description: "Configuration updated and connections verified." 
+      toast({
+        title: "Settings Saved",
+        description: "Configuration updated and connections verified."
       });
     } catch (error) {
       toast({ title: "Error", description: "Failed to save settings", variant: "destructive" });
@@ -686,15 +1174,15 @@ export const SupportHubContent: React.FC<{
     try {
       // First save to ensure backend has the current input
       await supportHubService.updateSettings(supportSettings);
-      
+
       const status = await supportHubService.verifyConnection(channel);
       setChannelConnections(prev => ({ ...prev, [channel]: status.connected }));
-      
+
       if (status.connected) {
         toast({ title: "Connected!", description: `${channel} integration is working perfectly.` });
       } else {
-        toast({ 
-          title: "Connection Failed", 
+        toast({
+          title: "Connection Failed",
           description: status.status || `Could not verify ${channel}. Check your credentials.`,
           variant: "destructive"
         });
@@ -708,20 +1196,20 @@ export const SupportHubContent: React.FC<{
     console.log(`Support Hub: Initiating ${channel} link sequence`);
     setLinkingChannel(channel);
     setIsRedirecting(true);
-    
+
     // Simulate redirect to OAuth/Login URL
     setTimeout(() => {
       setIsRedirecting(false);
       setContactLinkerOpen(true);
       // We pass the channel explicitly to avoid state lag
-      handleSearchContacts('', channel); 
+      handleSearchContacts('', channel);
     }, 1500);
   };
 
   const handleSearchContacts = async (query: string, channelOverride?: string) => {
     const ch = channelOverride || linkingChannel;
     if (!ch) return;
-    
+
     setIsSearchingContacts(true);
     try {
       const data = await supportHubService.searchContacts(ch, query);
@@ -736,17 +1224,22 @@ export const SupportHubContent: React.FC<{
   const handleMapContact = async (contact: any) => {
     const userId = Array.from(selectedUsers)[0]; // Link the currently selected user
     if (!userId || !linkingChannel) return;
-    
+
     setIsLinking(true);
     try {
       await supportHubService.mapContact(userId, linkingChannel, contact);
-      toast({ 
-        title: "Contact Linked!", 
+      toast({
+        title: "Contact Linked!",
         description: `Mapped ${contact.name} to this publisher.`,
       });
       setContactLinkerOpen(false);
       // Refresh settings to get the new mapping
-      loadData();
+      await loadData();
+
+      // If we are in the middle of an outreach composition, jump straight to the preview
+      if (bulkModalOpen) {
+        handleOpenPreview();
+      }
     } catch (e) {
       toast({ title: "Error", description: "Failed to link contact", variant: "destructive" });
     } finally {
@@ -843,6 +1336,12 @@ export const SupportHubContent: React.FC<{
             <TabsList className="bg-slate-100/80 p-1 rounded-xl border border-slate-200/50">
               <TabsTrigger value="explorer" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-sm px-4 py-1.5 text-xs font-bold transition-all">Explorer</TabsTrigger>
               <TabsTrigger value="inbox" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-sm px-4 py-1.5 text-xs font-bold transition-all">Inbox</TabsTrigger>
+              <TabsTrigger value="queue" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-sm px-4 py-1.5 text-xs font-bold transition-all flex items-center gap-1.5">
+                Queue
+                <Badge className="h-4 px-1 text-[8px] bg-indigo-100 text-indigo-600 border-none">
+                  {offerQueueService.getQueue().filter(q => q.status === 'queued').length}
+                </Badge>
+              </TabsTrigger>
               <TabsTrigger value="templates" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-sm px-4 py-1.5 text-xs font-bold transition-all">Templates</TabsTrigger>
               <TabsTrigger value="settings" className="rounded-lg data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-sm px-4 py-1.5 text-xs font-bold transition-all">Settings</TabsTrigger>
             </TabsList>
@@ -864,7 +1363,7 @@ export const SupportHubContent: React.FC<{
             </Button>
             <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-100"
               disabled={selectedUsers.size === 0}
-              onClick={() => setBulkModalOpen(true)}>
+              onClick={() => { setPreviewIdx(0); setBulkModalOpen(true); }}>
               <Send size={14} className="mr-2" /> Bulk Outreach ({selectedUsers.size})
             </Button>
 
@@ -896,123 +1395,123 @@ export const SupportHubContent: React.FC<{
               </div>
             </div>
           </div>
-        <div className="flex-1 flex flex-col min-h-0 px-3 pb-3">
+          <div className="flex-1 flex flex-col min-h-0 px-3 pb-3">
             <div className="flex-1 flex flex-col min-h-0 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               {/* User Directory List */}
               <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-              <table className="w-full text-left border-collapse">
-                <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-sm">
-                  <tr>
-                    <th className="p-4 w-12 text-center">
-                      <Checkbox
-                        checked={filteredUsers.length > 0 && selectedUsers.size === filteredUsers.length}
-                        onCheckedChange={toggleSelectAll}
-                        className="border-slate-300"
-                      />
-                    </th>
-                    <th className="p-4 text-[10px] font-black uppercase text-slate-500 tracking-widest">Publisher Identity</th>
-                    <th className="p-4 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Quick Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 bg-white">
-                  {filteredUsers.length === 0 ? (
+                <table className="w-full text-left border-collapse">
+                  <thead className="sticky top-0 z-20 bg-slate-50 border-b border-slate-200 shadow-sm">
                     <tr>
-                      <td colSpan={5} className="py-40 text-center">
-                        <div className="flex flex-col items-center justify-center text-slate-400 space-y-3">
-                          <div className="p-4 bg-slate-50 rounded-full"><Search size={32} className="opacity-20 text-indigo-600" /></div>
-                          <p className="text-sm italic font-black uppercase tracking-widest">No users match your filters</p>
-                          <Button variant="outline" size="sm" onClick={() => {
-                            setSearchTerm('');
-                            setInitialFilterActive(false);
-                          }} className="text-indigo-600 border-indigo-100 hover:bg-indigo-50 rounded-xl">Clear all filters</Button>
-                        </div>
-                      </td>
+                      <th className="p-4 w-12 text-center">
+                        <Checkbox
+                          checked={filteredUsers.length > 0 && filteredUsers.every(u => selectedUsers.has(String(u.user_id || u._id)))}
+                          onCheckedChange={toggleSelectAll}
+                          className="border-slate-300"
+                        />
+                      </th>
+                      <th className="p-4 text-[10px] font-black uppercase text-slate-500 tracking-widest">Publisher Identity</th>
+                      <th className="p-4 text-[10px] font-black uppercase text-slate-500 tracking-widest text-right">Quick Actions</th>
                     </tr>
-                  ) : (
-                    filteredUsers.map((user, idx) => {
-                      const userId = String(user.user_id || user._id || `user-${idx}`);
-                      const userVerts = getVerticalsArray(user);
-                      const isSelected = selectedUsers.has(userId);
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-40 text-center">
+                          <div className="flex flex-col items-center justify-center text-slate-400 space-y-3">
+                            <div className="p-4 bg-slate-50 rounded-full"><Search size={32} className="opacity-20 text-indigo-600" /></div>
+                            <p className="text-sm italic font-black uppercase tracking-widest">No users match your filters</p>
+                            <Button variant="outline" size="sm" onClick={() => {
+                              setSearchTerm('');
+                              setInitialFilterActive(false);
+                            }} className="text-indigo-600 border-indigo-100 hover:bg-indigo-50 rounded-xl">Clear all filters</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredUsers.map((user, idx) => {
+                        const userId = String(user.user_id || user._id || `user-${idx}`);
+                        const userVerts = getVerticalsArray(user);
+                        const isSelected = selectedUsers.has(userId);
 
-                      // Risk/Status logic
-                      const hasFailed = (user.logs || []).some((l: any) => l.status === 'failed');
-                      const isSuspicious = user.isSuspicious;
-                      const hasSharedAccount = user.sharedAccount;
+                        // Risk/Status logic
+                        const hasFailed = (user.logs || []).some((l: any) => l.status === 'failed');
+                        const isSuspicious = user.isSuspicious;
+                        const hasSharedAccount = user.sharedAccount;
 
-                      const getUserTheme = () => {
-                        if (isSuspicious) return { row: 'bg-red-50/30 hover:bg-red-50/50', badge: 'bg-red-100 text-red-700', icon: 'text-red-500' };
-                        if (hasFailed) return { row: 'bg-amber-50/30 hover:bg-amber-50/50', badge: 'bg-amber-100 text-amber-700', icon: 'text-amber-500' };
-                        if (hasSharedAccount) return { row: 'bg-purple-50/30 hover:bg-purple-50/50', badge: 'bg-purple-100 text-purple-700', icon: 'text-purple-500' };
-                        return { row: 'hover:bg-slate-50/80', badge: 'bg-slate-100 text-slate-600', icon: 'text-slate-400' };
-                      };
+                        const getUserTheme = () => {
+                          if (isSuspicious) return { row: 'bg-red-50/30 hover:bg-red-50/50', badge: 'bg-red-100 text-red-700', icon: 'text-red-500' };
+                          if (hasFailed) return { row: 'bg-amber-50/30 hover:bg-amber-50/50', badge: 'bg-amber-100 text-amber-700', icon: 'text-amber-500' };
+                          if (hasSharedAccount) return { row: 'bg-purple-50/30 hover:bg-purple-50/50', badge: 'bg-purple-100 text-purple-700', icon: 'text-purple-500' };
+                          return { row: 'hover:bg-slate-50/80', badge: 'bg-slate-100 text-slate-600', icon: 'text-slate-400' };
+                        };
 
-                      const theme = getUserTheme();
+                        const theme = getUserTheme();
 
-                      return (
-                        <tr
-                          key={`${userId}-${idx}`}
-                          className={`transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/40' : theme.row}`}
-                          onClick={() => toggleUserSelection(userId)}
-                        >
-                          <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                            <Checkbox checked={isSelected} onCheckedChange={() => toggleUserSelection(userId)} className="h-4 w-4 rounded-md" />
-                          </td>
-                          <td className="p-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white text-sm font-black shadow-lg shadow-indigo-100 shrink-0 border-2 border-white">
-                                {user.username?.[0]?.toUpperCase() || 'U'}
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-black text-[15px] text-slate-900 truncate tracking-tight uppercase leading-none">{user.username}</span>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                    <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">Live</span>
+                        return (
+                          <tr
+                            key={`${userId}-${idx}`}
+                            className={`transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/40' : theme.row}`}
+                            onClick={() => toggleUserSelection(userId)}
+                          >
+                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox checked={isSelected} onCheckedChange={() => toggleUserSelection(userId)} className="h-4 w-4 rounded-md" />
+                            </td>
+                            <td className="p-3">
+                              <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white text-sm font-black shadow-lg shadow-indigo-100 shrink-0 border-2 border-white">
+                                  {user.username?.[0]?.toUpperCase() || 'U'}
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-black text-[15px] text-slate-900 truncate tracking-tight uppercase leading-none">{user.username}</span>
+                                    <div className="flex items-center gap-1 shrink-0">
+                                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                      <span className="text-[8px] font-black text-emerald-600 uppercase tracking-widest">Live</span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <p className="text-[10px] font-bold text-slate-400 truncate">{user.email}</p>
+                                    {isSuspicious && <Badge className="bg-red-500 text-white border-none text-[7px] h-3.5 px-1 font-black">RISK</Badge>}
+                                    {hasSharedAccount && <Badge className="bg-purple-500 text-white border-none text-[7px] h-3.5 px-1 font-black">SHARED</Badge>}
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <p className="text-[10px] font-bold text-slate-400 truncate">{user.email}</p>
-                                  {isSuspicious && <Badge className="bg-red-500 text-white border-none text-[7px] h-3.5 px-1 font-black">RISK</Badge>}
-                                  {hasSharedAccount && <Badge className="bg-purple-500 text-white border-none text-[7px] h-3.5 px-1 font-black">SHARED</Badge>}
+                              </div>
+                            </td>
+                            <td className="p-3 text-right">
+                              <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                <div
+                                  onClick={() => { setSelectedUsers(new Set([userId])); setSelectedChannel('Email'); setPreviewIdx(0); setBulkModalOpen(true); }}
+                                  className="p-1.5 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"
+                                  title="Email"
+                                >
+                                  <Mail size={12} />
+                                </div>
+                                <div
+                                  onClick={() => { setSelectedUsers(new Set([userId])); setSelectedChannel('Telegram'); setPreviewIdx(0); setBulkModalOpen(true); }}
+                                  className="p-1.5 rounded-lg border border-sky-100 bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white transition-all"
+                                  title="Telegram"
+                                >
+                                  <Send size={12} />
+                                </div>
+                                <div
+                                  onClick={() => { setSelectedUsers(new Set([userId])); setSelectedChannel('Teams'); setPreviewIdx(0); setBulkModalOpen(true); }}
+                                  className="p-1.5 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all"
+                                  title="Teams"
+                                >
+                                  <MessageCircle size={12} />
                                 </div>
                               </div>
-                            </div>
-                          </td>
-                          <td className="p-3 text-right">
-                            <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                              <div
-                                onClick={() => { setSelectedUsers(new Set([userId])); setSelectedChannel('Email'); setBulkModalOpen(true); }}
-                                className="p-1.5 rounded-lg border border-emerald-100 bg-emerald-50 text-emerald-600 hover:bg-emerald-600 hover:text-white transition-all"
-                                title="Email"
-                              >
-                                <Mail size={12} />
-                              </div>
-                              <div
-                                onClick={() => { setSelectedUsers(new Set([userId])); setSelectedChannel('Telegram'); setBulkModalOpen(true); }}
-                                className="p-1.5 rounded-lg border border-sky-100 bg-sky-50 text-sky-600 hover:bg-sky-600 hover:text-white transition-all"
-                                title="Telegram"
-                              >
-                                <Send size={12} />
-                              </div>
-                              <div
-                                onClick={() => { setSelectedUsers(new Set([userId])); setSelectedChannel('Teams'); setBulkModalOpen(true); }}
-                                className="p-1.5 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all"
-                                title="Teams"
-                              >
-                                <MessageCircle size={12} />
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
-      </TabsContent>
+        </TabsContent>
 
         <TabsContent value="inbox" className="mt-0 flex-1 flex flex-col items-stretch outline-none bg-[#F8FAFC] min-h-0 overflow-hidden">
           <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4 flex-1 min-h-0 overflow-hidden p-3">
@@ -1159,6 +1658,124 @@ export const SupportHubContent: React.FC<{
                 </div>
               )}
             </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="queue" className="mt-0 flex-1 flex flex-col items-stretch outline-none bg-[#F8FAFC] min-h-0 overflow-hidden">
+          <div className="p-4 md:p-6 border-b bg-white flex items-center justify-between shrink-0 w-full">
+            <div>
+              <h3 className="text-sm font-black flex items-center gap-2 uppercase tracking-widest text-slate-800">
+                <ListTodo className="text-indigo-500" size={18} />
+                Live Offer Queue
+              </h3>
+              <p className="text-[10px] text-slate-500 font-bold italic">Monitor and manage individually scheduled publisher offers</p>
+            </div>
+            <div className="flex items-center gap-3">
+               <Badge variant="outline" className="h-6 border-indigo-100 text-indigo-600 bg-indigo-50 font-bold">
+                 {offerQueueService.getQueue().filter(q => q.status === 'queued').length} Items Queued
+               </Badge>
+               <Button 
+                size="sm" 
+                variant={offerQueueService.getIsProcessing() ? "destructive" : "default"}
+                onClick={() => {
+                  if (offerQueueService.getIsProcessing()) offerQueueService.pauseQueue();
+                  else offerQueueService.resumeQueue();
+                  loadData(); // Force re-render
+                }}
+                className="h-8 rounded-xl font-black text-[9px] shadow-sm"
+               >
+                 {offerQueueService.getIsProcessing() ? "PAUSE PROCESSING" : "START PROCESSING"}
+               </Button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
+             <Card className="border-slate-200 shadow-sm rounded-2xl overflow-hidden">
+               <Table>
+                 <TableHeader className="bg-white">
+                   <TableRow>
+                     <TableHead className="text-[10px] font-black uppercase">User</TableHead>
+                     <TableHead className="text-[10px] font-black uppercase">Offer</TableHead>
+                     <TableHead className="text-[10px] font-black uppercase">Scheduled</TableHead>
+                     <TableHead className="text-[10px] font-black uppercase">Status</TableHead>
+                     <TableHead className="text-right text-[10px] font-black uppercase">Action</TableHead>
+                   </TableRow>
+                 </TableHeader>
+                 <TableBody>
+                   {offerQueueService.getQueue().length === 0 ? (
+                     <TableRow>
+                       <TableCell colSpan={5} className="h-64 text-center">
+                         <div className="flex flex-col items-center justify-center gap-3 py-12">
+                           <div className="p-4 bg-slate-50 rounded-full">
+                             <ListTodo size={32} className="text-slate-200" />
+                           </div>
+                           <p className="text-slate-400 font-bold text-sm">No scheduled offers found</p>
+                         </div>
+                       </TableCell>
+                     </TableRow>
+                   ) : (
+                     offerQueueService.getQueue().map((item) => (
+                       <TableRow key={item.id} className="bg-white hover:bg-slate-50 transition-colors">
+                         <TableCell>
+                           <div className="flex flex-col">
+                             <span className="font-bold text-slate-800 text-sm">{item.username}</span>
+                             <span className="text-[10px] text-slate-400 font-medium">#{item.userId}</span>
+                           </div>
+                         </TableCell>
+                         <TableCell>
+                           <div className="flex items-center gap-2">
+                             <div className="p-1.5 bg-indigo-50 rounded-lg"><Package size={12} className="text-indigo-600" /></div>
+                             <span className="font-bold text-slate-700 text-xs">{item.offerName}</span>
+                           </div>
+                         </TableCell>
+                         <TableCell>
+                            <div className="flex flex-col">
+                              <span className="text-xs font-bold text-slate-600">{new Date(item.scheduledTime).toLocaleString()}</span>
+                              <span className="text-[10px] text-slate-400">{formatTimeAgo(item.scheduledTime)}</span>
+                            </div>
+                         </TableCell>
+                         <TableCell>
+                           <Badge variant={item.status === 'queued' ? (item.isPaused ? 'outline' : 'default') : 'secondary'} className={item.status === 'queued' && !item.isPaused ? 'bg-emerald-500' : ''}>
+                             {item.status === 'queued' ? (item.isPaused ? 'Paused' : 'Queued') : item.status}
+                           </Badge>
+                         </TableCell>
+                         <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                               {item.status === 'queued' && (
+                                 <>
+                                   <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-7 w-7 p-0 text-amber-600"
+                                    onClick={() => {
+                                      if (item.isPaused) offerQueueService.resumeItem(item.id);
+                                      else offerQueueService.pauseItem(item.id);
+                                      loadData();
+                                    }}
+                                   >
+                                     {item.isPaused ? <Play size={12} /> : <Pause size={12} />}
+                                   </Button>
+                                   <Button 
+                                    size="sm" 
+                                    variant="ghost" 
+                                    className="h-7 w-7 p-0 text-red-600"
+                                    onClick={() => {
+                                      offerQueueService.removeItem(item.id);
+                                      loadData();
+                                    }}
+                                   >
+                                     <Trash2 size={12} />
+                                   </Button>
+                                 </>
+                               )}
+                            </div>
+                         </TableCell>
+                       </TableRow>
+                     ))
+                   )}
+                 </TableBody>
+               </Table>
+             </Card>
           </div>
         </TabsContent>
 
@@ -1343,10 +1960,10 @@ export const SupportHubContent: React.FC<{
                 </div>
               </div>
               {returnToOutreach && (
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => { setReturnToOutreach(false); setActiveTab('explorer'); setBulkModalOpen(true); }}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { setReturnToOutreach(false); setActiveTab('explorer'); setPreviewIdx(0); setBulkModalOpen(true); }}
                   className="rounded-xl border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-bold gap-2"
                 >
                   <ChevronLeft size={14} /> Return to Outreach
@@ -1408,9 +2025,9 @@ export const SupportHubContent: React.FC<{
                             <span className="text-[11px] font-black uppercase text-slate-700 tracking-wider">Telegram Bot API</span>
                           </div>
                           <div className="flex items-center gap-3">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => handleStartLinking('Telegram')}
                               className="h-6 px-4 text-[9px] font-black uppercase tracking-tighter bg-sky-100 text-sky-700 hover:bg-sky-200 rounded-full"
                             >
@@ -1421,18 +2038,18 @@ export const SupportHubContent: React.FC<{
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-[9px] font-bold uppercase text-slate-400">Bot Token</label>
-                          <Input 
+                          <Input
                             type="password"
-                            value={supportSettings.channel_configs?.Telegram?.token || ''} 
-                            onChange={e => setSupportSettings({ 
-                              ...supportSettings, 
-                              channel_configs: { 
-                                ...supportSettings.channel_configs, 
-                                Telegram: { ...supportSettings.channel_configs?.Telegram, token: e.target.value } 
-                              } 
-                            })} 
-                            className="h-9 rounded-xl border-slate-200 bg-white text-xs" 
-                            placeholder="e.g. 123456789:ABCdef..." 
+                            value={supportSettings.channel_configs?.Telegram?.token || ''}
+                            onChange={e => setSupportSettings({
+                              ...supportSettings,
+                              channel_configs: {
+                                ...supportSettings.channel_configs,
+                                Telegram: { ...supportSettings.channel_configs?.Telegram, token: e.target.value }
+                              }
+                            })}
+                            className="h-9 rounded-xl border-slate-200 bg-white text-xs"
+                            placeholder="e.g. 123456789:ABCdef..."
                           />
                         </div>
                       </div>
@@ -1444,9 +2061,9 @@ export const SupportHubContent: React.FC<{
                             <span className="text-[11px] font-black uppercase text-slate-700 tracking-wider">Microsoft Teams Webhook</span>
                           </div>
                           <div className="flex items-center gap-3">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => handleStartLinking('Teams')}
                               className="h-6 px-4 text-[9px] font-black uppercase tracking-tighter bg-indigo-100 text-indigo-700 hover:bg-indigo-200 rounded-full"
                             >
@@ -1457,17 +2074,17 @@ export const SupportHubContent: React.FC<{
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-[9px] font-bold uppercase text-slate-400">Webhook URL</label>
-                          <Input 
-                            value={supportSettings.channel_configs?.Teams?.webhook_url || ''} 
-                            onChange={e => setSupportSettings({ 
-                              ...supportSettings, 
-                              channel_configs: { 
-                                ...supportSettings.channel_configs, 
-                                Teams: { ...supportSettings.channel_configs?.Teams, webhook_url: e.target.value } 
-                              } 
-                            })} 
-                            className="h-9 rounded-xl border-slate-200 bg-white text-xs" 
-                            placeholder="https://outlook.office.com/webhook/..." 
+                          <Input
+                            value={supportSettings.channel_configs?.Teams?.webhook_url || ''}
+                            onChange={e => setSupportSettings({
+                              ...supportSettings,
+                              channel_configs: {
+                                ...supportSettings.channel_configs,
+                                Teams: { ...supportSettings.channel_configs?.Teams, webhook_url: e.target.value }
+                              }
+                            })}
+                            className="h-9 rounded-xl border-slate-200 bg-white text-xs"
+                            placeholder="https://outlook.office.com/webhook/..."
                           />
                         </div>
                       </div>
@@ -1478,7 +2095,7 @@ export const SupportHubContent: React.FC<{
                       </div>
                     </CardContent>
                   </Card>
-                  
+
                   <Card className="border-slate-200 shadow-sm rounded-2xl overflow-hidden">
                     <CardHeader className="bg-white border-b border-slate-50">
                       <CardTitle className="text-sm font-bold flex items-center gap-2 text-slate-800"><Layout className="text-indigo-500" size={16} /> Visual Engine</CardTitle>
@@ -1501,7 +2118,7 @@ export const SupportHubContent: React.FC<{
           <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-violet-800 p-8 text-white shrink-0 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-indigo-400/20 rounded-full -ml-24 -mb-24 blur-2xl pointer-events-none" />
-            
+
             <div className="flex justify-between items-start relative z-10">
               <div>
                 <DialogTitle className="text-3xl font-black flex items-center gap-4 tracking-tighter">
@@ -1612,6 +2229,116 @@ export const SupportHubContent: React.FC<{
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  {/* Offers in Queue Section */}
+                  <div className="p-6 border-b bg-amber-50/30">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-amber-100 rounded-lg text-amber-600"><Tag size={14} /></div>
+                        <div>
+                          <h5 className="text-[11px] font-black uppercase text-slate-700">Offers & Intelligence</h5>
+                          <p className="text-[9px] font-bold text-slate-400">Select queued or AI-matched offers</p>
+                        </div>
+                      </div>
+                      
+
+                    </div>
+
+                    <div className="space-y-2">
+                      {(() => {
+                        if (combinedOffers.length === 0) {
+                          return (
+                            <div className="flex flex-col items-center justify-center py-6 text-slate-400 bg-white/50 rounded-2xl border border-dashed border-slate-200">
+                              <Tag size={24} className="opacity-20 mb-2" />
+                              <p className="text-[10px] italic">No pending offers, intelligence matches, or automation cycles found.</p>
+                            </div>
+                          );
+                        }
+
+                        const allSelected = combinedOffers.every(o => selectedQueueOfferIds.has(o.id));
+
+                        const toggleSelectAllOffers = () => {
+                          if (allSelected) {
+                            setSelectedQueueOfferIds(prev => {
+                              const next = new Set(prev);
+                              combinedOffers.forEach(o => next.delete(o.id));
+                              return next;
+                            });
+                          } else {
+                            setSelectedQueueOfferIds(prev => {
+                              const next = new Set(prev);
+                              combinedOffers.forEach(o => next.add(o.id));
+                              return next;
+                            });
+                          }
+                        };
+
+                        return (
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between px-2">
+                              <div className="flex items-center gap-2">
+                                <Checkbox id="select-all-offers" checked={allSelected} onCheckedChange={toggleSelectAllOffers} />
+                                <label htmlFor="select-all-offers" className="text-[10px] font-black text-indigo-600 uppercase cursor-pointer">Select All Available ({combinedOffers.length})</label>
+                              </div>
+                              {isLoadingMatched && <Loader2 size={12} className="animate-spin text-indigo-400" />}
+                            </div>
+                             <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                               {combinedOffers.map(offer => {
+                                 const isIntel = offer.isIntelligence;
+                                 const isPrimary = !isIntel;
+                                 const isSelected = selectedQueueOfferIds.has(offer.id);
+                                 
+                                 return (
+                                  <div key={offer.id} onClick={() => {
+                                    setSelectedQueueOfferIds(prev => {
+                                      const next = new Set(prev);
+                                      if (next.has(offer.id)) next.delete(offer.id);
+                                      else next.add(offer.id);
+                                      return next;
+                                    });
+                                  }}
+                                    className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all border ${isSelected ? (isPrimary ? 'bg-amber-50/50 border-amber-200 shadow-sm' : 'bg-purple-50/50 border-purple-200 shadow-sm') : 'bg-white border-slate-100 hover:border-slate-300'} group relative`}>
+                                    
+                                    <div className="flex items-center justify-center pl-2">
+                                      <Checkbox checked={isSelected} className={isSelected ? (isPrimary ? 'data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500' : 'data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600') : ''} />
+                                    </div>
+
+                                    {/* Image Placeholder */}
+                                    <div className="w-10 h-10 bg-white rounded border border-slate-200 p-1 flex items-center justify-center shrink-0 shadow-sm">
+                                      <img src={offer.image_url || offer.thumbnail_url || 'https://pub-2035987158934571.r2.dev/placeholder.png'} className="w-full h-full object-contain" alt="" />
+                                    </div>
+
+                                    <div className="flex-1 min-w-0 pr-2">
+                                      <div className="flex items-center justify-between mb-0.5">
+                                        <h4 className="text-xs font-bold text-slate-800 truncate pr-2 group-hover:text-indigo-600 transition-colors">{offer.offerName || offer.name || 'Automation Offer'}</h4>
+                                        <Badge variant="outline" className={`text-[8px] border-slate-200 font-bold uppercase tracking-widest shrink-0 ${isPrimary ? 'text-amber-600 bg-amber-50' : 'text-purple-600 bg-purple-50'}`}>
+                                          {isPrimary ? 'Automation Queue' : 'AI Matched'}
+                                        </Badge>
+                                      </div>
+                                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[9px] font-black uppercase text-slate-400">Payout</span>
+                                          <span className="text-[11px] font-black text-emerald-600">${offer.payout || 0}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[9px] font-black uppercase text-slate-400">Vertical</span>
+                                          <span className="text-[10px] font-bold text-indigo-500">{offer.vertical || offer.category || 'Global'}</span>
+                                        </div>
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="text-[9px] font-black uppercase text-slate-400">Timing</span>
+                                          <span className="text-[10px] font-bold text-slate-500">less than a minute ago</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                 );
+                               })}
+                             </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Template</label>
@@ -1819,15 +2546,15 @@ export const SupportHubContent: React.FC<{
                                 <span className="text-[8px] font-bold text-emerald-600 truncate max-w-[80px] block mt-0.5">{mapping.name}</span>
                               )}
                             </div>
-                            
+
                             {/* Status Indicator */}
                             <div className={`absolute top-2 right-2 w-2 h-2 rounded-full border-2 border-white ${isConnected && (ch === 'Email' || isLinked) ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]' : 'bg-red-500'}`} />
                           </button>
-                          
+
                           {isActive && isConnected && !isLinked && ch !== 'Email' && (
                             <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-max animate-in fade-in zoom-in duration-200 z-10">
-                              <Button 
-                                size="sm" 
+                              <Button
+                                size="sm"
                                 onClick={() => handleStartLinking(ch)}
                                 className="h-6 px-3 rounded-full bg-indigo-600 hover:bg-indigo-700 text-[9px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100"
                               >
@@ -1838,8 +2565,8 @@ export const SupportHubContent: React.FC<{
 
                           {isActive && !isConnected && (
                             <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-max animate-in fade-in zoom-in duration-200 z-10">
-                              <Button 
-                                size="sm" 
+                              <Button
+                                size="sm"
                                 onClick={() => handleConnectChannel(ch)}
                                 className="h-6 px-3 rounded-full bg-red-600 hover:bg-red-700 text-[9px] font-black uppercase tracking-widest shadow-lg shadow-red-100"
                               >
@@ -1882,27 +2609,48 @@ export const SupportHubContent: React.FC<{
             </div>
             <div className="flex gap-3">
               <Button variant="ghost" size="sm" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
-              <Button 
-                size="sm" 
-                onClick={handleOpenPreview} 
+              <div className="flex gap-2 mr-2">
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  className="h-11 rounded-xl font-bold text-[10px] uppercase border-indigo-200 text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100"
+                  onClick={() => handleSaveToQueueBulk(false)}
+                  disabled={isSending || !editingTemplateBody}
+                >
+                  <Save size={14} className="mr-2" /> Save for This User
+                </Button>
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  className="h-11 rounded-xl font-bold text-[10px] uppercase border-emerald-200 text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100"
+                  onClick={() => handleSaveToQueueBulk(true)}
+                  disabled={isSending || !editingTemplateBody}
+                >
+                  <Users size={14} className="mr-2" /> Save for All
+                </Button>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleOpenPreview}
                 disabled={
-                  isSending || 
-                  !selectedTemplateId || 
-                  !channelConnections[selectedChannel] || 
+                  isSending ||
+                  !selectedTemplateId ||
+                  !channelConnections[selectedChannel] ||
                   (selectedChannel !== 'Email' && !supportSettings?.channel_configs?.[selectedChannel]?.user_mappings?.[Array.from(selectedUsers)[0]])
-                } 
-                className={`${
-                  !channelConnections[selectedChannel] || 
+                }
+                className={`${isSending || !selectedTemplateId || !channelConnections[selectedChannel] ||
                   (selectedChannel !== 'Email' && !supportSettings?.channel_configs?.[selectedChannel]?.user_mappings?.[Array.from(selectedUsers)[0]])
-                    ? 'bg-slate-300 text-slate-500' 
-                    : 'bg-indigo-600'
-                } px-6`}
+                  ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 hover:scale-105 transition-all'
+                  } px-6 h-11 rounded-xl font-black uppercase tracking-widest text-[10px]`}
               >
-                {(!channelConnections[selectedChannel]) 
-                  ? `Connect ${selectedChannel}` 
-                  : (selectedChannel !== 'Email' && !supportSettings?.channel_configs?.[selectedChannel]?.user_mappings?.[Array.from(selectedUsers)[0]])
-                    ? `Link ${selectedChannel} Identity`
-                    : (scheduledTime ? "Schedule Outreach" : "Preview & Send")}
+                {(!channelConnections[selectedChannel])
+                  ? `Connect ${selectedChannel}`
+                  : (!selectedTemplateId)
+                    ? "Select Template"
+                    : (selectedChannel !== 'Email' && !supportSettings?.channel_configs?.[selectedChannel]?.user_mappings?.[Array.from(selectedUsers)[0]])
+                      ? `Link ${selectedChannel} Identity`
+                      : (scheduledTime ? "Schedule Outreach" : "View Final Preview")}
               </Button>
             </div>
           </div>
@@ -1915,7 +2663,7 @@ export const SupportHubContent: React.FC<{
           <div className="bg-[#0F172A] p-10 text-white relative overflow-hidden">
             <div className="absolute top-0 right-0 w-80 h-80 bg-indigo-500/20 rounded-full -mr-40 -mt-40 blur-3xl" />
             <div className="absolute bottom-0 left-0 w-60 h-60 bg-violet-500/10 rounded-full -ml-30 -mb-30 blur-2xl" />
-            
+
             <div className="relative z-10">
               <div className="flex items-center gap-4 mb-4">
                 <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md border border-white/10">
@@ -1934,61 +2682,377 @@ export const SupportHubContent: React.FC<{
 
           <div className="p-8 space-y-6 bg-slate-50 max-h-[60vh] overflow-y-auto custom-scrollbar">
             {isPreviewing ? (
-              <div className="py-12 flex flex-col items-center justify-center space-y-4">
-                <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-                <p className="text-slate-500 font-bold italic">Intelligently personalizing messages...</p>
+              <div className="py-20 flex flex-col items-center justify-center space-y-6">
+                <div className="relative">
+                  <div className="w-20 h-20 border-4 border-indigo-100 rounded-full" />
+                  <div className="absolute inset-0 w-20 h-20 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+                <div className="text-center">
+                  <p className="text-slate-900 font-black uppercase tracking-widest text-sm">Personalizing Dispatch</p>
+                  <p className="text-slate-400 text-xs font-bold mt-1">Applying geo-intelligence and vertical hooks...</p>
+                </div>
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-start gap-3">
-                  <Eye className="text-amber-600 shrink-0 mt-0.5" size={18} />
-                  <div>
-                    <p className="text-sm font-bold text-amber-900 text-left">Quality Assurance Preview</p>
-                    <p className="text-xs text-amber-700 leading-relaxed text-left">Below are samples of how your messages will look for different users. Check for correct placeholders and dynamic hooks.</p>
+              <div className="space-y-8">
+                <div className="flex items-center gap-4 p-4 bg-indigo-50/50 border border-indigo-100 rounded-[2rem]">
+                  <div className="p-3 bg-white rounded-2xl text-indigo-600 shadow-sm"><Eye size={20} /></div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-black text-slate-900 leading-none">Intelligence Validation</h4>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Reviewing {previewSamples.length} of {selectedUsers.size} personalized variants</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Verified</span>
                   </div>
                 </div>
 
-                {previewSamples.map((sample, idx) => (
-                  <div key={idx} className="space-y-2">
-                    <div className="flex items-center justify-between px-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sample #{idx + 1}: {sample.username}</span>
-                      <Badge variant="outline" className="text-[9px] bg-white text-indigo-600 border-indigo-100">{sample.email}</Badge>
-                    </div>
-                    <div className="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm relative group overflow-hidden text-left">
-                      <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
-                      <div className="mb-2 pb-2 border-b border-slate-50">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase mr-2">Subject:</span>
-                        <span className="text-xs font-bold text-slate-900">{sample.subject}</span>
-                      </div>
-                      <p className="text-sm text-slate-700 leading-relaxed font-serif italic whitespace-pre-wrap">
-                        {sample.personalized}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                <div className="grid gap-6">
+                  {previewSamples.map((sample, idx) => (
+                    <div key={idx} className="group relative">
+                      <div className="absolute -left-4 top-1/2 -translate-y-1/2 w-1 h-12 bg-indigo-200 rounded-full opacity-0 group-hover:opacity-100 transition-opacity" />
+                      <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden transition-all hover:shadow-xl hover:shadow-indigo-100/50 hover:border-indigo-200">
+                        {selectedChannel === 'Email' ? (
+                          <>
+                            {/* Email Header Simulation */}
+                            <div className="bg-indigo-600 p-6 text-white flex justify-between items-center relative">
+                              <div>
+                                <h2 className="text-xl font-bold">{sample.subject || "Recommended Offers"}</h2>
+                                <p className="text-indigo-100 text-xs mt-1">Curated specifically for {sample.username}</p>
+                              </div>
+                              <div className="flex flex-col items-end gap-2">
+                                <div className="bg-white/10 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/20">
+                                  {supportSettings.email_settings?.templateStyle || 'TABLE'} VIEW
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="p-8 space-y-6">
+                              {/* Message Body */}
+                              <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap font-medium">
+                                {sample.personalized}
+                              </div>
 
-                <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[11px] font-bold text-indigo-700 uppercase tracking-widest">Final Channel Selection</span>
-                    <Badge className="bg-indigo-600 text-white border-none text-[10px]">Ready for Dispatch</Badge>
+                              <Separator className="bg-slate-100" />
+
+                              {/* Dynamic Offers Simulation */}
+                              {selectedQueueOfferIds.size > 0 && (
+                                <div className="space-y-4">
+                                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Featured Opportunities</p>
+                                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                                    <table className="w-full text-left text-xs">
+                                      <thead className="bg-slate-50 border-b border-slate-200">
+                                        <tr>
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('image') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Icon</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('offer_id') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer ID</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('name') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payout') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Payout</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('countries') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">GEO</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('network') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Network</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 1</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url_2') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 2</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('clicks') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Clicks</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payment_terms') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Terms</th>}
+                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('description') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Desc</th>}
+                                          <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter text-right">Action</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {combinedOffers.filter(o => selectedQueueOfferIds.has(o.id || o._id || o.offer_id)).map((o, i) => {
+                                          const oId = String(o.id || o._id || o.offer_id);
+                                          const isExpanded = expandedOffers.has(oId);
+                                          return (
+                                            <React.Fragment key={`preview-table-${oId}`}>
+                                              <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors">
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('image') && (
+                                                  <td className="p-3">
+                                                    <div className="w-10 h-10 bg-white rounded border border-slate-200 p-1 flex items-center justify-center">
+                                                      <img src={o.image_url || o.thumbnail_url || supportSettings.email_settings?.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'} className="w-full h-full object-contain" alt="" />
+                                                    </div>
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('offer_id') && (
+                                                  <td className="p-3">
+                                                    <span className="font-mono text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{oId}</span>
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('name') && (
+                                                  <td className="p-3 font-bold text-slate-900">
+                                                    {o.name || o.offerName || o.offer_name}
+                                                    {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('category') && <span className="block text-[9px] text-slate-400 font-medium uppercase mt-0.5">{o.category || o.vertical || 'General'}</span>}
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payout') && (
+                                                  <td className="p-3">
+                                                    <div className="text-sm font-black text-emerald-600">
+                                                      {supportSettings.email_settings?.payoutType === 'publisher' ? (o.payout_display || `$${o.payout || 0}`) : `$${o.payout || 0}`}
+                                                    </div>
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('countries') && (
+                                                  <td className="p-3 text-slate-500 font-medium">
+                                                    {o.countries?.slice(0, 3).join(', ') || 'Global'}
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('network') && (
+                                                  <td className="p-3 text-slate-500 font-medium text-[10px]">
+                                                    {(o as any).network || 'N/A'}
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url') && (
+                                                  <td className="p-3">
+                                                    <a href={(o as any).preview_url || '#'} className="text-[10px] text-indigo-500 truncate max-w-[80px] block underline">Link</a>
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url_2') && (
+                                                  <td className="p-3">
+                                                    <a href={(o as any).preview_url_2 || '#'} className="text-[10px] text-violet-500 truncate max-w-[80px] block underline">Link</a>
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('clicks') && (
+                                                  <td className="p-3 text-slate-600 font-medium text-[10px]">
+                                                    {(o as any).clicks || o.hits || 0}
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payment_terms') && (
+                                                  <td className="p-3 font-black text-blue-600 uppercase text-[9px]">
+                                                    {supportSettings.email_settings?.paymentTerms || 'Standard'}
+                                                  </td>
+                                                )}
+                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('description') && (
+                                                  <td className="p-3 text-slate-500 text-[9px] italic max-w-[120px] truncate" title={o.description}>
+                                                    {o.description || 'Exclusive offer details available.'}
+                                                  </td>
+                                                )}
+                                                <td className="p-3 text-right">
+                                                  <Button
+                                                    size="sm"
+                                                    className={`h-7 px-4 font-bold text-[10px] transition-all shadow-sm ${isExpanded ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                                                    onClick={() => {
+                                                      setExpandedOffers(prev => {
+                                                        const n = new Set(prev);
+                                                        n.has(oId) ? n.delete(oId) : n.add(oId);
+                                                        return n;
+                                                      });
+                                                    }}
+                                                  >
+                                                    {isExpanded ? 'Hide' : 'Open'}
+                                                  </Button>
+                                                </td>
+                                              </tr>
+                                              {(isExpanded && (supportSettings.email_settings?.seeMoreFields || []).length > 0) && (
+                                                <tr className="bg-slate-50/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                  <td colSpan={12} className="p-4 pt-2">
+                                                    <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-slate-100 shadow-inner">
+                                                      <div className="flex items-center gap-2 text-[10px] font-black text-amber-500 uppercase tracking-widest border-b border-slate-50 pb-2">
+                                                        <Plus size={10} /> Secondary Offer Details
+                                                      </div>
+                                                      <div className="grid grid-cols-2 gap-4">
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('name') && (
+                                                          <div className="space-y-0.5 col-span-2">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Offer Name</span>
+                                                            <p className="text-[10px] font-black text-slate-700">{o.name || o.campaign_name || o.offerName}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('payout') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Payout Amount</span>
+                                                            <p className="text-[10px] font-black text-emerald-600">
+                                                              {supportSettings.email_settings?.payoutType === 'publisher' ? (o.payout_display || `$${o.payout || 0}`) : `$${o.payout || 0}`}
+                                                            </p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('countries') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Geographic Targeting</span>
+                                                            <p className="text-[10px] font-medium text-slate-600">{o.countries?.join(', ') || 'Global'}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('category') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Vertical / Category</span>
+                                                            <p className="text-[10px] font-medium text-slate-600">{o.category || o.vertical || 'General'}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('image') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Offer Creative</span>
+                                                            <div className="h-10 w-10 rounded border border-slate-100 overflow-hidden bg-slate-50">
+                                                              <img src={o.image_url || supportSettings.email_settings?.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'} alt="creative" className="w-full h-full object-contain" />
+                                                            </div>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('offer_id') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Offer ID</span>
+                                                            <p className="text-[10px] font-mono text-slate-600">{oId}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('network') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Network</span>
+                                                            <p className="text-[10px] font-medium text-slate-600">{(o as any).network || 'N/A'}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('preview_url') && (
+                                                          <div className="space-y-0.5 col-span-2">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Tracking Link</span>
+                                                            <p className="text-[10px] font-medium text-indigo-500 truncate underline cursor-pointer">{(o as any).preview_url || 'https://ml.link/v1'}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('preview_url_2') && (
+                                                          <div className="space-y-0.5 col-span-2">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Secondary Preview</span>
+                                                            <p className="text-[10px] font-medium text-violet-500 truncate underline cursor-pointer">{(o as any).preview_url_2 || 'https://ml.link/v2'}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('clicks') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Clicks</span>
+                                                            <p className="text-[10px] font-medium text-slate-600">{(o as any).clicks || o.hits || 0}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('payment_terms') && (
+                                                          <div className="space-y-0.5">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Payment Terms</span>
+                                                            <p className="text-[10px] font-black text-blue-600 uppercase">{supportSettings.email_settings?.paymentTerms || 'Standard'}</p>
+                                                          </div>
+                                                        )}
+                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('description') && (
+                                                          <div className="space-y-0.5 col-span-2">
+                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Description</span>
+                                                            <p className="text-[10px] text-slate-500 leading-relaxed italic">{o.description || 'Exclusive offer details available on the publisher dashboard.'}</p>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    </div>
+                                                  </td>
+                                                </tr>
+                                              )}
+                                            </React.Fragment>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+
+                              <Separator className="bg-slate-100" />
+
+                              {/* Footer */}
+                              <div className="text-center space-y-2">
+                                <p className="text-[10px] text-slate-400 font-medium italic">Sent via Moustache Leads Automation</p>
+                                <div className="flex justify-center gap-4 text-[10px] font-bold text-indigo-600">
+                                  <span>Privacy Policy</span>
+                                  <span>Unsubscribe</span>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="px-6 py-4 border-b border-slate-50 bg-slate-50/30 flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white text-[10px] font-black">
+                                  {sample.username[0].toUpperCase()}
+                                </div>
+                                <div>
+                                  <p className="text-xs font-black text-slate-900">{sample.username}</p>
+                                  <p className="text-[9px] font-bold text-slate-400">{sample.email}</p>
+                                </div>
+                              </div>
+                              <Badge variant="outline" className="text-[8px] font-black uppercase tracking-widest border-slate-200 text-slate-500">
+                                {selectedChannel} Variant
+                              </Badge>
+                            </div>
+                            <div className="p-6 bg-white">
+                              <div className="mb-4 flex items-start gap-2">
+                                <span className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mt-0.5">Subject:</span>
+                                <h5 className="text-sm font-black text-slate-800 tracking-tight">{sample.subject}</h5>
+                              </div>
+                              <div className="p-5 bg-slate-50/50 rounded-2xl border border-slate-100 relative group/msg">
+                                <div className="absolute top-4 right-4 opacity-10 group-hover/msg:opacity-30 transition-opacity"><MessageSquare size={40} /></div>
+                                <p className="text-xs text-slate-700 leading-relaxed font-medium whitespace-pre-wrap italic relative z-10">
+                                  "{sample.personalized}"
+                                </p>
+
+                                <div className="mt-4 pt-4 border-t border-slate-200 flex justify-end">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-indigo-200 text-indigo-600 hover:bg-indigo-50 gap-2"
+                                    onClick={() => {
+                                      navigator.clipboard.writeText(sample.personalized);
+                                      toast({ title: "Copied!", description: "Message copied to clipboard." });
+
+                                      // Deep link logic
+                                      const userId = Array.from(selectedUsers)[idx];
+                                      const config = supportSettings?.channel_configs?.[selectedChannel]?.user_mappings?.[userId];
+                                      if (config?.id) {
+                                        let url = '';
+                                        if (selectedChannel === 'Telegram') url = `https://t.me/${config.id}`;
+                                        if (selectedChannel === 'Teams') url = `https://teams.microsoft.com/l/chat/0/0?users=${config.id}`;
+                                        if (selectedChannel === 'Chat') url = config.id.startsWith('http') ? config.id : `https://${config.id}`;
+
+                                        if (url) window.open(url, '_blank');
+                                      } else {
+                                        toast({ title: "Identity Missing", description: `Please link ${selectedChannel} identity for this user first.`, variant: "destructive" });
+                                      }
+                                    }}
+                                  >
+                                    <ExternalLink size={12} /> Copy & Open {selectedChannel}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-6 bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2.5rem] text-white shadow-2xl shadow-indigo-200 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl" />
+                  <div className="relative z-10 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-base font-black tracking-tight">Final Authorization</h4>
+                      <p className="text-indigo-100/70 text-[10px] font-bold uppercase tracking-widest mt-1">Ready to dispatch via {selectedChannel}</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Batch Size</p>
+                        <p className="text-xl font-black">{selectedUsers.size} Users</p>
+                      </div>
+                      <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                        <CheckCircle size={24} />
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs text-indigo-600 leading-relaxed italic text-left">
-                    This batch will be sent via {selectedUsers.size > 1 ? 'the most efficient channel per user' : 'your selected channel'}.
-                  </p>
                 </div>
               </div>
             )}
           </div>
 
-          <div className="p-6 bg-white border-t flex items-center justify-between gap-4">
-            <Button variant="ghost" onClick={() => setBulkPreviewOpen(false)} className="rounded-xl font-bold text-slate-500">Back to Compose</Button>
-            <div className="flex gap-3">
+          <div className="p-8 bg-white border-t flex items-center justify-between gap-6 shrink-0">
+            <Button variant="ghost" onClick={() => setBulkPreviewOpen(false)} className="h-12 px-6 rounded-2xl font-black text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-all">
+              <ChevronLeft size={16} className="mr-2" /> Back to Compose
+            </Button>
+            <div className="flex gap-4">
               <Button
                 onClick={handleBulkSend}
                 disabled={isSending || isPreviewing || !channelConnections[selectedChannel]}
-                className={`${!channelConnections[selectedChannel] ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'} px-10 rounded-xl h-12 font-black shadow-xl transition-all active:scale-95`}
+                className={`h-14 px-12 rounded-[1.5rem] font-black shadow-[0_20px_40px_-10px_rgba(79,70,229,0.4)] transition-all active:scale-95 flex items-center gap-3 ${!channelConnections[selectedChannel] ? 'bg-slate-400' : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
               >
-                {!channelConnections[selectedChannel] ? `Connect ${selectedChannel} to Send` : (isSending ? "Dispatching..." : `Confirm & Send to ${selectedUsers.size} Users`)}
+                {isSending ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <>
+                    <Zap size={18} className="fill-white" />
+                    <span>Confirm & Send to {selectedUsers.size} Users</span>
+                  </>
+                )}
               </Button>
             </div>
           </div>

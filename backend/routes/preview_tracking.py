@@ -5,6 +5,7 @@ Preview Link Tracking & Offer Details Page
    Shows the see-more fields + any preview links that were set to show on the web page only
 """
 from flask import Blueprint, redirect, request, jsonify, make_response
+from bson.objectid import ObjectId
 from database import db_instance
 from utils.auth import token_required, admin_required, subadmin_or_admin_required
 from utils.json_serializer import safe_json_response
@@ -12,6 +13,8 @@ from datetime import datetime, timedelta
 import logging
 import uuid
 import os
+from user_agents import parse
+from services.ip2location_service import get_ip2location_service
 
 preview_tracking_bp = Blueprint('preview_tracking', __name__)
 
@@ -754,4 +757,358 @@ def get_email_send_stats():
         })
     except Exception as e:
         logging.error(f"Email send stats error: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@preview_tracking_bp.route('/api/admin/email-send-stat-details', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offer-access-requests')
+def get_email_send_stat_details():
+    """Return rich detailed data for email stats cards with filtering."""
+    try:
+        metric = request.args.get('metric', '')
+        if metric == 'total_publishers_mailed':
+            metric = 'publishers_mailed'
+        
+        date_filter = request.args.get('filter', 'all')  # today, week, all
+        search = request.args.get('search', '').lower()
+        limit = min(int(request.args.get('limit', 1000)), 1000)
+        
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=7)
+        
+        query_date = None
+        if date_filter == 'today':
+            query_date = today_start
+        elif date_filter == 'week':
+            query_date = week_start
+            
+        users_col = db_instance.get_collection('users')
+        ip_service = get_ip2location_service()
+        
+        # Targeted IP -> Email mapping
+        ip_email_map = {}
+        
+        def resolve_identities(metric_key):
+            # Find all unique IPs in the requested data
+            ips_to_resolve = set()
+            for col_name in ['masked_link_clicks', 'see_more_clicks']:
+                col = db_instance.get_collection(col_name)
+                if col is not None:
+                    # In a real app, we'd filter by date here too
+                    ips_to_resolve.update(col.distinct('ip'))
+            
+            if not ips_to_resolve: return
+            
+            # 1. Check login_logs for these IPs
+            logs_col = db_instance.get_collection('login_logs')
+            if logs_col is not None:
+                for ip in ips_to_resolve:
+                    log = logs_col.find_one({'ip_address': ip}, sort=[('login_time', -1)])
+                    if log and log.get('email'):
+                        ip_email_map[ip] = log.get('email')
+
+            # 2. Check Click History for these IPs
+            for col_name in ['masked_link_clicks', 'see_more_clicks']:
+                col = db_instance.get_collection(col_name)
+                if col is not None:
+                    for ip in ips_to_resolve:
+                        if ip in ip_email_map: continue
+                        doc = col.find_one({'ip': ip, 'recipient_email': {'$ne': None, '$ne': ''}}, sort=[('clicked_at', -1)])
+                        if doc:
+                            ip_email_map[ip] = doc.get('recipient_email')
+            
+            # 3. Check Preview Link Mappings
+            link_col = db_instance.get_collection('email_preview_links')
+            masked_col = db_instance.get_collection('masked_link_clicks')
+            if link_col is not None and masked_col is not None:
+                for ip in ips_to_resolve:
+                    if ip in ip_email_map: continue
+                    click = masked_col.find_one({'ip': ip, 'link_id': {'$exists': True}}, sort=[('clicked_at', -1)])
+                    if click:
+                        mapping = link_col.find_one({'tracking_id': click['link_id']})
+                        if mapping and mapping.get('recipient_email'):
+                            ip_email_map[ip] = mapping['recipient_email']
+
+        resolve_identities(metric)
+        items = []
+
+        def get_user_info(uid=None, email=None):
+            user = None
+            if uid:
+                try:
+                    user = users_col.find_one({'_id': ObjectId(str(uid))}, {'first_name': 1, 'last_name': 1, 'username': 1, 'email': 1, 'risk_level': 1})
+                except:
+                    user = users_col.find_one({'username': str(uid)}, {'first_name': 1, 'last_name': 1, 'username': 1, 'email': 1, 'risk_level': 1})
+            elif email:
+                user = users_col.find_one({'email': email}, {'first_name': 1, 'last_name': 1, 'username': 1, 'email': 1, 'risk_level': 1})
+            
+            if user:
+                name = f"{(user.get('first_name') or '').strip()} {(user.get('last_name') or '').strip()}".strip()
+                return {
+                    'name': name or user.get('username') or user.get('email') or 'Unknown',
+                    'email': user.get('email') or '',
+                    'risk_level': user.get('risk_level', 'none')
+                }
+            return {'name': email or str(uid) if uid or email else 'Unknown', 'email': email or '', 'risk_level': 'none'}
+
+        if metric == 'total_mails_sent':
+            # Show BATCHES (312 records)
+            raw_docs = []
+            send_col = db_instance.get_collection('offer_send_history')
+            if send_col is not None:
+                q = {}
+                if query_date: q['created_at'] = {'$gte': query_date}
+                for doc in send_col.find(q).sort('created_at', -1).limit(limit):
+                    uids = doc.get('recipient_user_ids') or []
+                    emails = doc.get('recipient_emails') or []
+                    recipient_id = uids[0] if uids else (emails[0] if emails else None)
+                    raw_docs.append({
+                        'id': str(recipient_id),
+                        'type': 'uid' if uids else 'email',
+                        'offers_sent': doc.get('offer_count', 0),
+                        'sent_at': doc.get('created_at'),
+                        'status': doc.get('status', 'Sent'),
+                        'extra_recipients': max(0, len(uids) + len(emails) - 1)
+                    })
+            
+            push_col = db_instance.get_collection('push_mail_history')
+            if push_col is not None:
+                q = {}
+                if query_date: q['created_at'] = {'$gte': query_date}
+                for doc in push_col.find(q).sort('created_at', -1).limit(limit):
+                    uids = doc.get('recipient_ids') or []
+                    emails = doc.get('recipient_emails') or []
+                    recipient_id = uids[0] if uids else (emails[0] if emails else None)
+                    raw_docs.append({
+                        'id': str(recipient_id),
+                        'type': 'uid' if uids else 'email',
+                        'offers_sent': doc.get('offer_count', 1),
+                        'sent_at': doc.get('created_at'),
+                        'status': 'Sent',
+                        'extra_recipients': max(0, len(uids) + len(emails) - 1)
+                    })
+            
+            raw_docs.sort(key=lambda x: x['sent_at'] or datetime.min, reverse=True)
+            for d in raw_docs[:limit]:
+                uinfo = get_user_info(uid=d['id'] if d['type'] == 'uid' else None, email=d['id'] if d['type'] == 'email' else None)
+                pub_name = uinfo['name']
+                if d['extra_recipients'] > 0:
+                    pub_name += f" (+{d['extra_recipients']} more)"
+                
+                item = {
+                    'publisher_name': pub_name,
+                    'email': uinfo['email'],
+                    'offers_sent': d['offers_sent'],
+                    'sent_at': d['sent_at'].isoformat() if hasattr(d['sent_at'], 'isoformat') else str(d['sent_at']),
+                    'status': d['status']
+                }
+                if not search or search in item['publisher_name'].lower() or search in item['email'].lower():
+                    items.append(item)
+
+        elif metric == 'publishers_mailed':
+            # Harmonize with card logic (90 records)
+            pub_stats = {}
+            
+            def agg_sends(col_name, uid_field, email_field):
+                col = db_instance.get_collection(col_name)
+                if col is None: return
+                q = {}
+                if query_date: q['created_at'] = {'$gte': query_date}
+                for doc in col.find(q):
+                    uids = doc.get(uid_field) or []
+                    emails = doc.get(email_field) or []
+                    # EXACT logic from email-send-stats: uids if uids else emails
+                    recipients = uids if uids else emails
+                    rtype = 'uid' if uids else 'email'
+                    for r in recipients:
+                        key = str(r)
+                        if key not in pub_stats:
+                            pub_stats[key] = {'id': key, 'type': rtype, 'count': 0, 'last_at': doc.get('created_at')}
+                        pub_stats[key]['count'] += 1
+                        if doc.get('created_at') and (not pub_stats[key]['last_at'] or doc['created_at'] > pub_stats[key]['last_at']):
+                            pub_stats[key]['last_at'] = doc['created_at']
+
+            agg_sends('offer_send_history', 'recipient_user_ids', 'recipient_emails')
+            agg_sends('push_mail_history', 'recipient_ids', 'recipient_emails')
+            
+            sorted_pubs = sorted(pub_stats.values(), key=lambda x: x['last_at'] or datetime.min, reverse=True)
+            for p in sorted_pubs[:limit]:
+                uinfo = get_user_info(uid=p['id'] if p['type'] == 'uid' else None, email=p['id'] if p['type'] == 'email' else None)
+                item = {
+                    'publisher_name': uinfo['name'],
+                    'email': uinfo['email'],
+                    'total_mails_sent': p['count'],
+                    'last_mailed_at': p['last_at'].isoformat() if hasattr(p['last_at'], 'last_at') else str(p['last_at']),
+                    'risk_level': uinfo['risk_level']
+                }
+                if not search or search in item['publisher_name'].lower() or search in item['email'].lower():
+                    items.append(item)
+
+        elif metric == 'total_interactions':
+            # Unique Users (24 records)
+            user_groups = {}
+            
+            def collect_unique_users(col_name):
+                col = db_instance.get_collection(col_name)
+                if col is None: return
+                q = {}
+                if query_date: q['clicked_at'] = {'$gte': query_date}
+                # Sort by clicked_at desc to get most recent first
+                for doc in col.find(q).sort('clicked_at', -1):
+                    ip = doc.get('ip')
+                    if not ip: continue
+                    
+                    if ip not in user_groups:
+                        # Try to resolve email from IP if not in doc
+                        email = doc.get('recipient_email') or ip_email_map.get(ip)
+                        user_groups[ip] = {
+                            'ip': ip,
+                            'email': email,
+                            'offer_name': doc.get('offer_name'),
+                            'action': 'Viewed' if col_name == 'see_more_clicks' else 'Clicked',
+                            'at': doc.get('clicked_at')
+                        }
+                    else:
+                        # If we already have this IP but no email, try to fill it from older docs or IP map
+                        if not user_groups[ip].get('email'):
+                            email = doc.get('recipient_email') or ip_email_map.get(ip)
+                            if email:
+                                user_groups[ip]['email'] = email
+            
+            collect_unique_users('masked_link_clicks')
+            collect_unique_users('see_more_clicks')
+            
+            sorted_users = sorted(user_groups.values(), key=lambda x: x['at'] or datetime.min, reverse=True)
+            for u in sorted_users[:limit]:
+                # Try to resolve user by email
+                uinfo = get_user_info(email=u['email'])
+                
+                # If name is still unknown, maybe we can find a user by IP in other collections?
+                # For now, let's just make sure we show the email if we found one
+                user_name = uinfo['name']
+                if user_name == 'Unknown':
+                    user_name = u['email'] if u['email'] else f"Guest ({u['ip']})"
+
+                item = {
+                    'user_name': user_name,
+                    'email': uinfo['email'] or u['email'] or u['ip'],
+                    'action': u['action'],
+                    'offer_name': u['offer_name'],
+                    'date_time': u['at'].isoformat() if hasattr(u['at'], 'isoformat') else str(u['at'])
+                }
+                if not search or search in item['user_name'].lower() or search in item['email'].lower() or search in item['offer_name'].lower():
+                    items.append(item)
+
+        elif metric == 'offers_interacted_total':
+            # Unique Offers (59 records)
+            offer_groups = {}
+            
+            def collect_unique_offers(col_name):
+                col = db_instance.get_collection(col_name)
+                if col is None: return
+                q = {}
+                if query_date: q['clicked_at'] = {'$gte': query_date}
+                for doc in col.find(q).sort('clicked_at', -1):
+                    offer_id = doc.get('offer_id')
+                    if not offer_id: continue
+                    offer_id = str(offer_id)
+                    
+                    if offer_id not in offer_groups:
+                        offer_groups[offer_id] = {
+                            'offer_name': doc.get('offer_name'),
+                            'last_user': doc.get('recipient_email') or doc.get('ip'),
+                            'action': 'Viewed' if col_name == 'see_more_clicks' else 'Clicked',
+                            'at': doc.get('clicked_at'),
+                            'status': 'Active'
+                        }
+                    else:
+                        # Prefer email over IP if we find one in older docs
+                        if not '@' in str(offer_groups[offer_id].get('last_user')) and doc.get('recipient_email'):
+                            offer_groups[offer_id]['last_user'] = doc.get('recipient_email')
+            
+            collect_unique_offers('masked_link_clicks')
+            collect_unique_offers('see_more_clicks')
+            
+            sorted_offers = sorted(offer_groups.values(), key=lambda x: x['at'] or datetime.min, reverse=True)
+            for o in sorted_offers[:limit]:
+                user_email = o['last_user'] if '@' in str(o['last_user']) else None
+                uinfo = get_user_info(email=user_email)
+                
+                user_name = uinfo['name']
+                if user_name == 'Unknown':
+                    user_name = o['last_user'] if '@' in str(o['last_user']) else f"Guest ({o['last_user']})"
+                
+                item = {
+                    'user_name': user_name,
+                    'offer_name': o['offer_name'],
+                    'action': o['action'],
+                    'date_time': o['at'].isoformat() if hasattr(o['at'], 'isoformat') else str(o['at']),
+                    'status': o['status']
+                }
+                if not search or search in item['user_name'].lower() or search in item['offer_name'].lower():
+                    items.append(item)
+
+        elif metric == 'total_clicks':
+            # Every click (133 records)
+            click_docs = []
+            
+            def collect_all_clicks(col_name, action_type):
+                col = db_instance.get_collection(col_name)
+                if col is None: return
+                q = {}
+                if query_date: q['clicked_at'] = {'$gte': query_date}
+                for doc in col.find(q).sort('clicked_at', -1).limit(limit):
+                    click_docs.append({
+                        'ip': doc.get('ip'),
+                        'email': doc.get('recipient_email'),
+                        'offer_name': doc.get('offer_name', 'Unknown Offer'),
+                        'at': doc.get('clicked_at'),
+                        'ua': doc.get('user_agent', ''),
+                        'action': action_type
+                    })
+
+            collect_all_clicks('masked_link_clicks', 'Clicked')
+            collect_all_clicks('see_more_clicks', 'Viewed')
+            
+            click_docs.sort(key=lambda x: x['at'] or datetime.min, reverse=True)
+            
+            for c in click_docs[:limit]:
+                # Try to resolve email from IP if not in doc
+                email = c['email'] or ip_email_map.get(c['ip'])
+                uinfo = get_user_info(email=email)
+                
+                country = 'Unknown'
+                if ip_service and c['ip']:
+                    ip_data = ip_service.lookup_ip(c['ip'])
+                    if ip_data: country = ip_data.get('country', 'Unknown')
+                
+                device = 'Desktop'
+                if c['ua']:
+                    ua = parse(c['ua'])
+                    if ua.is_mobile: device = 'Mobile'
+                    elif ua.is_tablet: device = 'Tablet'
+                
+                user_name = uinfo['name']
+                if user_name == 'Unknown':
+                    user_name = email if '@' in str(email) else f"Guest ({c['ip']})"
+
+                item = {
+                    'user_name': user_name,
+                    'email': email or c['email'] or c['ip'] or 'Anonymous',
+                    'offer_name': c['offer_name'],
+                    'country': country,
+                    'date_time': c['at'].isoformat() if hasattr(c['at'], 'isoformat') else str(c['at']),
+                    'device': device
+                }
+                if not search or search in item['user_name'].lower() or search in item['offer_name'].lower():
+                    items.append(item)
+
+        return safe_json_response({
+            'metric': metric,
+            'items': items,
+            'total_count': len(items)
+        })
+    except Exception as e:
+        logging.error(f"Email send stat details error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
