@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { TemplatePicker, TemplateName } from '@/components/survey-templates/SurveyTemplateRenderer';
 import {
   getSurveyFunnels,
   createSurveyFunnel,
@@ -143,6 +144,35 @@ export default function AdminRedirectRouter() {
                     <span className="text-red-500">Fails: {funnel.stats?.total_fails || 0}</span>
                     <span className="font-mono text-[10px]">{funnel.funnel_id}</span>
                   </div>
+                  {/* Funnel Link */}
+                  <div className="mt-1">
+                    <span className="text-xs text-muted-foreground mr-1">Link:</span>
+                    <a
+                      href={`${window.location.origin}/funnel/${funnel.funnel_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-500 hover:text-blue-700 underline font-mono"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {window.location.hostname === 'localhost'
+                        ? `${window.location.origin}/funnel/${funnel.funnel_id}`
+                        : `https://survey.moustacheleads.com/funnel/${funnel.funnel_id}`}
+                    </a>
+                    <button
+                      className="ml-2 text-xs text-gray-400 hover:text-gray-600"
+                      title="Copy link"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const link = window.location.hostname === 'localhost'
+                          ? `${window.location.origin}/funnel/${funnel.funnel_id}`
+                          : `https://survey.moustacheleads.com/funnel/${funnel.funnel_id}`;
+                        navigator.clipboard.writeText(link);
+                        toast.success('Link copied!');
+                      }}
+                    >
+                      📋
+                    </button>
+                  </div>
                   {/* Visual flow */}
                   <div className="flex items-center gap-1 mt-3 flex-wrap">
                     {funnel.steps?.map((step, i) => (
@@ -195,6 +225,10 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
   const [description, setDescription] = useState(funnel?.description || '');
   const [placement, setPlacement] = useState(funnel?.placement || 'everywhere');
   const [placementOfferId, setPlacementOfferId] = useState(funnel?.placement_offer_id || '');
+  const [surveyTemplate, setSurveyTemplate] = useState<string>((funnel as any)?.survey_template || 'modern-card');
+  const [questionsPerPage, setQuestionsPerPage] = useState<number>((funnel as any)?.questions_per_page || 0);
+  const [spinnerDuration, setSpinnerDuration] = useState<number>((funnel as any)?.spinner_duration || 8);
+  const [surveyTimeout, setSurveyTimeoutVal] = useState<number>((funnel as any)?.survey_timeout || 5);
   const [failMessage, setFailMessage] = useState(funnel?.fail_message || 'Sorry, you do not qualify for any offers at this time.');
   const [displayTitle, setDisplayTitle] = useState((funnel as any)?.display_title || funnel?.name || '');
   const [displayDescription, setDisplayDescription] = useState((funnel as any)?.display_description || 'Complete this survey to unlock a special offer!');
@@ -307,7 +341,8 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
     try {
       const payload = { name, description, placement, placement_offer_id: placementOfferId, steps, fail_message: failMessage,
         display_title: displayTitle || name, display_description: displayDescription, display_image_url: displayImageUrl,
-        display_payout: displayPayout, display_category: displayCategory };
+        display_payout: displayPayout, display_category: displayCategory, survey_template: surveyTemplate,
+        questions_per_page: questionsPerPage, spinner_duration: spinnerDuration, survey_timeout: surveyTimeout };
       if (isEdit) {
         await updateSurveyFunnel(funnel!.funnel_id, payload as any);
         toast.success('Funnel updated');
@@ -368,6 +403,53 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
         <div>
           <label className="text-sm font-medium">Final Fail Message (shown when user fails ALL surveys)</label>
           <Textarea value={failMessage} onChange={(e) => setFailMessage(e.target.value)} rows={2} />
+        </div>
+      </div>
+
+      {/* Survey Template */}
+      <div className="border rounded-lg p-4 space-y-4">
+        <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Survey Template (how questions are displayed to users)</h2>
+        <TemplatePicker
+          value={surveyTemplate as TemplateName}
+          onChange={(t) => setSurveyTemplate(t)}
+          questions={steps[0]?.questions?.map(q => ({ text: q.text, options: q.options })) || []}
+        />
+        {/* Questions per page setting */}
+        <div className="border-t pt-4 mt-4">
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <label className="text-sm font-medium">Questions Per Page</label>
+              <p className="text-xs text-muted-foreground mt-0.5">How many questions to show on each page. Set to 0 to show all at once.</p>
+            </div>
+            <Select value={String(questionsPerPage)} onValueChange={(v) => setQuestionsPerPage(Number(v))}>
+              <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">All at once</SelectItem>
+                <SelectItem value="1">1 per page</SelectItem>
+                <SelectItem value="2">2 per page</SelectItem>
+                <SelectItem value="3">3 per page</SelectItem>
+                <SelectItem value="4">4 per page</SelectItem>
+                <SelectItem value="5">5 per page</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Spinner & Timeout settings */}
+        <div className="border-t pt-4 mt-4 space-y-4">
+          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Transition & Timing</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium">Spinner Duration (seconds)</label>
+              <p className="text-xs text-muted-foreground mt-0.5">How long to show the loading spinner between steps.</p>
+              <Input type="number" min={1} max={30} value={spinnerDuration} onChange={(e) => setSpinnerDuration(Number(e.target.value))} className="mt-1.5" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Survey Timeout (minutes)</label>
+              <p className="text-xs text-muted-foreground mt-0.5">Auto-reload if user spends more than this time. Set 0 to disable.</p>
+              <Input type="number" min={0} max={60} value={surveyTimeout} onChange={(e) => setSurveyTimeoutVal(Number(e.target.value))} className="mt-1.5" />
+            </div>
+          </div>
         </div>
       </div>
 

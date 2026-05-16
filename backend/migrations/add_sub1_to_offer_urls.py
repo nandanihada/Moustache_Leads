@@ -31,6 +31,7 @@ TARGET_NETWORKS = [
     'cpa merchant',
     'quiver',
     'Qiver'
+    
 ]
 
 def run_migration(dry_run=True):

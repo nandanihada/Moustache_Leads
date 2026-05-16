@@ -278,6 +278,8 @@ def create_survey():
             'target_offer_ids': data.get('target_offer_ids', []),
             'target_subwall_id': data.get('target_subwall_id', None),
             'image_url': data.get('image_url', ''),
+            'template': data.get('template', 'moustache-default'),
+            'questions_per_page': data.get('questions_per_page', 0),
             'created_at': datetime.utcnow(),
             'created_by': str(request.current_user.get('_id', '')) if hasattr(request, 'current_user') and request.current_user else None,
             'ai_prompt': data.get('ai_prompt', None)
@@ -388,7 +390,7 @@ def update_survey(survey_id):
 
         # Build update fields
         update_fields = {}
-        allowed_fields = ['name', 'description', 'status', 'questions', 'placement', 'target_offer_ids', 'target_subwall_id', 'image_url']
+        allowed_fields = ['name', 'description', 'status', 'questions', 'placement', 'target_offer_ids', 'target_subwall_id', 'image_url', 'template', 'questions_per_page']
         for field in allowed_fields:
             if field in data:
                 update_fields[field] = data[field]
@@ -508,6 +510,8 @@ def get_qualification_survey():
             'display_title': survey.get('display_title', 'Qualification Survey'),
             'display_description': survey.get('display_description', 'Complete this survey to unlock all offers and start earning'),
             'display_image_url': survey.get('display_image_url', ''),
+            'template': survey.get('template', 'moustache-default'),
+            'questions_per_page': survey.get('questions_per_page', 3),
         }
 
         return jsonify({'success': True, 'survey': public_survey}), 200

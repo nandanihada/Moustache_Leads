@@ -151,6 +151,8 @@ class Survey:
             'category': data.get('category', 'General'),
             'questions': data.get('questions', []),  # [{type, question, options, required}]
             'captcha_enabled': data.get('captcha_enabled', True),
+            'template': data.get('template', 'modern-card'),
+            'questions_per_page': data.get('questions_per_page', 0),
             'is_active': True,
             'created_by': created_by,
             'created_at': datetime.utcnow(),
@@ -168,7 +170,7 @@ class Survey:
     def update_survey(self, survey_id, data):
         """Update an existing survey."""
         update_fields = {}
-        allowed = ['name', 'description', 'category', 'questions', 'captcha_enabled', 'is_active']
+        allowed = ['name', 'description', 'category', 'questions', 'captcha_enabled', 'is_active', 'template', 'questions_per_page']
         for k in allowed:
             if k in data:
                 update_fields[k] = data[k]

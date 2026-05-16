@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, X, TrendingUp, ChevronRight, Sparkles, Globe, Smartphone, Timer, Flame, Clock } from 'lucide-react';
 import { OfferModal } from './OfferModal';
+import SurveyTemplateRenderer, { TemplateName } from './survey-templates/SurveyTemplateRenderer';
 
 interface Offer {
   id: string;
@@ -249,6 +250,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   const [funnelAnswers, setFunnelAnswers] = useState<Record<number, string>>({});
   const [funnelResult, setFunnelResult] = useState<{type: 'pass' | 'fail'; message: string; redirect_url?: string; has_next?: boolean} | null>(null);
   const [funnelSubmitting, setFunnelSubmitting] = useState(false);
+  const [funnelTemplate, setFunnelTemplate] = useState<TemplateName>('modern-card');
   const [todayEarnings, setTodayEarnings] = useState(0);
   const [displaySettings, setDisplaySettings] = useState<{
     primary_color: string;
@@ -549,6 +551,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
         setActiveFunnel(funnelId);
         setFunnelResult(null);
         setFunnelAnswers({});
+        setFunnelTemplate((data.survey_template || 'modern-card') as TemplateName);
       }
     } catch (e) {
       console.error('Failed to start funnel:', e);
@@ -1006,274 +1009,75 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
         )}
       </div>
 
-      {/* Survey Funnel Overlay */}
+      {/* Survey Funnel Overlay — FULL SCREEN */}
       {activeFunnel && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
-            {/* Funnel Result */}
-            {funnelResult ? (
-              <div className="p-8 text-center">
+        <div className="fixed inset-0 z-50 bg-white flex flex-col">
+          {funnelResult ? (
+            <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-slate-50 to-white">
+              <div className="text-center max-w-md p-8">
                 {funnelResult.type === 'pass' ? (
                   <>
-                    <div className="text-6xl mb-4">🎉</div>
-                    <h2 className="text-2xl font-bold text-green-600 mb-2">Congratulations!</h2>
-                    <p className="text-gray-600 mb-4">{funnelResult.message}</p>
-                    {funnelResult.redirect_url && (
-                      <p className="text-sm text-gray-400">Redirecting to your offer...</p>
-                    )}
-                    <button onClick={closeFunnel} className="mt-4 px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors">
-                      Close
-                    </button>
+                    <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-green-100 flex items-center justify-center">
+                      <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Congratulations!</h2>
+                    <p className="text-gray-600 mb-6">{funnelResult.message}</p>
+                    {funnelResult.redirect_url && <p className="text-sm text-green-600 animate-pulse mb-4">Redirecting to your offer...</p>}
+                    <button onClick={closeFunnel} className="px-8 py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600">Done</button>
                   </>
                 ) : (
                   <>
-                    <div className="text-6xl mb-4">{funnelResult.has_next ? '😕' : '😔'}</div>
-                    <h2 className="text-xl font-bold text-gray-800 mb-2">
-                      {funnelResult.has_next ? "Not quite..." : "Sorry!"}
-                    </h2>
-                    <p className="text-gray-600 mb-4">{funnelResult.message}</p>
+                    <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-orange-100 flex items-center justify-center">
+                      <span className="text-3xl">{funnelResult.has_next ? '🔄' : '😔'}</span>
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">{funnelResult.has_next ? "Not quite..." : "Sorry!"}</h2>
+                    <p className="text-gray-600 mb-6">{funnelResult.message}</p>
                     {funnelResult.has_next ? (
                       <p className="text-sm text-blue-500 animate-pulse">Loading next survey...</p>
                     ) : (
-                      <button onClick={closeFunnel} className="mt-4 px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors">
-                        Back to Offers
-                      </button>
+                      <button onClick={closeFunnel} className="px-8 py-3 bg-gray-700 text-white rounded-xl font-semibold hover:bg-gray-800">Back to Offers</button>
                     )}
                   </>
                 )}
               </div>
-            ) : funnelSurvey ? (
-              <>
-                {/* Survey Header */}
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h2 className="text-xl font-bold text-gray-900">{funnelSurvey.title}</h2>
-                      <p className="text-sm text-gray-500 mt-1">Step {funnelStep + 1} — Answer to qualify</p>
-                    </div>
-                    <button onClick={closeFunnel} className="text-gray-400 hover:text-gray-600 p-2">✕</button>
-                  </div>
-                </div>
-
-                {/* Questions */}
-                <div className="p-6 space-y-6">
-                  {funnelSurvey.questions?.map((q: any, qIdx: number) => (
-                    <div key={qIdx} className="space-y-3">
-                      <p className="font-medium text-gray-800">{qIdx + 1}. {q.text}</p>
-                      <div className="space-y-2">
-                        {q.options?.map((opt: string, optIdx: number) => (
-                          <label
-                            key={optIdx}
-                            className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                              funnelAnswers[qIdx] === opt
-                                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                : 'border-gray-200 hover:border-gray-300 text-gray-700'
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name={`funnel-q-${qIdx}`}
-                              checked={funnelAnswers[qIdx] === opt}
-                              onChange={() => setFunnelAnswers(prev => ({ ...prev, [qIdx]: opt }))}
-                              className="w-4 h-4 text-blue-500"
-                            />
-                            <span className="text-sm">{opt}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Submit */}
-                <div className="p-6 border-t border-gray-200">
-                  <button
-                    onClick={submitFunnelStep}
-                    disabled={funnelSubmitting || Object.keys(funnelAnswers).length < (funnelSurvey.questions?.length || 0)}
-                    className="w-full py-3 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {funnelSubmitting ? 'Checking...' : 'Submit Answers'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div className="p-8 text-center text-gray-500">Loading survey...</div>
-            )}
-          </div>
+            </div>
+          ) : funnelSurvey ? (
+            <div className="flex-1 relative">
+              <button onClick={closeFunnel} className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 text-sm">✕</button>
+              <SurveyTemplateRenderer
+                template={funnelTemplate}
+                title={funnelSurvey.title || 'Survey'}
+                description={`Step ${funnelStep + 1} — Answer to qualify`}
+                questions={(funnelSurvey.questions || []).map((q: any) => ({ text: q.text, options: q.options || [] }))}
+                answers={funnelAnswers}
+                onAnswer={(qIdx, answer) => setFunnelAnswers(prev => ({ ...prev, [qIdx]: answer }))}
+                onSubmit={submitFunnelStep}
+                submitting={funnelSubmitting}
+                brandColor="#6366f1"
+              />
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center"><p className="text-gray-500">Loading survey...</p></div>
+          )}
         </div>
       )}
 
-      {/* Qualification Survey Overlay */}
+      {/* Qualification Survey — Full Screen with Template */}
       {showQualificationSurvey && qualificationSurvey && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-slate-700">
-              <div>
-                <h2 className="text-xl font-bold text-white">Qualification Survey</h2>
-                <p className="text-sm text-gray-400 mt-1">Complete to unlock all offers</p>
-              </div>
-              <button
-                onClick={() => setShowQualificationSurvey(false)}
-                className="text-gray-400 hover:text-white p-2 rounded-lg hover:bg-slate-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="flex flex-1 overflow-hidden">
-              {/* Section Tabs - Right Side */}
-              <div className="w-48 border-r border-slate-700 p-4 overflow-y-auto hidden md:block">
-                {(() => {
-                  const sections = ["General", "Background", "Work", "Role", "Address"];
-                  return sections.map((section, idx) => (
-                    <button
-                      key={section}
-                      onClick={() => setQualificationSection(idx)}
-                      className={`w-full text-left px-3 py-2 rounded-lg mb-2 text-sm font-medium transition-colors ${
-                        qualificationSection === idx
-                          ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                          : 'text-gray-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      {section}
-                    </button>
-                  ));
-                })()}
-              </div>
-
-              {/* Questions Area */}
-              <div className="flex-1 p-6 overflow-y-auto">
-                {(() => {
-                  const sections = ["General", "Background", "Work", "Role", "Address"];
-                  const currentSection = sections[qualificationSection];
-                  const sectionQuestions = (qualificationSurvey.questions || []).filter(
-                    (q: any) => q.section === currentSection
-                  );
-
-                  return (
-                    <div className="space-y-6">
-                      <h3 className="text-lg font-semibold text-white mb-4">{currentSection}</h3>
-                      {sectionQuestions.map((question: any) => (
-                        <div key={question.id} className="space-y-2">
-                          <label className="text-white font-medium text-sm">
-                            {question.text}
-                            {question.required && <span className="text-red-400 ml-1">*</span>}
-                          </label>
-
-                          {question.type === 'text' && (
-                            <input
-                              type={question.text.toLowerCase().includes('date') ? 'date' : question.text.toLowerCase().includes('email') ? 'email' : question.text.toLowerCase().includes('phone') ? 'tel' : 'text'}
-                              value={qualificationAnswers[question.id] || ''}
-                              onChange={(e) => setQualificationAnswers(prev => ({ ...prev, [question.id]: e.target.value }))}
-                              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder={`Enter ${question.text.toLowerCase().replace('what is your ', '').replace('select your ', '')}`}
-                            />
-                          )}
-
-                          {question.type === 'mcq' && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {(question.options || []).map((option: string) => (
-                                <button
-                                  key={option}
-                                  onClick={() => setQualificationAnswers(prev => ({ ...prev, [question.id]: option }))}
-                                  className={`text-left px-4 py-2.5 rounded-lg border text-sm transition-colors ${
-                                    qualificationAnswers[question.id] === option
-                                      ? 'bg-blue-500/20 border-blue-500 text-blue-300'
-                                      : 'bg-slate-800 border-slate-600 text-gray-300 hover:border-slate-500'
-                                  }`}
-                                >
-                                  {option}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-
-                          {question.type === 'mcq_multi' && (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              {(question.options || []).map((option: string) => {
-                                const selected = (qualificationAnswers[question.id] || []) as string[];
-                                const isSelected = selected.includes(option);
-                                return (
-                                  <button
-                                    key={option}
-                                    onClick={() => {
-                                      setQualificationAnswers(prev => {
-                                        const current = (prev[question.id] || []) as string[];
-                                        if (current.includes(option)) {
-                                          return { ...prev, [question.id]: current.filter(o => o !== option) };
-                                        } else {
-                                          return { ...prev, [question.id]: [...current, option] };
-                                        }
-                                      });
-                                    }}
-                                    className={`text-left px-4 py-2.5 rounded-lg border text-sm transition-colors ${
-                                      isSelected
-                                        ? 'bg-blue-500/20 border-blue-500 text-blue-300'
-                                        : 'bg-slate-800 border-slate-600 text-gray-300 hover:border-slate-500'
-                                    }`}
-                                  >
-                                    {isSelected ? '☑ ' : '☐ '}{option}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {question.type === 'yes_no' && (
-                            <div className="flex gap-3">
-                              {['Yes', 'No'].map((option) => (
-                                <button
-                                  key={option}
-                                  onClick={() => setQualificationAnswers(prev => ({ ...prev, [question.id]: option }))}
-                                  className={`flex-1 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                                    qualificationAnswers[question.id] === option
-                                      ? 'bg-blue-500/20 border-blue-500 text-blue-300'
-                                      : 'bg-slate-800 border-slate-600 text-gray-300 hover:border-slate-500'
-                                  }`}
-                                >
-                                  {option}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* Navigation Buttons */}
-                <div className="flex items-center justify-between mt-8 pt-4 border-t border-slate-700">
-                  <button
-                    onClick={() => setQualificationSection(prev => Math.max(0, prev - 1))}
-                    disabled={qualificationSection === 0}
-                    className="px-6 py-2.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-slate-800 border border-slate-600 text-gray-300 hover:bg-slate-700"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-sm text-gray-400">
-                    Section {qualificationSection + 1} of 5
-                  </span>
-                  {qualificationSection < 4 ? (
-                    <button
-                      onClick={() => setQualificationSection(prev => Math.min(4, prev + 1))}
-                      className="px-6 py-2.5 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors"
-                    >
-                      Next
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleQualificationSubmit}
-                      className="px-6 py-2.5 rounded-lg text-sm font-medium bg-green-500 hover:bg-green-600 text-white transition-colors"
-                    >
-                      Submit
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
+        <div className="fixed inset-0 z-[9999]" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
+          {/* Close button */}
+          <button
+            onClick={() => setShowQualificationSurvey(false)}
+            className="fixed top-4 right-4 z-[10000] w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <QualificationSurveyWithTemplate
+            survey={qualificationSurvey}
+            onSubmit={handleQualificationSubmit}
+            onAnswer={(questionId, answer) => setQualificationAnswers(prev => ({ ...prev, [questionId]: answer }))}
+            answers={qualificationAnswers}
+          />
         </div>
       )}
 
@@ -1307,3 +1111,55 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
     </div>
   );
 };
+
+
+// ==================== QUALIFICATION SURVEY WITH TEMPLATE ====================
+// Bridges the question-ID-based answers with the numeric-index-based template renderer
+
+function QualificationSurveyWithTemplate({ survey, onSubmit, onAnswer, answers }: {
+  survey: any;
+  onSubmit: () => void;
+  onAnswer: (questionId: string, answer: string) => void;
+  answers: Record<string, any>;
+}) {
+  // Filter to only MCQ/yes_no questions (template only supports option-based questions)
+  const mcqQuestions = (survey.questions || []).filter(
+    (q: any) => q.type === 'mcq' || q.type === 'yes_no' || q.type === 'mcq_multi'
+  );
+
+  // Convert to template format
+  const templateQuestions = mcqQuestions.map((q: any) => ({
+    text: q.text,
+    options: q.type === 'yes_no' ? ['Yes', 'No'] : (q.options || []),
+  }));
+
+  // Convert ID-based answers to numeric-index-based answers for the template
+  const templateAnswers: Record<number, string> = {};
+  mcqQuestions.forEach((q: any, idx: number) => {
+    if (answers[q.id]) {
+      templateAnswers[idx] = answers[q.id];
+    }
+  });
+
+  // Get template from survey data
+  const templateName = (survey.template || 'moustache-default') as TemplateName;
+
+  return (
+    <SurveyTemplateRenderer
+      template={templateName}
+      title={survey.name || 'Qualification Survey'}
+      description="Complete to unlock all offers"
+      questions={templateQuestions}
+      answers={templateAnswers}
+      onAnswer={(qIdx, answer) => {
+        const questionId = mcqQuestions[qIdx]?.id;
+        if (questionId) {
+          onAnswer(questionId, answer);
+        }
+      }}
+      onSubmit={onSubmit}
+      submitting={false}
+      questionsPerPage={survey.questions_per_page || 3}
+    />
+  );
+}

@@ -7,6 +7,7 @@ import {
   fetchResponseDetail,
   type SurveyData, type SurveyQuestion,
 } from "@/services/surveyApi";
+import { TemplatePicker, TemplateName } from "@/components/survey-templates/SurveyTemplateRenderer";
 import {
   Shield, Plus, Pencil, Trash2, Eye, BarChart3, Link2, Unlink,
   ChevronDown, ChevronRight, Search, RefreshCw, Database, CheckCircle2,
@@ -468,6 +469,8 @@ function SurveyEditorModal({ initial, onSave, onClose }: {
   const [description, setDescription] = useState(initial?.description || "");
   const [category, setCategory] = useState(initial?.category || "General");
   const [captchaEnabled, setCaptchaEnabled] = useState(initial?.captcha_enabled ?? true);
+  const [surveyTemplate, setSurveyTemplate] = useState<string>(initial?.template || 'modern-card');
+  const [questionsPerPage, setQuestionsPerPage] = useState<number>(initial?.questions_per_page || 0);
   const [questions, setQuestions] = useState<SurveyQuestion[]>(initial?.questions || []);
 
   const addQuestion = () => {
@@ -506,7 +509,7 @@ function SurveyEditorModal({ initial, onSave, onClose }: {
   const handleSubmit = () => {
     if (!name.trim()) { toast.error("Survey name is required"); return; }
     if (questions.length === 0) { toast.error("Add at least one question"); return; }
-    onSave({ name, description, category, captcha_enabled: captchaEnabled, questions });
+    onSave({ name, description, category, captcha_enabled: captchaEnabled, questions, template: surveyTemplate, questions_per_page: questionsPerPage });
   };
 
   return (
@@ -591,6 +594,34 @@ function SurveyEditorModal({ initial, onSave, onClose }: {
               ))}
             </div>
           )}
+        </div>
+
+        {/* Template & Display Settings */}
+        <div className="border rounded-xl p-5 mb-5 bg-muted/20">
+          <h4 className="font-medium mb-3">Survey Template & Display</h4>
+          <TemplatePicker
+            value={surveyTemplate as TemplateName}
+            onChange={(t) => setSurveyTemplate(t)}
+            questions={questions.filter(q => q.type === 'multiple_choice').map(q => ({ text: q.question, options: q.options || [] }))}
+          />
+          <div className="mt-4 pt-4 border-t flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium">Questions Per Page</label>
+              <p className="text-xs text-muted-foreground mt-0.5">0 = show all at once</p>
+            </div>
+            <select
+              value={questionsPerPage}
+              onChange={e => setQuestionsPerPage(Number(e.target.value))}
+              className="border rounded-lg px-3 py-2 text-sm"
+            >
+              <option value={0}>All at once</option>
+              <option value={1}>1 per page</option>
+              <option value={2}>2 per page</option>
+              <option value={3}>3 per page</option>
+              <option value={4}>4 per page</option>
+              <option value={5}>5 per page</option>
+            </select>
+          </div>
         </div>
 
         {/* CAPTCHA toggle */}

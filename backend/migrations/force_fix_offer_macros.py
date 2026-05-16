@@ -33,7 +33,8 @@ TARGET_NETWORKS = [
 ]
 
 # Params to REMOVE from URLs (we'll re-add the correct ones)
-PARAMS_TO_REMOVE = ['aff_sub', 'aff_sub2', 'aff_click_id', 'payout', 'status', 'offer_id']
+# NOTE: DO NOT include 'offer_id' here — it contains the REAL offer number, not a macro!
+PARAMS_TO_REMOVE = ['aff_sub', 'aff_sub2', 'aff_click_id', 'payout', 'status']
 
 # Params to ADD (correct macros)
 PARAMS_TO_ADD = {
@@ -41,7 +42,6 @@ PARAMS_TO_ADD = {
     'aff_click_id': '{click_id}',
     'payout': '{payout}',
     'status': '{status}',
-    'offer_id': '{cid}',
 }
 
 

@@ -112,6 +112,7 @@ import AdminSurveyBuilder from "./pages/AdminSurveyBuilder";
 import AdminSubWalls from "./pages/AdminSubWalls";
 import AdminRedirectRouter from "./pages/AdminRedirectRouter";
 import SubWallPage from "./pages/SubWallPage";
+import SurveyFunnelPage from "./pages/SurveyFunnelPage";
 import SurveyPage from "./pages/SurveyPage";
 
 const queryClient = new QueryClient();
@@ -145,6 +146,7 @@ const App = () => (
                 <Route path="/smart/:slug" element={<SmartLinkRedirector />} />
                 <Route path="/wall/:slug" element={<SubWallPage />} />
                 <Route path="/survey/:surveyId" element={<SurveyPage />} />
+                <Route path="/funnel/:funnelId" element={<SurveyFunnelPage />} />
 
               {/* Protected dashboard routes */}
               <Route

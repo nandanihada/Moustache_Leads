@@ -28,6 +28,8 @@ export interface SurveyData {
   category: string;
   questions: SurveyQuestion[];
   captcha_enabled: boolean;
+  template?: string;
+  questions_per_page?: number;
   is_active?: boolean;
   created_at?: string;
   total_responses?: number;

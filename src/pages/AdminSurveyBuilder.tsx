@@ -26,6 +26,7 @@ import {
 import {
   ClipboardList, Plus, Trash2, Sparkles, Eye, Search, Wand2, Edit, X
 } from "lucide-react";
+import { TemplatePicker, TemplateName } from "@/components/survey-templates/SurveyTemplateRenderer";
 import { offerwallManagerApi } from "@/services/offerwallManagerApi";
 
 export default function AdminSurveyBuilder() {
@@ -52,6 +53,8 @@ export default function AdminSurveyBuilder() {
   const [formDescription, setFormDescription] = useState("");
   const [formPlacement, setFormPlacement] = useState<string>("offerwall_card");
   const [formImageUrl, setFormImageUrl] = useState("");
+  const [formTemplate, setFormTemplate] = useState<string>("modern-card");
+  const [formQuestionsPerPage, setFormQuestionsPerPage] = useState<number>(0);
   const [formQuestions, setFormQuestions] = useState<SurveyQuestion[]>([]);
 
   // AI generate state
@@ -122,6 +125,8 @@ export default function AdminSurveyBuilder() {
     setFormDescription("");
     setFormPlacement("offerwall_card");
     setFormImageUrl("");
+    setFormTemplate("modern-card");
+    setFormQuestionsPerPage(0);
     setFormQuestions([]);
     setAiPrompt("");
     setAiName("");
@@ -139,6 +144,8 @@ export default function AdminSurveyBuilder() {
     setFormDescription(survey.description || '');
     setFormPlacement(survey.placement);
     setFormImageUrl(survey.image_url || '');
+    setFormTemplate((survey as any).template || 'modern-card');
+    setFormQuestionsPerPage((survey as any).questions_per_page || 0);
     setFormQuestions(survey.questions || []);
     setSelectedOfferIds(survey.target_offer_ids || []);
     setCreateTab("manual");
@@ -250,7 +257,9 @@ export default function AdminSurveyBuilder() {
           placement: formPlacement as Survey['placement'],
           target_offer_ids: selectedOfferIds,
           image_url: formImageUrl || undefined,
-        });
+          template: formTemplate,
+          questions_per_page: formQuestionsPerPage,
+        } as any);
         toast({ title: "Survey updated successfully" });
         queryClient.invalidateQueries({ queryKey: ['admin-surveys'] });
         resetForm();
@@ -270,7 +279,9 @@ export default function AdminSurveyBuilder() {
         target_offer_ids: selectedOfferIds,
         image_url: formImageUrl || undefined,
         ai_prompt: createTab === "ai" ? aiPrompt : undefined,
-      });
+        template: formTemplate,
+        questions_per_page: formQuestionsPerPage,
+      } as any);
     }
   };
 
@@ -540,6 +551,33 @@ export default function AdminSurveyBuilder() {
               <div>
                 <Label>Description</Label>
                 <Textarea value={formDescription} onChange={(e) => setFormDescription(e.target.value)} placeholder="Optional description..." rows={2} />
+              </div>
+
+              {/* Template & Display Settings */}
+              <div className="space-y-3 border rounded-lg p-4 bg-muted/20">
+                <Label className="text-base font-semibold">Survey Template</Label>
+                <TemplatePicker
+                  value={formTemplate as TemplateName}
+                  onChange={(t) => setFormTemplate(t)}
+                  questions={formQuestions.filter(q => q.type === 'mcq').map(q => ({ text: q.text, options: q.options || [] }))}
+                />
+                <div className="flex items-center justify-between pt-3 border-t">
+                  <div>
+                    <Label>Questions Per Page</Label>
+                    <p className="text-xs text-muted-foreground">0 = show all at once</p>
+                  </div>
+                  <Select value={String(formQuestionsPerPage)} onValueChange={(v) => setFormQuestionsPerPage(Number(v))}>
+                    <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0">All at once</SelectItem>
+                      <SelectItem value="1">1 per page</SelectItem>
+                      <SelectItem value="2">2 per page</SelectItem>
+                      <SelectItem value="3">3 per page</SelectItem>
+                      <SelectItem value="4">4 per page</SelectItem>
+                      <SelectItem value="5">5 per page</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               {/* Questions */}

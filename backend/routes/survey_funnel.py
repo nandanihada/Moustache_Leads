@@ -112,6 +112,10 @@ def create_funnel():
             'status': data.get('status', 'active'),
             'placement': data.get('placement', 'everywhere'),  # everywhere, iframe, offerwall, specific_offer
             'placement_offer_id': data.get('placement_offer_id', ''),
+            'survey_template': data.get('survey_template', 'modern-card'),
+            'questions_per_page': data.get('questions_per_page', 0),
+            'spinner_duration': data.get('spinner_duration', 8),
+            'survey_timeout': data.get('survey_timeout', 5),
             'steps': steps,
             'fail_message': data.get('fail_message', 'Sorry, you do not qualify for any offers at this time.'),
             # Display settings — how it looks as an offer card on the offerwall
@@ -187,7 +191,8 @@ def update_funnel(funnel_id):
 
         update_fields = {'updated_at': datetime.utcnow()}
         allowed = ['name', 'description', 'status', 'placement', 'placement_offer_id', 'steps', 'fail_message',
-                   'display_title', 'display_description', 'display_image_url', 'display_payout', 'display_category']
+                   'display_title', 'display_description', 'display_image_url', 'display_payout', 'display_category',
+                   'survey_template', 'questions_per_page', 'spinner_duration', 'survey_timeout']
         for field in allowed:
             if field in data:
                 update_fields[field] = data[field]
@@ -327,6 +332,10 @@ def start_funnel(funnel_id):
             'session_id': session_id,
             'step_index': 0,
             'total_steps': len(steps),
+            'survey_template': funnel.get('survey_template', 'modern-card'),
+            'questions_per_page': funnel.get('questions_per_page', 0),
+            'spinner_duration': funnel.get('spinner_duration', 8),
+            'survey_timeout': funnel.get('survey_timeout', 5),
             'survey': {
                 'title': first_step.get('survey_title', f'Survey {1}'),
                 'questions': first_step.get('questions', []),
