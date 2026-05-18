@@ -4,10 +4,9 @@ import os
 # Bind to the port Render provides
 bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 
-# Workers — 4 workers with gevent for async I/O (handles concurrent tracking + admin requests)
+# Workers — 4 sync workers (more capacity for concurrent requests)
+# Background threading in simple_tracking.py ensures clicks don't block workers
 workers = 4
-worker_class = 'gevent'
-worker_connections = 50
 timeout = 180  # 3 minutes for bulk import operations
 
 # Prevent memory leaks — restart workers after N requests
