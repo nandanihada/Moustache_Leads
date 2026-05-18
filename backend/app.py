@@ -492,6 +492,18 @@ def start_background_services():
     
     logging.info("Database connection established — starting background services")
     
+    # Ensure critical indexes exist (fast, idempotent — skips if already created)
+    try:
+        from pymongo import ASCENDING, DESCENDING
+        db = db_instance.get_db()
+        db['offers'].create_index([('status', ASCENDING), ('deleted', ASCENDING), ('is_pinned', DESCENDING), ('created_at', DESCENDING)], background=True)
+        db['offers'].create_index([('status', ASCENDING), ('deleted', ASCENDING), ('created_at', DESCENDING)], background=True)
+        db['clicks'].create_index([('ip_address', ASCENDING), ('timestamp', DESCENDING)], background=True)
+        db['clicks'].create_index([('user_id', ASCENDING), ('offer_id', ASCENDING), ('timestamp', DESCENDING)], background=True)
+        logging.info("✅ Critical indexes ensured")
+    except Exception as idx_err:
+        logging.warning(f"Index creation skipped: {idx_err}")
+    
     try:
         try:
             from services.cap_monitoring_service import CapMonitoringService

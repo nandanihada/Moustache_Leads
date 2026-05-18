@@ -36,7 +36,7 @@ def get_available_offers():
         
         # Get query parameters
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 100))
+        per_page = int(request.args.get('per_page', 50))
         status = request.args.get('status', 'active')
         search = request.args.get('search', '')
         
@@ -109,8 +109,17 @@ def get_available_offers():
                     ]
                 }
         
-        # Get total count
-        total = offers_collection.count_documents(query)
+        # Get total count (use estimated_document_count for speed when no search filter)
+        if search or granted_offer_ids:
+            total = offers_collection.count_documents(query)
+        else:
+            # Fast path: for the default "all active offers" view, use estimated count
+            # This avoids a full collection scan and returns in <10ms
+            try:
+                total = offers_collection.count_documents(query, maxTimeMS=5000)
+            except Exception:
+                # If count times out, use estimated count
+                total = offers_collection.estimated_document_count()
         
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {

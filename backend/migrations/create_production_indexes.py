@@ -66,6 +66,9 @@ def create_indexes():
     safe_create('offers', [('created_at', DESCENDING)])
     safe_create('offers', [('created_by', ASCENDING)])
     safe_create('offers', [('payout', DESCENDING)])
+    # Publisher offers query: status + deleted + is_pinned + created_at (covers the main publisher view)
+    safe_create('offers', [('status', ASCENDING), ('deleted', ASCENDING), ('is_pinned', DESCENDING), ('created_at', DESCENDING)])
+    safe_create('offers', [('status', ASCENDING), ('deleted', ASCENDING), ('created_at', DESCENDING)])
     
     # ===== CLICKS COLLECTION =====
     log("Creating clicks indexes...")
