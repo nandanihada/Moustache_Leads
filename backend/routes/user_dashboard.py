@@ -1,4 +1,4 @@
-"""
+﻿"""
 User Dashboard API Routes
 Provides real-time statistics for user dashboard
 - Total revenue from forwarded postbacks
@@ -12,10 +12,15 @@ from utils.auth import token_required
 from datetime import datetime, timedelta
 from bson import ObjectId
 import logging
+import time as _time
 
 logger = logging.getLogger(__name__)
 
 user_dashboard_bp = Blueprint('user_dashboard', __name__)
+
+# Per-user dashboard cache (60 second TTL)
+_dashboard_cache = {}  # user_id -> {'stats': data, 'chart': data, 'top_offers': data, 'expires': timestamp}
+_DASHBOARD_CACHE_TTL = 60  # seconds
 
 def get_collection(collection_name):
     """Get collection from database instance"""
@@ -29,20 +34,19 @@ def get_collection(collection_name):
 @token_required
 def get_dashboard_stats():
     """
-    Get dashboard statistics for current user
-    Returns:
-    - total_revenue: Sum of all points from forwarded postbacks where user is publisher
-    - total_clicks: Count of clicks from user's placements
-    - total_conversions: Count of conversions from forwarded postbacks
-    - active_offers: Count of unique offers in user's placements
-    - recent_activity: Last 5 conversion events
+    Get dashboard statistics for current user (cached for 60 seconds)
     """
     try:
         user = request.current_user
         user_id = str(user['_id'])
         username = user.get('username', 'Unknown')
         
-        logger.info(f"📊 Getting dashboard stats for user: {username} ({user_id})")
+        # Check cache
+        cached = _dashboard_cache.get(user_id)
+        if cached and cached.get('stats') and _time.time() < cached.get('stats_expires', 0):
+            return jsonify(cached['stats']), 200
+        
+        logger.debug(f"📊 Getting dashboard stats for user: {username} ({user_id})")
         
         # Get collections
         forwarded_postbacks = get_collection('forwarded_postbacks')
@@ -70,7 +74,7 @@ def get_dashboard_stats():
         except:
             total_conversions = 0
         
-        logger.info(f"💰 Total revenue: {total_revenue}, Conversions: {total_conversions}")
+        logger.debug(f"💰 Total revenue: {total_revenue}, Conversions: {total_conversions}")
         
         # 2. Calculate Total Clicks from user's placements AND dashboard clicks
         # First get all user's placement IDs
@@ -80,7 +84,7 @@ def get_dashboard_stats():
         ))
         placement_ids = [str(p['_id']) for p in user_placements]
         
-        logger.info(f"🎯 User has {len(placement_ids)} placements")
+        logger.debug(f"🎯 User has {len(placement_ids)} placements")
         
         # Count clicks from offerwall (placement-based clicks)
         offerwall_clicks = 0
@@ -110,7 +114,7 @@ def get_dashboard_stats():
         # Total clicks = offerwall clicks + dashboard clicks
         total_clicks = offerwall_clicks + dashboard_clicks
         
-        logger.info(f"👆 Total clicks: {total_clicks} (offerwall: {offerwall_clicks}, dashboard: {dashboard_clicks})")
+        logger.debug(f"👆 Total clicks: {total_clicks} (offerwall: {offerwall_clicks}, dashboard: {dashboard_clicks})")
         
         # 3. Get Active Offers Count - Count all offers with status='active'
         active_offers_count = 0
@@ -120,7 +124,7 @@ def get_dashboard_stats():
                 'status': 'active'
             })
         
-        logger.info(f"🎁 Total active offers in system: {active_offers_count}")
+        logger.debug(f"🎁 Total active offers in system: {active_offers_count}")
         
         # 4. Get Recent Activity - Only show offer-related activities
         # Get collections for recent activity
@@ -199,7 +203,7 @@ def get_dashboard_stats():
         for activity in formatted_activity:
             activity.pop('timestamp', None)
         
-        logger.info(f"📋 Recent activity: {len(formatted_activity)} items")
+        logger.debug(f"📋 Recent activity: {len(formatted_activity)} items")
         
         # 5. Calculate comparison with last period (for trend indicators)
         # Get stats from 30 days ago to compare
@@ -256,8 +260,8 @@ def get_dashboard_stats():
         revenue_change = _calculate_percentage_change(prev_30_revenue, last_30_revenue)
         conversions_change = _calculate_percentage_change(prev_30_conversions, last_30_conversions)
         
-        # Return dashboard stats
-        return jsonify({
+        # Return dashboard stats (and cache for 60 seconds)
+        result = {
             'success': True,
             'stats': {
                 'total_revenue': total_revenue,
@@ -268,7 +272,15 @@ def get_dashboard_stats():
                 'conversions_change': conversions_change,
                 'recent_activity': formatted_activity
             }
-        }), 200
+        }
+        
+        # Cache the result
+        if user_id not in _dashboard_cache:
+            _dashboard_cache[user_id] = {}
+        _dashboard_cache[user_id]['stats'] = result
+        _dashboard_cache[user_id]['stats_expires'] = _time.time() + _DASHBOARD_CACHE_TTL
+        
+        return jsonify(result), 200
         
     except Exception as e:
         logger.error(f"❌ Error getting dashboard stats: {str(e)}", exc_info=True)
@@ -337,7 +349,7 @@ def get_user_notifications():
         username = user.get('username', '')
         user_email = user.get('email', '')
         
-        logger.info(f"🔔 Getting notifications for user: {username} ({user_id})")
+        logger.debug(f"🔔 Getting notifications for user: {username} ({user_id})")
         
         notifications = []
         
@@ -375,7 +387,7 @@ def get_user_notifications():
             
             user_placements = list(placements_col.find(placement_query).sort('createdAt', -1))
             
-            logger.info(f"🔍 Found {len(user_placements)} placements for user {user_id}")
+            logger.debug(f"🔍 Found {len(user_placements)} placements for user {user_id}")
             
             for placement in user_placements:
                 # Check both status field naming conventions (approvalStatus and status)
@@ -424,7 +436,7 @@ def get_user_notifications():
         # If user has NO approved placement, only show placement-related notifications
         # Don't show promo codes, offers, etc. until they have an approved placement
         if not has_approved_placement:
-            logger.info(f"⚠️ User {username} has no approved placement - showing only placement notifications")
+            logger.debug(f"⚠️ User {username} has no approved placement - showing only placement notifications")
             
             # Sort and format
             for notif in notifications:
@@ -449,7 +461,7 @@ def get_user_notifications():
             
             applied_promos = list(user_promo_codes_col.find(user_promo_query).sort('applied_at', -1).limit(6))
             
-            logger.info(f"🔍 Found {len(applied_promos)} applied promo codes for user {user_id}")
+            logger.debug(f"🔍 Found {len(applied_promos)} applied promo codes for user {user_id}")
             
             for applied in applied_promos:
                 promo_code_id = applied.get('promo_code_id')
@@ -584,7 +596,7 @@ def get_user_notifications():
             
             approved_requests = list(offer_requests_col.find(approved_query).sort('updated_at', -1).limit(6))
             
-            logger.info(f"🔍 Found {len(approved_requests)} approved offer requests for user {user_id}")
+            logger.debug(f"🔍 Found {len(approved_requests)} approved offer requests for user {user_id}")
             
             for req in approved_requests:
                 offer_name = req.get('offer_details', {}).get('name', req.get('offer_name', req.get('offer_id', 'Unknown Offer')))
@@ -615,7 +627,7 @@ def get_user_notifications():
             
             rejected_requests = list(offer_requests_col.find(rejected_query).sort('updated_at', -1).limit(6))
             
-            logger.info(f"🔍 Found {len(rejected_requests)} rejected offer requests for user {user_id}")
+            logger.debug(f"🔍 Found {len(rejected_requests)} rejected offer requests for user {user_id}")
             
             for req in rejected_requests:
                 offer_name = req.get('offer_details', {}).get('name', req.get('offer_name', req.get('offer_id', 'Unknown Offer')))
@@ -643,7 +655,7 @@ def get_user_notifications():
             
             successful_conversions = list(forwarded_postbacks_col.find(conversion_query).sort('timestamp', -1).limit(6))
             
-            logger.info(f"🔍 Found {len(successful_conversions)} successful conversions for user {user_id}")
+            logger.debug(f"🔍 Found {len(successful_conversions)} successful conversions for user {user_id}")
             
             for conv in successful_conversions:
                 points = conv.get('points', 0)
@@ -687,7 +699,7 @@ def get_user_notifications():
             
             reversals = list(forwarded_postbacks_col.find(reversal_query).sort('timestamp', -1).limit(6))
             
-            logger.info(f"🔍 Found {len(reversals)} reversals for user {user_id}")
+            logger.debug(f"🔍 Found {len(reversals)} reversals for user {user_id}")
             
             for rev in reversals:
                 points = rev.get('points', 0)
@@ -733,7 +745,7 @@ def get_user_notifications():
             
             offerwall_reversals = list(conversions_col.find(offerwall_reversal_query).sort('timestamp', -1).limit(6))
             
-            logger.info(f"🔍 Found {len(offerwall_reversals)} offerwall reversals for user {user_id}")
+            logger.debug(f"🔍 Found {len(offerwall_reversals)} offerwall reversals for user {user_id}")
             
             for rev in offerwall_reversals:
                 payout = rev.get('payout_amount', 0)
@@ -760,7 +772,7 @@ def get_user_notifications():
         # Limit total notifications to 20 for the bar
         notifications = notifications[:20]
         
-        logger.info(f"🔔 Returning {len(notifications)} notifications for user {username}")
+        logger.debug(f"🔔 Returning {len(notifications)} notifications for user {username}")
         
         return jsonify({
             'success': True,
@@ -790,7 +802,7 @@ def mark_notifications_read():
         # For now, we just acknowledge the request
         # In a full implementation, you'd store read status in a separate collection
         
-        logger.info(f"📖 Marked {len(notification_ids)} notifications as read for user {user_id}")
+        logger.debug(f"📖 Marked {len(notification_ids)} notifications as read for user {user_id}")
         
         return jsonify({
             'success': True,
@@ -814,7 +826,7 @@ def get_chart_data():
         user_id = str(user['_id'])
         username = user.get('username', 'Unknown')
         
-        logger.info(f"📊 Getting chart data for user: {username} ({user_id})")
+        logger.debug(f"📊 Getting chart data for user: {username} ({user_id})")
         
         # Get collections
         forwarded_postbacks = get_collection('forwarded_postbacks')
@@ -910,7 +922,7 @@ def get_chart_data():
                 'revenue': round(month_revenue, 2)
             })
         
-        logger.info(f"📈 Chart data generated: {len(chart_data)} months")
+        logger.debug(f"📈 Chart data generated: {len(chart_data)} months")
         
         return jsonify({
             'success': True,
@@ -934,7 +946,7 @@ def get_top_offers():
         user_id = str(user['_id'])
         username = user.get('username', 'Unknown')
         
-        logger.info(f"🏆 Getting top offers for user: {username} ({user_id})")
+        logger.debug(f"🏆 Getting top offers for user: {username} ({user_id})")
         
         # Get collections
         forwarded_postbacks = get_collection('forwarded_postbacks')
@@ -1031,7 +1043,7 @@ def get_top_offers():
                 'conversionRate': f"{conv_rate:.1f}%"
             })
         
-        logger.info(f"🏆 Top offers generated: {len(top_offers)} offers")
+        logger.debug(f"🏆 Top offers generated: {len(top_offers)} offers")
         
         return jsonify({
             'success': True,
