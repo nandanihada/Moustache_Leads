@@ -24,16 +24,26 @@ access_service = AccessControlService()
 def get_available_offers():
     """
     Get all active offers available to publishers.
-    ULTRA-OPTIMIZED: Single fast query, minimal processing, no N+1.
+    ULTRA-OPTIMIZED: Cached response for 60 seconds per user.
     """
     try:
         user = request.current_user
-        user_id = user.get('_id')
+        user_id = str(user.get('_id'))
         
         # Get query parameters
         page = int(request.args.get('page', 1))
-        per_page = min(int(request.args.get('per_page', 20)), 50)  # Cap at 50 for speed
+        per_page = min(int(request.args.get('per_page', 20)), 50)
         search = request.args.get('search', '')
+        
+        # Check cache (per-user, 60 second TTL)
+        import time as _time
+        cache_key = f"{user_id}:{page}:{per_page}:{search}"
+        if not hasattr(get_available_offers, '_cache'):
+            get_available_offers._cache = {}
+        
+        cached = get_available_offers._cache.get(cache_key)
+        if cached and _time.time() < cached['expires']:
+            return safe_json_response(cached['data'])
         
         offers_collection = db_instance.get_collection('offers')
         if offers_collection is None:
@@ -170,7 +180,7 @@ def get_available_offers():
         if search:
             log_search_async(str(user_id), user.get('username', ''), search, len(processed_offers))
         
-        return safe_json_response({
+        result = {
             'success': True,
             'offers': processed_offers,
             'pagination': {
@@ -179,7 +189,16 @@ def get_available_offers():
                 'total': total,
                 'pages': max(1, (total + per_page - 1) // per_page)
             }
-        })
+        }
+        
+        # Cache for 60 seconds
+        get_available_offers._cache[cache_key] = {'data': result, 'expires': _time.time() + 60}
+        # Evict old cache entries (keep max 100)
+        if len(get_available_offers._cache) > 100:
+            now = _time.time()
+            get_available_offers._cache = {k: v for k, v in get_available_offers._cache.items() if v['expires'] > now}
+        
+        return safe_json_response(result)
         
     except Exception as e:
         logger.error(f"❌ Error fetching offers: {str(e)}", exc_info=True)
