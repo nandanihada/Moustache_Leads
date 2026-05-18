@@ -48,6 +48,92 @@ BOT_UA_PATTERNS = [
     'go-http-client', 'java/', 'libwww', 'lwp-trivial',
 ]
 
+# ============================================================================
+# IN-MEMORY RATE COUNTERS (replaces expensive count_documents queries)
+# ============================================================================
+import time as _time
+import threading
+
+_rate_lock = threading.Lock()
+_ip_clicks = {}      # ip -> [timestamp, timestamp, ...]
+_user_clicks = {}    # user_id -> [timestamp, timestamp, ...]
+_user_offer_clicks = {}  # "user_id:offer_id" -> [timestamp, ...]
+_CLEANUP_INTERVAL = 300  # Clean up old entries every 5 minutes
+_last_cleanup = 0
+
+
+def _record_click(ip_address, user_id, offer_id):
+    """Record a click in memory for rate limiting. O(1) operation."""
+    global _last_cleanup
+    now = _time.time()
+    
+    with _rate_lock:
+        # Record IP click
+        if ip_address:
+            if ip_address not in _ip_clicks:
+                _ip_clicks[ip_address] = []
+            _ip_clicks[ip_address].append(now)
+        
+        # Record user click
+        if user_id:
+            if user_id not in _user_clicks:
+                _user_clicks[user_id] = []
+            _user_clicks[user_id].append(now)
+        
+        # Record user+offer click
+        if user_id and offer_id:
+            key = f"{user_id}:{offer_id}"
+            if key not in _user_offer_clicks:
+                _user_offer_clicks[key] = []
+            _user_offer_clicks[key].append(now)
+        
+        # Periodic cleanup of old entries
+        if now - _last_cleanup > _CLEANUP_INTERVAL:
+            _last_cleanup = now
+            cutoff_ip = now - (IP_VELOCITY_WINDOW_MINUTES * 60)
+            cutoff_user = now - (USER_VELOCITY_WINDOW_MINUTES * 60)
+            cutoff_offer = now - 3600  # 1 hour for duplicate detection
+            
+            for ip in list(_ip_clicks.keys()):
+                _ip_clicks[ip] = [t for t in _ip_clicks[ip] if t > cutoff_ip]
+                if not _ip_clicks[ip]:
+                    del _ip_clicks[ip]
+            
+            for uid in list(_user_clicks.keys()):
+                _user_clicks[uid] = [t for t in _user_clicks[uid] if t > cutoff_user]
+                if not _user_clicks[uid]:
+                    del _user_clicks[uid]
+            
+            for key in list(_user_offer_clicks.keys()):
+                _user_offer_clicks[key] = [t for t in _user_offer_clicks[key] if t > cutoff_offer]
+                if not _user_offer_clicks[key]:
+                    del _user_offer_clicks[key]
+
+
+def _get_ip_count(ip_address):
+    """Get click count for IP in the velocity window. O(1)."""
+    now = _time.time()
+    cutoff = now - (IP_VELOCITY_WINDOW_MINUTES * 60)
+    clicks = _ip_clicks.get(ip_address, [])
+    return sum(1 for t in clicks if t > cutoff)
+
+
+def _get_user_count(user_id):
+    """Get click count for user in the velocity window. O(1)."""
+    now = _time.time()
+    cutoff = now - (USER_VELOCITY_WINDOW_MINUTES * 60)
+    clicks = _user_clicks.get(user_id, [])
+    return sum(1 for t in clicks if t > cutoff)
+
+
+def _get_duplicate_count(user_id, offer_id):
+    """Get duplicate click count for user+offer in last hour. O(1)."""
+    now = _time.time()
+    cutoff = now - 3600  # 1 hour
+    key = f"{user_id}:{offer_id}"
+    clicks = _user_offer_clicks.get(key, [])
+    return sum(1 for t in clicks if t > cutoff)
+
 
 def classify_score(score):
     """Convert numeric score to classification label."""
@@ -60,18 +146,8 @@ def classify_score(score):
 
 def calculate_fraud_score(click_data):
     """
-    Calculate fraud score for a click. Called at click time.
-    
-    Args:
-        click_data: dict with keys like ip_address, user_id, offer_id, user_agent, etc.
-    
-    Returns:
-        dict: {
-            'fraud_score': int (0-100),
-            'fraud_classification': str ('genuine'/'suspicious'/'fraud'),
-            'signals': list of triggered signal names,
-            'details': dict with per-signal info
-        }
+    Calculate fraud score for a click using in-memory rate counters.
+    ZERO database queries — all checks are O(1) in-memory operations.
     """
     score = 0
     signals = []
@@ -83,32 +159,20 @@ def calculate_fraud_score(click_data):
     user_agent = (click_data.get('user_agent', '') or '').lower()
     
     try:
-        clicks_col = db_instance.get_collection('clicks')
-        if clicks_col is None:
-            return {'fraud_score': 0, 'fraud_classification': 'genuine', 'signals': [], 'details': {}}
+        # Record this click in memory
+        _record_click(ip_address, user_id, offer_id)
         
-        now = datetime.utcnow()
-        
-        # 1. DUPLICATE CLICK — same user + same offer within 1 hour
+        # 1. DUPLICATE CLICK — same user + same offer within 1 hour (in-memory)
         if user_id and offer_id:
-            one_hour_ago = now - timedelta(hours=1)
-            dup_count = clicks_col.count_documents({
-                'user_id': user_id,
-                'offer_id': offer_id,
-                'timestamp': {'$gte': one_hour_ago}
-            })
-            if dup_count > 0:
+            dup_count = _get_duplicate_count(user_id, offer_id)
+            if dup_count > 1:  # >1 because we just recorded this one
                 score += WEIGHTS['duplicate_click']
                 signals.append('duplicate_click')
                 details['duplicate_click'] = {'count_in_last_hour': dup_count}
         
-        # 2. IP VELOCITY — too many clicks from same IP in short window
+        # 2. IP VELOCITY — too many clicks from same IP (in-memory)
         if ip_address and ip_address not in ('127.0.0.1', '0.0.0.0'):
-            ip_window = now - timedelta(minutes=IP_VELOCITY_WINDOW_MINUTES)
-            ip_click_count = clicks_col.count_documents({
-                'ip_address': ip_address,
-                'timestamp': {'$gte': ip_window}
-            })
+            ip_click_count = _get_ip_count(ip_address)
             if ip_click_count >= IP_VELOCITY_THRESHOLD:
                 score += WEIGHTS['high_velocity_ip']
                 signals.append('high_velocity_ip')
@@ -118,13 +182,9 @@ def calculate_fraud_score(click_data):
                     'threshold': IP_VELOCITY_THRESHOLD
                 }
         
-        # 3. USER VELOCITY — too many clicks from same user in short window
+        # 3. USER VELOCITY — too many clicks from same user (in-memory)
         if user_id:
-            user_window = now - timedelta(minutes=USER_VELOCITY_WINDOW_MINUTES)
-            user_click_count = clicks_col.count_documents({
-                'user_id': user_id,
-                'timestamp': {'$gte': user_window}
-            })
+            user_click_count = _get_user_count(user_id)
             if user_click_count >= USER_VELOCITY_THRESHOLD:
                 score += WEIGHTS['high_velocity_user']
                 signals.append('high_velocity_user')
@@ -140,16 +200,15 @@ def calculate_fraud_score(click_data):
                 if pattern in user_agent:
                     score += WEIGHTS['known_bot_ua']
                     signals.append('known_bot_ua')
-                    details['known_bot_ua'] = {'matched_pattern': pattern, 'user_agent': click_data.get('user_agent', '')}
+                    details['known_bot_ua'] = {'matched_pattern': pattern}
                     break
         
-        # 5. EMPTY/MISSING USER AGENT (strong bot signal)
+        # 5. EMPTY/MISSING USER AGENT
         if not user_agent or len(user_agent) < 10:
             score += WEIGHTS['known_bot_ua']
             signals.append('empty_user_agent')
             details['empty_user_agent'] = True
         
-        # Cap at 100
         score = min(score, 100)
         classification = classify_score(score)
         

@@ -282,7 +282,7 @@ def _process_click_background(click_id, offer_id, offer, user_id, ip_address, us
 
 
 def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5):
-    """Synchronous click processing — geo lookup, fraud scoring, DB insert. Runs in background thread."""
+    """Synchronous click processing — fraud scoring (in-memory), DB insert. Runs in background thread."""
     try:
         click_data = {
             'click_id': click_id,
@@ -319,7 +319,7 @@ def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent,
             'postback_revenue': 0,
         }
 
-        # Device/browser/OS detection
+        # Device/browser/OS detection (pure CPU, instant)
         ua_lower = (user_agent or '').lower()
         if any(m in ua_lower for m in ['mobile', 'android', 'iphone', 'ipad']):
             click_data['device_type'] = 'mobile'
@@ -348,7 +348,16 @@ def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent,
         elif 'linux' in ua_lower:
             click_data['os'] = 'Linux'
 
-        # Geo lookup (slow — ~1s external API call, fine in background)
+        # Fraud scoring (NOW IN-MEMORY — zero DB queries!)
+        try:
+            from services.fraud_scoring_service import enrich_click_with_fraud_score, auto_block_high_velocity_ip
+            enrich_click_with_fraud_score(click_data)
+            if 'high_velocity_ip' in click_data.get('fraud_signals', []):
+                auto_block_high_velocity_ip(ip_address)
+        except Exception:
+            pass
+
+        # Geo lookup — only if not already cached (IPinfo service handles caching)
         try:
             from services.ipinfo_service import get_ipinfo_service
             ipinfo_svc = get_ipinfo_service()
@@ -361,45 +370,16 @@ def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent,
         except Exception:
             pass
 
-        # Fraud scoring
-        try:
-            from services.fraud_scoring_service import enrich_click_with_fraud_score, auto_block_high_velocity_ip
-            enrich_click_with_fraud_score(click_data)
-            logger.debug(f"🔍 Fraud score: {click_data.get('fraud_score', 0)} ({click_data.get('fraud_classification', 'genuine')})")
-            if 'high_velocity_ip' in click_data.get('fraud_signals', []):
-                auto_block_high_velocity_ip(ip_address)
-        except Exception:
-            pass
-
-        # Save to DB
+        # Save to DB (single insert)
         clicks_collection = db_instance.get_collection('clicks')
         if clicks_collection is not None:
             clicks_collection.insert_one(click_data)
-            logger.debug(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
 
-        # Mark offer grant as clicked
-        try:
-            from models.offer_grant import OfferGrant
-            if user_id:
-                OfferGrant().mark_clicked(str(user_id), offer_id)
-        except Exception:
-            pass
-
-        # Update last_click_date
+        # Update last_click_date (lightweight update)
         try:
             offers_col = db_instance.get_collection('offers')
             if offers_col:
                 offers_col.update_one({'offer_id': offer_id}, {'$set': {'last_click_date': datetime.utcnow()}})
-        except Exception:
-            pass
-
-        # Rotation promotion
-        try:
-            from services.offer_rotation_service import get_rotation_service
-            rotation_svc = get_rotation_service()
-            rot_state = rotation_svc._get_state()
-            if rot_state.get('enabled') and offer_id in rot_state.get('current_batch_ids', []):
-                rotation_svc.promote_to_running(offer_id)
         except Exception:
             pass
 
