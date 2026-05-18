@@ -118,6 +118,20 @@ def get_available_offers():
         except Exception:
             pass
         
+        # Batch fetch user's offer grants (admin-granted access)
+        granted_offer_ids = set()
+        try:
+            grants_collection = db_instance.get_collection('offer_grants')
+            if grants_collection is not None:
+                user_id_str = str(user_id)
+                grants = list(grants_collection.find(
+                    {'user_id': user_id_str, 'offer_id': {'$in': offer_ids}},
+                    {'offer_id': 1}
+                ))
+                granted_offer_ids = {g['offer_id'] for g in grants}
+        except Exception:
+            pass
+        
         # Process offers — lightweight, no DB calls in loop
         processed_offers = []
         for offer in offers:
@@ -142,6 +156,12 @@ def get_available_offers():
             has_access = request_status == 'approved'
             approval_settings = offer.get('approval_settings', {}) or {}
             approval_type = approval_settings.get('type') or offer.get('approval_type', 'auto_approve')
+            
+            # Also grant access if user has an offer grant OR offer is auto_approve
+            if not has_access and offer.get('offer_id') in granted_offer_ids:
+                has_access = True
+            if not has_access and approval_type == 'auto_approve':
+                has_access = True
             
             offer_data = {
                 'offer_id': offer.get('offer_id'),
