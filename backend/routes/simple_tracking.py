@@ -17,6 +17,43 @@ simple_tracking_bp = Blueprint('simple_tracking', __name__)
 analytics_model = Analytics()
 logger = logging.getLogger(__name__)
 
+# In-memory offer cache (offer_id -> {offer_data, expires_at})
+# Avoids hitting MongoDB on every single click
+_offer_cache = {}
+_OFFER_CACHE_TTL = 300  # 5 minutes
+
+def _get_offer_cached(offer_id):
+    """Get offer from cache or DB. Caches for 5 minutes."""
+    import time
+    now = time.time()
+    
+    cached = _offer_cache.get(offer_id)
+    if cached and cached['expires'] > now:
+        return cached['data']
+    
+    offers_collection = db_instance.get_collection('offers')
+    if offers_collection is None:
+        return None
+    
+    # Only fetch fields needed for tracking redirect
+    offer = offers_collection.find_one(
+        {'offer_id': offer_id},
+        {'offer_id': 1, 'name': 1, 'status': 1, 'target_url': 1, 'payout': 1, 
+         'currency': 1, 'network': 1, 'category': 1, 'vertical': 1,
+         'campaign_id': 1, 'fallback_redirect_enabled': 1, 
+         'fallback_redirect_url': 1, 'fallback_redirect_timer': 1}
+    )
+    
+    if offer:
+        _offer_cache[offer_id] = {'data': offer, 'expires': now + _OFFER_CACHE_TTL}
+        # Evict old entries if cache grows too large (>2000 offers)
+        if len(_offer_cache) > 2000:
+            expired = [k for k, v in _offer_cache.items() if v['expires'] < now]
+            for k in expired:
+                del _offer_cache[k]
+    
+    return offer
+
 def generate_click_id():
     """Generate unique click ID"""
     return f"CLK-{secrets.token_hex(6).upper()}"
@@ -113,67 +150,46 @@ def track_offer_click(offer_id):
         
         logger.debug(f"📊 Tracking click: offer={offer_id}, user={user_id}, sub1={sub1}")
         
-        # Get offer details
-        offers_collection = db_instance.get_collection('offers')
-        offer = offers_collection.find_one({'offer_id': offer_id})
+        # Get offer from cache (avoids DB hit on every click)
+        offer = _get_offer_cached(offer_id)
         
         if not offer:
             logger.error(f"❌ Offer not found: {offer_id}")
             return jsonify({'error': 'Offer not found'}), 404
         
         # Allow tracking for 'active', 'hidden', and 'running' status offers
-        # Hidden offers should work for tracking but not show in user panel
-        # Running offers are starter/promoted offers set by admin
         offer_status = offer.get('status', '').lower()
         if offer_status not in ['active', 'hidden', 'running']:
-            logger.error(f"❌ Offer not active, hidden, or running: {offer_id}, status={offer_status}")
             return jsonify({'error': 'Offer not available'}), 404
         
         target_url = offer.get('target_url')
         if target_url:
             target_url = target_url.strip().replace('\n', '').replace('\r', '')
         if not target_url:
-            logger.error(f"❌ No target URL for offer: {offer_id}")
             return jsonify({'error': 'Invalid offer configuration'}), 400
         
         # Generate unique click ID
         click_id = generate_click_id()
         
-        # 🔄 MACRO REPLACEMENT: Replace {user_id}, {click_id}, etc. in target URL
-        # Look up actual username from user_id (which may be an ObjectId)
-        actual_username = user_id or ''
-        if user_id:
-            try:
-                users_col = db_instance.get_collection('users')
-                if users_col is not None:
-                    from bson import ObjectId as BsonOid
-                    try:
-                        u = users_col.find_one({'_id': BsonOid(user_id)}, {'username': 1})
-                    except:
-                        u = users_col.find_one({'username': user_id}, {'username': 1})
-                    if u and u.get('username'):
-                        actual_username = u['username']
-            except:
-                pass
-
+        # Macro context — skip username DB lookup (use user_id directly, resolve in background)
         macro_context = {
             'user_id': user_id or '',
-            'sub1': sub1 or '',  # End user identifier
-            'username': actual_username,
+            'sub1': sub1 or '',
+            'username': user_id or '',  # Use user_id as username (fast, no DB hit)
             'click_id': click_id,
-            'session_id': sub1 or '',  # Use sub1 as session_id
-            'placement_id': sub1 or '',  # Use sub1 as placement_id
+            'session_id': sub1 or '',
+            'placement_id': sub1 or '',
             'publisher_id': user_id or '',
-            'country': 'Unknown',  # Will be enhanced with geo-detection
+            'country': 'Unknown',
             'device_type': 'unknown',
             'ip_address': ip_address,
             'offer_id': offer_id,
-            'cid': offer_id,  # Alias for offer_id (some partners use cid)
+            'cid': offer_id,
             'payout': str(offer.get('payout', 0) or 0),
             'status': offer.get('status', 'active'),
             'currency': offer.get('currency', 'USD') or 'USD',
             'offer_name': offer.get('name', ''),
-            'cname': offer.get('name', ''),  # Alias for offer_name (some partners use cname)
+            'cname': offer.get('name', ''),
         }
         
         # Replace macros in target URL
