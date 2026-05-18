@@ -32,7 +32,7 @@ def get_available_offers():
         
         # Get query parameters
         page = int(request.args.get('page', 1))
-        per_page = min(int(request.args.get('per_page', 20)), 50)
+        per_page = min(int(request.args.get('per_page', 100)), 1000)
         search = request.args.get('search', '')
         
         # Check cache (per-user, 60 second TTL)
@@ -52,7 +52,7 @@ def get_available_offers():
         # Simple, fast query — just active/running/rotating, not deleted
         query = {
             'status': {'$in': ['active', 'running', 'rotating']},
-            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+            'deleted': {'$ne': True}
         }
         
         # Add search if provided
@@ -60,7 +60,7 @@ def get_available_offers():
             query = {
                 '$and': [
                     {'status': {'$in': ['active', 'running', 'rotating']}},
-                    {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                    {'deleted': {'$ne': True}},
                     {'$or': [
                         {'name': {'$regex': search, '$options': 'i'}},
                         {'offer_id': {'$regex': search, '$options': 'i'}},
