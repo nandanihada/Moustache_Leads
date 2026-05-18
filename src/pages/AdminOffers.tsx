@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +86,7 @@ const AdminOffers = () => {
   const { toast } = useToast();
   const [deletedOffers, setDeletedOffers] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
+  const fetchIdRef = useRef(0); // Track latest fetch to discard stale responses
   const [recycleBinLoading, setRecycleBinLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [recycleBinSearchTerm, setRecycleBinSearchTerm] = useState('');
@@ -237,6 +238,7 @@ const AdminOffers = () => {
   };
 
   const fetchOffers = async (overridePage?: number, resetFilters = false) => {
+    const currentFetchId = ++fetchIdRef.current;
     try {
       setLoading(true);
       const params = {
@@ -251,6 +253,9 @@ const AdminOffers = () => {
       };
 
       const response = await adminOfferApi.getOffers(params);
+      
+      // Discard stale response if a newer fetch was initiated
+      if (currentFetchId !== fetchIdRef.current) return;
       
       // Apply sorting
       let sortedOffers = [...response.offers];

@@ -11,6 +11,7 @@ from services.macro_replacement_service import macro_service
 import logging
 from datetime import datetime
 import secrets
+import threading
 
 simple_tracking_bp = Blueprint('simple_tracking', __name__)
 analytics_model = Analytics()
@@ -92,8 +93,9 @@ def track_offer_click(offer_id):
     Simple tracking endpoint for publishers
     URL format: /track/{offer_id}?user_id={publisher_id}&sub1=val1&sub2=val2...
     
-    1. Records click in database
-    2. Redirects user to offer target URL
+    Strategy: Redirect FIRST, process click in background thread.
+    This ensures the user gets redirected instantly and the server
+    doesn't block workers on slow operations (geo lookup, fraud scoring).
     """
     try:
         # Get parameters
@@ -180,156 +182,8 @@ def track_offer_click(offer_id):
             target_url = macro_service.replace_macros(target_url, macro_context)
             logger.info(f"✅ Macros replaced. Final URL: {target_url}")
         
-        # Prepare click data for database
-        click_data = {
-            'click_id': click_id,
-            'offer_id': offer_id,
-            'offer_name': offer.get('name', 'Unknown Offer'),
-            'user_id': user_id,  # Publisher who shared the link
-            'affiliate_id': user_id,  # Same as user_id for consistency
-            'placement_id': sub1,  # Placement/offerwall ID (usually in sub1)
-            'ip_address': ip_address,
-            'user_agent': user_agent,
-            'referer': referer,
-            'sub_id1': sub1,
-            'sub_id2': sub2,
-            'sub_id3': sub3,
-            'sub_id4': sub4,
-            'sub_id5': sub5,
-            'click_time': datetime.utcnow(),
-            'timestamp': datetime.utcnow(),
-            'converted': False,
-            'country': 'Unknown',
-            'device_type': 'unknown',
-            'browser': 'unknown',
-            # === PHASE 1.1: Enhanced click tracking fields ===
-            'campaign_id': offer.get('campaign_id', ''),       # Campaign grouping
-            'network': offer.get('network', ''),               # Upward network name
-            'category': offer.get('category', '') or offer.get('vertical', ''),  # Offer vertical
-            'payout': offer.get('payout', 0),                  # Offer payout at click time
-            'currency': offer.get('currency', 'USD') or 'USD', # Currency
-            'os': 'unknown',                                   # OS detection (set below)
-            'fraud_score': 0,                                  # Fraud score (0-100, set by fraud service later)
-            'fraud_classification': 'genuine',                 # genuine / suspicious / fraud
-            'event_status': 'no_event',                        # no_event / partial_event / full_conversion
-            'postback_received': False,                        # Whether postback came back for this click
-            'postback_event_type': '',                         # install / signup / ftd / purchase
-            'postback_revenue': 0,                             # Revenue from postback
-        }
-        
-        # Enrich with device detection from user agent
-        ua_lower = user_agent.lower()
-        if any(m in ua_lower for m in ['mobile', 'android', 'iphone', 'ipad']):
-            click_data['device_type'] = 'mobile'
-        elif 'tablet' in ua_lower:
-            click_data['device_type'] = 'tablet'
-        else:
-            click_data['device_type'] = 'desktop'
-        
-        if 'chrome' in ua_lower and 'edg' not in ua_lower:
-            click_data['browser'] = 'Chrome'
-        elif 'firefox' in ua_lower:
-            click_data['browser'] = 'Firefox'
-        elif 'safari' in ua_lower and 'chrome' not in ua_lower:
-            click_data['browser'] = 'Safari'
-        elif 'edg' in ua_lower:
-            click_data['browser'] = 'Edge'
-        
-        # OS detection from user agent
-        if 'windows' in ua_lower:
-            click_data['os'] = 'Windows'
-        elif 'mac' in ua_lower and 'iphone' not in ua_lower and 'ipad' not in ua_lower:
-            click_data['os'] = 'macOS'
-        elif 'android' in ua_lower:
-            click_data['os'] = 'Android'
-        elif 'iphone' in ua_lower or 'ipad' in ua_lower:
-            click_data['os'] = 'iOS'
-        elif 'linux' in ua_lower:
-            click_data['os'] = 'Linux'
-        
-        # Enrich with geo data from IP
-        try:
-            from services.ipinfo_service import get_ipinfo_service
-            ipinfo_svc = get_ipinfo_service()
-            ip_data = ipinfo_svc.lookup_ip(ip_address)
-            if ip_data:
-                click_data['country'] = ip_data.get('country', 'Unknown')
-                click_data['country_code'] = ip_data.get('country_code', '')
-                click_data['city'] = ip_data.get('city', '')
-                click_data['region'] = ip_data.get('region', '')
-        except Exception as geo_err:
-            logger.warning(f"⚠️ Geo lookup failed for {ip_address}: {geo_err}")
-        
-        # Save click directly to database
-        clicks_collection = db_instance.get_collection('clicks')
-        if clicks_collection is not None:
-            try:
-                # === PHASE 2.4: Calculate fraud score before saving ===
-                try:
-                    from services.fraud_scoring_service import enrich_click_with_fraud_score, is_ip_blocked, auto_block_high_velocity_ip
-                    
-                    # Check if IP is blocked
-                    if is_ip_blocked(ip_address):
-                        logger.warning(f"🚫 Blocked IP attempted click: {ip_address}")
-                        return jsonify({'error': 'Access denied'}), 403
-                    
-                    # Check if user is blocked
-                    if user_id:
-                        blocked_users_col = db_instance.get_collection('blocked_users')
-                        if blocked_users_col is not None:
-                            blocked_user = blocked_users_col.find_one({'user_id': user_id, 'active': True})
-                            if blocked_user:
-                                logger.warning(f"🚫 Blocked user attempted click: {user_id}")
-                                return jsonify({'error': 'Access denied'}), 403
-                    
-                    # Calculate fraud score and update click_data in place
-                    enrich_click_with_fraud_score(click_data)
-                    logger.info(f"🔍 Fraud score: {click_data.get('fraud_score', 0)} ({click_data.get('fraud_classification', 'genuine')})")
-                    
-                    # Auto-block IP if high velocity detected
-                    if 'high_velocity_ip' in click_data.get('fraud_signals', []):
-                        auto_block_high_velocity_ip(ip_address)
-                except Exception as fraud_err:
-                    # Non-critical — don't break click tracking if fraud scoring fails
-                    logger.warning(f"⚠️ Fraud scoring failed (non-critical): {fraud_err}")
-                
-                clicks_collection.insert_one(click_data)
-                logger.info(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
-                
-                # Mark offer grant as clicked (if this user has a grant for this offer)
-                try:
-                    from models.offer_grant import OfferGrant
-                    if user_id:
-                        OfferGrant().mark_clicked(str(user_id), offer_id)
-                except Exception:
-                    pass
-                
-                # Update last_click_date on the offer (rolling 30-day inactivity window)
-                try:
-                    offers_collection.update_one(
-                        {'offer_id': offer_id},
-                        {'$set': {'last_click_date': datetime.utcnow()}}
-                    )
-                except Exception as lcd_err:
-                    logger.warning(f"⚠️ Failed to update last_click_date for {offer_id}: {lcd_err}")
-                
-                # Promote offer to "running" in rotation if it's in the active batch
-                try:
-                    from services.offer_rotation_service import get_rotation_service
-                    rotation_svc = get_rotation_service()
-                    rot_state = rotation_svc._get_state()
-                    if rot_state.get('enabled') and offer_id in rot_state.get('current_batch_ids', []):
-                        rotation_svc.promote_to_running(offer_id)
-                except Exception as rot_err:
-                    logger.warning(f"⚠️ Rotation promotion check failed: {rot_err}")
-                    
-            except Exception as db_error:
-                logger.error(f"❌ Failed to save click to database: {db_error}")
-        else:
-            logger.error("❌ Could not access clicks collection")
-        
-        # NOTE: We already replaced macros above, so target_url is ready to use
-        # No need to append click_id since it's already in the URL if partner needs it
+        # === REDIRECT FIRST, PROCESS LATER ===
+        # Prepare minimal data needed, redirect immediately, then process in background
         redirect_url = target_url
         
         # 🔄 CHECK FOR FALLBACK REDIRECT WITH TIMER
@@ -338,22 +192,16 @@ def track_offer_click(offer_id):
         fallback_timer = offer.get('fallback_redirect_timer', 0)
         
         if fallback_enabled and fallback_url and fallback_timer > 0:
-            # Ensure fallback URL has protocol
             if not fallback_url.startswith('http://') and not fallback_url.startswith('https://'):
                 fallback_url = 'https://' + fallback_url
-            
-            # Ensure timer is an integer
             try:
                 fallback_timer = int(fallback_timer)
             except (ValueError, TypeError):
-                fallback_timer = 10  # Default to 10 seconds
+                fallback_timer = 10
+
+            # Fire background processing
+            _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5)
             
-            logger.info(f"⏱️ Fallback redirect enabled:")
-            logger.info(f"   - Timer: {fallback_timer} seconds (type: {type(fallback_timer).__name__})")
-            logger.info(f"   - Fallback URL: {fallback_url}")
-            logger.info(f"   - Target URL: {redirect_url}")
-            
-            # Show intermediate page with timer
             return render_template_string(
                 FALLBACK_REDIRECT_TEMPLATE,
                 offer_name=offer.get('name', 'Special Offer'),
@@ -365,9 +213,7 @@ def track_offer_click(offer_id):
                 timer=fallback_timer
             )
         
-        logger.info(f"↗️  Redirecting to: {redirect_url}")
-        
-        # Strip any whitespace/newlines from URL (can come from DB copy-paste)
+        # Strip any whitespace/newlines from URL
         redirect_url = redirect_url.strip().replace('\n', '').replace('\r', '')
         
         # 🛡️ SURVEY GATEWAY: Check if this offer has a survey assigned
@@ -376,7 +222,9 @@ def track_offer_click(offer_id):
             survey_model = Survey()
             survey = survey_model.get_survey_for_offer(offer)
             if survey:
-                # Store the target URL on the click record so the survey can redirect after
+                # Survey needs click saved synchronously
+                _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5)
+                clicks_collection = db_instance.get_collection('clicks')
                 clicks_collection.update_one(
                     {'click_id': click_id},
                     {'$set': {'target_url': redirect_url, 'survey_id': str(survey.get('_id', ''))}}
@@ -386,7 +234,10 @@ def track_offer_click(offer_id):
         except Exception as survey_err:
             logger.warning(f"⚠️ Survey gateway check failed (non-critical): {survey_err}")
         
-        # Direct 302 redirect — simple and reliable
+        # Fire background processing (non-blocking)
+        _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5)
+        
+        logger.info(f"↗️  Redirecting to: {redirect_url}")
         return redirect(redirect_url, code=302)
             
     except Exception as e:
@@ -402,6 +253,142 @@ def track_offer_click(offer_id):
             pass
         
         return jsonify({'error': 'Tracking error'}), 500
+
+
+def _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5):
+    """Fire click processing in a background thread so the redirect returns instantly."""
+    thread = threading.Thread(
+        target=_save_click_sync,
+        args=(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5),
+        daemon=True
+    )
+    thread.start()
+
+
+def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5):
+    """Synchronous click processing — geo lookup, fraud scoring, DB insert. Runs in background thread."""
+    try:
+        click_data = {
+            'click_id': click_id,
+            'offer_id': offer_id,
+            'offer_name': offer.get('name', 'Unknown Offer'),
+            'user_id': user_id,
+            'affiliate_id': user_id,
+            'placement_id': sub1,
+            'ip_address': ip_address,
+            'user_agent': user_agent,
+            'referer': referer,
+            'sub_id1': sub1,
+            'sub_id2': sub2,
+            'sub_id3': sub3,
+            'sub_id4': sub4,
+            'sub_id5': sub5,
+            'click_time': datetime.utcnow(),
+            'timestamp': datetime.utcnow(),
+            'converted': False,
+            'country': 'Unknown',
+            'device_type': 'unknown',
+            'browser': 'unknown',
+            'campaign_id': offer.get('campaign_id', ''),
+            'network': offer.get('network', ''),
+            'category': offer.get('category', '') or offer.get('vertical', ''),
+            'payout': offer.get('payout', 0),
+            'currency': offer.get('currency', 'USD') or 'USD',
+            'os': 'unknown',
+            'fraud_score': 0,
+            'fraud_classification': 'genuine',
+            'event_status': 'no_event',
+            'postback_received': False,
+            'postback_event_type': '',
+            'postback_revenue': 0,
+        }
+
+        # Device/browser/OS detection
+        ua_lower = (user_agent or '').lower()
+        if any(m in ua_lower for m in ['mobile', 'android', 'iphone', 'ipad']):
+            click_data['device_type'] = 'mobile'
+        elif 'tablet' in ua_lower:
+            click_data['device_type'] = 'tablet'
+        else:
+            click_data['device_type'] = 'desktop'
+
+        if 'chrome' in ua_lower and 'edg' not in ua_lower:
+            click_data['browser'] = 'Chrome'
+        elif 'firefox' in ua_lower:
+            click_data['browser'] = 'Firefox'
+        elif 'safari' in ua_lower and 'chrome' not in ua_lower:
+            click_data['browser'] = 'Safari'
+        elif 'edg' in ua_lower:
+            click_data['browser'] = 'Edge'
+
+        if 'windows' in ua_lower:
+            click_data['os'] = 'Windows'
+        elif 'mac' in ua_lower and 'iphone' not in ua_lower and 'ipad' not in ua_lower:
+            click_data['os'] = 'macOS'
+        elif 'android' in ua_lower:
+            click_data['os'] = 'Android'
+        elif 'iphone' in ua_lower or 'ipad' in ua_lower:
+            click_data['os'] = 'iOS'
+        elif 'linux' in ua_lower:
+            click_data['os'] = 'Linux'
+
+        # Geo lookup (slow — ~1s external API call, fine in background)
+        try:
+            from services.ipinfo_service import get_ipinfo_service
+            ipinfo_svc = get_ipinfo_service()
+            ip_data = ipinfo_svc.lookup_ip(ip_address)
+            if ip_data:
+                click_data['country'] = ip_data.get('country', 'Unknown')
+                click_data['country_code'] = ip_data.get('country_code', '')
+                click_data['city'] = ip_data.get('city', '')
+                click_data['region'] = ip_data.get('region', '')
+        except Exception:
+            pass
+
+        # Fraud scoring
+        try:
+            from services.fraud_scoring_service import enrich_click_with_fraud_score, auto_block_high_velocity_ip
+            enrich_click_with_fraud_score(click_data)
+            logger.info(f"🔍 Fraud score: {click_data.get('fraud_score', 0)} ({click_data.get('fraud_classification', 'genuine')})")
+            if 'high_velocity_ip' in click_data.get('fraud_signals', []):
+                auto_block_high_velocity_ip(ip_address)
+        except Exception:
+            pass
+
+        # Save to DB
+        clicks_collection = db_instance.get_collection('clicks')
+        if clicks_collection is not None:
+            clicks_collection.insert_one(click_data)
+            logger.info(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
+
+        # Mark offer grant as clicked
+        try:
+            from models.offer_grant import OfferGrant
+            if user_id:
+                OfferGrant().mark_clicked(str(user_id), offer_id)
+        except Exception:
+            pass
+
+        # Update last_click_date
+        try:
+            offers_col = db_instance.get_collection('offers')
+            if offers_col:
+                offers_col.update_one({'offer_id': offer_id}, {'$set': {'last_click_date': datetime.utcnow()}})
+        except Exception:
+            pass
+
+        # Rotation promotion
+        try:
+            from services.offer_rotation_service import get_rotation_service
+            rotation_svc = get_rotation_service()
+            rot_state = rotation_svc._get_state()
+            if rot_state.get('enabled') and offer_id in rot_state.get('current_batch_ids', []):
+                rotation_svc.promote_to_running(offer_id)
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.error(f"❌ Background click processing failed for {click_id}: {e}")
 
 
 @simple_tracking_bp.route('/track/beacon', methods=['POST', 'GET'])
