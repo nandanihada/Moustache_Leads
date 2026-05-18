@@ -191,8 +191,8 @@ def get_available_offers():
             }
         }
         
-        # Cache for 60 seconds
-        get_available_offers._cache[cache_key] = {'data': result, 'expires': _time.time() + 60}
+        # Cache for 30 seconds
+        get_available_offers._cache[cache_key] = {'data': result, 'expires': _time.time() + 30}
         # Evict old cache entries (keep max 100)
         if len(get_available_offers._cache) > 100:
             now = _time.time()

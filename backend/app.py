@@ -515,9 +515,15 @@ def start_background_services():
     try:
         from pymongo import ASCENDING, DESCENDING
         db = db_instance.get_db()
-        db['offers'].create_index([('status', ASCENDING), ('deleted', ASCENDING), ('is_pinned', DESCENDING), ('created_at', DESCENDING)], background=True)
-        db['offers'].create_index([('status', ASCENDING), ('deleted', ASCENDING), ('created_at', DESCENDING)], background=True)
+        # Publisher offers compound index
+        db['offers'].create_index(
+            [('status', ASCENDING), ('deleted', ASCENDING), ('is_pinned', DESCENDING), ('created_at', DESCENDING)],
+            name='publisher_offers_idx', background=True
+        )
+        # Clicks indexes
         db['clicks'].create_index([('ip_address', ASCENDING), ('timestamp', DESCENDING)], background=True)
+        db['clicks'].create_index([('user_id', ASCENDING), ('offer_id', ASCENDING), ('timestamp', DESCENDING)], background=True)
+        logging.info("✅ Critical indexes ensured")
     except Exception as idx_err:
         logging.warning(f"Index creation skipped: {idx_err}")
     
@@ -529,7 +535,7 @@ def start_background_services():
                 from routes.simple_tracking import _get_offer_cached
                 offers_col = db_instance.get_collection('offers')
                 if offers_col:
-                    # Load top 200 active offers into tracking cache
+                    # Load top 500 active offers into tracking cache
                     active_offers = offers_col.find(
                         {'status': {'$in': ['active', 'running', 'rotating']}},
                         {'offer_id': 1, 'name': 1, 'status': 1, 'target_url': 1, 'payout': 1,
@@ -554,10 +560,6 @@ def start_background_services():
         threading.Thread(target=_prewarm_caches, daemon=True).start()
     except Exception:
         pass
-        db['clicks'].create_index([('user_id', ASCENDING), ('offer_id', ASCENDING), ('timestamp', DESCENDING)], background=True)
-        logging.info("✅ Critical indexes ensured")
-    except Exception as idx_err:
-        logging.warning(f"Index creation skipped: {idx_err}")
     
     try:
         try:
