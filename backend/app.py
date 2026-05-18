@@ -258,6 +258,25 @@ def create_app():
             response.headers['Access-Control-Expose-Headers'] = 'Content-Type, Authorization'
             response.headers['Access-Control-Max-Age'] = '3600'
         
+        # GZIP compression for responses > 500 bytes
+        # Reduces response size by 60-70% — makes pages load faster
+        if (response.status_code == 200 
+            and response.content_type 
+            and ('json' in response.content_type or 'text' in response.content_type)
+            and response.content_length and response.content_length > 500):
+            import gzip
+            accept_encoding = request.headers.get('Accept-Encoding', '')
+            if 'gzip' in accept_encoding:
+                try:
+                    data = response.get_data()
+                    compressed = gzip.compress(data, compresslevel=6)
+                    if len(compressed) < len(data):  # Only use if actually smaller
+                        response.set_data(compressed)
+                        response.headers['Content-Encoding'] = 'gzip'
+                        response.headers['Content-Length'] = len(compressed)
+                except Exception:
+                    pass  # If compression fails, send uncompressed
+        
         return response
     
     # Handle OPTIONS preflight requests

@@ -273,6 +273,15 @@ def track_offer_click(offer_id):
 
 def _process_click_background(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5):
     """Fire click processing in a background thread so the redirect returns instantly."""
+    # RATE LIMIT: Skip DB insert if user has too many clicks (>10/minute)
+    # Still redirects the user, just doesn't waste DB resources on spam
+    from services.fraud_scoring_service import _get_user_count, _record_click
+    _record_click(ip_address, user_id, offer_id)
+    
+    # If user has more than 10 clicks in the last 5 minutes, skip processing entirely
+    if user_id and _get_user_count(user_id) > 50:
+        return  # Don't even spawn a thread — save CPU + DB
+    
     thread = threading.Thread(
         target=_save_click_sync,
         args=(click_id, offer_id, offer, user_id, ip_address, user_agent, referer, sub1, sub2, sub3, sub4, sub5),

@@ -4,9 +4,10 @@ import os
 # Bind to the port Render provides
 bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 
-# Workers — 4 sync workers (more capacity for concurrent requests)
+# Workers — 6 sync workers (maximizes the 512MB RAM on Render $40 plan)
+# Each worker uses ~60-80MB, 6 workers = ~400-480MB (within 512MB limit)
 # Background threading in simple_tracking.py ensures clicks don't block workers
-workers = 4
+workers = 6
 timeout = 180  # 3 minutes for bulk import operations
 
 # Prevent memory leaks — restart workers after N requests
