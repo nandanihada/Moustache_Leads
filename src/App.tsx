@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
+import React, { Suspense, lazy } from "react";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import AdminLayout from "./components/layout/AdminLayout";
 import Dashboard from "./pages/Dashboard";
@@ -21,59 +22,61 @@ import APIStats from "./pages/APIStats";
 import APIConversions from "./pages/APIConversions";
 import CampaignBuilder from "./pages/CampaignBuilder";
 import AscendIframe from "@/pages/AscendIframe";   // ✅ Updated import
-import AdminDashboard from "./pages/AdminDashboard";
-import AdminOffers from "./pages/AdminOffers";
-import AdminOffersV3 from "./pages/AdminOffersV3";
-import AdminAnalytics from "./pages/AdminAnalytics";
-import AdminReports from "./pages/AdminReports";
-import AdminTracking from "./pages/AdminTracking";
-import AdminOffersV2 from "./pages/AdminOffersV2";
-import TrackingTest from "./pages/TrackingTest";
+
+// Lazy-loaded admin pages (only downloaded when admin navigates to them)
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const AdminOffers = lazy(() => import("./pages/AdminOffers"));
+const AdminOffersV3 = lazy(() => import("./pages/AdminOffersV3"));
+const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
+const AdminReports = lazy(() => import("./pages/AdminReports"));
+const AdminTracking = lazy(() => import("./pages/AdminTracking"));
+const AdminOffersV2 = lazy(() => import("./pages/AdminOffersV2"));
+const TrackingTest = lazy(() => import("./pages/TrackingTest"));
 import Partners from "./pages/Partners";
-import PostbackLogs from "./pages/PostbackLogs";
-import PostbackReceiver from "./pages/PostbackReceiver";
-import AdminPlacementApproval from "./pages/AdminPlacementApproval";
-import AdminOfferAccessRequests from "./pages/AdminOfferAccessRequests";
-import AdminPublisherManagementFixed from "./pages/AdminPublisherManagementFixed";
+const PostbackLogs = lazy(() => import("./pages/PostbackLogs"));
+const PostbackReceiver = lazy(() => import("./pages/PostbackReceiver"));
+const AdminPlacementApproval = lazy(() => import("./pages/AdminPlacementApproval"));
+const AdminOfferAccessRequests = lazy(() => import("./pages/AdminOfferAccessRequests"));
+const AdminPublisherManagementFixed = lazy(() => import("./pages/AdminPublisherManagementFixed"));
 import PartnerProfile from "./pages/PartnerProfile";
-import PerformanceReport from "./pages/PerformanceReport";
-import ConversionReport from "./pages/ConversionReport";
-import AdminPromoCodeManagement from "./pages/AdminPromoCodeManagement";
-import AdminTestPostback from "./pages/AdminTestPostback";
-import AdminPostbackPipeline from "./pages/AdminPostbackPipeline";
+const PerformanceReport = lazy(() => import("./pages/PerformanceReport"));
+const ConversionReport = lazy(() => import("./pages/ConversionReport"));
+const AdminPromoCodeManagement = lazy(() => import("./pages/AdminPromoCodeManagement"));
+const AdminTestPostback = lazy(() => import("./pages/AdminTestPostback"));
+const AdminPostbackPipeline = lazy(() => import("./pages/AdminPostbackPipeline"));
 import PublisherPromoCodeManagement from "./pages/PublisherPromoCodeManagement";
-import AdminBonusManagement from "./pages/AdminBonusManagement";
-import TestPage from "./pages/TestPage";
-import AdminOfferwallAnalytics from "./pages/AdminOfferwallAnalytics";
-import AdminFraudManagement from "./pages/AdminFraudManagement";
+const AdminBonusManagement = lazy(() => import("./pages/AdminBonusManagement"));
+const TestPage = lazy(() => import("./pages/TestPage"));
+const AdminOfferwallAnalytics = lazy(() => import("./pages/AdminOfferwallAnalytics"));
+const AdminFraudManagement = lazy(() => import("./pages/AdminFraudManagement"));
 import UserRewardsDashboard from "./pages/UserRewardsDashboard";
-import ComprehensiveOfferwallAnalytics from "./pages/ComprehensiveOfferwallAnalytics";
-import AdminClickTracking from "./pages/AdminClickTracking";
-import AdminLoginLogs from "./pages/AdminLoginLogs";
-import AdminActiveUsers from "./pages/AdminActiveUsers";
-import AdminSubadminManagement from "./pages/AdminSubadminManagement";
+const ComprehensiveOfferwallAnalytics = lazy(() => import("./pages/ComprehensiveOfferwallAnalytics"));
+const AdminClickTracking = lazy(() => import("./pages/AdminClickTracking"));
+const AdminLoginLogs = lazy(() => import("./pages/AdminLoginLogs"));
+const AdminActiveUsers = lazy(() => import("./pages/AdminActiveUsers"));
+const AdminSubadminManagement = lazy(() => import("./pages/AdminSubadminManagement"));
 import GiftCardRedemption from "./pages/GiftCardRedemption";
 import RedeemGiftCard from "./pages/RedeemGiftCard";
-import AdminGiftCardManagement from "./pages/AdminGiftCardManagement";
-import AdminMissingOffers from "./pages/AdminMissingOffers";
-import AdminOfferInsights from "./pages/AdminOfferInsights";
-import AdminEmailActivityLogs from "./pages/AdminEmailActivityLogs";
-import AdminAdvertiserManagement from "./pages/AdminAdvertiserManagement";
-import AdminPlacementProofs from "./pages/AdminPlacementProofs";
-import AdminSupportInbox from "./pages/AdminSupportInbox";
-import AdminOfferAnalytics from "./pages/AdminOfferAnalytics";
-import AdminDetailedAnalytics from "./pages/AdminDetailedAnalytics";
-import AdminSearchLogs from "./pages/AdminSearchLogs";
-import AdminActivityLogs from "./pages/AdminActivityLogs";
-import AdminRecentActivity from "./pages/AdminRecentActivity";
-import AdminReportsTracking from "./pages/AdminReportsTracking";
-import AdminReactivation from "./pages/AdminReactivation";
-import AdminMaskedLinks from "./pages/AdminMaskedLinks";
-import AdminReferrals from "./pages/AdminReferrals";
-import AdminSurveyGateway from "./pages/AdminSurveyGateway";
+const AdminGiftCardManagement = lazy(() => import("./pages/AdminGiftCardManagement"));
+const AdminMissingOffers = lazy(() => import("./pages/AdminMissingOffers"));
+const AdminOfferInsights = lazy(() => import("./pages/AdminOfferInsights"));
+const AdminEmailActivityLogs = lazy(() => import("./pages/AdminEmailActivityLogs"));
+const AdminAdvertiserManagement = lazy(() => import("./pages/AdminAdvertiserManagement"));
+const AdminPlacementProofs = lazy(() => import("./pages/AdminPlacementProofs"));
+const AdminSupportInbox = lazy(() => import("./pages/AdminSupportInbox"));
+const AdminOfferAnalytics = lazy(() => import("./pages/AdminOfferAnalytics"));
+const AdminDetailedAnalytics = lazy(() => import("./pages/AdminDetailedAnalytics"));
+const AdminSearchLogs = lazy(() => import("./pages/AdminSearchLogs"));
+const AdminActivityLogs = lazy(() => import("./pages/AdminActivityLogs"));
+const AdminRecentActivity = lazy(() => import("./pages/AdminRecentActivity"));
+const AdminReportsTracking = lazy(() => import("./pages/AdminReportsTracking"));
+const AdminReactivation = lazy(() => import("./pages/AdminReactivation"));
+const AdminMaskedLinks = lazy(() => import("./pages/AdminMaskedLinks"));
+const AdminReferrals = lazy(() => import("./pages/AdminReferrals"));
+const AdminSurveyGateway = lazy(() => import("./pages/AdminSurveyGateway"));
 import Referrals from "./pages/Referrals";
-import AdminPolls from "./pages/AdminPolls";
-import AdminPayments from "./pages/AdminPayments";
+const AdminPolls = lazy(() => import("./pages/AdminPolls"));
+const AdminPayments = lazy(() => import("./pages/AdminPayments"));
 import Invoice from "./pages/Invoice";
 import SupportPage from "./pages/SupportPage";
 import AdvertiserDashboard from "./pages/AdvertiserDashboard";
@@ -99,21 +102,24 @@ import { SmartLinkRedirector } from "./components/SmartLinkRedirector";
 import { TestOfferModal } from "./components/TestOfferModal";
 import { SubdomainRouter } from "./middleware/subdomainRouter";
 import PublicSmartLink from "./pages/PublicSmartLink";
-import AdminSmartLinks from "./pages/AdminSmartLinks";
-import AdminApiStats from "./pages/AdminApiStats";
-import AdminNotes from "./pages/AdminNotes";
-import AdminPublisherAnalytics from "./pages/AdminPublisherAnalytics";
+const AdminSmartLinks = lazy(() => import("./pages/AdminSmartLinks"));
+const AdminApiStats = lazy(() => import("./pages/AdminApiStats"));
+const AdminNotes = lazy(() => import("./pages/AdminNotes"));
+const AdminPublisherAnalytics = lazy(() => import("./pages/AdminPublisherAnalytics"));
 import PromoTabV2 from "./components/PromoTabV2";
-import AdminPromoAnalyticsV2 from "./pages/AdminPromoAnalyticsV2";
-import AdminAutomationDashboard from "./pages/AdminAutomationDashboard";
-import AdminSupportHub from "./pages/AdminSupportHub";
-import AdminOfferwallManager from "./pages/AdminOfferwallManager";
-import AdminSurveyBuilder from "./pages/AdminSurveyBuilder";
-import AdminSubWalls from "./pages/AdminSubWalls";
-import AdminRedirectRouter from "./pages/AdminRedirectRouter";
+const AdminPromoAnalyticsV2 = lazy(() => import("./pages/AdminPromoAnalyticsV2"));
+const AdminAutomationDashboard = lazy(() => import("./pages/AdminAutomationDashboard"));
+const AdminSupportHub = lazy(() => import("./pages/AdminSupportHub"));
+const AdminOfferwallManager = lazy(() => import("./pages/AdminOfferwallManager"));
+const AdminSurveyBuilder = lazy(() => import("./pages/AdminSurveyBuilder"));
+const AdminSubWalls = lazy(() => import("./pages/AdminSubWalls"));
+const AdminRedirectRouter = lazy(() => import("./pages/AdminRedirectRouter"));
 import SubWallPage from "./pages/SubWallPage";
 import SurveyFunnelPage from "./pages/SurveyFunnelPage";
 import SurveyPage from "./pages/SurveyPage";
+
+// Loading fallback for lazy-loaded pages
+const PageLoader = () => <div className="flex items-center justify-center h-full min-h-[200px]"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
 
 const queryClient = new QueryClient();
 
@@ -126,6 +132,7 @@ const App = () => (
         <AuthProvider>
           <BrowserRouter>
             <SubdomainRouter>
+              <Suspense fallback={<PageLoader />}>
               <Routes>
                 {/* Public routes */}
                 <Route path="/" element={<Landing />} />
@@ -264,6 +271,7 @@ const App = () => (
               {/* Smart redirect based on authentication status */}
               <Route path="*" element={<SmartRedirect />} />
             </Routes>
+              </Suspense>
             </SubdomainRouter>
           </BrowserRouter>
         </AuthProvider>

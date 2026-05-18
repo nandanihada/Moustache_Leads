@@ -36,4 +36,23 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // Code splitting — split vendor libs into separate chunks for better caching
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select', '@radix-ui/react-tabs'],
+          'vendor-charts': ['recharts'],
+          'vendor-motion': ['framer-motion'],
+        },
+      },
+    },
+    // Increase chunk size warning limit (we're intentionally splitting)
+    chunkSizeWarningLimit: 600,
+    // Enable minification
+    minify: 'esbuild',
+    // Source maps only in dev
+    sourcemap: mode === 'development',
+  },
 }));
