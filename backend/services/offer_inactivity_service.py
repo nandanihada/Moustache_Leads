@@ -1,7 +1,7 @@
 """
 Offer Inactivity Service
-Marks running/active offers as inactive if they haven't received any clicks in 70 days.
-The 70-day window is rolling — based on the last click date for each offer.
+DISABLED — was auto-deactivating offers after DB migration (no click history in new cluster).
+To re-enable, set ENABLED = True below.
 """
 
 import logging
@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 INACTIVITY_DAYS = 70
 CHECK_INTERVAL_SECONDS = 6 * 3600  # Check every 6 hours
+ENABLED = False  # DISABLED to prevent mass deactivation after migration
 
 
 class OfferInactivityService:
@@ -85,7 +86,10 @@ class OfferInactivityService:
         return last_clicks
 
     def check_and_deactivate_inactive_offers(self):
-        """Find active offers with no clicks in 30 days and mark them inactive."""
+        """Find active offers with no clicks in 70 days and mark them inactive."""
+        if not ENABLED:
+            logger.debug("Offer inactivity service is DISABLED — skipping check")
+            return 0
         try:
             if self.offers_collection is None:
                 logger.warning("Offers collection not available")
