@@ -9,10 +9,14 @@ from utils.auth import token_required
 from datetime import datetime, timedelta
 from bson import ObjectId
 import logging
+import time as _time
 
 logger = logging.getLogger(__name__)
 
 admin_overview_bp = Blueprint('admin_overview', __name__)
+
+# Simple in-memory cache for badge counts (30 second TTL)
+_badge_cache = {'data': None, 'expires': 0, 'admin_id': None}
 
 # Module-level time range that gets set per-request
 _current_time_range = '24h'
@@ -1142,6 +1146,13 @@ def get_badge_counts():
             return jsonify({'error': 'Admin access required'}), 403
 
         admin_id = str(user.get('_id', ''))
+
+        # Return cached result if fresh (within 30 seconds for same admin)
+        if (_badge_cache['data'] is not None 
+            and _badge_cache['admin_id'] == admin_id 
+            and _time.time() < _badge_cache['expires']):
+            return jsonify(_badge_cache['data']), 200
+
         now = datetime.utcnow()
 
         # Get last visit timestamps per tab
@@ -1250,7 +1261,13 @@ def get_badge_counts():
         except Exception:
             badges['reactivation'] = 0
 
-        return jsonify({'success': True, 'badges': badges}), 200
+        # Cache the result for 30 seconds
+        result = {'success': True, 'badges': badges}
+        _badge_cache['data'] = result
+        _badge_cache['admin_id'] = admin_id
+        _badge_cache['expires'] = _time.time() + 30
+        
+        return jsonify(result), 200
 
     except Exception as e:
         logger.error(f"Error getting badge counts: {e}", exc_info=True)

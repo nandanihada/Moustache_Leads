@@ -5,6 +5,7 @@ Provides superior IP intelligence including VPN/proxy detection, ISP identificat
 
 import requests
 import logging
+import threading
 from datetime import datetime, timedelta
 import os
 
@@ -17,6 +18,7 @@ class IPinfoService:
         self.cache_ttl = int(os.environ.get('IPINFO_CACHE_TTL', 86400))  # 24 hours default
         self.timeout = int(os.environ.get('IPINFO_TIMEOUT', 5))  # 5 seconds default
         self.cache = {}  # In-memory cache (use Redis in production)
+        self._lock = threading.Lock()
         self.enabled = bool(self.api_token)
         
         # ISO Country Code to Name mapping
@@ -71,8 +73,14 @@ class IPinfoService:
         # Check cache first
         cached_data = self._get_from_cache(ip_address)
         if cached_data:
-            logger.debug(f"✅ Cache hit for IP {ip_address}")
             return cached_data
+        
+        # Prevent duplicate concurrent lookups for same IP
+        with self._lock:
+            # Re-check cache (another thread may have populated it while we waited)
+            cached_data = self._get_from_cache(ip_address)
+            if cached_data:
+                return cached_data
         
         try:
             # Make API request
@@ -82,7 +90,7 @@ class IPinfoService:
                 'Accept': 'application/json'
             }
             
-            logger.info(f"🔍 Looking up IP {ip_address} via IPinfo API")
+            logger.debug(f"🔍 Looking up IP {ip_address} via IPinfo API")
             response = requests.get(url, headers=headers, timeout=self.timeout)
             
             if response.status_code == 200:
@@ -99,7 +107,7 @@ class IPinfoService:
                 # Cache the result
                 self._save_to_cache(ip_address, ip_data)
                 
-                logger.info(f"✅ IP lookup successful for {ip_address}")
+                logger.debug(f"✅ IP lookup successful for {ip_address}")
                 return ip_data
             elif response.status_code == 429:
                 logger.error(f"⚠️ IPinfo API rate limit exceeded")

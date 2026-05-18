@@ -73,10 +73,7 @@ class LocationRetryService:
             if not ip:
                 continue
 
-            # Remove from cache to force fresh lookup
-            ipinfo.cache.pop(ip, None)
-            
-            # This calls the fallback if token is missing
+            # Use cached data if available (don't force fresh lookup)
             ip_data = ipinfo.lookup_ip(ip)
 
             if ip_data and ip_data.get('country') and ip_data.get('country') != 'Unknown':

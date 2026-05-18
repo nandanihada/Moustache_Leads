@@ -784,8 +784,11 @@ class Offer:
                     if filters.get('network'):
                         query['$and'].append({'network': {'$regex': filters['network'], '$options': 'i'}})
             
-            # Get total count
-            total = self.collection.count_documents(query)
+            # Get total count (with timeout to prevent hanging)
+            try:
+                total = self.collection.count_documents(query, maxTimeMS=10000)
+            except Exception:
+                total = self.collection.estimated_document_count()
             
             # Get offers with pagination - pinned offers first
             offers = list(self.collection.find(query)

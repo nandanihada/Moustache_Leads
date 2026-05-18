@@ -31,6 +31,9 @@ FAILURE_DESCRIPTIONS = {
 class HealthCheckService:
     """Evaluates offers against six health criteria."""
 
+    # Class-level cache for partner names (shared across instances)
+    _partner_cache = {'names': None, 'expires': 0}
+
     def __init__(self):
         try:
             self.partners_collection = db_instance.get_collection('partners')
@@ -62,17 +65,23 @@ class HealthCheckService:
 
     def evaluate_offers_batch(self, offers: list) -> dict:
         """
-        Evaluate multiple offers. Fetches all partner names once,
+        Evaluate multiple offers. Caches partner names for 5 minutes,
         then checks if each offer's network exists as a partner (case-insensitive).
         """
-        # Build a set of all partner names (lowercase) from the DB
+        import time
+        
+        # Use cached partner names if fresh (5 minute TTL)
         partner_names_lower = set()
-        if self.partners_collection is not None:
+        if time.time() < HealthCheckService._partner_cache['expires'] and HealthCheckService._partner_cache['names'] is not None:
+            partner_names_lower = HealthCheckService._partner_cache['names']
+        elif self.partners_collection is not None:
             try:
                 for pdoc in self.partners_collection.find({}, {'partner_name': 1}):
                     pname = pdoc.get('partner_name', '')
                     if pname and isinstance(pname, str):
                         partner_names_lower.add(pname.strip().lower())
+                HealthCheckService._partner_cache['names'] = partner_names_lower
+                HealthCheckService._partner_cache['expires'] = time.time() + 300  # 5 min cache
             except Exception as e:
                 logger.warning(f"Failed to fetch partners: {e}")
 

@@ -41,7 +41,7 @@ def token_required(f):
             from flask import make_response
             return make_response('', 200)
         
-        logging.info(f"🔍 token_required: Checking auth for {request.method} {request.path}")
+        logging.debug(f"🔍 token_required: Checking auth for {request.method} {request.path}")
         
         token = None
         
@@ -50,7 +50,7 @@ def token_required(f):
             auth_header = request.headers['Authorization']
             try:
                 token = auth_header.split(" ")[1]  # Bearer <token>
-                logging.info(f"🔍 token_required: Token found in Authorization header")
+                logging.debug(f"🔍 token_required: Token found in Authorization header")
             except IndexError:
                 logging.error(f"❌ token_required: Invalid token format")
                 return jsonify({'error': 'Invalid token format'}), 401
@@ -65,7 +65,7 @@ def token_required(f):
             logging.error(f"❌ token_required: Token is invalid or expired")
             return jsonify({'error': 'Token is invalid or expired'}), 401
         
-        logging.info(f"✅ token_required: Token valid for user {payload.get('username')}")
+        logging.debug(f"✅ token_required: Token valid for user {payload.get('username')}")
         
         # Get user data based on user_type
         user_type = payload.get('user_type', 'publisher')

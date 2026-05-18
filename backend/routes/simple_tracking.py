@@ -111,7 +111,7 @@ def track_offer_click(offer_id):
         user_agent = request.headers.get('User-Agent', '')
         referer = request.headers.get('Referer', '')
         
-        logger.info(f"📊 Tracking click: offer={offer_id}, user={user_id}, sub1={sub1}")
+        logger.debug(f"📊 Tracking click: offer={offer_id}, user={user_id}, sub1={sub1}")
         
         # Get offer details
         offers_collection = db_instance.get_collection('offers')
@@ -178,9 +178,9 @@ def track_offer_click(offer_id):
         
         # Replace macros in target URL
         if macro_service.has_macros(target_url):
-            logger.info(f"🔄 Replacing macros in URL for offer {offer_id}")
+            logger.debug(f"🔄 Replacing macros in URL for offer {offer_id}")
             target_url = macro_service.replace_macros(target_url, macro_context)
-            logger.info(f"✅ Macros replaced. Final URL: {target_url}")
+            logger.debug(f"✅ Macros replaced. Final URL: {target_url}")
         
         # === REDIRECT FIRST, PROCESS LATER ===
         # Prepare minimal data needed, redirect immediately, then process in background
@@ -349,7 +349,7 @@ def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent,
         try:
             from services.fraud_scoring_service import enrich_click_with_fraud_score, auto_block_high_velocity_ip
             enrich_click_with_fraud_score(click_data)
-            logger.info(f"🔍 Fraud score: {click_data.get('fraud_score', 0)} ({click_data.get('fraud_classification', 'genuine')})")
+            logger.debug(f"🔍 Fraud score: {click_data.get('fraud_score', 0)} ({click_data.get('fraud_classification', 'genuine')})")
             if 'high_velocity_ip' in click_data.get('fraud_signals', []):
                 auto_block_high_velocity_ip(ip_address)
         except Exception:
@@ -359,7 +359,7 @@ def _save_click_sync(click_id, offer_id, offer, user_id, ip_address, user_agent,
         clicks_collection = db_instance.get_collection('clicks')
         if clicks_collection is not None:
             clicks_collection.insert_one(click_data)
-            logger.info(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
+            logger.debug(f"✅ Click tracked: {click_id} for offer {offer_id} by user {user_id}")
 
         # Mark offer grant as clicked
         try:

@@ -29,7 +29,7 @@ class ScheduleActivationService:
         """Main cron job function - runs every minute"""
         try:
             start_time = datetime.utcnow()
-            self.logger.info("🔄 Starting offer activation check...")
+            self.logger.debug("🔄 Starting offer activation check...")
             
             # Reset stats
             self.stats['offers_processed'] = 0
@@ -39,7 +39,7 @@ class ScheduleActivationService:
             
             # STEP 1: Get all offers with schedules
             offers_with_schedules = self.get_scheduled_offers()
-            self.logger.info(f"Found {len(offers_with_schedules)} offers with schedules")
+            self.logger.debug(f"Found {len(offers_with_schedules)} offers with schedules")
             
             # STEP 2: Process each offer
             current_time = datetime.utcnow()
@@ -55,7 +55,7 @@ class ScheduleActivationService:
             self.stats['last_run'] = start_time
             execution_time = (datetime.utcnow() - start_time).total_seconds()
             
-            self.logger.info(
+            self.logger.debug(
                 f"✅ Activation check completed in {execution_time:.2f}s - "
                 f"Processed: {self.stats['offers_processed']}, "
                 f"Activated: {self.stats['offers_activated']}, "

@@ -397,7 +397,7 @@ class AutomationService:
                     last_sync = time.time()
             except Exception as e:
                 logger.error(f"Error in automation loop: {e}")
-            time.sleep(60) # Check every minute
+            time.sleep(120) # Check every 2 minutes
 
     def override_user_state(self, user_id, action, step=None, data=None):
         """Manually override a user's automation state"""

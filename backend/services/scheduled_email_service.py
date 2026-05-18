@@ -157,7 +157,7 @@ class ScheduledEmailService:
         try:
             from database import db_instance
             now = datetime.utcnow()
-            logger.info(f"📧 Current UTC time: {now.isoformat()}")
+            logger.debug(f"📧 Current UTC time: {now.isoformat()}")
             
             # Check insight_email_logs for scheduled emails
             insight_col = db_instance.get_collection('insight_email_logs')
@@ -170,7 +170,7 @@ class ScheduledEmailService:
                         is_due = sched <= now if isinstance(sched, datetime) else 'unknown'
                         logger.info(f"   - ID={p['_id']}, type={p.get('type','insight')}, scheduled_at={sched}, due_now={is_due}, subject={p.get('subject','N/A')[:50]}")
                 else:
-                    logger.info("📧 No pending scheduled insight emails found")
+                    logger.debug("📧 No pending scheduled insight emails found")
             
             # Check scheduled_emails collection too
             sched_col = db_instance.get_collection('scheduled_emails')
@@ -204,7 +204,7 @@ class ScheduledEmailService:
                         logger.info("📧 Email service is PAUSED - skipping email processing")
                 else:
                     if cycle_count % 5 == 1:  # Log heartbeat every 5 cycles
-                        logger.info(f"📧 Email service heartbeat - cycle #{cycle_count}, UTC now: {datetime.utcnow().isoformat()}")
+                        logger.debug(f"📧 Email service heartbeat - cycle #{cycle_count}, UTC now: {datetime.utcnow().isoformat()}")
                     self._process_due_emails()
                     self._process_due_insight_emails()
             except Exception as e:
