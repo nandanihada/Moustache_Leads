@@ -218,3 +218,35 @@ def map_contact():
     service.update_settings(settings)
     
     return jsonify({'status': 'mapped', 'user_id': user_id, 'contact': contact_info})
+
+
+@support_hub_admin_bp.route('/all-user-intelligence', methods=['GET'])
+@token_required
+def get_all_user_intelligence():
+    """Return all user intelligence data for the Support Hub."""
+    user = request.current_user
+    if user.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    from database import db_instance
+    try:
+        intel_col = db_instance.get_collection('user_intelligence')
+        if intel_col is None:
+            return jsonify({'intelligence': []}), 200
+        
+        docs = list(intel_col.find({}, {
+            'user_id': 1,
+            'top_categories': 1,
+            'top_geos': 1,
+            'last_active': 1,
+            'total_clicks': 1,
+            'total_conversions': 1,
+            'preferred_verticals': 1
+        }))
+        
+        for doc in docs:
+            doc['_id'] = str(doc['_id'])
+        
+        return jsonify({'intelligence': docs}), 200
+    except Exception as e:
+        return jsonify({'intelligence': [], 'error': str(e)}), 200

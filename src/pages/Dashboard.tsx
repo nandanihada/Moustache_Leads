@@ -292,7 +292,17 @@ const DashboardContent = () => {
           </div>
           {reviewUrl && (
             <button
-              onClick={() => setIsReviewModalOpen(true)}
+              onClick={() => {
+                setIsReviewModalOpen(true);
+                // Track button click
+                const token = getAuthToken();
+                if (token) {
+                  fetch(`${API_BASE_URL}/api/user/review-button-click`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` }
+                  }).catch(() => {});
+                }
+              }}
               className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
             >
               <Gift className="h-4 w-4" />

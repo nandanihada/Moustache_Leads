@@ -214,7 +214,7 @@ blueprints = [
     (email_campaigns_bp, '/api/admin'),
     (automation_admin_bp, '/api/admin'),
     (support_hub_admin_bp, '/api/admin'),
-    (review_submissions_bp, '/api/admin'),
+    (review_submissions_bp, ''),
     (search_intelligence_bp, '/api/admin/search-intelligence'),
     (admin_offerwall_management_bp, '/api/admin'),
     (admin_surveys_bp, '/api/admin'),

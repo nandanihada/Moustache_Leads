@@ -8,11 +8,12 @@ file_upload_bp = Blueprint('file_upload', __name__)
 upload_service = FileUploadService()
 logger = logging.getLogger(__name__)
 
-@file_upload_bp.route('/api/files/upload', methods=['POST'])
+@file_upload_bp.route('/files/upload', methods=['POST'])
 @token_required
-def upload_file(current_user):
+def upload_file():
     """Upload a creative file"""
     try:
+        current_user = request.current_user
         if 'file' not in request.files:
             return jsonify({'error': 'No file provided'}), 400
         
@@ -36,7 +37,7 @@ def upload_file(current_user):
         logger.error(f"Error uploading file: {str(e)}")
         return jsonify({'error': 'Upload failed'}), 500
 
-@file_upload_bp.route('/api/files/<file_id>', methods=['GET'])
+@file_upload_bp.route('/files/<file_id>', methods=['GET'])
 def get_file(file_id):
     """Serve uploaded file"""
     try:
@@ -51,9 +52,9 @@ def get_file(file_id):
         logger.error(f"Error serving file: {str(e)}")
         return jsonify({'error': 'File access failed'}), 500
 
-@file_upload_bp.route('/api/files/<file_id>/info', methods=['GET'])
+@file_upload_bp.route('/files/<file_id>/info', methods=['GET'])
 @token_required
-def get_file_info(current_user, file_id):
+def get_file_info(file_id):
     """Get file information"""
     try:
         file_info = upload_service.get_file_info(file_id)
@@ -67,11 +68,12 @@ def get_file_info(current_user, file_id):
         logger.error(f"Error getting file info: {str(e)}")
         return jsonify({'error': 'Failed to get file info'}), 500
 
-@file_upload_bp.route('/api/files/<file_id>', methods=['DELETE'])
+@file_upload_bp.route('/files/<file_id>', methods=['DELETE'])
 @token_required
-def delete_file(current_user, file_id):
+def delete_file(file_id):
     """Delete a file"""
     try:
+        current_user = request.current_user
         result = upload_service.delete_file(file_id, current_user['_id'])
         
         if 'error' in result:
@@ -83,11 +85,12 @@ def delete_file(current_user, file_id):
         logger.error(f"Error deleting file: {str(e)}")
         return jsonify({'error': 'Delete failed'}), 500
 
-@file_upload_bp.route('/api/files/user/<user_id>', methods=['GET'])
+@file_upload_bp.route('/files/user/<user_id>', methods=['GET'])
 @token_required
-def get_user_files(current_user, user_id):
+def get_user_files(user_id):
     """Get all files uploaded by a user"""
     try:
+        current_user = request.current_user
         # Users can only access their own files
         if str(current_user['_id']) != user_id:
             return jsonify({'error': 'Access denied'}), 403

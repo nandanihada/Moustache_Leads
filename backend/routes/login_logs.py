@@ -931,21 +931,38 @@ def get_inventory_matched_offers(current_user, user_id):
         ]
         most_approved = list(offers_col.aggregate(pipeline, allowDiskUse=True))
 
-        # 3. Highly clicked
-        pipeline_clicks = [
-            {'$match': base_query},
-            {'$lookup': {
-                'from': 'clicks',
-                'localField': 'offer_id',
-                'foreignField': 'offer_id',
-                'as': 'clicks'
-            }},
-            {'$addFields': {'click_count': {'$size': '$clicks'}}},
-            {'$sort': {'click_count': -1}},
-            {'$limit': limit},
-            {'$project': project_fields}
-        ]
-        highly_clicked = list(offers_col.aggregate(pipeline_clicks, allowDiskUse=True))
+        # 3. Highly clicked — use pre-aggregated click counts to avoid memory-heavy $lookup
+        # First get offer_ids from base query, then count clicks per offer
+        try:
+            candidate_offers = list(offers_col.find(base_query, {'offer_id': 1, '_id': 0}).limit(200))
+            candidate_offer_ids = [o['offer_id'] for o in candidate_offers if o.get('offer_id')]
+            
+            clicks_col = db_instance.get_collection('clicks')
+            if clicks_col and candidate_offer_ids:
+                click_pipeline = [
+                    {'$match': {'offer_id': {'$in': candidate_offer_ids}}},
+                    {'$group': {'_id': '$offer_id', 'click_count': {'$sum': 1}}},
+                    {'$sort': {'click_count': -1}},
+                    {'$limit': limit}
+                ]
+                top_clicked = list(clicks_col.aggregate(click_pipeline))
+                top_clicked_ids = [c['_id'] for c in top_clicked]
+                
+                if top_clicked_ids:
+                    highly_clicked = list(offers_col.find(
+                        {'offer_id': {'$in': top_clicked_ids}},
+                        project_fields
+                    ))
+                    # Sort by click count order
+                    click_order = {oid: idx for idx, oid in enumerate(top_clicked_ids)}
+                    highly_clicked.sort(key=lambda o: click_order.get(o.get('offer_id'), 999))
+                else:
+                    highly_clicked = []
+            else:
+                highly_clicked = []
+        except Exception as click_err:
+            logger.warning(f"Highly clicked query failed: {click_err}")
+            highly_clicked = []
 
         # 4. Recently deleted
         deleted_query = {'status': {'$in': ['deleted', 'inactive', 'paused']}}

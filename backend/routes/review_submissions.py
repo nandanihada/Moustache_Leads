@@ -192,3 +192,64 @@ def reject_submission(sub_id):
     except Exception as e:
         logger.error(f"Error rejecting submission: {e}")
         return jsonify({'error': str(e)}), 500
+
+# ─── Review Us Button Click Tracking ───────────────────────────────────────────
+
+def _get_review_clicks_col():
+    return db_instance.get_collection('review_button_clicks')
+
+@review_submissions_bp.route('/api/user/review-button-click', methods=['POST'])
+@token_required
+def track_review_button_click():
+    """Track when a user clicks the 'Review Us' button."""
+    current_user = request.current_user
+    try:
+        col = _get_review_clicks_col()
+        if col is None:
+            return jsonify({'error': 'Database unavailable'}), 500
+
+        doc = {
+            'user_id': current_user['_id'],
+            'username': current_user.get('username', ''),
+            'email': current_user.get('email', ''),
+            'clicked_at': datetime.utcnow(),
+            'ip_address': request.headers.get('X-Forwarded-For', request.remote_addr),
+            'user_agent': request.headers.get('User-Agent', '')
+        }
+        col.insert_one(doc)
+        return jsonify({'success': True}), 201
+    except Exception as e:
+        logger.error(f"Error tracking review button click: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@review_submissions_bp.route('/api/admin/review-button-clicks', methods=['GET'])
+@token_required
+@admin_required
+def get_review_button_clicks():
+    """Admin: Get history of who clicked the Review Us button."""
+    try:
+        col = _get_review_clicks_col()
+        if col is None:
+            return jsonify({'error': 'Database unavailable'}), 500
+
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        skip = (page - 1) * per_page
+
+        total = col.count_documents({})
+        clicks = list(col.find().sort('clicked_at', -1).skip(skip).limit(per_page))
+        
+        for doc in clicks:
+            doc['_id'] = str(doc['_id'])
+            doc['user_id'] = str(doc['user_id'])
+
+        return jsonify({
+            'clicks': clicks,
+            'total': total,
+            'page': page,
+            'per_page': per_page,
+            'total_pages': (total + per_page - 1) // per_page
+        }), 200
+    except Exception as e:
+        logger.error(f"Error fetching review button clicks: {e}")
+        return jsonify({'error': str(e)}), 500
