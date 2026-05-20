@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X, Link } from "lucide-react";
+import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X, Link, UploadCloud, CheckCircle } from "lucide-react";
 import PlacementRequired from "@/components/PlacementRequired";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { dashboardApi, DashboardStats, ChartDataPoint, TopOffer } from "@/services/dashboardApi";
@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { API_BASE_URL } from "@/services/apiConfig";
 import { getAuthToken } from "@/utils/cookies";
 import PollWidget from "@/components/user/PollWidget";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 const POPUP_DISMISSED_KEY = 'gift_promo_popup_dismissed';
 const GC_POPUP_DISMISSED_KEY = 'gift_card_popup_dismissed';
@@ -83,18 +85,103 @@ const GlassPopup = ({ type, onClose, onRedirect, code, name, amount }: {
    Dashboard Component
 ------------------------- */
 const DashboardContent = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [topOffers, setTopOffers] = useState<TopOffer[]>([]);
   const [chartLoading, setChartLoading] = useState(true);
   const [offersLoading, setOffersLoading] = useState(true);
+  const [reviewUrl, setReviewUrl] = useState<string>('');
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [reviewSubmission, setReviewSubmission] = useState<any>(null);
+  const [uploadingProof, setUploadingProof] = useState(false);
+  const [selectedProofFile, setSelectedProofFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchDashboardStats();
     fetchChartData();
     fetchTopOffers();
+    fetchReviewUrl();
+    fetchReviewSubmission();
   }, []);
+
+  const fetchReviewSubmission = async () => {
+    try {
+      const token = getAuthToken();
+      if (!token) return;
+      const res = await fetch(`${API_BASE_URL}/api/user/review-submissions`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.submission) {
+        setReviewSubmission(data.submission);
+      }
+    } catch (err) {
+      console.error('Failed to fetch review submission', err);
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedProofFile(file);
+    }
+  };
+
+  const handleUploadProof = async () => {
+    if (!selectedProofFile) return;
+
+    setUploadingProof(true);
+    try {
+      const token = getAuthToken();
+      // 1. Upload file
+      const formData = new FormData();
+      formData.append('file', selectedProofFile);
+      
+      const uploadRes = await fetch(`${API_BASE_URL}/api/files/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData
+      });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok || uploadData.error) throw new Error(uploadData.error || 'Upload failed');
+      
+      const fileUrl = uploadData.access_url;
+
+      // 2. Submit review proof
+      const submitRes = await fetch(`${API_BASE_URL}/api/user/review-submissions`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ proof_image_url: fileUrl })
+      });
+      const submitData = await submitRes.json();
+      if (!submitRes.ok || submitData.error) throw new Error(submitData.error || 'Submission failed');
+
+      toast.success('Review proof submitted successfully! Waiting for admin approval.');
+      setSelectedProofFile(null);
+      fetchReviewSubmission(); // Refresh status
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to submit review proof');
+    } finally {
+      setUploadingProof(false);
+    }
+  };
+
+  const fetchReviewUrl = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/platform-settings/review-us`);
+      const data = await res.json();
+      if (data.url) {
+        setReviewUrl(data.url);
+      }
+    } catch (err) {
+      console.error('Failed to fetch review url', err);
+    }
+  };
 
   const fetchDashboardStats = async () => {
     try {
@@ -198,10 +285,97 @@ const DashboardContent = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
       <div className="max-w-[1400px] mx-auto px-6 py-8">
         {/* Header */}
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-          <p className="text-gray-600">Welcome back! Here's what's happening with your campaigns.</p>
+        <div className="mb-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
+            <p className="text-gray-600">Welcome back! Here's what's happening with your campaigns.</p>
+          </div>
+          {reviewUrl && (
+            <button
+              onClick={() => setIsReviewModalOpen(true)}
+              className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
+            >
+              <Gift className="h-4 w-4" />
+              Review Us
+            </button>
+          )}
         </div>
+
+        <Dialog open={isReviewModalOpen} onOpenChange={setIsReviewModalOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-2xl flex items-center gap-2">
+                <Gift className="h-6 w-6 text-orange-500" />
+                Review Us & Get Rewarded!
+              </DialogTitle>
+              <DialogDescription>
+                Leave a review on our platform and upload a screenshot to claim your bonus reward!
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-6 mt-4">
+              {reviewSubmission ? (
+                <div className="bg-gray-50 border rounded-xl p-6 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center bg-green-100">
+                    <CheckCircle className="h-6 w-6 text-green-600" />
+                  </div>
+                  <h3 className="font-semibold text-gray-900">
+                    {reviewSubmission.status === 'approved' ? 'Reward Applied!' : 'Submission Pending'}
+                  </h3>
+                  <p className="text-sm text-gray-600">
+                    {reviewSubmission.status === 'approved' 
+                      ? 'Thank you! Your review was approved and the reward has been added to your balance.'
+                      : 'Your review screenshot is currently being reviewed by our team. We will notify you once approved.'}
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-orange-50 border border-orange-100 rounded-xl p-4">
+                    <h4 className="font-semibold text-orange-800 mb-2">Step 1: Write a Review</h4>
+                    <p className="text-sm text-orange-700 mb-3">
+                      Click the button below to visit our review page and leave your honest feedback.
+                    </p>
+                    <Button onClick={() => window.open(reviewUrl, '_blank')} className="w-full bg-orange-500 hover:bg-orange-600">
+                      Go to Review Page <ArrowUpRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                    <h4 className="font-semibold text-blue-800 mb-2">Step 2: Upload Proof</h4>
+                    <p className="text-sm text-blue-700 mb-3">
+                      Take a screenshot of your submitted review and upload it here.
+                    </p>
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <input 
+                          type="file" 
+                          accept="image/*" 
+                          onChange={handleFileSelect}
+                          disabled={uploadingProof}
+                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
+                        />
+                        <Button variant="outline" className="w-full border-blue-200 text-blue-700 hover:bg-blue-100 disabled:opacity-50" disabled={uploadingProof}>
+                          <UploadCloud className="mr-2 h-4 w-4" /> 
+                          {selectedProofFile ? selectedProofFile.name : 'Choose Screenshot...'}
+                        </Button>
+                      </div>
+                      
+                      {selectedProofFile && (
+                        <Button 
+                          onClick={handleUploadProof} 
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                          disabled={uploadingProof}
+                        >
+                          {uploadingProof ? 'Uploading...' : 'Submit Proof for Review'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* KPI Cards */}
         <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4 mb-8">

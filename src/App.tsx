@@ -112,6 +112,9 @@ const AdminAutomationDashboard = lazy(() => import("./pages/AdminAutomationDashb
 const AdminSupportHub = lazy(() => import("./pages/AdminSupportHub"));
 import { AgreementPage } from "./pages/AgreementPage";
 import { SignaturePage } from "./pages/SignaturePage";
+import { AdminSearchIntelligence } from "./pages/AdminSearchIntelligence";
+import AdminPlatformSettings from "./pages/AdminPlatformSettings";
+import AdminReviewSubmissions from "./pages/AdminReviewSubmissions";
 const AdminOfferwallManager = lazy(() => import("./pages/AdminOfferwallManager"));
 const AdminSurveyBuilder = lazy(() => import("./pages/AdminSurveyBuilder"));
 const AdminSubWalls = lazy(() => import("./pages/AdminSubWalls"));
@@ -253,6 +256,9 @@ const App = () => (
                 <Route path="publisher-analytics" element={<AdminPublisherAnalytics />} />
                 <Route path="automation" element={<AdminAutomationDashboard />} />
                 <Route path="support-hub" element={<AdminSupportHub />} />
+                <Route path="search-intelligence" element={<AdminSearchIntelligence />} />
+                <Route path="platform-settings" element={<AdminPlatformSettings />} />
+                <Route path="review-submissions" element={<AdminReviewSubmissions />} />
                 <Route path="offerwall-manager" element={<AdminOfferwallManager />} />
                 <Route path="survey-builder" element={<AdminSurveyBuilder />} />
                 <Route path="sub-walls" element={<AdminSubWalls />} />

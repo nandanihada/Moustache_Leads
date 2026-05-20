@@ -32,7 +32,8 @@ import {
   Activity,
   HelpCircle,
   StickyNote,
-  Link2
+  Link2,
+  CheckCircle
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -132,6 +133,7 @@ const adminMenuStructure = [
       { title: "Offerwall Analytics", url: "/admin/offerwall-analytics", icon: TrendingUp, tab: "offerwall-analytics" },
 
       { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },
+      { title: "Search Intelligence", url: "/admin/search-intelligence", icon: Search, tab: "search-intelligence" },
       { title: "Reactivation", url: "/admin/reactivation", icon: RefreshCw, tab: "reactivation" },
       { title: "Masked Links", url: "/admin/masked-links", icon: Link2, tab: "masked-links" },
     ]
@@ -205,6 +207,20 @@ const adminMenuStructure = [
     url: "/admin/notes",
     icon: StickyNote,
     tab: "admin-notes",
+    type: "single" as const,
+  },
+  {
+    title: "Review Submissions",
+    url: "/admin/review-submissions",
+    icon: CheckCircle,
+    tab: "review-submissions",
+    type: "single" as const,
+  },
+  {
+    title: "Platform Settings",
+    url: "/admin/platform-settings",
+    icon: Settings,
+    tab: "platform-settings",
     type: "single" as const,
   },
 ];

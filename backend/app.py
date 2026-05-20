@@ -109,6 +109,8 @@ platform_settings_bp = safe_import_blueprint('routes.platform_settings', 'platfo
 email_campaigns_bp = safe_import_blueprint('routes.email_campaigns', 'email_campaigns_bp')
 automation_admin_bp = safe_import_blueprint('routes.automation_admin', 'automation_admin_bp')
 support_hub_admin_bp = safe_import_blueprint('routes.support_hub_admin', 'support_hub_admin_bp')
+review_submissions_bp = safe_import_blueprint('routes.review_submissions', 'review_submissions_bp')
+search_intelligence_bp = safe_import_blueprint('routes.search_intelligence', 'search_intelligence_bp')
 admin_offerwall_management_bp = safe_import_blueprint('routes.admin_offerwall_management', 'admin_offerwall_management_bp')
 admin_surveys_bp = safe_import_blueprint('routes.admin_surveys', 'admin_surveys_bp')
 admin_sub_walls_bp = safe_import_blueprint('routes.admin_sub_walls', 'admin_sub_walls_bp')
@@ -212,6 +214,8 @@ blueprints = [
     (email_campaigns_bp, '/api/admin'),
     (automation_admin_bp, '/api/admin'),
     (support_hub_admin_bp, '/api/admin'),
+    (review_submissions_bp, '/api/admin'),
+    (search_intelligence_bp, '/api/admin/search-intelligence'),
     (admin_offerwall_management_bp, '/api/admin'),
     (admin_surveys_bp, '/api/admin'),
     (admin_sub_walls_bp, '/api/admin'),

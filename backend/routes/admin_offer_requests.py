@@ -106,9 +106,6 @@ def get_publisher_profiles_with_requests():
         status = request.args.get('status', 'pending')
         risk_filter = request.args.get('risk', 'all')
         search = request.args.get('search', '')
-        date_from = request.args.get('date_from', '')
-        date_to = request.args.get('date_to', '')
-        country_filter = request.args.get('country', '').lower()
         page = max(1, int(request.args.get('page', 1)))
         per_page = min(int(request.args.get('per_page', 20)), 200)
         
@@ -123,24 +120,6 @@ def get_publisher_profiles_with_requests():
                 req_query['status'] = {'$in': ['pending', 'review']}
             else:
                 req_query['status'] = status
-        
-        # Date range filter on requested_at
-        if date_from:
-            try:
-                from_dt = datetime.fromisoformat(date_from)
-                if 'requested_at' not in req_query:
-                    req_query['requested_at'] = {}
-                req_query['requested_at']['$gte'] = from_dt
-            except:
-                pass
-        if date_to:
-            try:
-                to_dt = datetime.fromisoformat(date_to) + timedelta(days=1)
-                if 'requested_at' not in req_query:
-                    req_query['requested_at'] = {}
-                req_query['requested_at']['$lte'] = to_dt
-            except:
-                pass
         
         # Get all matching requests
         all_requests = list(requests_collection.find(req_query).sort('requested_at', -1))
@@ -206,29 +185,6 @@ def get_publisher_profiles_with_requests():
         if search:
             sl = search.lower()
             user_ids = [uid for uid in user_ids if uid in users_data and (sl in users_data[uid].get('username', '').lower() or sl in users_data[uid].get('email', '').lower())]
-        
-        # Apply country filter (matches user's geo preferences or offer countries)
-        if country_filter:
-            filtered_uids = []
-            for uid in user_ids:
-                user = users_data.get(uid)
-                if not user:
-                    continue
-                # Check user's geo preferences
-                user_geos = [g.lower() for g in (user.get('geos', []) or [])]
-                if any(country_filter in g for g in user_geos):
-                    filtered_uids.append(uid)
-                    continue
-                # Check offer countries in their requests
-                user_reqs = user_requests_map.get(uid, [])
-                for req in user_reqs:
-                    offer = offer_cache.get(req.get('offer_id'))
-                    if offer:
-                        offer_countries = [c.lower() for c in (offer.get('countries', []) or [])]
-                        if any(country_filter in c for c in offer_countries):
-                            filtered_uids.append(uid)
-                            break
-            user_ids = filtered_uids
         
         # Cache offers
         offer_ids_needed = set()
@@ -350,11 +306,7 @@ def get_publisher_profiles_with_requests():
                 'requests': enriched_requests,
                 'pending_count': len([r for r in enriched_requests if r['status'] == 'pending']),
                 'latest_offer_name': latest_offer.get('name') if latest_offer else 'Unknown',
-                'latest_offer_id': latest_request.get('offer_id'),
-                'verticals': user.get('verticals', []),
-                'geos': user.get('geos', []),
-                'traffic_sources': user.get('traffic_sources', []),
-                'registration_profile_completed': user.get('registration_profile_completed', False),
+                'latest_offer_id': latest_request.get('offer_id')
             }
             publisher_profiles.append(profile)
         
@@ -482,10 +434,6 @@ def get_inventory_matches():
                 'countries': 1,
                 'allowed_countries': 1,
                 'rotation_running': 1,
-                'description': 1,
-                'target_url': 1,
-                'preview_url': 1,
-                'tracking_url': 1,
             }
         ).limit(limit * 3))  # Fetch extra to account for filtering
         
@@ -591,7 +539,6 @@ def get_inventory_matches():
                 'payout': offer.get('payout', 0),
                 'network': offer.get('network', ''),
                 'category': offer.get('category', ''),
-                'vertical': offer.get('vertical', ''),
                 'image_url': offer.get('image_url', ''),
                 'thumbnail_url': offer.get('thumbnail_url', ''),
                 'countries': offer.get('countries', offer.get('allowed_countries', [])),
@@ -605,10 +552,6 @@ def get_inventory_matches():
                 'is_in_rotation': is_in_rotation_batch,
                 'grant_count': grant_counts.get(oid, 0),
                 'already_sent': oid in already_sent_offer_ids,
-                'description': offer.get('description', ''),
-                'target_url': offer.get('target_url', ''),
-                'preview_url': offer.get('preview_url', ''),
-                'tracking_url': offer.get('tracking_url', ''),
             })
         
         # Sort by match strength (Strong first) then by payout
@@ -660,110 +603,6 @@ def mark_requests_for_review():
         return jsonify({'error': str(e)}), 500
 
 
-@admin_offer_requests_bp.route('/offer-access-requests/bulk-proof-request', methods=['POST'])
-@token_required
-@subadmin_or_admin_required('offer-access-requests')
-def bulk_proof_request():
-    """Send placement proof request email for multiple offers to their respective publishers"""
-    try:
-        from bson import ObjectId
-        data = request.get_json() or {}
-        offer_ids = data.get('offer_ids', [])
-        publisher_ids = data.get('publisher_ids', [])
-        message = data.get('message', '')
-        subject = data.get('subject', 'Placement Proof Required')
-
-        if not offer_ids:
-            return jsonify({'error': 'No offer IDs provided'}), 400
-
-        # Get publisher emails
-        users_col = db_instance.get_collection('users')
-        requests_col = db_instance.get_collection('affiliate_requests')
-        
-        # If publisher_ids provided, use them. Otherwise find publishers from requests
-        emails_to_send = []
-        if publisher_ids:
-            for pid in publisher_ids:
-                try:
-                    user = users_col.find_one({'_id': ObjectId(pid)}, {'email': 1, 'username': 1})
-                    if user and user.get('email'):
-                        emails_to_send.append(user['email'])
-                except:
-                    pass
-        else:
-            # Find all publishers who requested these offers
-            reqs = list(requests_col.find({'offer_id': {'$in': offer_ids}}, {'user_id': 1, 'email': 1}))
-            user_ids = list(set(str(r.get('user_id', '')) for r in reqs))
-            for uid in user_ids:
-                try:
-                    user = users_col.find_one({'_id': ObjectId(uid)}, {'email': 1})
-                    if user and user.get('email'):
-                        emails_to_send.append(user['email'])
-                except:
-                    pass
-
-        if not emails_to_send:
-            return jsonify({'error': 'No publisher emails found'}), 400
-
-        # Send email
-        from services.email_service import get_email_service
-        email_service = get_email_service()
-        
-        # Build HTML with action buttons
-        action_buttons_html = '''
-        <div style="margin: 20px 0; padding: 15px; background: #f8f9fa; border-radius: 8px; text-align: center;">
-            <p style="margin: 0 0 12px; font-weight: 600; color: #333;">Need help? Reach us through:</p>
-            <table cellpadding="0" cellspacing="0" border="0" align="center"><tr>
-                <td style="padding: 0 6px;"><a href="mailto:admin@moustacheleads.com?subject=Meeting Request" style="display: inline-block; padding: 8px 16px; background: #3b82f6; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">📅 Meet</a></td>
-                <td style="padding: 0 6px;"><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1" style="display: inline-block; padding: 8px 16px; background: #6366f1; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">💬 Teams</a></td>
-                <td style="padding: 0 6px;"><a href="mailto:admin@moustacheleads.com" style="display: inline-block; padding: 8px 16px; background: #10b981; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">✉️ Chat</a></td>
-                <td style="padding: 0 6px;"><a href="https://t.me/mlaffil" style="display: inline-block; padding: 8px 16px; background: #06b6d4; color: white; text-decoration: none; border-radius: 6px; font-size: 13px;">📱 Telegram</a></td>
-            </tr></table>
-        </div>
-        '''
-        
-        # Convert plain text message to HTML
-        html_message = message.replace('\n', '<br>').replace('━', '—')
-        html_body = f'''
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="background: linear-gradient(135deg, #7c3aed, #6366f1); padding: 20px; border-radius: 12px 12px 0 0; text-align: center;">
-                <h2 style="color: white; margin: 0; font-size: 18px;">📋 Placement Proof Required</h2>
-            </div>
-            <div style="padding: 24px; background: white; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 12px 12px;">
-                <p style="font-size: 14px; line-height: 1.6; color: #374151; white-space: pre-line;">{html_message}</p>
-                {action_buttons_html}
-            </div>
-        </div>
-        '''
-        
-        # Send to all publishers
-        import smtplib
-        from email.mime.multipart import MIMEMultipart
-        from email.mime.text import MIMEText
-        
-        sent = 0
-        for batch_start in range(0, len(emails_to_send), 50):
-            batch = emails_to_send[batch_start:batch_start + 50]
-            try:
-                msg = MIMEMultipart('alternative')
-                msg['Subject'] = subject
-                msg['From'] = email_service.from_email
-                msg['To'] = email_service.from_email
-                msg['Bcc'] = ', '.join(batch)
-                msg.attach(MIMEText(html_body, 'html'))
-                
-                if email_service._send_email_smtp(msg):
-                    sent += len(batch)
-            except Exception as e:
-                logging.error(f"Bulk proof request email error: {e}")
-
-        return jsonify({'success': True, 'message': f'Proof request sent to {sent} publishers', 'sent': sent}), 200
-
-    except Exception as e:
-        logging.error(f"Bulk proof request error: {e}")
-        return jsonify({'error': str(e)}), 500
-
-
 @admin_offer_requests_bp.route('/offer-access-requests/send-offers', methods=['POST'])
 @token_required
 @subadmin_or_admin_required('offer-access-requests')
@@ -803,7 +642,6 @@ def send_offers_to_publisher():
 
         # Handle scheduling
         if schedule_time and send_via == 'email':
-            from datetime import datetime, timezone
             try:
                 scheduled_datetime = datetime.fromisoformat(schedule_time.replace('Z', '+00:00'))
                 if scheduled_datetime.tzinfo is not None:
@@ -1219,7 +1057,6 @@ def get_publisher_detailed_stats(user_id):
 def get_all_access_requests():
     """Get all offer access requests with advanced filtering"""
     try:
-        from datetime import datetime as dt
         from bson import ObjectId
 
         # Get query parameters
@@ -1282,9 +1119,9 @@ def get_all_access_requests():
         if date_from or date_to:
             date_query = {}
             if date_from:
-                date_query['$gte'] = dt.fromisoformat(date_from)
+                date_query['$gte'] = datetime.fromisoformat(date_from)
             if date_to:
-                date_to_dt = dt.fromisoformat(date_to)
+                date_to_dt = datetime.fromisoformat(date_to)
                 date_query['$lte'] = date_to_dt.replace(hour=23, minute=59, second=59)
             query['requested_at'] = date_query
 
@@ -1890,12 +1727,11 @@ def check_inactive_offers():
 def get_tab_counts():
     """Get counts for all tabs with time-based breakdowns (today, this week, total)"""
     try:
-        from datetime import datetime as dt, timedelta
         requests_col = db_instance.get_collection('affiliate_requests')
         collections_col = db_instance.get_collection('offer_collections')
         offers_col = db_instance.get_collection('offers')
 
-        now = dt.utcnow()
+        now = datetime.utcnow()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=today_start.weekday())  # Monday
 
@@ -1906,17 +1742,10 @@ def get_tab_counts():
             week = requests_col.count_documents({**query_base, date_field: {'$gte': week_start}})
             return {'total': total, 'today': today, 'week': week}
 
-        all_requests = count_with_breakdown({})
+        all_requests = count_with_breakdown({'status': 'pending'})
         approved = count_with_breakdown({'status': 'approved'})
         rejected = count_with_breakdown({'status': 'rejected'})
         in_review = count_with_breakdown({'status': {'$in': ['pending', 'review']}})
-
-        # Add pending count to all_requests for display purposes
-        # "pending" here means requests that haven't been approved or rejected yet
-        pending_count = in_review['total']
-        all_requests['pending'] = pending_count
-        all_requests['approved'] = approved['total']
-        all_requests['rejected'] = rejected['total']
 
         dp_count = 0
         dp_today = 0
@@ -2174,12 +2003,10 @@ def get_tab_data():
                     '_id': '$offer_id',
                     'total_requests': {'$sum': 1},
                     'unique_users': {'$addToSet': '$user_id'},
-                    'usernames': {'$addToSet': '$username'},
                     'approved_count': {'$sum': {'$cond': [{'$eq': ['$status', 'approved']}, 1, 0]}},
                     'rejected_count': {'$sum': {'$cond': [{'$eq': ['$status', 'rejected']}, 1, 0]}},
                     'pending_count': {'$sum': {'$cond': [{'$in': ['$status', ['pending', 'review']]}, 1, 0]}},
                     'last_requested_at': {'$max': '$requested_at'},
-                    'last_username': {'$last': '$username'},
                 }},
                 {'$addFields': {'unique_users_count': {'$size': '$unique_users'}}},
                 {'$sort': {'total_requests': -1}},
@@ -2227,7 +2054,6 @@ def get_tab_data():
                     'rejected_count': r['rejected_count'],
                     'pending_count': r['pending_count'],
                     'last_requested_at': r.get('last_requested_at'),
-                    'publisher_username': r.get('last_username', ''),
                     'status': 'most_requested',
                 })
 
@@ -3270,7 +3096,6 @@ def push_mail_v2():
 def get_charts_data():
     """Return REAL data for all offer access request charts. No estimates."""
     try:
-        from datetime import datetime as dt, timedelta
         from bson import ObjectId
         requests_col = db_instance.get_collection('affiliate_requests')
         offers_col = db_instance.get_collection('offers')
@@ -3278,7 +3103,7 @@ def get_charts_data():
         push_history_col = db_instance.get_collection('push_mail_history')
         clicks_col = db_instance.get_collection('clicks')
 
-        now = dt.utcnow()
+        now = datetime.utcnow()
         days_30_ago = now - timedelta(days=30)
 
         # ── Chart 1: Email Campaign Funnel (REAL DATA ONLY) ──
@@ -3698,106 +3523,4 @@ def get_publisher_intelligence(user_id):
 
     except Exception as e:
         logging.error(f"Publisher intelligence error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-# ── Export Offer Access Requests to Excel ──────────────────────────────────────
-
-@admin_offer_requests_bp.route('/offer-access-requests/export', methods=['POST'])
-@token_required
-@subadmin_or_admin_required('offer-access-requests')
-def export_access_requests():
-    """
-    Export offer access requests data to Excel (.xlsx).
-    Supports multi-tab, grouping, column selection, color coding, and summary sheet.
-    """
-    try:
-        from flask import send_file
-        from services.export_service import ExportService
-
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'Request body required'}), 400
-
-        config = {
-            'tabs': data.get('tabs', ['approved']),
-            'columns': data.get('columns', ['offer_name', 'status', 'publisher_username', 'offer_network', 'offer_category', 'offer_countries', 'offer_payout', 'requested_at']),
-            'group_by': data.get('group_by', 'none'),
-            'separate_sheets_per_group': data.get('separate_sheets_per_group', False),
-            'date_range': data.get('date_range'),
-            'include_summary': data.get('include_summary', True),
-            'freeze_headers': data.get('freeze_headers', True),
-            'color_code_rows': data.get('color_code_rows', True),
-            'auto_fit_columns': data.get('auto_fit_columns', True),
-        }
-
-        export_service = ExportService()
-        buffer = export_service.generate_export(config)
-
-        filename = f"offer_requests_export_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx"
-
-        return send_file(
-            buffer,
-            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            as_attachment=True,
-            download_name=filename
-        )
-
-    except Exception as e:
-        logging.error(f"Export error: {e}", exc_info=True)
-        return jsonify({'error': str(e)}), 500
-
-
-@admin_offer_requests_bp.route('/offer-access-requests/export-preview-counts', methods=['POST'])
-@token_required
-@subadmin_or_admin_required('offer-access-requests')
-def export_preview_counts():
-    """
-    Returns filtered counts per tab for the export modal preview.
-    Lightweight endpoint — only counts, no data fetching.
-    """
-    try:
-        data = request.get_json() or {}
-        date_range = data.get('date_range')
-        tabs = data.get('tabs', ['approved', 'rejected', 'in_review', 'all_requests', 'most_requested'])
-
-        requests_col = db_instance.get_collection('affiliate_requests')
-
-        # Build date filter
-        date_filter = {}
-        if date_range:
-            if date_range.get('from'):
-                fr = date_range['from']
-                if 'T' in fr:
-                    date_filter['$gte'] = datetime.fromisoformat(fr.replace('Z', '+00:00'))
-                else:
-                    date_filter['$gte'] = datetime.strptime(fr, '%Y-%m-%d')
-            if date_range.get('to'):
-                to_str = date_range['to']
-                if 'T' in to_str:
-                    to_dt = datetime.fromisoformat(to_str.replace('Z', '+00:00'))
-                else:
-                    to_dt = datetime.strptime(to_str, '%Y-%m-%d')
-                to_dt = to_dt.replace(hour=23, minute=59, second=59)
-                date_filter['$lte'] = to_dt
-
-        status_map = {
-            'approved': {'status': 'approved'},
-            'rejected': {'status': 'rejected'},
-            'in_review': {'status': {'$in': ['pending', 'review']}},
-            'all_requests': {},
-            'most_requested': {},
-        }
-
-        counts = {}
-        for tab in tabs:
-            q = dict(status_map.get(tab, {}))
-            if date_filter:
-                q['requested_at'] = date_filter
-            counts[tab] = requests_col.count_documents(q)
-
-        return jsonify({'counts': counts})
-
-    except Exception as e:
-        logging.error(f"Export preview counts error: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500

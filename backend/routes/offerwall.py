@@ -1953,6 +1953,29 @@ def get_offers():
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
         
+        # Fetch placement exchange rate and currency name
+        placement_exchange_rate = 100  # Default: $1 = 100 points
+        placement_currency_name = 'Points'
+        if placement_id:
+            try:
+                placements_col = db_instance.get_collection('placements')
+                if placements_col is not None:
+                    placement_doc = placements_col.find_one(
+                        {'placementIdentifier': placement_id},
+                        {'exchangeRate': 1, 'currencyName': 1}
+                    )
+                    if placement_doc:
+                        try:
+                            rate = float(placement_doc.get('exchangeRate', 100))
+                            if rate > 0:
+                                placement_exchange_rate = rate
+                        except (ValueError, TypeError):
+                            pass
+                        placement_currency_name = placement_doc.get('currencyName', 'Points') or 'Points'
+                        logger.info(f"💱 Placement exchange rate: 1 USD = {placement_exchange_rate} {placement_currency_name}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch placement exchange rate: {e}")
+        
         # Fetch starter offer IDs from offerwall_settings so they always appear
         starter_offer_ids = []
         try:
@@ -2166,8 +2189,8 @@ def get_offers():
                     'id': offer.get('offer_id', str(offer.get('_id'))),
                     'title': offer.get('name', 'Untitled Offer'),
                     'description': offer.get('description', 'No description available'),
-                    'reward_amount': publisher_payout,
-                    'reward_currency': offer.get('currency', 'USD'),
+                    'reward_amount': round(publisher_payout * placement_exchange_rate, 2),
+                    'reward_currency': placement_currency_name,
                     'category': category_value,
                     'status': offer.get('status', 'active'),
                     'image_url': image_url,
@@ -2249,6 +2272,8 @@ def get_offers():
             'total_pages': (total_count + limit - 1) // limit,
             'placement_id': placement_id,
             'user_id': user_id,
+            'exchange_rate': placement_exchange_rate,
+            'currency_name': placement_currency_name,
             'generated_at': datetime.utcnow().isoformat(),
             'skipped_count': len(skipped_offers),
             'skipped_offers': skipped_offers[:20]  # Cap at 20 to avoid bloating response

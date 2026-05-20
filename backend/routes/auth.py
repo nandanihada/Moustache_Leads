@@ -2,7 +2,10 @@ from flask import Blueprint, request, jsonify, redirect
 from models.user import User
 from utils.auth import generate_token, token_required
 from services.email_verification_service import get_email_verification_service
+from services.pdf_service import PDFService
+from utils.agreement_content import AGREEMENT_TEXT
 import re
+import os
 import logging
 from datetime import datetime
 from database import db_instance
@@ -1850,3 +1853,83 @@ def logout():
     except Exception as e:
         logging.error(f"Logout error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Logout failed: {str(e)}'}), 500
+
+
+# ── Agreement signing endpoints ──
+
+@auth_bp.route('/sign-agreement', methods=['POST'])
+@token_required
+def sign_agreement():
+    """Save user digital signature and mark agreement as signed"""
+    try:
+        user = request.current_user
+        data = request.get_json()
+
+        if not data or 'signature_data' not in data:
+            return jsonify({'error': 'Signature data is required'}), 400
+
+        update_doc = {
+            'agreement_signed': True,
+            'agreement_signed_at': datetime.utcnow(),
+            'digital_signature': data['signature_data'],
+            'agreement_version': '1.0'
+        }
+
+        user_model = User()
+        success = user_model.update_user(str(user['_id']), update_doc)
+
+        filename = None
+        if success:
+            try:
+                pdf_service = PDFService()
+                user_data = {
+                    'firstName': user.get('first_name', user.get('username')),
+                    'lastName': user.get('last_name', ''),
+                    'companyName': user.get('company_name', 'N/A'),
+                    'address': f"{user.get('address', {}).get('city', '')}, {user.get('address', {}).get('country', '')}" if isinstance(user.get('address'), dict) else 'N/A',
+                    'email': user.get('email', '')
+                }
+
+                pdf_buffer = pdf_service.generate_agreement_pdf(user_data, data['signature_data'], AGREEMENT_TEXT)
+                if pdf_buffer:
+                    filename = f"agreement_{str(user['_id'])}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+                    filepath = pdf_service.save_pdf_to_file(pdf_buffer, filename)
+                    user_model.update_user(str(user['_id']), {'signed_agreement_pdf': filename})
+                    logging.info(f"PDF Agreement generated: {filepath}")
+            except Exception as pdf_err:
+                logging.error(f"PDF Generation failed: {str(pdf_err)}")
+
+            logging.info(f"Agreement signed by user {user.get('username')}")
+            return jsonify({
+                'success': True,
+                'message': 'Agreement signed successfully',
+                'pdf_filename': filename
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to save agreement signature'}), 500
+
+    except Exception as e:
+        logging.error(f"Sign agreement error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@auth_bp.route('/download-agreement/<filename>', methods=['GET'])
+@token_required
+def download_agreement(filename):
+    """Download a signed agreement PDF"""
+    try:
+        if '..' in filename or filename.startswith('/') or filename.startswith('\\'):
+            return jsonify({'error': 'Invalid filename'}), 400
+
+        upload_dir = os.path.join(os.getcwd(), 'uploads', 'agreements')
+        filepath = os.path.join(upload_dir, filename)
+
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'File not found'}), 404
+
+        from flask import send_file
+        return send_file(filepath, as_attachment=True)
+
+    except Exception as e:
+        logging.error(f"Download agreement error: {str(e)}")
+        return jsonify({'error': str(e)}), 500

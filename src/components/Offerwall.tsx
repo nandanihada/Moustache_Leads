@@ -55,8 +55,8 @@ const CATEGORIES = [
   { id: 'OTHER', name: 'Other', icon: '📦' },
 ];
 
-// Helper: Convert payout to points ($1 = 100 points)
-const payoutToPoints = (payout: number): number => Math.round(payout * 100);
+// Helper: Convert payout to points (uses exchange rate from API, fallback $1 = 100 points)
+const payoutToPoints = (payout: number, exchangeRate: number = 1): number => Math.round(payout * exchangeRate);
 
 // Helper: Render star rating (1-5 stars)
 const renderStarRating = (rating: number = 5): JSX.Element => {
@@ -239,6 +239,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [skippedCount, setSkippedCount] = useState(0);
+  const [currencyName, setCurrencyName] = useState('Points');
   
   // Filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -321,8 +322,8 @@ const Offerwall: React.FC<OfferwallProps> = ({
 
     // Sorting
     result.sort((a, b) => {
-      const pointsA = payoutToPoints(a.payout || a.reward_amount || 0);
-      const pointsB = payoutToPoints(b.payout || b.reward_amount || 0);
+      const pointsA = a.reward_amount || 0;
+      const pointsB = b.reward_amount || 0;
       
       switch (sortBy) {
         case 'points_high':
@@ -396,6 +397,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
       setTotalPages(offersData.total_pages || 1);
       setTotalCount(offersData.total_count || newOffers.length);
       setSkippedCount(offersData.skipped_count || 0);
+      setCurrencyName(offersData.currency_name || 'Points');
       
       if (offersData.skipped_count > 0) {
         console.warn(`⚠️ ${offersData.skipped_count} offers skipped due to bad data:`, offersData.skipped_offers);
@@ -624,8 +626,8 @@ const Offerwall: React.FC<OfferwallProps> = ({
         {filteredOffers.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 px-4">
           {filteredOffers.map((offer, index) => {
-            // Calculate points from payout ($1 = 100 points)
-            const points = payoutToPoints(offer.payout || offer.reward_amount || 0);
+            // Points already converted by backend using placement exchange rate
+            const points = Math.round(offer.reward_amount || 0);
             const isLocked = offer.is_locked || (offer.requires_approval && !offer.has_access);
             
             return (
@@ -737,7 +739,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
                         {points.toLocaleString()}
                       </span>
                       <span className="text-xs text-green-300 font-semibold uppercase">
-                        points
+                        {currencyName}
                       </span>
                     </div>
                     <Sparkles className="h-5 w-5 text-yellow-400 animate-pulse" />
@@ -806,6 +808,7 @@ const Offerwall: React.FC<OfferwallProps> = ({
           offer={selectedOffer}
           open={modalOpen}
           onClose={() => setModalOpen(false)}
+          currencyName={currencyName}
           onStartOffer={async (offer) => {
             try {
               await fetch(`${baseUrl}/api/offerwall/track/click`, {

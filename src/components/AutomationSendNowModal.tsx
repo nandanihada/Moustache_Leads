@@ -12,7 +12,6 @@ import { Loader2, Mail, Send, AlertTriangle, Zap, Search, Globe, Filter, Eye, Ed
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import OfferActionIcons from '@/components/OfferActionIcons';
 import { adminOfferApi } from '@/services/adminOfferApi';
-import loginLogsService from '@/services/loginLogsService';
 import { Separator } from '@/components/ui/separator';
 
 interface AutomationSendNowModalProps {
@@ -60,161 +59,35 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
 
   const getOfferId = (o: any) => o?.offer_id || o?._id || o?.id;
 
-  // Load Unified Offers (AI + Backend + Selection)
   useEffect(() => {
-    if (!open || activeItems.length === 0) return;
+    if (activeItems.length === 0 || !open) return;
     
-    const loadData = async () => {
-      setSearching(true);
-      try {
-        const token = localStorage.getItem('token');
-        
-        // 1. If single user, fetch full AI + Automation state
-        if (!isBulk && mainItem?.user_id) {
-          // Fetch everything needed for scoring parity, including offer views for session verticals
-          const [intelRes, autoRes, signalsRes, viewsRes] = await Promise.all([
-            loginLogsService.getInventoryMatchedOffers(mainItem.user_id),
-            fetch(`${apiUrl}/api/admin/automation/queue/${mainItem.user_id}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-            }).then(r => r.ok ? r.json() : { item: null }).catch(() => ({ item: null })),
-            loginLogsService.getUserSignals(mainItem.user_id, mainItem.username, mainItem.email).catch(() => null),
-            loginLogsService.getOfferViews(mainItem.user_id, 20, mainItem.username, mainItem.email).catch(() => ({ views: [] }))
-          ]);
-
-          // Calculate vertical preferences identically to UserIntelligenceProfile
-          const safeOfferViews = Array.isArray(viewsRes?.views) ? viewsRes.views : [];
-          let currentSessionVerticals = null;
-          if (safeOfferViews.length > 0) {
-            const counts: Record<string, number> = {};
-            let total = 0;
-            safeOfferViews.forEach((v: any) => {
-              const cat = v.offer_details?.category || v.category || 'Unknown';
-              if (cat && cat !== 'Unknown') {
-                counts[cat] = (counts[cat] || 0) + 1;
-                total++;
-              }
-            });
-            if (total > 0) {
-              currentSessionVerticals = Object.entries(counts)
-                .map(([name, count]) => ({ name, value: Math.round((count / total) * 100) }))
-                .sort((a, b) => b.value - a.value)
-                .slice(0, 5);
-            }
+    if (!isBulk && mainItem.next_offers && mainItem.next_offers.length > 0) {
+      setOffers(mainItem.next_offers);
+      const allMatchedIds = mainItem.next_offers.map((o: any) => getOfferId(o)).filter(Boolean);
+      setSelected(new Set(allMatchedIds as string[]));
+    } else if (isBulk) {
+      // For bulk, let's collect all candidate offers from all users
+      const allOffers: any[] = [];
+      const seenIds = new Set();
+      activeItems.forEach(item => {
+        (item.next_offers || []).forEach((o: any) => {
+          const id = getOfferId(o);
+          if (!seenIds.has(id)) {
+            seenIds.add(id);
+            allOffers.push(o);
           }
-
-          const verticalData = currentSessionVerticals || (signalsRes?.top_verticals?.length > 0 ? signalsRes.top_verticals : [{name: mainItem.verticals?.[0] || 'Unknown', value: 100}]);
-          const topCats = verticalData.slice(0, 2).map((v: any) => (v.name || '').toLowerCase());
-
-          const matched: any[] = [];
-          const seenIds = new Set();
-          
-          // PRIORITY: Use backend queue (Fresh API preferred, then existing Prop data)
-          const queueItems = (autoRes.item?.next_offers || mainItem?.next_offers || []);
-          const queueOfferIds = new Set<string>();
-          
-          if (Array.isArray(queueItems)) {
-            queueItems.forEach((o: any) => {
-              const id = o.offer_id || o._id || o.id;
-              if (id && !seenIds.has(id)) {
-                seenIds.add(id);
-                queueOfferIds.add(id);
-                matched.push({ 
-                  ...o, id, 
-                  source: 'Automation Queue', 
-                  matchScore: 100, // Top priority
-                  isBackend: true 
-                });
-              }
-            });
-          }
-
-          const addSection = (sectionName: string, sourceLabel: string, baseScore: number, typeLabel: string) => {
-            if (intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
-              intelRes[sectionName].forEach((o: any, idx: number) => {
-                const id = o.offer_id || o._id || o.id;
-                if (id && !seenIds.has(id)) {
-                  seenIds.add(id);
-
-                  // Apply identical vertical-boosting logic as UserIntelligenceProfile
-                  let matchScore = Math.max(50, baseScore - (idx * 4));
-                  if (topCats.length > 0) {
-                    const offerCat = (o.category || o.vertical || '').toLowerCase();
-                    if (offerCat && topCats.includes(offerCat)) {
-                      matchScore = Math.min(99, matchScore + 15);
-                    } else if (offerCat && verticalData.some((v: any) => v.name.toLowerCase() === offerCat)) {
-                      matchScore = Math.min(99, matchScore + 5);
-                    }
-                  }
-
-                  matched.push({
-                    ...o, id,
-                    matchScore,
-                    source: sourceLabel,
-                    type: typeLabel,
-                    isIntelligenceMatch: true
-                  });
-                }
-              });
-            }
-          };
-
-          // Standard sections from loginLogsService.getInventoryMatchedOffers
-          addSection('most_approved', 'Most Approved', 98, 'Cashback');
-          addSection('newly_added', 'Newly Added', 91, 'Cashback');
-          addSection('highly_clicked', 'Highly Clicked', 87, 'Cashback');
-          addSection('recently_edited', 'Recently Edited', 79, 'Discount');
-          addSection('recently_deleted', 'Clearance', 74, 'Discount');
-
-          const finalOffers = matched.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0)).slice(0, 6);
-          if (finalOffers.length > 0) {
-            setOffers(finalOffers);
-            
-            // If we have actual backend queue items, ONLY select those by default
-            if (queueOfferIds.size > 0) {
-               setSelected(new Set(Array.from(queueOfferIds)));
-            } else {
-               // Otherwise, default to selecting the top 3 AI matches
-               setSelected(new Set(finalOffers.slice(0, 3).map(o => o.id)));
-            }
-          } else {
-            // Fallback for no intelligence - try country first, then broad active
-            let fallback = await adminOfferApi.getOffers({ country: mainItem.country || '', status: 'active', per_page: 15 });
-            if (!fallback.offers || fallback.offers.length === 0) {
-              fallback = await adminOfferApi.getOffers({ status: 'active', per_page: 15 });
-            }
-            
-            const results = fallback.offers || [];
-            setOffers(results);
-            if (results.length > 0) {
-              setSelected(new Set([getOfferId(results[0])]));
-            }
-          }
-        } 
-        // 2. If bulk, aggregate offers from selected items
-        else if (isBulk) {
-          const allOffers: any[] = [];
-          const seenIds = new Set();
-          activeItems.forEach(item => {
-            (item.next_offers || []).forEach((o: any) => {
-              const id = getOfferId(o);
-              if (id && !seenIds.has(id)) {
-                seenIds.add(id);
-                allOffers.push({ ...o, id, source: 'Bulk Match' });
-              }
-            });
-          });
-          setOffers(allOffers);
-          if (allOffers.length > 0) setSelected(new Set(allOffers.slice(0, 3).map(o => o.id)));
-        }
-      } catch (e) {
-        console.error('Failed to load offers', e);
-      } finally {
-        setSearching(false);
+        });
+      });
+      setOffers(allOffers);
+      
+      // Auto-select the first few offers for bulk as well
+      if (allOffers.length > 0) {
+        const firstIds = allOffers.slice(0, 3).map(o => getOfferId(o));
+        setSelected(new Set(firstIds));
       }
-    };
-
-    loadData();
-    setPreviewIdx(0);
+    }
+    // Only run when modal opens or the primary item/bulk mode changes
   }, [open, isBulk, mainItem?.user_id]);
 
   // Initialize personal overrides for all selected users
@@ -245,7 +118,32 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
     });
   }, [open, activeItems.length, customMsg]);
 
-  // Empty section - logic moved to unified effect above
+  // Reset index ONLY when the modal opens
+  useEffect(() => {
+    if (open) {
+      setPreviewIdx(0);
+      
+      // If we have no offers, try to fetch some relevant ones automatically
+      if (offers.length === 0 && (mainItem?.country || mainItem?.user_id)) {
+        const fetchRelevant = async () => {
+          try {
+            const res = await adminOfferApi.getOffers({
+              country: mainItem.country || '',
+              status: 'active',
+              per_page: 10
+            });
+            if (res.offers && res.offers.length > 0) {
+              setOffers(res.offers);
+              setSelected(new Set([getOfferId(res.offers[0])]));
+            }
+          } catch (e) {
+            console.error('Failed to auto-fetch offers', e);
+          }
+        };
+        fetchRelevant();
+      }
+    }
+  }, [open, mainItem?.user_id]);
 
   const toggle = (id: string) => {
     setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -690,17 +588,12 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                       </div>
 
                       <div className="space-y-1.5 max-h-64 overflow-y-auto border rounded-xl p-2 bg-slate-50/50 custom-scrollbar">
-                        {searching ? (
-                          <div className="flex flex-col items-center justify-center py-12">
-                            <Loader2 className="h-8 w-8 text-indigo-500 animate-spin mb-3" />
-                            <p className="text-xs font-bold text-slate-500 uppercase tracking-widest animate-pulse">Analyzing AI Intelligence...</p>
-                          </div>
-                        ) : offers.length === 0 ? (
+                        {offers.length === 0 && (
                           <div className="flex flex-col items-center justify-center py-10 text-center px-4">
                             <p className="text-sm text-muted-foreground italic mb-2">No matching offers found for this user's profile.</p>
                             <p className="text-[10px] text-slate-400">Use the search bar above to manually find and add offers to this outreach.</p>
                           </div>
-                        ) : null}
+                        )}
                         {offers.map((o, idx) => {
                           const oId = getOfferId(o) || `idx-${idx}`;
                           const isSelected = selected.has(oId);
@@ -728,8 +621,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                   <h4 className="text-[11px] font-bold text-slate-700 truncate">{o.name || o.offer_name}</h4>
-                                  <Badge variant="outline" className="text-[8px] h-3.5 px-1 bg-slate-50 border-slate-200 text-slate-500 uppercase">{o.countries?.[0] || o.country || 'WW'}</Badge>
-                                  {o.source && <Badge className="text-[7px] h-3 px-1 bg-indigo-50 text-indigo-600 border-none font-black uppercase">{o.source}</Badge>}
+                                  <Badge variant="outline" className="text-[8px] h-3.5 px-1 bg-slate-50 border-slate-200 text-slate-500 uppercase">{o.countries?.[0] || 'WW'}</Badge>
                                 </div>
                                 <div className="flex items-center gap-3 mt-0.5">
                                   <div className="flex items-center gap-1 payout-input" onClick={e => e.stopPropagation()}>
@@ -872,16 +764,9 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                                 <thead className="bg-slate-50 border-b border-slate-200">
                                   <tr>
                                     {emailSettings.visibleFields.includes('image') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Icon</th>}
-                                    {emailSettings.visibleFields.includes('offer_id') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer ID</th>}
                                     {emailSettings.visibleFields.includes('name') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer</th>}
                                     {emailSettings.visibleFields.includes('payout') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Payout</th>}
                                     {emailSettings.visibleFields.includes('countries') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">GEO</th>}
-                                    {emailSettings.visibleFields.includes('network') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Network</th>}
-                                    {emailSettings.visibleFields.includes('preview_url') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 1</th>}
-                                    {emailSettings.visibleFields.includes('preview_url_2') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 2</th>}
-                                    {emailSettings.visibleFields.includes('clicks') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Clicks</th>}
-                                    {emailSettings.visibleFields.includes('payment_terms') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Terms</th>}
-                                    {emailSettings.visibleFields.includes('description') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Desc</th>}
                                     <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter text-right">Action</th>
                                   </tr>
                                 </thead>
@@ -906,11 +791,6 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                                               </div>
                                             </td>
                                           )}
-                                          {emailSettings.visibleFields.includes('offer_id') && (
-                                            <td className="p-3">
-                                              <span className="font-mono text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{getOfferId(o)}</span>
-                                            </td>
-                                          )}
                                           {emailSettings.visibleFields.includes('name') && (
                                             <td className="p-3 font-bold text-slate-900">
                                               {o.name}
@@ -927,36 +807,6 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                                           {emailSettings.visibleFields.includes('countries') && (
                                             <td className="p-3 text-slate-500 font-medium">
                                               {o.countries?.slice(0, 3).join(', ') || 'Global'}
-                                            </td>
-                                          )}
-                                          {emailSettings.visibleFields.includes('network') && (
-                                            <td className="p-3 text-slate-500 font-medium text-[10px]">
-                                              {(o as any).network || 'N/A'}
-                                            </td>
-                                          )}
-                                          {emailSettings.visibleFields.includes('preview_url') && (
-                                            <td className="p-3">
-                                              <a href={(o as any).preview_url || '#'} className="text-[10px] text-indigo-500 truncate max-w-[80px] block underline">Link</a>
-                                            </td>
-                                          )}
-                                          {emailSettings.visibleFields.includes('preview_url_2') && (
-                                            <td className="p-3">
-                                              <a href={(o as any).preview_url_2 || '#'} className="text-[10px] text-violet-500 truncate max-w-[80px] block underline">Link</a>
-                                            </td>
-                                          )}
-                                          {emailSettings.visibleFields.includes('clicks') && (
-                                            <td className="p-3 text-slate-600 font-medium text-[10px]">
-                                              {(o as any).clicks || o.hits || 0}
-                                            </td>
-                                          )}
-                                          {emailSettings.visibleFields.includes('payment_terms') && (
-                                            <td className="p-3 font-black text-blue-600 uppercase text-[9px]">
-                                              {emailSettings.paymentTerms || 'Standard'}
-                                            </td>
-                                          )}
-                                          {emailSettings.visibleFields.includes('description') && (
-                                            <td className="p-3 text-slate-500 text-[9px] italic max-w-[120px] truncate" title={o.description}>
-                                              {o.description || 'Exclusive offer details available.'}
                                             </td>
                                           )}
                                           <td className="p-3 text-right">
@@ -977,7 +827,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                                         </tr>
                                         {(isExpanded && emailSettings.seeMoreFields.length > 0) && (
                                           <tr className="bg-slate-50/50 animate-in fade-in slide-in-from-top-1 duration-200">
-                                            <td colSpan={12} className="p-4 pt-2">
+                                            <td colSpan={5} className="p-4 pt-2">
                                               <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-slate-100 shadow-inner">
                                                 <div className="flex items-center gap-2 text-[10px] font-black text-amber-500 uppercase tracking-widest border-b border-slate-50 pb-2">
                                                   <Plus size={10} /> Secondary Offer Details

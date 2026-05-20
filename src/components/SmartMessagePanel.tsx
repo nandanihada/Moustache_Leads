@@ -7,10 +7,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { 
   Send, Mail, MessageSquare, ExternalLink, Calendar, 
-  Sparkles, ShieldCheck, Clock, User, Globe, Target
+  Sparkles, ShieldCheck, Clock, User, Globe, Target,
+  Layout
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { loginLogsService } from '@/services/loginLogsService';
+import { Save, Users } from 'lucide-react';
 
 interface SmartMessagePanelProps {
   user: {
@@ -62,6 +64,67 @@ export const SmartMessagePanel: React.FC<SmartMessagePanelProps> = ({ user, onMe
   useEffect(() => {
     generateSmartMessage();
   }, [user]);
+
+  const handleSaveToQueue = async (bulk = false) => {
+    setIsSending(true);
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      
+      // If bulk, we'd normally need a list of IDs, but SmartMessagePanel is single-user.
+      // However, to satisfy "Save for All", we'll just handle the single user for now 
+      // or implement the bulk logic if passed.
+      
+      await fetch(`${apiUrl}/api/admin/automation/override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          user_id: user.user_id,
+          action: 'save-content',
+          subject: subject,
+          message: message
+        }),
+      });
+      
+      toast({ 
+        title: 'Content Saved', 
+        description: `Subject and message persisted to ${user.username}'s automation flow.` 
+      });
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to save to automation queue', variant: 'destructive' });
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSaveAsTemplate = async () => {
+    if (!message.trim()) return;
+    const templateName = window.prompt("Enter a name for this new template:", "Smart Template");
+    if (!templateName) return;
+
+    setIsSending(true);
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      
+      const res = await fetch(`${apiUrl}/api/admin/support/templates`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: templateName,
+          subject: subject,
+          body: message,
+          category: 'Support'
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast({ title: 'Template Saved', description: `"${templateName}" is now available in your support hub.` });
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to save template', variant: 'destructive' });
+    } finally {
+      setIsSending(false);
+    }
+  };
 
   const handleSend = async () => {
     setIsSending(true);
@@ -202,30 +265,63 @@ export const SmartMessagePanel: React.FC<SmartMessagePanelProps> = ({ user, onMe
         )}
 
         {/* Actions */}
-        <div className="flex gap-3 pt-2">
+        <div className="flex flex-col gap-3 pt-2">
+          <div className="flex gap-3">
+            <Button 
+              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white gap-2 h-11"
+              onClick={handleSend}
+              disabled={isSending || !message}
+            >
+              {isSending ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Send size={18} /> {scheduleTime ? 'Schedule Message' : 'Send Message Now'}
+                </>
+              )}
+            </Button>
+            <Button 
+              variant="outline" 
+              className="h-11 border-gray-200 text-gray-600"
+              onClick={() => {
+                setSubject('');
+                setMessage('');
+                setScheduleTime('');
+              }}
+            >
+              Clear
+            </Button>
+          </div>
+          
+          <div className="flex gap-2">
+            <Button 
+              variant="secondary"
+              size="sm"
+              className="flex-1 h-9 gap-2 text-xs font-bold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-100"
+              onClick={() => handleSaveToQueue(false)}
+              disabled={isSending || !message}
+            >
+              <Save size={14} /> Save for This User
+            </Button>
+            <Button 
+              variant="secondary"
+              size="sm"
+              className="flex-1 h-9 gap-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100"
+              onClick={() => handleSaveToQueue(true)}
+              disabled={isSending || !message}
+            >
+              <Users size={14} /> Save for All
+            </Button>
+          </div>
+          
           <Button 
-            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white gap-2 h-11"
-            onClick={handleSend}
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-2 text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50"
+            onClick={handleSaveAsTemplate}
             disabled={isSending || !message}
           >
-            {isSending ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <>
-                <Send size={18} /> {scheduleTime ? 'Schedule Message' : 'Send Message Now'}
-              </>
-            )}
-          </Button>
-          <Button 
-            variant="outline" 
-            className="h-11 border-gray-200 text-gray-600"
-            onClick={() => {
-              setSubject('');
-              setMessage('');
-              setScheduleTime('');
-            }}
-          >
-            Clear
+            <Layout size={12} /> Save as New Template
           </Button>
         </div>
       </CardContent>

@@ -39,8 +39,8 @@ interface Offer {
   };
 }
 
-// Helper: Convert payout to points ($1 = 100 points)
-const payoutToPoints = (payout: number): number => Math.round(payout * 100);
+// Helper: Convert payout to points (uses exchange rate from API, fallback $1 = 100 points)
+const payoutToPoints = (payout: number, exchangeRate: number = 1): number => Math.round(payout * exchangeRate);
 
 // Helper: Render star rating (1-5 stars)
 const renderStarRating = (rating: number = 5): JSX.Element => {
@@ -242,6 +242,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [currencyName, setCurrencyName] = useState('Points');
   // Survey Funnel State
   const [activeFunnel, setActiveFunnel] = useState<any>(null);
   const [funnelSession, setFunnelSession] = useState('');
@@ -417,6 +418,9 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
 
       const data = await response.json();
       if (data.error) throw new Error(data.error);
+
+      // Store currency name from placement config
+      setCurrencyName(data.currency_name || 'Points');
 
       // Also fetch active survey funnels and inject them as offer cards
       let funnelOffers: any[] = [];
@@ -688,8 +692,8 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
               </div>
             </div>
             <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-lg px-4 py-2">
-              <div className="text-xs text-gray-400 uppercase tracking-wide">Today's Points</div>
-              <div className="text-2xl font-bold text-green-400">{payoutToPoints(todayEarnings).toLocaleString()}</div>
+              <div className="text-xs text-gray-400 uppercase tracking-wide">Today's {currencyName}</div>
+              <div className="text-2xl font-bold text-green-400">{Math.round(todayEarnings).toLocaleString()}</div>
             </div>
           </div>
 
@@ -817,13 +821,13 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
                       <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Offer</th>
                       <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Category</th>
                       <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Countries</th>
-                      <th className="text-right text-gray-400 text-sm font-medium py-3 px-4">Points</th>
+                      <th className="text-right text-gray-400 text-sm font-medium py-3 px-4">{currencyName}</th>
                       <th className="text-right text-gray-400 text-sm font-medium py-3 px-4">Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {filteredOffers.map((offer) => {
-                      const points = payoutToPoints(offer.payout || offer.reward_amount || 0);
+                      const points = Math.round(offer.reward_amount || 0);
                       return (
                         <tr
                           key={offer.id}
@@ -921,7 +925,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
               ))}
 
               {filteredOffers.map((offer) => {
-                const points = payoutToPoints(offer.payout || offer.reward_amount || 0);
+                const points = Math.round(offer.reward_amount || 0);
                 
                 return (
                   <div
@@ -989,7 +993,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
                             {points.toLocaleString()}
                           </span>
                           <span className="text-sm text-gray-400 uppercase">
-                            points
+                            {currencyName}
                           </span>
                         </div>
                       </div>
@@ -1087,6 +1091,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
           offer={{...selectedOffer, status: selectedOffer.status || 'active'}}
           open={modalOpen}
           onClose={() => setModalOpen(false)}
+          currencyName={currencyName}
           onStartOffer={async (offer) => {
             try {
               await fetch(`${baseUrl}/api/offerwall/track/click`, {

@@ -929,7 +929,7 @@ def get_inventory_matched_offers(current_user, user_id):
             {'$limit': limit},
             {'$project': project_fields}
         ]
-        most_approved = list(offers_col.aggregate(pipeline))
+        most_approved = list(offers_col.aggregate(pipeline, allowDiskUse=True))
 
         # 3. Highly clicked
         pipeline_clicks = [
@@ -945,7 +945,7 @@ def get_inventory_matched_offers(current_user, user_id):
             {'$limit': limit},
             {'$project': project_fields}
         ]
-        highly_clicked = list(offers_col.aggregate(pipeline_clicks))
+        highly_clicked = list(offers_col.aggregate(pipeline_clicks, allowDiskUse=True))
 
         # 4. Recently deleted
         deleted_query = {'status': {'$in': ['deleted', 'inactive', 'paused']}}
@@ -971,11 +971,11 @@ def get_inventory_matched_offers(current_user, user_id):
             # Use global for aggregation fallbacks if needed
             if len(most_approved) < limit:
                 pipeline[0]['$match'] = base_query_fallback
-                most_approved.extend(list(offers_col.aggregate(pipeline)))
+                most_approved.extend(list(offers_col.aggregate(pipeline, allowDiskUse=True)))
             
             if len(highly_clicked) < limit:
                 pipeline_clicks[0]['$match'] = base_query_fallback
-                highly_clicked.extend(list(offers_col.aggregate(pipeline_clicks)))
+                highly_clicked.extend(list(offers_col.aggregate(pipeline_clicks, allowDiskUse=True)))
 
         return jsonify(mongodb_to_json({
             'newly_added': newly_added[:limit],

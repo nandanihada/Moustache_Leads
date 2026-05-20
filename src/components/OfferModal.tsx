@@ -34,8 +34,8 @@ const FLAG_MAP: Record<string, string> = {
   'RO': '🇷🇴', 'GR': '🇬🇷', 'CZ': '🇨🇿', 'HU': '🇭🇺', 'UA': '🇺🇦', 'VN': '🇻🇳'
 };
 
-// Helper: Convert payout to points ($1 = 100 points)
-const payoutToPoints = (payout: number): number => Math.round(payout * 100);
+// Helper: Convert payout to points (uses exchange rate from API, reward_amount is already converted)
+const payoutToPoints = (payout: number): number => Math.round(payout);
 
 // Helper: Render star rating
 const renderStarRating = (rating: number = 5): JSX.Element => {
@@ -100,9 +100,10 @@ interface OfferModalProps {
   open: boolean;
   onClose: () => void;
   onStartOffer: (offer: Offer) => void;
+  currencyName?: string;
 }
 
-export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, onStartOffer }) => {
+export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, onStartOffer, currencyName = 'Points' }) => {
   if (!open) return null;
 
   const getCategoryColor = (category: string) => {
@@ -192,13 +193,13 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
             <div className="bg-white/95 backdrop-blur-lg rounded-2xl p-4 shadow-2xl border border-white/20">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">Earn Points</p>
+                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">Earn {currencyName}</p>
                   <div className="flex items-baseline gap-2">
                     <span className="text-4xl font-black bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
                       {payoutToPoints(offer.payout || offer.reward_amount || 0).toLocaleString()}
                     </span>
                     <span className="text-sm font-bold text-gray-600 uppercase">
-                      points
+                      {currencyName}
                     </span>
                   </div>
                   {/* Star Rating */}
