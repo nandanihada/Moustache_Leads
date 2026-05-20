@@ -911,7 +911,26 @@ const PublisherOffersContent = () => {
                   <TableRow><TableCell colSpan={4} className="text-center py-10 text-sm text-muted-foreground">No requests yet</TableCell></TableRow>
                 ) : (
                   myRequests.map((req) => (
-                    <TableRow key={req._id || req.offer_id} className="text-sm hover:bg-purple-50/40 transition-colors">
+                    <TableRow key={req._id || req.offer_id} className="text-sm hover:bg-purple-50/40 transition-colors cursor-pointer" onClick={() => {
+                      const offerFromRequest: PublisherOffer = {
+                        _id: req._id || req.offer_id,
+                        offer_id: req.offer_id,
+                        name: req.offer_details?.name || req.offer_name || req.offer_id,
+                        payout: req.offer_details?.payout || req.payout || 0,
+                        currency: 'USD',
+                        network: req.offer_details?.network || '',
+                        countries: [],
+                        image_url: req.offer_details?.image_url || '',
+                        approval_status: req.status || 'pending',
+                        approval_type: 'manual',
+                        has_access: req.status === 'approved',
+                        access_reason: req.status === 'approved' ? 'approved' : 'pending',
+                        requires_approval: true,
+                        request_status: req.status,
+                        requested_at: req.requested_at,
+                      };
+                      handleViewDetails(offerFromRequest);
+                    }}>
                       <TableCell className="py-2.5 font-medium">{req.offer_details?.name || req.offer_name || req.offer_id}</TableCell>
                       <TableCell className="py-2.5 font-semibold text-green-600">
                         {(() => {
