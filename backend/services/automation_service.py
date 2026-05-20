@@ -397,13 +397,19 @@ class AutomationService:
                     last_sync = time.time()
             except Exception as e:
                 logger.error(f"Error in automation loop: {e}")
-            time.sleep(120) # Check every 2 minutes
+            time.sleep(60) # Check every minute
 
     def override_user_state(self, user_id, action, step=None, data=None):
         """Manually override a user's automation state"""
         state = self.model.get_user_state(user_id)
         if not state:
-            return False, "User automation state not found"
+            if action == 'start':
+                self.handle_user_activity(user_id, force_reset=True)
+                state = self.model.get_user_state(user_id)
+                if not state:
+                    return False, "Failed to initialize user automation state"
+            else:
+                return False, "User automation state not found"
 
         now = datetime.utcnow()
         settings = self.model.get_settings()

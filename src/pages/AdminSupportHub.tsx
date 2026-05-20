@@ -613,38 +613,6 @@ export const SupportHubContent: React.FC<{
     }
   }, [selectedUsers, allSupportUsers]);
 
-  const handleSaveToQueueBulk = async (allSelected = false) => {
-    setIsSending(true);
-    try {
-      const token = localStorage.getItem('token');
-      const userIds = allSelected ? Array.from(selectedUsers) : [Array.from(selectedUsers)[previewIdx]];
-      
-      const promises = userIds.map(uId => {
-        const personal = personalOverrides[uId] || { subject: emailSubject, body: editingTemplateBody };
-        return fetch(`${BASE_API_URL}/api/admin/automation/override`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            user_id: uId,
-            action: 'save-content',
-            subject: personal.subject,
-            message: personal.body
-          }),
-        });
-      });
-      
-      await Promise.all(promises);
-      toast({ 
-        title: 'Content Saved', 
-        description: `Subject and message persisted for ${userIds.length} user(s) into their automation flow.` 
-      });
-    } catch (e) {
-      toast({ title: 'Error', description: 'Failed to save to automation queue', variant: 'destructive' });
-    } finally {
-      setIsSending(false);
-    }
-  };
-
   useEffect(() => {
     const defaultHook = supportSettings.strategy_hooks?.[selectedMessageType] || '';
     const defaultLabel = supportSettings.strategy_labels?.[selectedMessageType] || selectedMessageType;
@@ -2609,26 +2577,6 @@ export const SupportHubContent: React.FC<{
             </div>
             <div className="flex gap-3">
               <Button variant="ghost" size="sm" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
-              <div className="flex gap-2 mr-2">
-                <Button 
-                  variant="outline"
-                  size="sm"
-                  className="h-11 rounded-xl font-bold text-[10px] uppercase border-indigo-200 text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100"
-                  onClick={() => handleSaveToQueueBulk(false)}
-                  disabled={isSending || !editingTemplateBody}
-                >
-                  <Save size={14} className="mr-2" /> Save for This User
-                </Button>
-                <Button 
-                  variant="outline"
-                  size="sm"
-                  className="h-11 rounded-xl font-bold text-[10px] uppercase border-emerald-200 text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100"
-                  onClick={() => handleSaveToQueueBulk(true)}
-                  disabled={isSending || !editingTemplateBody}
-                >
-                  <Users size={14} className="mr-2" /> Save for All
-                </Button>
-              </div>
               <Button
                 size="sm"
                 onClick={handleOpenPreview}

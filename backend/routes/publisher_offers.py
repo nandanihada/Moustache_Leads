@@ -19,91 +19,131 @@ publisher_offers_bp = Blueprint('publisher_offers', __name__)
 logger = logging.getLogger(__name__)
 access_service = AccessControlService()
 
-# DEBUG: Version marker to verify code is loaded
-_CODE_VERSION = "v3-objectid-fix-cache-disabled"
-
-
-@publisher_offers_bp.route('/offers/debug-version', methods=['GET'])
-def debug_version():
-    """Debug endpoint to verify which code version is running"""
-    return jsonify({'version': _CODE_VERSION, 'fix': 'ObjectId + cache disabled'}), 200
-
 @publisher_offers_bp.route('/offers/available', methods=['GET', 'OPTIONS'])
 @token_required
 def get_available_offers():
     """
-    Get all active offers available to publishers.
-    ULTRA-OPTIMIZED: Cached response for 60 seconds per user.
+    Get all active offers available to publishers
+    No admin permission required - any authenticated user can view
+    
+    OPTIMIZED: Batch fetches all data upfront to avoid N+1 query problem
     """
     try:
+        # DEBUG: Log request details
         user = request.current_user
-        user_id = str(user.get('_id'))
+        user_id = user.get('_id')
+        logger.info(f"GET /offers/available - user: {user.get('username')}")
         
         # Get query parameters
         page = int(request.args.get('page', 1))
-        per_page = min(int(request.args.get('per_page', 100)), 1000)
+        per_page = int(request.args.get('per_page', 100))
+        status = request.args.get('status', 'active')
         search = request.args.get('search', '')
         
-        # Check cache (per-user, 60 second TTL)
-        import time as _time
-        cache_key = f"{user_id}:{page}:{per_page}:{search}"
-        if not hasattr(get_available_offers, '_cache'):
-            get_available_offers._cache = {}
-        
-        # CACHE DISABLED — was serving stale access status after approval
-        # Will re-enable once the system is stable
-        cached = None
-        
+        # Build query for offers visible to publishers
+        # Show ONLY: active (admin set), running, rotating
         offers_collection = db_instance.get_collection('offers')
+        
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
         
-        # Simple, fast query — just active/running/rotating, not deleted
+        visible_statuses = ['active', 'running', 'rotating']
+        
+        # Get user-specific offer grants (inactive offers made visible to this user by admin)
+        granted_offer_ids = []
+        try:
+            from models.offer_grant import OfferGrant
+            grant_model = OfferGrant()
+            granted_offer_ids = grant_model.get_granted_offer_ids(str(user_id))
+        except Exception as grant_err:
+            logger.warning(f"Failed to fetch offer grants: {grant_err}")
+        
         query = {
-            'status': {'$in': ['active', 'running', 'rotating']},
-            'deleted': {'$ne': True}
+            '$or': [
+                # Normal: globally active/running/rotating offers
+                {
+                    'status': {'$in': visible_statuses},
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                },
+                # Granted: inactive offers specifically granted to this user
+                *([{
+                    'offer_id': {'$in': granted_offer_ids},
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                }] if granted_offer_ids else [])
+            ]
         }
+        
+        # Simplify if no grants
+        if not granted_offer_ids:
+            query = {
+                'status': {'$in': visible_statuses},
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+            }
         
         # Add search if provided
         if search:
-            query = {
-                '$and': [
-                    {'status': {'$in': ['active', 'running', 'rotating']}},
-                    {'deleted': {'$ne': True}},
-                    {'$or': [
-                        {'name': {'$regex': search, '$options': 'i'}},
-                        {'offer_id': {'$regex': search, '$options': 'i'}},
-                        {'category': {'$regex': search, '$options': 'i'}},
-                    ]}
-                ]
-            }
+            search_conditions = [
+                {'name': {'$regex': search, '$options': 'i'}},
+                {'offer_id': {'$regex': search, '$options': 'i'}},
+                {'category': {'$regex': search, '$options': 'i'}},
+                {'categories': {'$regex': search, '$options': 'i'}}
+            ]
+            
+            if granted_offer_ids:
+                query = {
+                    '$and': [
+                        {'$or': search_conditions},
+                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        {'$or': [
+                            {'status': {'$in': visible_statuses}},
+                            {'offer_id': {'$in': granted_offer_ids}},
+                        ]}
+                    ]
+                }
+            else:
+                query = {
+                    'status': {'$in': visible_statuses},
+                    '$and': [
+                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        {'$or': search_conditions}
+                    ]
+                }
         
-        # Only fetch fields needed for the publisher view (minimal projection)
+        # Get total count
+        total = offers_collection.count_documents(query)
+        
+        # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
-            'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1,
-            'payout': 1, 'currency': 1, 'network': 1, 'status': 1,
-            'countries': 1, 'image_url': 1, 'thumbnail_url': 1,
-            'created_at': 1, 'approval_settings': 1, 'approval_type': 1,
-            'affiliates': 1, 'is_pinned': 1, 'device_targeting': 1,
-            'allowed_traffic_sources': 1, 'disallowed_traffic_sources': 1,
+            'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
+            'payout': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
+            'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
+            'affiliates': 1, 'selected_users': 1, 'is_active': 1,
+            'target_url': 1, 'masked_url': 1, 'show_in_offerwall': 1,
+            'promo_code': 1, 'promo_code_id': 1, 'bonus_amount': 1, 'bonus_type': 1,
+            'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1,
+            'device_targeting': 1, 'is_pinned': 1,
         }
         
-        # Get total count (fast with index, timeout fallback)
-        try:
-            total = offers_collection.count_documents(query, maxTimeMS=3000)
-        except Exception:
-            total = offers_collection.estimated_document_count()
-        
-        # Get paginated results
+        # Get paginated results with projection
         skip = (page - 1) * per_page
-        offers = list(
-            offers_collection.find(query, projection)
-            .sort([('is_pinned', -1), ('created_at', -1)])
-            .skip(skip)
-            .limit(per_page)
-        )
+
+        # Auto-expire pinned offers whose pin_expires_at has passed
+        try:
+            offers_collection.update_many(
+                {
+                    'is_pinned': True,
+                    'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}
+                },
+                {'$set': {'is_pinned': False, 'pinned_at': None, 'pin_expires_at': None}}
+            )
+        except Exception as pin_err:
+            logger.warning(f"Pin expiry cleanup error: {pin_err}")
+
+        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]))
         
         if not offers:
+            # Log search even if no results
             if search:
                 log_search_async(str(user_id), user.get('username', ''), search, 0)
             return safe_json_response({
@@ -112,139 +152,222 @@ def get_available_offers():
                 'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'pages': 0}
             })
         
-        # Batch fetch user's access requests (single query)
-        offer_ids = [o.get('offer_id') for o in offers]
-        requests_by_offer = {}
+        # ============================================
+        # OPTIMIZATION: Batch fetch all related data
+        # ============================================
+        
+        # Get all offer IDs for batch queries
+        offer_ids = [offer['offer_id'] for offer in offers]
+        
+        # BATCH QUERY 1: Get all affiliate_requests for this user and these offers (single query)
+        requests_collection = db_instance.get_collection('affiliate_requests')
+        
+        # Build query to match both string and ObjectId formats for user_id
+        user_id_str = str(user_id)
+        user_query_conditions = [
+            {'user_id': user_id_str},
+            {'user_id': user_id},
+            {'publisher_id': user_id_str},
+            {'publisher_id': user_id}
+        ]
         try:
             from bson import ObjectId
-            requests_collection = db_instance.get_collection('affiliate_requests')
-            if requests_collection is not None:
-                user_id_str = str(user_id)
-                # Query with BOTH string and ObjectId since user_id may be stored as either type
-                user_id_variants = [user_id_str]
-                try:
-                    if ObjectId.is_valid(user_id_str):
-                        user_id_variants.append(ObjectId(user_id_str))
-                except:
-                    pass
-                
-                user_requests = list(requests_collection.find(
-                    {
-                        'offer_id': {'$in': offer_ids},
-                        '$or': [
-                            {'user_id': {'$in': user_id_variants}},
-                            {'publisher_id': {'$in': user_id_variants}}
-                        ]
-                    },
-                    {'offer_id': 1, 'status': 1, 'requested_at': 1, 'approved_at': 1}
-                ))
-                requests_by_offer = {req['offer_id']: req for req in user_requests}
-                logger.info(f"🔍 ACCESS CHECK [{_CODE_VERSION}]: user={user_id_str}, found {len(user_requests)} requests for {len(offer_ids)} offers. Statuses: {[(r['offer_id'], r['status']) for r in user_requests[:5]]}")
-        except Exception as e:
-            logger.error(f"❌ ACCESS CHECK ERROR: {e}")
+            if ObjectId.is_valid(user_id_str):
+                user_obj_id = ObjectId(user_id_str)
+                user_query_conditions.extend([
+                    {'user_id': user_obj_id},
+                    {'publisher_id': user_obj_id}
+                ])
+        except:
             pass
         
-        # Batch fetch user's offer grants (admin-granted access)
-        granted_offer_ids = set()
-        try:
-            grants_collection = db_instance.get_collection('offer_grants')
-            if grants_collection is not None:
-                user_id_str = str(user_id)
-                grants = list(grants_collection.find(
-                    {'user_id': user_id_str, 'offer_id': {'$in': offer_ids}},
-                    {'offer_id': 1}
-                ))
-                granted_offer_ids = {g['offer_id'] for g in grants}
-        except Exception:
-            pass
+        user_requests = list(requests_collection.find({
+            'offer_id': {'$in': offer_ids},
+            '$or': user_query_conditions
+        }))
+        # Create a lookup dict for O(1) access
+        requests_by_offer = {req['offer_id']: req for req in user_requests}
         
-        # Process offers — lightweight, no DB calls in loop
+        logger.info(f"Batch loaded {len(user_requests)} requests for {len(offers)} offers")
+        
+        # BATCH QUERY 2: Get user data once (already have it from token, but verify active status)
+        users_collection = db_instance.get_collection('users')
+        user_data = users_collection.find_one({'_id': user_id})
+        user_is_active = user_data.get('is_active', True) if user_data else True
+        user_is_premium = (user_data.get('account_type') == 'premium' or user_data.get('is_premium', False)) if user_data else False
+        
+        # Process offers for publisher view (no more DB queries in loop!)
         processed_offers = []
-        for offer in offers:
-            if '_id' in offer:
-                offer['_id'] = str(offer['_id'])
-            
-            # Publisher payout (80% of original)
-            try:
-                original_payout = float(offer.get('payout', 0) or 0)
-            except (ValueError, TypeError):
-                original_payout = 0.0
-            publisher_payout = round(original_payout * 0.8, 2)
-            
-            # Access check from cached requests
-            existing_request = requests_by_offer.get(offer.get('offer_id'))
-            request_status = existing_request.get('status', 'not_requested') if existing_request else 'not_requested'
-            
-            # Skip rejected offers
-            if request_status == 'rejected':
-                continue
-            
-            has_access = request_status == 'approved'
-            approval_settings = offer.get('approval_settings', {}) or {}
-            approval_type = approval_settings.get('type') or offer.get('approval_type', 'auto_approve')
-            
-            # Also grant access if user has an offer grant OR offer is auto_approve
-            if not has_access and offer.get('offer_id') in granted_offer_ids:
-                has_access = True
-            if not has_access and approval_type == 'auto_approve':
-                has_access = True
-            
-            offer_data = {
-                'offer_id': offer.get('offer_id'),
-                'name': offer.get('name', 'Untitled'),
-                'description': offer.get('description', ''),
-                'category': offer.get('category', 'general'),
-                'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
-                'device_targeting': offer.get('device_targeting', 'all'),
-                'payout': publisher_payout,
-                'currency': offer.get('currency', 'USD'),
-                'network': offer.get('network', 'Unknown'),
-                'countries': offer.get('countries', []),
-                'image_url': offer.get('image_url', ''),
-                'thumbnail_url': offer.get('thumbnail_url', ''),
-                'created_at': offer.get('created_at'),
-                'approval_type': approval_type,
-                'has_access': has_access,
-                'requires_approval': approval_type != 'auto_approve',
-                'is_locked': not has_access and approval_type == 'manual',
-                'is_pinned': offer.get('is_pinned', False),
-                'allowed_traffic_sources': offer.get('allowed_traffic_sources', []),
-                'disallowed_traffic_sources': offer.get('disallowed_traffic_sources', []),
-            }
-            
-            if existing_request:
-                offer_data['request_status'] = request_status
-                offer_data['requested_at'] = existing_request.get('requested_at')
-                if request_status == 'approved':
-                    offer_data['approved_at'] = existing_request.get('approved_at')
-            
-            if not has_access:
-                offer_data['is_preview'] = True
-            
-            processed_offers.append(offer_data)
+        skipped_count = 0
         
+        for offer in offers:
+            try:
+                if '_id' in offer:
+                    offer['_id'] = str(offer['_id'])
+                
+                # Calculate publisher payout (80% of original - 20% platform cut)
+                try:
+                    original_payout = float(offer.get('payout', 0) or 0)
+                except (ValueError, TypeError):
+                    original_payout = 0.0
+                publisher_payout = round(original_payout * 0.8, 2)
+                
+                # Calculate publisher revenue share (90% of admin percentage)
+                try:
+                    original_revenue_share = float(offer.get('revenue_share_percent', 0) or 0)
+                except (ValueError, TypeError):
+                    original_revenue_share = 0.0
+                publisher_revenue_share = round(original_revenue_share * 0.9, 2) if original_revenue_share > 0 else 0
+                
+                # Get approval settings
+                approval_settings = offer.get('approval_settings', {}) or {}
+                # Check both approval_settings.type AND top-level approval_type for robustness
+                approval_type = approval_settings.get('type') or offer.get('approval_type', 'auto_approve')
+                affiliates = offer.get('affiliates', 'all')
+                
+                # Check if user has pending request (from cache)
+                existing_request = requests_by_offer.get(offer.get('offer_id'))
+                
+                # INLINE VISIBILITY CHECK using batch-loaded data (replaces per-offer DB query)
+                is_locked = False
+                lock_reason = None
+                estimated_approval_time = 'Immediate'
+                request_status = 'not_requested'
+                
+                if existing_request:
+                    request_status = existing_request.get('status', 'pending')
+                
+                # HIDE rejected offers from publisher completely
+                if request_status == 'rejected' or (existing_request and existing_request.get('hidden_from_publisher')):
+                    skipped_count += 1
+                    continue
+                
+                # ALL offers require user to click Apply first.
+                # has_access is ONLY true if user has an approved request in affiliate_requests.
+                # For auto_approve offers, clicking Apply auto-approves instantly in the backend.
+                if existing_request and existing_request.get('status') == 'approved':
+                    has_access = True
+                    access_reason = 'Access approved'
+                elif existing_request and existing_request.get('status') == 'pending':
+                    has_access = False
+                    access_reason = 'Access request pending'
+                else:
+                    has_access = False
+                    access_reason = 'Apply required'
+                
+                if affiliates == 'all' and approval_type == 'auto_approve':
+                    is_locked = False
+                elif approval_type == 'time_based':
+                    if request_status == 'approved':
+                        is_locked = False
+                    else:
+                        delay_minutes = approval_settings.get('auto_approve_delay', 60)
+                        created_at = offer.get('created_at', datetime.utcnow())
+                        if isinstance(created_at, str):
+                            try:
+                                created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                            except:
+                                created_at = datetime.utcnow()
+                        unlock_time = created_at + timedelta(minutes=delay_minutes)
+                        if datetime.utcnow() >= unlock_time:
+                            is_locked = False
+                        else:
+                            is_locked = True
+                            remaining = unlock_time - datetime.utcnow()
+                            hours = int(remaining.total_seconds() // 3600)
+                            mins = int((remaining.total_seconds() % 3600) // 60)
+                            lock_reason = f'Auto-unlocks in {hours}h {mins}m' if hours > 0 else f'Auto-unlocks in {mins}m'
+                            estimated_approval_time = lock_reason
+                elif approval_type == 'manual':
+                    if request_status == 'approved':
+                        is_locked = False
+                        estimated_approval_time = 'Approved'
+                    elif request_status == 'pending':
+                        is_locked = True
+                        lock_reason = 'Awaiting admin approval'
+                        estimated_approval_time = 'Pending admin review'
+                    elif request_status == 'rejected':
+                        is_locked = True
+                        lock_reason = 'Access request was rejected'
+                        estimated_approval_time = 'Rejected'
+                    else:
+                        is_locked = True
+                        lock_reason = 'Requires admin approval'
+                        estimated_approval_time = 'Manual review required'
+                
+                # Prepare offer data for publisher
+                offer_data = {
+                    'offer_id': offer.get('offer_id'),
+                    'name': offer.get('name', 'Untitled'),
+                    'description': offer.get('description', ''),
+                    'category': offer.get('category', 'general'),
+                    'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
+                    'device_targeting': offer.get('device_targeting', 'all'),
+                    'payout': publisher_payout,
+                    'revenue_share_percent': publisher_revenue_share,
+                    'currency': offer.get('currency', 'USD'),
+                    'network': offer.get('network', 'Unknown'),
+                    'countries': offer.get('countries', []),
+                    'image_url': offer.get('image_url', ''),
+                    'thumbnail_url': offer.get('thumbnail_url', ''),
+                    'preview_url': offer.get('preview_url', ''),
+                    'created_at': offer.get('created_at'),
+                    'approval_status': offer.get('approval_status', 'active'),
+                    'approval_type': approval_type,
+                    'has_access': has_access and not is_locked,
+                    'access_reason': access_reason,
+                    'requires_approval': approval_type != 'auto_approve' or approval_settings.get('require_approval', False),
+                    'promo_code': offer.get('promo_code'),
+                    'promo_code_id': offer.get('promo_code_id'),
+                    'bonus_amount': offer.get('bonus_amount'),
+                    'bonus_type': offer.get('bonus_type'),
+                    'allowed_traffic_sources': offer.get('allowed_traffic_sources', []),
+                    'risky_traffic_sources': offer.get('risky_traffic_sources', []),
+                    'disallowed_traffic_sources': offer.get('disallowed_traffic_sources', []),
+                    'is_locked': is_locked,
+                    'lock_reason': lock_reason,
+                    'estimated_approval_time': estimated_approval_time,
+                    'is_pinned': offer.get('is_pinned', False),
+                }
+                
+                # Add request status if exists
+                if existing_request:
+                    offer_data['request_status'] = existing_request.get('status')
+                    offer_data['requested_at'] = existing_request.get('requested_at')
+                    if existing_request.get('status') == 'approved':
+                        offer_data['approved_at'] = existing_request.get('approved_at')
+                
+                # Only show tracking URL if user has access and not locked
+                if has_access and not is_locked:
+                    offer_data['target_url'] = offer.get('target_url')
+                    offer_data['masked_url'] = offer.get('masked_url')
+                else:
+                    offer_data['is_preview'] = True
+                
+                processed_offers.append(offer_data)
+            except Exception as offer_err:
+                skipped_count += 1
+                logger.warning(f"Skipped offer {offer.get('offer_id', '?')}: {offer_err}")
+        
+        if skipped_count > 0:
+            logger.warning(f"Skipped {skipped_count} offers due to bad data")
+        
+        logger.info(f"Returning {len(processed_offers)} offers (total: {total})")
+        
+        # Log search query if user searched
         if search:
             log_search_async(str(user_id), user.get('username', ''), search, len(processed_offers))
         
-        result = {
+        return safe_json_response({
             'success': True,
             'offers': processed_offers,
             'pagination': {
                 'page': page,
                 'per_page': per_page,
                 'total': total,
-                'pages': max(1, (total + per_page - 1) // per_page)
+                'pages': (total + per_page - 1) // per_page
             }
-        }
-        
-        # Cache for 30 seconds
-        get_available_offers._cache[cache_key] = {'data': result, 'expires': _time.time() + 30}
-        # Evict old cache entries (keep max 100)
-        if len(get_available_offers._cache) > 100:
-            now = _time.time()
-            get_available_offers._cache = {k: v for k, v in get_available_offers._cache.items() if v['expires'] > now}
-        
-        return safe_json_response(result)
+        })
         
     except Exception as e:
         logger.error(f"❌ Error fetching offers: {str(e)}", exc_info=True)
@@ -380,13 +503,6 @@ def request_offer_access(offer_id):
         result = access_service.request_offer_access(offer_id, user.get('_id'), message)
         
         logger.info(f"📊 Access request result for offer {offer_id}: status={result.get('status')} error={result.get('error')}")
-        
-        # Invalidate cache for this user so next load reflects the new access status
-        if hasattr(get_available_offers, '_cache'):
-            user_id_str = str(user.get('_id'))
-            keys_to_remove = [k for k in get_available_offers._cache if k.startswith(f"{user_id_str}:")]
-            for k in keys_to_remove:
-                del get_available_offers._cache[k]
         
         if 'error' in result and result.get('status') not in ('pending', 'approved'):
             return jsonify(result), 400

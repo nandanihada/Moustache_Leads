@@ -5,12 +5,13 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { BulkMailScheduler, QueueItem } from '@/components/BulkMailScheduler';
-import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus, Zap, ExternalLink, Settings, LogIn, ShieldCheck, MessageSquare } from 'lucide-react';
+import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus, Zap, ExternalLink, Settings, LogIn, ShieldCheck, MessageSquare, Package, Phone, MousePointerClick, Monitor, Fingerprint, AlertCircle } from 'lucide-react';
 import loginLogsService, { LoginLog } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
@@ -69,7 +70,47 @@ const CITY_COORDS: Record<string, [number, number]> = {
   'AHMEDABAD': [23.0225, 72.5714],
   'CHITTAGONG': [22.3569, 91.7832],
   'SYLHET': [24.8949, 91.8687],
-  'RAJSHAHI': [24.3745, 88.6042]
+  'RAJSHAHI': [24.3745, 88.6042],
+  'DEORI': [21.4500, 82.6100]
+};
+
+const ABBREVIATIONS = ['CPA', 'CPI', 'CPL', 'CPS', 'CRYPTO', 'ROI', 'EPC', 'AI', 'GPT'];
+
+const normalizeVertical = (v: string) => {
+  const str = String(v || '').trim();
+  if (!str) return '';
+  const upper = str.toUpperCase();
+  if (ABBREVIATIONS.includes(upper)) return upper;
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+};
+
+const parseVerticals = (raw: any): string[] => {
+  if (!raw) return [];
+  let list: string[] = [];
+  
+  const process = (val: any) => {
+    if (!val) return;
+    if (Array.isArray(val)) {
+      val.forEach(v => process(v));
+    } else if (typeof val === 'string') {
+      val.split(',').forEach(s => {
+        const trimmed = s.trim();
+        if (trimmed) list.push(trimmed);
+      });
+    } else if (typeof val === 'object') {
+      // Handle maps/objects (e.g., { "INSURANCE": 5 }) by taking keys
+      Object.keys(val).forEach(k => {
+        if (k && k !== '_id' && k !== 'updated_at') {
+          list.push(k.trim());
+        }
+      });
+    } else {
+      list.push(String(val).trim());
+    }
+  };
+
+  process(raw);
+  return Array.from(new Set(list.map(v => normalizeVertical(v)).filter(Boolean)));
 };
 
 const getLocationString = (log: any) => {
@@ -85,7 +126,7 @@ const getLocationString = (log: any) => {
 
 const getCountry = (log: any, profile?: any) => {
   const ip = log?.ip_address || log?.ip || log?.location?.ip || '';
-  
+
   // 1. Try to get from log.location object
   if (log && log.location && typeof log.location !== 'string') {
     const loc = log.location;
@@ -104,30 +145,30 @@ const getCountry = (log: any, profile?: any) => {
     const cleanIp = ip.trim().replace('::ffff:', '');
 
     // Localhost / Private IP Handling - Map internal testing directly to India/System
-    if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp === '0.0.0.0' || 
-        cleanIp.startsWith('192.168.') || cleanIp.startsWith('10.') || cleanIp.startsWith('172.')) {
+    if (cleanIp === '127.0.0.1' || cleanIp === '::1' || cleanIp === '0.0.0.0' ||
+      cleanIp.startsWith('192.168.') || cleanIp.startsWith('10.') || cleanIp.startsWith('172.')) {
       return 'Local/India';
     }
 
     // 🇧🇩 Bangladesh: High Priority Specific Ranges
-    if (cleanIp.startsWith('103.232') || cleanIp.startsWith('119.') || cleanIp.startsWith('27.147') || 
-        cleanIp.startsWith('43.231') || cleanIp.startsWith('45.115') || cleanIp.startsWith('203.112') ||
-        cleanIp.startsWith('103.242') || cleanIp.startsWith('103.197') || cleanIp.startsWith('103.147') ||
-        cleanIp.startsWith('103.230') || cleanIp.startsWith('103.151')) return 'Bangladesh';
+    if (cleanIp.startsWith('103.232') || cleanIp.startsWith('119.') || cleanIp.startsWith('27.147') ||
+      cleanIp.startsWith('43.231') || cleanIp.startsWith('45.115') || cleanIp.startsWith('203.112') ||
+      cleanIp.startsWith('103.242') || cleanIp.startsWith('103.197') || cleanIp.startsWith('103.147') ||
+      cleanIp.startsWith('103.230') || cleanIp.startsWith('103.151')) return 'Bangladesh';
 
     // 🇮🇳 India: Expanded ranges
-    if (cleanIp.startsWith('106.') || cleanIp.startsWith('115.') || cleanIp.startsWith('122.') || 
-        cleanIp.startsWith('157.') || cleanIp.startsWith('182.') || cleanIp.startsWith('49.') || 
-        cleanIp.startsWith('124.') || cleanIp.startsWith('117.') || cleanIp.startsWith('27.') || 
-        cleanIp.startsWith('223.') || cleanIp.startsWith('103.') || cleanIp.startsWith('203.') ||
-        cleanIp.startsWith('101.') || cleanIp.startsWith('110.') || cleanIp.startsWith('111.')) return 'India';
-    
+    if (cleanIp.startsWith('106.') || cleanIp.startsWith('115.') || cleanIp.startsWith('122.') ||
+      cleanIp.startsWith('157.') || cleanIp.startsWith('182.') || cleanIp.startsWith('49.') ||
+      cleanIp.startsWith('124.') || cleanIp.startsWith('117.') || cleanIp.startsWith('27.') ||
+      cleanIp.startsWith('223.') || cleanIp.startsWith('103.') || cleanIp.startsWith('203.') ||
+      cleanIp.startsWith('101.') || cleanIp.startsWith('110.') || cleanIp.startsWith('111.')) return 'India';
+
     // 🇺🇸 US / 🇬🇧 UK
-    if (cleanIp.startsWith('104.') || cleanIp.startsWith('107.') || cleanIp.startsWith('108.') || 
-        cleanIp.startsWith('34.') || cleanIp.startsWith('35.') || cleanIp.startsWith('52.') ||
-        cleanIp.startsWith('13.') || cleanIp.startsWith('23.')) return 'United States';
+    if (cleanIp.startsWith('104.') || cleanIp.startsWith('107.') || cleanIp.startsWith('108.') ||
+      cleanIp.startsWith('34.') || cleanIp.startsWith('35.') || cleanIp.startsWith('52.') ||
+      cleanIp.startsWith('13.') || cleanIp.startsWith('23.')) return 'United States';
     if (cleanIp.startsWith('31.') || cleanIp.startsWith('51.') || cleanIp.startsWith('62.') ||
-        cleanIp.startsWith('25.')) return 'United Kingdom';
+      cleanIp.startsWith('25.')) return 'United Kingdom';
     if (cleanIp.startsWith('41.')) return 'Nigeria';
     if (cleanIp.startsWith('197.')) return 'Egypt';
   }
@@ -150,7 +191,7 @@ const getCity = (log: any, profile?: any) => {
   if (log && log.location && typeof log.location !== 'string') {
     if (log.location.city && log.location.city !== 'Unknown') return log.location.city;
   }
-  
+
   const ip = log?.ip_address || log?.ip || log?.location?.ip || '';
   if (ip) {
     // Specific city hints for common IPs in the system
@@ -179,8 +220,8 @@ const getLatLng = (locationObj: any, logObj: any, userProfile: any) => {
     const seed = String(logObj?.user_id || logObj?.username || 'fixed');
     let hash = 0;
     for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
-    
-    const cityJitter = 0.5; 
+
+    const cityJitter = 0.5;
     lat = cityFallback[0] + ((Math.abs(hash) % 1000) / 1000 - 0.5) * cityJitter;
     lng = cityFallback[1] + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * cityJitter;
     return { lat, lng };
@@ -189,26 +230,35 @@ const getLatLng = (locationObj: any, logObj: any, userProfile: any) => {
   if (lat === undefined || lng === undefined || (lat === 0 && lng === 0) || isNaN(lat) || isNaN(lng)) {
     let countryCode = locationObj?.country_code || locationObj?.country;
 
+    let countryName = '';
     if (!countryCode) {
-        const countryName = getCountry(logObj, userProfile);
-        if (countryName === 'India') countryCode = 'IN';
-        else if (countryName === 'Bangladesh') countryCode = 'BD';
-        else if (countryName === 'United States') countryCode = 'US';
-        else if (countryName === 'United Kingdom') countryCode = 'GB';
+      countryName = getCountry(logObj, userProfile);
+      if (countryName === 'India' || countryName === 'Local/India' || countryName.includes('India')) countryCode = 'IN';
+      else if (countryName === 'Bangladesh' || countryName.includes('Bangladesh')) countryCode = 'BD';
+      else if (countryName === 'United States' || countryName === 'US') countryCode = 'US';
+      else if (countryName === 'United Kingdom' || countryName === 'UK') countryCode = 'GB';
     }
 
     if (!countryCode || countryCode === 'Unknown' || countryCode === 'Tracking...' || countryCode === 'Location Tracking...') {
-      countryCode = 'XX';
+      const raw = String(countryName || getCountry(logObj, userProfile) || '').toUpperCase();
+      if (raw.includes('INDIA')) countryCode = 'IN';
+      else if (raw.includes('BANGLADESH')) countryCode = 'BD';
+      else if (raw.includes('UNITED STATES') || raw.includes('US')) countryCode = 'US';
+      else if (raw.includes('UNITED KINGDOM') || raw.includes('UK')) countryCode = 'GB';
+      else countryCode = 'XX';
     }
 
     if (countryCode && typeof countryCode === 'string') {
-      const fallback = COUNTRY_COORDS[countryCode.toUpperCase()] || COUNTRY_COORDS['XX'];
+      const upper = countryCode.toUpperCase();
+      const fallback = COUNTRY_COORDS[upper] || COUNTRY_COORDS['IN'];
+      
       if (fallback) {
         const seed = String(logObj?.user_id || logObj?.username || 'fixed');
         let hash = 0;
         for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
-        
-        const countryJitter = 10.0; 
+
+        // Substantially reduced jitter for better visual accuracy
+        const countryJitter = 0.8; 
         lat = fallback[0] + ((Math.abs(hash) % 1000) / 1000 - 0.5) * countryJitter;
         lng = fallback[1] + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * countryJitter;
       }
@@ -243,12 +293,31 @@ interface AggregatedUser {
   verticals?: string[];
   geoPreferences?: string[];
   hasSearchActivity?: boolean;
+  account_status?: string;
+  role?: string;
+  approvedCount?: number;
+  requestedCount?: number;
+  rejectedCount?: number;
+  clickCount?: number;
+  viewedCount?: number;
+}
+
+interface AdvancedFilters {
+  geos: string[];
+  cities: string[];
+  geoPreferences: string[];
+  verticals: string[];
+  status: string[];
+  loginCount: string;
+  mailStatus: string[];
+  countries: string[];
+  activityStatus: string;
 }
 
 
 
-const ExpandedUserDetails: React.FC<{ 
-  user: AggregatedUser; 
+const ExpandedUserDetails: React.FC<{
+  user: AggregatedUser;
   automationQueueItem?: any;
   onMailSent?: () => void;
   onAutomateOffers?: (userId: string) => void;
@@ -313,36 +382,38 @@ const ExpandedUserDetails: React.FC<{
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-        const [offRes, searchRes, signalsRes, offerTargetingRes, scheduledRes, automationRes] = await Promise.all([
-          loginLogsService.getOfferViews(user.user_id, 20, user.username, user.email).catch(() => ({ views: [] })),
-          fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&username=${user.username}&email=${user.email}&per_page=10`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          }).then(res => res.json()).catch(() => ({ logs: [] })),
-          loginLogsService.getUserSignals(user.user_id, user.username, user.email).catch(() => null),
-          loginLogsService.getInventoryMatchedOffers(user.user_id).catch(() => ({})),
-          loginLogsService.getScheduledActivity(user.user_id).catch(() => ([])),
-          loginLogsService.getUserAutomations(user.user_id).catch(() => null)
-        ]);
+      const [offRes, searchRes, signalsRes, offerTargetingRes, scheduledRes, automationRes] = await Promise.all([
+        loginLogsService.getOfferViews(user.user_id, 20, user.username, user.email).catch(() => ({ views: [] })),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&username=${user.username}&email=${user.email}&per_page=10`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(res => res.json()).catch(() => ({ logs: [] })),
+        loginLogsService.getUserSignals(user.user_id, user.username, user.email).catch(() => null),
+        loginLogsService.getInventoryMatchedOffers(user.user_id).catch(() => ({})),
+        loginLogsService.getScheduledActivity(user.user_id).catch(() => ([])),
+        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/automation/queue/${user.user_id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).catch(() => ({ item: null }))
+      ]);
 
-        setOfferViews(offRes?.views || []);
-        setSearchLogs(searchRes?.logs || []);
-        setSignals(signalsRes);
-        setOfferTargeting(offerTargetingRes);
-        setScheduledActivity(scheduledRes?.scheduled_activity || scheduledRes?.activities || (Array.isArray(scheduledRes) ? scheduledRes : []));
-        setAutomation(automationRes);
+      setOfferViews(offRes?.views || []);
+      setSearchLogs(searchRes?.logs || []);
+      setSignals(signalsRes);
+      setOfferTargeting(offerTargetingRes);
+      setScheduledActivity(scheduledRes?.scheduled_activity || scheduledRes?.activities || (Array.isArray(scheduledRes) ? scheduledRes : []));
+      setAutomation(automationRes?.item || automationRes);
 
-        const latestSessionId = user.logs.find(l => l.session_id)?.session_id;
-        if (latestSessionId) {
-          const pvRes = await loginLogsService.getPageVisits(latestSessionId, 10).catch(() => ({ visits: [] }));
-          setPageVisits(pvRes?.visits || []);
-        }
-      } catch (e) {
-        console.error("Error fetching detailed user data", e);
-      } finally {
-        setLoading(false);
+      const latestSessionId = user.logs.find(l => l.session_id)?.session_id;
+      if (latestSessionId) {
+        const pvRes = await loginLogsService.getPageVisits(latestSessionId, 10).catch(() => ({ visits: [] }));
+        setPageVisits(pvRes?.visits || []);
       }
+    } catch (e) {
+      console.error("Error fetching detailed user data", e);
+    } finally {
+      setLoading(false);
+    }
   };
-  
+
   useEffect(() => {
     fetchData();
   }, [user.user_id]);
@@ -399,11 +470,11 @@ const ExpandedUserDetails: React.FC<{
             <Badge onClick={() => sendSingleMail('welcome')} variant="secondary" className="cursor-pointer bg-green-50 hover:bg-green-100 text-green-700 font-normal rounded-full px-3 py-1">Welcome mail</Badge>
             <Badge onClick={() => sendSingleMail('referral')} variant="secondary" className="cursor-pointer bg-green-50 hover:bg-green-100 text-green-700 font-normal rounded-full px-3 py-1">Referral mail</Badge>
             <Badge onClick={() => sendSingleMail('warning')} variant="secondary" className="cursor-pointer bg-red-50 hover:bg-red-100 text-red-700 font-normal rounded-full px-3 py-1">Warn user</Badge>
-            <Badge 
+            <Badge
               onClick={() => {
                 if (onAutomateOffers) onAutomateOffers(user.user_id);
-              }} 
-              variant="secondary" 
+              }}
+              variant="secondary"
               className="cursor-pointer bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-100 shadow-sm rounded-full px-3 py-1"
             >
               <Zap className="w-3 h-3 mr-1 fill-purple-500" /> Automate Offers
@@ -451,7 +522,7 @@ const ExpandedUserDetails: React.FC<{
       <div className="mt-6 border-t border-slate-100 pt-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2">
-            <SmartMessagePanel 
+            <SmartMessagePanel
               user={{
                 user_id: user.user_id,
                 username: user.username,
@@ -528,9 +599,9 @@ const ExpandedUserDetails: React.FC<{
                     </div>
                   </div>
                 )}
-                <Button 
-                  size="sm" 
-                  variant="outline" 
+                <Button
+                  size="sm"
+                  variant="outline"
                   className="w-full text-[10px] h-7 mt-2"
                   onClick={async () => {
                     try {
@@ -560,7 +631,7 @@ const ExpandedUserDetails: React.FC<{
           userSignals={signals}
           scheduledActivity={scheduledActivity}
           offerTargeting={offerTargeting}
-          automationQueueItem={automationQueueItem}
+          automationQueueItem={automation || automationQueueItem}
           allowedTabs={['login', 'activity', 'browsing', 'reco', 'automation', 'messaging']}
           activeTab={activeTab}
           onTabChange={setActiveTab}
@@ -569,24 +640,71 @@ const ExpandedUserDetails: React.FC<{
     </div>
   );
 };
-
 const AdminRecentActivity: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [timeFilter, setTimeFilter] = useState('today');
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [allUsers, setAllUsers] = useState<AggregatedUser[]>([]);
-  const [advancedFilters, setAdvancedFilters] = useState({
-    geos: [] as string[],
-    cities: [] as string[],
-    geoPreferences: [] as string[],
-    verticals: [] as string[],
-    status: [] as string[],
+  const [advancedFilters, setAdvancedFilters] = useState<any>({
+    geos: [],
+    cities: [],
+    geoPreferences: [],
+    verticals: [],
+    status: [],
     loginCount: 'Any',
-    mailStatus: [] as string[]
+    mailStatus: [],
+    countries: [],
+    activityStatus: 'Any'
   });
+
+  const setQuickFilter = (type: string, value: any) => {
+    if (type === 'reset') {
+      setAdvancedFilters({
+        geos: [],
+        cities: [],
+        status: [],
+        loginCount: 'Any',
+        mailStatus: [],
+        verticals: [],
+        countries: [],
+        activityStatus: 'Any'
+      });
+      setSearchTerm('');
+      return;
+    }
+
+    setAdvancedFilters(prev => {
+      const next = { ...prev };
+      
+      // Handle array fields
+      if (type === 'geos' || type === 'cities' || type === 'status' || type === 'mailStatus' || type === 'verticals' || type === 'countries') {
+        // Toggle or set
+        if (value === null) {
+          next[type as keyof AdvancedFilters] = [] as any;
+        } else {
+          // If already has it, we might want to toggle or just set
+          next[type as keyof AdvancedFilters] = [value] as any;
+        }
+      } else {
+        // Handle value fields
+        (next as any)[type] = value;
+      }
+      
+      return next;
+    });
+
+    setSearchTerm('');
+    // Scroll to results
+    const element = document.getElementById('activity-feed');
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   const [availableGeos, setAvailableGeos] = useState<string[]>([]);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
+  const [availableVerticals, setAvailableVerticals] = useState<string[]>([]);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
@@ -614,6 +732,7 @@ const AdminRecentActivity: React.FC = () => {
     cooldown_days: 7
   });
 
+  const { user: currentUser } = useAuth();
   const { toast } = useToast();
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
@@ -637,6 +756,8 @@ const AdminRecentActivity: React.FC = () => {
 
   const users = useMemo(() => {
     return allUsers.filter(u => {
+      // Strictly only show users who actually logged in within the time range
+      if (u.login_count === 0 || u.logs.length === 0) return false;
       if (searchTerm.trim() !== '') {
         const q = searchTerm.toLowerCase();
         if (!u.username.toLowerCase().includes(q) &&
@@ -665,20 +786,61 @@ const AdminRecentActivity: React.FC = () => {
       }
       if (advancedFilters.status.length > 0) {
         let match = false;
+        if (advancedFilters.status.includes('Suspicious Actions') && u.isSuspicious) match = true;
         if (advancedFilters.status.includes('Suspicious') && u.isSuspicious) match = true;
         if (advancedFilters.status.includes('Normal') && !u.isSuspicious && !u.logs.some(l => l.status === 'failed')) match = true;
-        if (advancedFilters.status.includes('Failed Logins Only')) {
-          if (u.logs.some(l => l.status === 'failed')) match = true;
-        }
+        if (advancedFilters.status.includes('Failed Logins Only') && u.logs.some(l => l.status === 'failed')) match = true;
+        
+        // Match against exact chip labels seen in the UI
+        if (advancedFilters.status.includes('Approved Actions') && (u.approvedCount || 0) > 0) match = true;
+        if (advancedFilters.status.includes('Requested Actions') && (u.requestedCount || 0) > 0) match = true;
+        if (advancedFilters.status.includes('Clicked Actions') && (u.clickCount || 0) > 0) match = true;
+        if (advancedFilters.status.includes('Clicked Action') && (u.clickCount || 0) > 0) match = true;
         if (advancedFilters.status.includes('Searched Something') && u.hasSearchActivity) match = true;
+        if (advancedFilters.status.includes('Viewed Offers') && (u.viewedCount || 0) > 0) match = true;
+
+        // Legacy/Short-name support
+        if (advancedFilters.status.includes('Requested') && ((u.requestedCount || 0) > 0 || (u.approvedCount || 0) > 0)) match = true;
+        if (advancedFilters.status.includes('Approved') && (u.approvedCount || 0) > 0) match = true;
+        if (advancedFilters.status.includes('Clicks') && (u.clickCount || 0) > 0) match = true;
+        if (advancedFilters.status.includes('Calls Received') && u.logs.some(l => (l as any).subject?.toLowerCase().includes('call'))) match = true;
+
         if (!match) return false;
       }
-      if (advancedFilters.mailStatus && advancedFilters.mailStatus.length > 0) {
+
+      // Vertical Preference Filter
+      if (advancedFilters.verticals.length > 0) {
+        // Build expanded set of all aliases for selected filters
+        const selectedAliases = new Set<string>();
+        advancedFilters.verticals.forEach((v: string) => {
+          getVerticalAliases(v).forEach(a => selectedAliases.add(a));
+        });
+
+        // u.verticals is already parsed & normalized at load time
+        const userVerticals = (u.verticals || []).map((v: string) => v.toUpperCase().trim());
+
+        const match = userVerticals.some(candidate =>
+          selectedAliases.has(candidate) ||
+          Array.from(selectedAliases).some(a =>
+            candidate.includes(a) || a.includes(candidate)
+          )
+        );
+
+        if (!match) return false;
+      }
+
+      if (advancedFilters.countries.length > 0) {
+        if (!advancedFilters.countries.includes(u.country || '')) return false;
+      }
+
+      if (advancedFilters.mailStatus.length > 0) {
         let match = false;
-        if (advancedFilters.mailStatus.includes('Welcome Mail Not Sent') && !u.welcomeMailSentAt) match = true;
-        if (advancedFilters.mailStatus.includes('Referral Mail Not Sent') && !u.referralMailSentAt) match = true;
         if (advancedFilters.mailStatus.includes('Welcome Mail Sent') && u.welcomeMailSentAt) match = true;
         if (advancedFilters.mailStatus.includes('Referral Mail Sent') && u.referralMailSentAt) match = true;
+        if (advancedFilters.mailStatus.includes('Welcome Mail Not Sent') && !u.welcomeMailSentAt) match = true;
+        if (advancedFilters.mailStatus.includes('Referral Mail Not Sent') && !u.referralMailSentAt) match = true;
+        if (advancedFilters.mailStatus.includes('Call Scheduled') && u.logs.some(l => (l as any).subject?.includes('Call'))) match = true;
+        if (advancedFilters.mailStatus.includes('Call Completed') && u.logs.some(l => (l as any).subject?.includes('Call Completed'))) match = true;
         if (!match) return false;
       }
       if (advancedFilters.geoPreferences.length > 0) {
@@ -693,9 +855,6 @@ const AdminRecentActivity: React.FC = () => {
           userPrefsFullNames.some(p => p.toLowerCase() === g.toLowerCase())
         );
         if (!matched) return false;
-      }
-      if (advancedFilters.verticals.length > 0) {
-        if (!u.verticals || !advancedFilters.verticals.some(v => u.verticals!.includes(v))) return false;
       }
       return true;
     });
@@ -743,10 +902,13 @@ const AdminRecentActivity: React.FC = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const [logsRes, mailRes, usersRes, searchRes, queueRes, settingsRes] = await Promise.all([
-        loginLogsService.getLoginLogs(params).catch(() => ({ logs: [] })),
-        loginLogsService.getMailHistory(undefined, 500).catch(() => ({ history: [] })),
-        fetch(`${API_URL}/api/auth/admin/users`, {
+      const results = await Promise.all([
+        loginLogsService.getLoginLogs({ ...params, per_page: 1000 }).catch(() => ({ logs: [] })),
+        fetch(`${API_URL}/api/admin/mail-history?limit=500`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { history: [] }).catch(() => ({ history: [] })),
+        fetch(`${API_URL}/api/auth/admin/users?limit=1000`, {
           headers: { 'Authorization': `Bearer ${token}` },
           signal: controller.signal
         }).then(r => r.ok ? r.json() : { users: [] }).catch(() => ({ users: [] })),
@@ -761,22 +923,84 @@ const AdminRecentActivity: React.FC = () => {
         fetch(`${API_URL}/api/admin/automation/settings`, {
           headers: { 'Authorization': `Bearer ${token}` },
           signal: controller.signal
-        }).then(r => r.ok ? r.json() : { settings: {} }).catch(() => ({ settings: {} }))
+        }).then(r => r.ok ? r.json() : { settings: {} }).catch(() => ({ settings: {} })),
+        fetch(`${API_URL}/api/admin/offer-access-requests/publisher-profiles?status=all&per_page=2000`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { profiles: [] }).catch(() => ({ profiles: [] })),
+        fetch(`${API_URL}/api/admin/all-user-intelligence`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { intelligence: [] }).catch(() => ({ intelligence: [] })),
+        fetch(`${API_URL}/api/admin/offerwall/click-history?limit=1000`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
+        fetch(`${API_URL}/api/admin/dashboard/click-history?limit=1000`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { data: [] }).catch(() => ({ data: [] })),
+        fetch(`${API_URL}/api/admin/offers?limit=2000`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+          signal: controller.signal
+        }).then(r => r.ok ? r.json() : { offers: [] }).catch(() => ({ offers: [] }))
       ]);
+      const [logsRes, mailRes, usersRes, searchRes, queueRes, settingsRes, profilesRes, intelRes, clickRes, dashClickRes, offersRes] = results as any;
       clearTimeout(timeoutId);
 
       if (settingsRes.settings) setAutomationSettings(settingsRes.settings);
-      const automationQueueRawData = queueRes.queue || [];
+      let automationQueueRawData = queueRes.queue || [];
+      let searchLogsRawData = searchRes.logs || [];
+      let loginLogsRawData = logsRes.logs || [];
+
+      // Sync back to logsRes for the rest of the function
       setAutomationQueue(automationQueueRawData);
       (window as any)._rawQueue = automationQueueRawData;
+      logsRes.logs = loginLogsRawData;
 
-      const searchUserIds = new Set(searchRes.logs?.map((l: any) => l.user_id).filter(Boolean) || []);
+      const intelMap = new Map((intelRes.intelligence || []).filter(Boolean).map((i: any) => [String(i.user_id || i._id || ''), i]));
+
+      const searchUserIds = new Set<string>();
+      searchLogsRawData.forEach((l: any) => {
+        if (l.user_id) searchUserIds.add(String(l.user_id));
+        if (l.user_email) searchUserIds.add(l.user_email.toLowerCase());
+        if (l.user_name) searchUserIds.add(l.user_name.toLowerCase());
+      });
 
       const mailMap = new Map<string, { welcome: string | null, referral: string | null, total: number }>();
       let mailsToday = 0;
       const todayString = new Date().toDateString();
 
-      mailRes.history?.forEach((h: any) => {
+      // Filter mail history to exclude mock/internal test data
+      let filteredMailHistory = (mailRes.history || []).filter((h: any) => {
+        const uName = (h.username || '').toLowerCase();
+        const uEmail = (h.email || h.to?.[0] || '').toLowerCase();
+        const isDummy = uName.includes('test') || uName.includes('dummy') || uEmail.includes('test') || uEmail.includes('dummy') || h.isMock;
+        return !isDummy;
+      });
+
+      // Prepare profile map for fast lookup
+      const profileMap = new Map<string, any>();
+      (usersRes.users || []).forEach((u: any) => {
+        const id = String(u._id || u.user_id || '');
+        if (id) profileMap.set(id, u);
+        if (u.email) profileMap.set(u.email.toLowerCase().trim(), u);
+        if (u.username) profileMap.set(u.username.toLowerCase().trim(), u);
+      });
+      (profilesRes.profiles || []).forEach((p: any) => {
+        const id = String(p.user_id || p._id || p.publisher_id || '');
+        const email = (p.email || '').toLowerCase();
+        const username = (p.username || '').toLowerCase();
+        const existing = profileMap.get(id) || profileMap.get(email) || profileMap.get(username) || {};
+        const merged = { ...existing, ...p };
+        if (id) profileMap.set(id, merged);
+        if (p.email) profileMap.set(p.email.toLowerCase().trim(), merged);
+        if (p.username) profileMap.set(p.username.toLowerCase().trim(), merged);
+        if (email) profileMap.set(email, merged);
+        if (username) profileMap.set(username, merged);
+      });
+
+      filteredMailHistory.forEach((h: any) => {
         if (h.sent_at && new Date(h.sent_at).toDateString() === todayString) {
           mailsToday += h.success_count || h.recipients_count || (h.to?.length || 1);
         }
@@ -792,105 +1016,57 @@ const AdminRecentActivity: React.FC = () => {
       });
       setGlobalMailMetrics({ total: mailRes.total || 0, today: mailsToday });
 
-      const profileMap = new Map<string, any>();
-      usersRes.users?.forEach((u: any) => {
-        profileMap.set(String(u._id), u);
-        if (u.email) profileMap.set(u.email.toLowerCase(), u);
-        if (u.username) profileMap.set(u.username.toLowerCase(), u);
-      });
-
       const userMap = new Map<string, AggregatedUser>();
-      
-      const existingLogUserIds = new Set((logsRes.logs || []).map((l: any) => String(l.user_id || l._id)));
+      const sDate = new Date(params.start_date);
+      const eDate = new Date(params.end_date);
 
-      automationQueueRawData.forEach((qItem: any) => {
-        if (qItem.last_login) {
-          const qTime = new Date(qItem.last_login).getTime();
-          if (qTime >= start.getTime() && qTime <= end.getTime()) {
-            const key = String(qItem.user_id);
-            if (!userMap.has(key)) {
-              const alreadyLogged = existingLogUserIds.has(key);
-              if (!alreadyLogged) {
-                logsRes.logs.push({
-                  user_id: key,
-                  username: qItem.username,
-                  email: qItem.email || '',
-                  login_time: qItem.last_login,
-                  activity_type: qItem.activity_type || 'Active Session',
-                  ip_address: qItem.ip || '0.0.0.0',
-                  device: { type: 'pc', os: 'Windows', browser: 'Chrome', version: 'Latest', is_mobile: false, is_tablet: false, is_pc: true, is_bot: false },
-                  location: { city: 'Unknown', country: 'Unknown', ip: qItem.ip || '0.0.0.0', region: 'Unknown', country_code: qItem.country || 'WW' },
-                  login_method: 'password', status: 'success', created_at: qItem.last_login
-                } as any);
-                existingLogUserIds.add(key);
-              }
-            }
-          }
-        }
-      });
-
-      searchRes.logs?.forEach((sLog: any) => {
-        if (sLog.searched_at) {
-          const sTime = new Date(sLog.searched_at).getTime();
-          if (sTime >= start.getTime() && sTime <= end.getTime()) {
-            const key = String(sLog.user_id);
-            if (!userMap.has(key)) {
-              const alreadyLogged = existingLogUserIds.has(key);
-              if (!alreadyLogged) {
-                const sCountry = sLog.country || sLog.country_code || (sLog.location?.country_code) || 'WW';
-                logsRes.logs.push({
-                  user_id: key,
-                  username: sLog.username,
-                  email: sLog.email || '', 
-                  login_time: sLog.searched_at,
-                  activity_type: 'Search Activity',
-                  ip_address: sLog.ip_address || '0.0.0.0',
-                  device: { type: 'pc', os: 'Windows', browser: 'Chrome', version: 'Latest', is_mobile: false, is_tablet: false, is_pc: true, is_bot: false },
-                  location: { 
-                    city: sLog.city || 'Unknown', 
-                    country: sLog.country || 'Unknown', 
-                    ip: sLog.ip_address || '0.0.0.0', 
-                    region: 'Unknown', 
-                    country_code: sCountry === 'Worldwide' ? 'WW' : sCountry 
-                  },
-                  login_method: 'search', status: 'success', created_at: sLog.searched_at
-                } as any);
-                existingLogUserIds.add(key);
-              }
-            }
-          }
-        }
-      });
-      for (const log of (logsRes.logs || [])) {
-        const key = String(log.user_id || log.email || log.username || log._id);
-        if (!key || key === 'undefined' || key === 'null') continue;
+      // Helper to handle user aggregation from different sources
+      const processUserActivity = (userId: any, email: string | null, username: string | null, log: any | null, timestamp: string | null, forceAdd: boolean = false, intelData: any = null) => {
+        const emailKey = (email || '').toLowerCase().trim();
+        const userKey = (username || '').toLowerCase().trim();
+        const idKey = String(userId || '').trim();
         
-        const emailKey = (log.email || '').toLowerCase();
-        const userKey = (log.username || '').toLowerCase();
+        const profile = profileMap.get(idKey) || profileMap.get(emailKey) || profileMap.get(userKey) || {};
+        const finalKey = profile._id ? String(profile._id) : (idKey || emailKey || userKey);
         
-        const profile = profileMap.get(String(log.user_id)) || 
-                        profileMap.get(emailKey) || 
-                        profileMap.get(userKey) || {};
+        if (!finalKey || finalKey === 'undefined' || finalKey === 'null') return null;
 
-        if (!userMap.has(key)) {
-          const userEmail = (log.email || '').toLowerCase();
-          const mInfo = mailMap.get(userEmail) || { welcome: null, referral: null, total: 0 };
-          const { lat, lng } = getLatLng(log.location, log, profile);
-          
-          const verticals = profile.verticals || 
-                           (profile.signup_preferences && profile.signup_preferences.verticals) || 
-                           profile.vertical || [];
-          
-          const geos = profile.geos || 
-                      (profile.signup_preferences && profile.signup_preferences.geos) || 
-                      profile.geos_preference || [];
+        // Skip test/dummy/internal data
+        const lUsername = (username || '').toLowerCase();
+        const lEmail = (email || '').toLowerCase();
+        const pUsername = (profile.username || '').toLowerCase();
+        const pEmail = (profile.email || '').toLowerCase();
+        
+        const isExcluded = lUsername.includes('test') || lUsername.includes('dummy') || lUsername.includes('fake') ||
+                           lEmail.includes('test') || lEmail.includes('dummy') || lEmail.includes('fake') ||
+                           pUsername.includes('test') || pUsername.includes('dummy') || pUsername.includes('fake') ||
+                           pEmail.includes('test') || pEmail.includes('dummy') || pEmail.includes('fake') ||
+                           lUsername.startsWith('User_') || pUsername.startsWith('User_');
+                           
+        if (isExcluded || profile.isMock || profile.is_mock || (!lEmail && !pEmail)) return null;
 
-          userMap.set(key, {
-            user_id: key,
-            username: log.username || profile.username || log.email?.split('@')[0] || 'Unknown',
-            email: log.email || profile.email || 'Unknown',
-            latest_login: log.login_time,
-            login_count: 0,
+        if (!userMap.has(finalKey)) {
+          if (!forceAdd) return null; 
+
+          const mInfo = mailMap.get(emailKey) || { welcome: null, referral: null, total: 0 };
+          const { lat, lng } = getLatLng(log?.location, log, profile);
+          const rawVerticals = [
+            profile.verticals,
+            profile.signup_preferences?.verticals,
+            profile.vertical,
+            profile.vertical_preference,
+            profile.interests,
+            intelData?.top_categories,
+            intelData?.signal_breakdown?.top_categories
+          ];
+          const geos = profile.geos || (profile.signup_preferences?.geos) || profile.geos_preference || [];
+
+          userMap.set(finalKey, {
+            user_id: finalKey,
+            username: username || profile.username || profile.name || email?.split('@')[0] || 'User_' + finalKey.slice(-4),
+            email: email || profile.email || 'N/A',
+            latest_login: timestamp || 'N/A',
+            login_count: 0, // starts at 0, only incremented by actual login logs in the time range
             logs: [],
             isSuspicious: false,
             welcomeMailSentAt: mInfo.welcome || undefined,
@@ -899,56 +1075,187 @@ const AdminRecentActivity: React.FC = () => {
             lat,
             lng,
             country: getCountry(log, profile),
-            verticals: Array.isArray(verticals) ? verticals : (verticals ? [verticals] : []),
-            geoPreferences: Array.isArray(geos) ? geos : (geos ? [geos] : []),
-            hasSearchActivity: searchUserIds.has(key) || searchUserIds.has(log.user_id)
+            verticals: parseVerticals(rawVerticals),
+            geoPreferences: Array.isArray(geos) ? geos : [geos].filter(Boolean),
+            hasSearchActivity: searchUserIds.has(finalKey) || searchUserIds.has(idKey) || searchUserIds.has(emailKey) || searchUserIds.has(userKey),
+            account_status: profile.account_status || 'pending_approval',
+            role: profile.role || 'user'
           });
         }
-        const userAgg = userMap.get(key)!;
-        userAgg.login_count += 1;
-        userAgg.logs.push(log);
+        return userMap.get(finalKey);
+      };
 
-        const { lat: newLat, lng: newLng } = getLatLng(log.location, log, profile);
-
-        if (userAgg.lat === undefined && newLat !== undefined) {
-          userAgg.lat = newLat;
-          userAgg.lng = newLng;
-          userAgg.country = getCountry(log, profile) || userAgg.country;
-        }
-
-        if (new Date(log.login_time) > new Date(userAgg.latest_login)) {
-          userAgg.latest_login = log.login_time;
-          if (newLat !== undefined && newLng !== undefined && !(newLat === 0 && newLng === 0)) {
-            userAgg.lat = newLat;
-            userAgg.lng = newLng;
+      // 1. Process Login Logs
+      for (const log of (logsRes.logs || [])) {
+        const logDate = new Date(log.login_time);
+        if (logDate >= sDate && logDate <= eDate) {
+          const userAgg = processUserActivity(log.user_id, log.email, log.username, log, log.login_time, true);
+          if (userAgg) {
+            userAgg.login_count += 1;
+            userAgg.logs.push(log);
+            if (log.risk_level === 'high' || log.risk_level === 'critical' || (log.fraud_score && log.fraud_score > 50)) {
+              userAgg.isSuspicious = true;
+            }
+            if (log.login_time && (userAgg.latest_login === 'N/A' || new Date(log.login_time) > new Date(userAgg.latest_login))) {
+               userAgg.latest_login = log.login_time;
+            }
           }
-        }
-        if (log.risk_level === 'high' || log.risk_level === 'critical' || (log.fraud_score && log.fraud_score > 50)) {
-          userAgg.isSuspicious = true;
         }
       }
 
+      // 2. Process Search Logs
+      for (const log of (searchRes.logs || [])) {
+        const logDate = new Date(log.created_at);
+        if (logDate >= sDate && logDate <= eDate) {
+          const userAgg = processUserActivity(log.user_id, log.user_email, log.user_name, null, log.created_at, false);
+          if (userAgg) {
+            userAgg.hasSearchActivity = true;
+          }
+        }
+      }
+
+      // 3. Process Clicks
+      const allClicks = [...(clickRes.data || []), ...(dashClickRes.data || [])];
+      for (const click of allClicks) {
+        const clickDate = new Date(click.timestamp);
+        if (clickDate >= sDate && clickDate <= eDate) {
+          const userAgg = processUserActivity(click.user_id || click.publisher_id || click.affiliate_id, (click as any).user_email || (click as any).email, (click as any).user_name || (click as any).username, null, click.timestamp, false);
+          if (userAgg) {
+            userAgg.clickCount = (userAgg.clickCount || 0) + 1;
+          }
+        }
+      }
+
+      // 4. Process Profiles with recent requests
+      for (const p of (profilesRes.profiles || [])) {
+        const hasRecentRequest = (p.requests || []).some((r: any) => {
+          const t = r.requested_at || r.approved_at || r.rejected_at;
+          return t && new Date(t) >= sDate && new Date(t) <= eDate;
+        });
+        if (hasRecentRequest) {
+          const userAgg = processUserActivity(p.user_id || p.publisher_id, p.email, p.username, null, null, true);
+          if (userAgg) {
+            const recentReqs = (p.requests || []).filter((r: any) => {
+              const t = r.requested_at || r.approved_at || r.rejected_at;
+              return t && new Date(t) >= sDate && new Date(t) <= eDate;
+            });
+            userAgg.approvedCount = (userAgg.approvedCount || 0) + recentReqs.filter((r: any) => r.status === 'approved').length;
+            userAgg.requestedCount = (userAgg.requestedCount || 0) + recentReqs.filter((r: any) => r.status === 'pending' || r.status === 'requested').length;
+            userAgg.rejectedCount = (userAgg.rejectedCount || 0) + recentReqs.filter((r: any) => r.status === 'rejected' || r.status === 'denied').length;
+          }
+        }
+      }
+
+      const userRequestMap = new Map<string, any>();
+      (profilesRes.profiles || []).forEach((p: any) => {
+        const id = String(p.user_id || p._id || p.publisher_id || '');
+        if (id) userRequestMap.set(id, p);
+        if (p.email) userRequestMap.set(p.email.toLowerCase(), p);
+        if (p.username) userRequestMap.set(p.username.toLowerCase(), p);
+      });
+
+      intelMap.forEach((intel, emailOrUser) => {
+        const intelId = String(intel.user_id || intel._id || '');
+        const intelEmail = (intel.email || '').toLowerCase().trim();
+        const intelUser = (intel.username || '').toLowerCase().trim();
+        
+        const userAgg = processUserActivity(intelId || emailOrUser, intelEmail, intelUser, null, (intel as any).latest_login || (intel as any).login_time, true, intel);
+        
+        if (userAgg) {
+          const u = profileMap.get(String(userAgg.user_id)) || profileMap.get((userAgg.email || '').toLowerCase()) || profileMap.get((userAgg.username || '').toLowerCase());
+          
+          if (u) {
+            userAgg.first_name = u.first_name || userAgg.first_name;
+            userAgg.last_name = u.last_name || userAgg.last_name;
+          }
+
+          const rawVerticals = [
+            u?.verticals,
+            u?.signup_preferences?.verticals,
+            u?.vertical,
+            u?.vertical_preference,
+            u?.interests,
+            (intel as any).top_categories,
+            (intel as any).signal_breakdown?.top_categories
+          ];
+          userAgg.verticals = parseVerticals(rawVerticals);
+        }
+      });
+
       const sortedUsers = Array.from(userMap.values()).map(userAgg => {
+        const uId = String(userAgg.user_id);
         const emailKey = (userAgg.email || '').toLowerCase();
         const userKey = (userAgg.username || '').toLowerCase();
-        const u = profileMap.get(String(userAgg.user_id)) || profileMap.get(emailKey) || profileMap.get(userKey);
+        
+        const intel = intelMap.get(uId) || intelMap.get(emailKey) || intelMap.get(userKey) || {};
+        const signal = (intel as any).signal_breakdown || {};
+        const reqProf = userRequestMap.get(uId) || userRequestMap.get(emailKey) || userRequestMap.get(userKey);
+        const u = profileMap.get(uId) || profileMap.get(emailKey) || profileMap.get(userKey);
+        
+        userAgg.approvedCount = userAgg.approvedCount || signal.approvals || (intel as any).approved_count || (intel as any).approved_offers || (intel as any).approvedCount || 0;
+        userAgg.requestedCount = userAgg.requestedCount || signal.requests || (intel as any).requested_count || (intel as any).requested_offers || (intel as any).requestedCount || 0;
+        userAgg.rejectedCount = userAgg.rejectedCount || (intel as any).rejected_count || (intel as any).rejected_offers || (intel as any).rejectedCount || 0;
+        userAgg.clickCount = userAgg.clickCount || signal.clicks || (intel as any).total_clicks || (intel as any).clickCount || (intel as any).clicks || (intel as any).click_count || 0;
+        userAgg.viewedCount = userAgg.viewedCount || signal.views || (intel as any).total_views || (intel as any).offerViewsCount || (intel as any).views || 0;
+        
+        // Do NOT override login_count from intel — it's all-time data, not time-range specific
+        // login_count is already correctly set from actual login logs above
+
+        if (reqProf && (userAgg.approvedCount === 0 && userAgg.requestedCount === 0)) {
+          const requests = reqProf.requests || [];
+          userAgg.approvedCount = requests.filter((r: any) => r.status === 'approved').length;
+          userAgg.requestedCount = requests.filter((r: any) => r.status === 'pending' || r.status === 'requested').length;
+          userAgg.rejectedCount = requests.filter((r: any) => r.status === 'rejected' || r.status === 'denied').length;
+        }
+
+        const sDate = new Date(params.start_date);
+        const eDate = new Date(params.end_date);
+        
+        const recentOfferwallClicks = (clickRes.data || []).filter((c: any) => {
+          const cId = String(c.user_id || c.publisher_id || c.affiliate_id || '');
+          const cEmail = (c.user_email || c.email || '').toLowerCase();
+          const cUsername = (c.user_name || c.username || '').toLowerCase();
+          return (cId === uId || cEmail === emailKey || cUsername === userKey) &&
+                 new Date(c.timestamp) >= sDate && new Date(c.timestamp) <= eDate;
+        }).length;
+        
+        const recentDashClicks = (dashClickRes.data || []).filter((c: any) => {
+          const cId = String(c.user_id || c.publisher_id || c.affiliate_id || '');
+          const cEmail = (c.user_email || c.email || '').toLowerCase();
+          const cUsername = (c.user_name || c.username || '').toLowerCase();
+          return (cId === uId || cEmail === emailKey || cUsername === userKey) &&
+                 new Date(c.timestamp) >= sDate && new Date(c.timestamp) <= eDate;
+        }).length;
+
+        const totalRecent = recentOfferwallClicks + recentDashClicks;
+        if (totalRecent > userAgg.clickCount) userAgg.clickCount = totalRecent;
 
         if (u) {
           userAgg.first_name = u.first_name;
           userAgg.last_name = u.last_name;
+
+          const rawVerticals = [
+            u.verticals,
+            u.signup_preferences?.verticals,
+            u.vertical,
+            u.vertical_preference,
+            u.interests,
+            (intel as any).top_categories,
+            (intel as any).signal_breakdown?.top_categories
+          ];
           
-          let verticals = u.verticals || 
-                           (u.signup_preferences && u.signup_preferences.verticals) || 
-                           u.vertical || [];
-          
-          if (!Array.isArray(verticals)) verticals = [verticals];
-          userAgg.verticals = verticals.filter(Boolean).map((v: any) => String(v).trim());
-          
-          let geos = u.geos || 
-                      (u.signup_preferences && u.signup_preferences.geos) || 
-                      u.geos_preference || [];
-          if (!Array.isArray(geos)) geos = [geos];
-          userAgg.geoPreferences = geos.filter(Boolean).map((g: any) => String(g).trim());
+          const mergedVerticals = parseVerticals(rawVerticals);
+          if (userAgg.verticals.length === 0) {
+            userAgg.verticals = mergedVerticals;
+          } else {
+            userAgg.verticals = Array.from(new Set([...userAgg.verticals, ...mergedVerticals]));
+          }
+
+          let geos = u.geos ||
+            (u.signup_preferences && u.signup_preferences.geos) ||
+            u.geos_preference || u.country_preference || [];
+          if (!Array.isArray(geos)) geos = [geos].filter(Boolean);
+          userAgg.geoPreferences = Array.from(new Set(geos.filter(Boolean).map((g: any) => String(g).trim())));
         }
 
         userAgg.logs.sort((a, b) => new Date(b.login_time).getTime() - new Date(a.login_time).getTime());
@@ -973,38 +1280,17 @@ const AdminRecentActivity: React.FC = () => {
             }
           }
         }
-        
-        if ((userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat)) && userAgg.country && userAgg.country !== 'Unknown') {
-            const countryKey = userAgg.country.toUpperCase();
-            
-            const cityKey = (userAgg.city || '').toUpperCase();
-            const cityFallback = CITY_COORDS[cityKey];
-            
-            const countryFallback = COUNTRY_COORDS[countryKey] || 
-                             COUNTRY_COORDS[countryKey.split('/')[1] || ''] || 
-                             COUNTRY_COORDS['XX'];
-            
-            const fallback = cityFallback || countryFallback;
-            const isCity = !!cityFallback;
 
-            if (fallback) {
-              const seed = String(userAgg.user_id);
-              let hash = 0;
-              for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
-              
-              const jitterScale = isCity ? 0.8 : 12.0;
-              userAgg.lat = fallback[0] + ((Math.abs(hash) % 1000) / 1000 - 0.5) * jitterScale;
-              userAgg.lng = fallback[1] + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * jitterScale;
-            }
+        if ((userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat))) {
+          const { lat: finalLat, lng: finalLng } = getLatLng({ country: userAgg.country, city: userAgg.city }, userAgg.logs[0], userAgg);
+          userAgg.lat = finalLat;
+          userAgg.lng = finalLng;
         }
-        
+
         if (userAgg.lat === undefined || userAgg.lat === 0 || isNaN(userAgg.lat)) {
-           const seed = String(userAgg.user_id);
-           let hash = 0;
-           for (let i = 0; i < seed.length; i++) hash = (hash << 5) - hash + seed.charCodeAt(i);
-           userAgg.lat = 20.0 + ((Math.abs(hash) % 1000) / 1000 - 0.5) * 15;
-           userAgg.lng = 78.0 + ((Math.abs(hash * 31) % 1000) / 1000 - 0.5) * 15;
-           userAgg.country = userAgg.country || 'Tracking...';
+          userAgg.lat = 20.5937;
+          userAgg.lng = 78.9629;
+          userAgg.country = userAgg.country || 'India';
         }
 
         const uniqueCountries = new Set(userAgg.logs.map((l: any) => l.location?.country_code || l.location?.country).filter(c => c && c !== 'XX' && c !== 'Unknown'));
@@ -1019,7 +1305,7 @@ const AdminRecentActivity: React.FC = () => {
           userAgg.sharedAccount = uniqueIps.size >= 3 || uniqueCountries.size >= 2;
         }
         return userAgg;
-      }).sort((a, b) => new Date(b.latest_login).getTime() - new Date(a.latest_login).getTime());
+      }).filter(u => u.login_count > 0 && u.logs.length > 0).sort((a, b) => new Date(b.latest_login).getTime() - new Date(a.latest_login).getTime());
 
       const geosSet = new Set<string>();
       const citiesSet = new Set<string>();
@@ -1027,15 +1313,62 @@ const AdminRecentActivity: React.FC = () => {
         if (u.country && u.country !== 'Unknown') geosSet.add(u.country);
         if (u.city && u.city !== 'Unknown') citiesSet.add(u.city);
       });
-      setAvailableGeos(Array.from(geosSet).sort());
+
+      const allVerticalsSet = new Set<string>();
+      profileMap.forEach(profile => {
+        let rawVerticals = profile.verticals ||
+          (profile.signup_preferences && profile.signup_preferences.verticals) ||
+          profile.vertical || profile.vertical_preference || profile.interests || [];
+        
+        const verticalList = parseVerticals(rawVerticals);
+        verticalList.forEach(v => allVerticalsSet.add(v));
+      });
+
+      // 2. From Offers (Dating, Insurance, etc.)
+      (offersRes.offers || []).forEach((o: any) => {
+        const categories = [...(o.category ? [o.category] : []), ...(o.vertical ? [o.vertical] : []), ...(Array.isArray(o.categories) ? o.categories : [])];
+        categories.forEach(c => {
+          if (c) {
+            String(c).split(',').forEach(s => {
+              const normalized = normalizeVertical(s);
+              if (normalized) allVerticalsSet.add(normalized);
+            });
+          }
+        });
+      });
+      setAvailableVerticals(Array.from(allVerticalsSet).filter(Boolean).sort());
+
+      // Extract ALL possible countries from the entire user database
+      const allGeosSet = new Set<string>();
+      profileMap.forEach(profile => {
+        const country = profile.country || profile.country_code || (profile.signup_preferences && profile.signup_preferences.country);
+        if (country && country !== 'Unknown' && country !== 'N/A') allGeosSet.add(String(country).trim());
+        
+        // Also check geo preferences
+        const prefs = profile.geos || profile.geoPreferences || profile.geos_preference || [];
+        if (Array.isArray(prefs)) prefs.forEach((g: any) => {
+          if (g && g !== 'WW' && g.length === 2) allGeosSet.add(String(g).trim());
+        });
+      });
+      // Merge with geos from sortedUsers just in case
+      sortedUsers.forEach(u => {
+        if (u.country && u.country !== 'Unknown' && u.country !== 'N/A') allGeosSet.add(u.country);
+      });
+      setAvailableGeos(Array.from(allGeosSet).filter(Boolean).sort());
       setAvailableCities(Array.from(citiesSet).sort());
 
       setAllUsers(sortedUsers);
+      (window as any)._debugUsers = sortedUsers;
+      console.log(`[DEBUG] Aggregated ${sortedUsers.length} active users.`);
+      if (sortedUsers.length > 0) {
+        const insuranceUsers = sortedUsers.filter(u => u.verticals.some(v => v.toUpperCase().includes('INSURANCE')));
+        console.log(`[DEBUG] Found ${insuranceUsers.length} users with Insurance vertical.`);
+      }
 
       // Sync Automation Stats with CURRENT users in view (Filtered)
       const autoStatsQueue = (window as any)._rawQueue || [];
       const currentIds = new Set(sortedUsers.map(u => String(u.user_id)));
-      
+
       setAutomationStats({
         active: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'active' && i.delivery_status !== 'failed').length,
         completed: autoStatsQueue.filter((i: any) => currentIds.has(String(i.user_id)) && i.queue_status === 'completed').length,
@@ -1162,7 +1495,7 @@ const AdminRecentActivity: React.FC = () => {
   const mapMarkers = useMemo(() => {
     // 1:1 mapping from filtered users to markers (no deduplication)
     const validUsers = users.filter(u => typeof u.lat === 'number' && !isNaN(u.lat));
-    
+
     // Safety check: if they have identical coordinates (down to 1 decimal place), scatter them aggressively
     const coordsMap = new Map<string, number>();
 
@@ -1174,14 +1507,14 @@ const AdminRecentActivity: React.FC = () => {
       if (count === 0) return u;
 
       // More aggressive scatter for overlapping markers to ensure all 20+ markers are distinct
-      const angle = count * (Math.PI * 2 / 5); 
-      const distance = 2.5 + (Math.floor(count / 5) * 1.5); 
+      const angle = count * (Math.PI * 2 / 5);
+      const distance = 2.5 + (Math.floor(count / 5) * 1.5);
 
       return {
         ...u,
         lat: u.lat! + (Math.sin(angle) * distance),
         lng: u.lng! + (Math.cos(angle) * distance),
-        isJittered: true 
+        isJittered: true
       };
     });
   }, [users]);
@@ -1193,7 +1526,7 @@ const AdminRecentActivity: React.FC = () => {
     if (!dateStr || dateStr === 'Unknown') return null;
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return null;
-    
+
     if (['30m', '1h'].includes(filter)) {
       return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     } else if (['4h', '10h', 'today', 'yesterday'].includes(filter)) {
@@ -1217,10 +1550,15 @@ const AdminRecentActivity: React.FC = () => {
 
   const summary = {
     uniqueUsers: users.length,
-    totalLogins: users.reduce((acc, u) => acc + u.logs.length, 0),
     noWelcome: users.filter(u => !u.welcomeMailSentAt).length,
     noReferral: users.filter(u => !u.referralMailSentAt).length,
     suspicious: users.filter(u => u.isSuspicious).length,
+    approved: users.filter(u => (u.approvedCount || 0) > 0).length,
+    requested: users.filter(u => (u.requestedCount || 0) > 0).length,
+    rejected: users.filter(u => (u.rejectedCount || 0) > 0).length,
+    clicks: users.filter(u => (u.clickCount || 0) > 0).length,
+    failedLogins: users.filter(u => u.logs.some(l => l.status === 'failed')).length,
+    searchedSomething: users.filter(u => u.hasSearchActivity).length,
     totalSent: globalMailMetrics.total,
     sentToday: globalMailMetrics.today
   };
@@ -1299,11 +1637,11 @@ const AdminRecentActivity: React.FC = () => {
                   }
                 }}
               />
-              <Button 
-                size="sm" 
-                variant="default" 
-                className="h-8 bg-purple-600 hover:bg-purple-700 text-white border-none shadow-sm" 
-                disabled={bulkMailSending} 
+              <Button
+                size="sm"
+                variant="default"
+                className="h-8 bg-purple-600 hover:bg-purple-700 text-white border-none shadow-sm"
+                disabled={bulkMailSending}
                 onClick={() => setBulkAutomationOpen(true)}
               >
                 <Zap className="w-3 h-3 mr-2 fill-white" /> Automate Offers
@@ -1319,12 +1657,12 @@ const AdminRecentActivity: React.FC = () => {
               />
             </div>
           )}
-          
-          <OfferQueueDashboardModal 
-            open={queueDashboardOpen} 
+
+          <OfferQueueDashboardModal
+            open={queueDashboardOpen}
             onOpenChange={setQueueDashboardOpen}
-            allUsers={users.map(u => ({ 
-              user_id: u.user_id, 
+            allUsers={users.map(u => ({
+              user_id: u.user_id,
               username: u.username,
               logs: u.logs,
               country: u.country,
@@ -1416,60 +1754,90 @@ const AdminRecentActivity: React.FC = () => {
         setFilters={setAdvancedFilters}
         availableGeos={availableGeos}
         availableCities={availableCities}
+        availableVerticals={availableVerticals}
       />
 
       {/* Summary Widgets */}
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-4">
-        <Card className="shadow-sm">
+      <div className="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-4">
+        <Card 
+          className={`shadow-sm cursor-pointer transition-all hover:scale-105 hover:shadow-md ${advancedFilters.status.length === 0 && advancedFilters.mailStatus.length === 0 ? 'ring-2 ring-blue-500 bg-blue-50/20' : ''}`}
+          onClick={() => setQuickFilter('reset', null)}
+        >
           <CardContent className="p-4 flex flex-col items-center text-center">
             <Users className="w-6 h-6 text-blue-500 mb-2" />
             <div className="text-2xl font-bold">{summary.uniqueUsers}</div>
-            <div className="text-xs text-muted-foreground">Unique Users</div>
+            <div className="text-xs text-muted-foreground font-semibold">Total Users</div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm bg-blue-50/50">
+
+        <Card 
+          className={`shadow-sm cursor-pointer transition-all hover:scale-105 ${advancedFilters.status.includes('Failed Logins Only') ? 'ring-2 ring-rose-500 bg-rose-50' : ''}`}
+          onClick={() => setQuickFilter('status', 'Failed Logins Only')}
+        >
           <CardContent className="p-4 flex flex-col items-center text-center">
-            <Activity className="w-6 h-6 text-blue-400 mb-2" />
-            <div className="text-2xl font-bold">{summary.totalLogins}</div>
-            <div className="text-xs text-muted-foreground">Total Logins</div>
+            <AlertCircle className="w-6 h-6 text-rose-500 mb-2" />
+            <div className="text-2xl font-bold text-rose-600">{summary.failedLogins}</div>
+            <div className="text-xs text-muted-foreground font-semibold">Failed Logins</div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm">
-          <CardContent className="p-4 flex flex-col items-center text-center">
-            <Mail className="w-6 h-6 text-orange-500 mb-2" />
-            <div className="text-2xl font-bold">{summary.noWelcome}</div>
-            <div className="text-xs text-muted-foreground">Missing Welcome Mail</div>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm">
-          <CardContent className="p-4 flex flex-col items-center text-center">
-            <Send className="w-6 h-6 text-purple-500 mb-2" />
-            <div className="text-2xl font-bold">{summary.noReferral}</div>
-            <div className="text-xs text-muted-foreground">Missing Referral Mail</div>
-          </CardContent>
-        </Card>
-        <Card className="shadow-sm border-l-red-500 border-l-4">
+
+        <Card 
+          className={`shadow-sm border-l-red-500 border-l-4 cursor-pointer transition-all hover:scale-105 ${advancedFilters.status.includes('Suspicious') ? 'ring-2 ring-red-500 bg-red-50' : ''}`}
+          onClick={() => setQuickFilter('status', 'Suspicious')}
+        >
           <CardContent className="p-4 flex flex-col items-center text-center">
             <ShieldAlert className="w-6 h-6 text-red-500 mb-2" />
             <div className="text-2xl font-bold text-red-600">{summary.suspicious}</div>
-            <div className="text-xs text-muted-foreground">Suspicious Users</div>
+            <div className="text-xs text-muted-foreground font-semibold">Suspicious</div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm bg-primary/5">
+
+        <Card 
+          className={`shadow-sm cursor-pointer transition-all hover:scale-105 ${advancedFilters.mailStatus.includes('Welcome Mail Not Sent') ? 'ring-2 ring-orange-500 bg-orange-50' : ''}`}
+          onClick={() => setQuickFilter('mailStatus', 'Welcome Mail Not Sent')}
+        >
           <CardContent className="p-4 flex flex-col items-center text-center">
-            <CalendarClock className="w-6 h-6 text-indigo-500 mb-2" />
-            <div className="text-2xl font-bold">{summary.sentToday}</div>
-            <div className="text-xs text-muted-foreground">Mails Sent Today</div>
+            <Mail className="w-6 h-6 text-orange-500 mb-2" />
+            <div className="text-2xl font-bold">{summary.noWelcome}</div>
+            <div className="text-xs text-muted-foreground font-semibold">Missing Welcome</div>
           </CardContent>
         </Card>
-        <Card className="shadow-sm bg-primary/5">
+
+        <Card className="shadow-sm bg-primary/5 cursor-pointer hover:bg-primary/10 transition-colors" onClick={() => setQuickFilter('mailStatus', 'Welcome Mail Sent')}>
           <CardContent className="p-4 flex flex-col items-center text-center">
             <CheckCircle className="w-6 h-6 text-primary mb-2" />
             <div className="text-2xl font-bold">{summary.totalSent}</div>
-            <div className="text-xs text-muted-foreground">Total Emails Sent</div>
+            <div className="text-xs text-muted-foreground font-semibold">Total Emails</div>
           </CardContent>
         </Card>
       </div>
+
+      <div className="flex flex-wrap items-center gap-3 mt-4 mb-6">
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm"
+            className={`h-8 text-[11px] rounded-xl border-slate-200 bg-white shadow-sm gap-2 ${advancedFilters.status.includes('Clicks') ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-blue-100' : 'hover:bg-slate-50'}`}
+            onClick={() => setQuickFilter('status', advancedFilters.status.includes('Clicks') ? null : 'Clicks')}
+          >
+            <MousePointerClick size={14} className={advancedFilters.status.includes('Clicks') ? 'text-blue-500' : 'text-slate-400'} />
+            Clicks
+          </Button>
+        </div>
+
+        {(advancedFilters.status.length > 0 || advancedFilters.mailStatus.length > 0 || advancedFilters.geos.length > 0 || advancedFilters.verticals.length > 0 || advancedFilters.countries.length > 0) && (
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => setQuickFilter('reset', null)}
+            className="h-8 text-[10px] text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl uppercase tracking-wider"
+          >
+            <XCircle size={12} className="mr-1" /> Clear Filters
+          </Button>
+        )}
+      </div>
+
+      <div id="user-activity-feed" className="scroll-mt-24" />
 
       {/* Automation Flow Visualizer */}
       <Card className="shadow-sm border border-slate-200 overflow-hidden bg-white mt-6 mb-2">
@@ -1488,7 +1856,7 @@ const AdminRecentActivity: React.FC = () => {
               <div className="text-[10px] font-bold text-slate-400 uppercase">User Logs In</div>
               <p className="text-[9px] text-slate-400 mt-1">Total active users tracked</p>
             </div>
-            
+
             <div className="p-4 flex flex-col items-center text-center group hover:bg-emerald-50/30 transition-colors relative">
               <div className="absolute top-1/2 -left-3 -translate-y-1/2 z-10 text-slate-300 hidden md:block"><ChevronRight size={24} /></div>
               <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
@@ -1507,7 +1875,7 @@ const AdminRecentActivity: React.FC = () => {
                 <Clock size={20} className="text-blue-600" />
               </div>
               <div className="text-xl font-bold text-blue-600">
-                {automationStats.active} 
+                {automationStats.active}
               </div>
               <div className="text-[10px] font-bold text-blue-600/70 uppercase">Wait 5h Delay</div>
               <p className="text-[9px] text-slate-400 mt-1">Queue start pending</p>
@@ -1572,17 +1940,17 @@ const AdminRecentActivity: React.FC = () => {
                       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     }
                   }}>
-                    <g 
+                    <g
                       className="cursor-pointer transition-transform hover:scale-110"
                       onMouseEnter={(e) => {
                         const parent = document.getElementById('map-container');
                         const parentRect = parent?.getBoundingClientRect();
                         const rect = e.currentTarget.getBoundingClientRect();
                         if (parentRect) {
-                          setTooltip({ 
-                            x: (rect.left + rect.width / 2) - parentRect.left, 
-                            y: rect.top - parentRect.top - 10, 
-                            text: `${u.username} (${u.city || u.country || 'Unknown'})` 
+                          setTooltip({
+                            x: (rect.left + rect.width / 2) - parentRect.left,
+                            y: rect.top - parentRect.top - 10,
+                            text: `${u.username} (${u.city || u.country || 'Unknown'})`
                           });
                         }
                         setHighlightedRowId(u.user_id);
@@ -1597,13 +1965,13 @@ const AdminRecentActivity: React.FC = () => {
                         <animate attributeName="r" from="10" to="24" dur="2s" repeatCount="indefinite" />
                         <animate attributeName="opacity" from="0.7" to="0" dur="2s" repeatCount="indefinite" />
                       </circle>
-                      
+
                       {/* Main Marker Shadow */}
                       <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 18 : 14} fill="rgba(0,0,0,0.5)" transform="translate(1.5, 1.5)" />
-                      
+
                       {/* Main Marker Circle (Larger) */}
                       <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 15 : 12} fill={(u as any).isJittered ? '#3b82f6' : (u.isSuspicious ? '#ef4444' : '#22c55e')} stroke="#fff" strokeWidth={2} />
-                      
+
                       {/* Marker Label */}
                       <text textAnchor="middle" y={4} style={{ fontSize: '8px', fill: '#fff', fontWeight: 'bold', pointerEvents: 'none' }}>
                         {u.username.substring(0, 2).toUpperCase()}
@@ -1713,16 +2081,16 @@ const AdminRecentActivity: React.FC = () => {
                   const isMulti = user.login_count >= 3;
                   const isNewDevice = user.logs.some(l => l.device_change_detected);
 
-                  const badges: { text: string, cls: string }[] = [];
-                  if (user.sharedAccount) badges.push({ text: 'Shared Account?', cls: 'bg-red-600 text-white animate-pulse' });
-                  else if (user.hasDifferentLocations) badges.push({ text: 'Suspicious Location', cls: 'bg-[#F7C1C1] text-[#791F1F]' }); // RED
-                  else if (isSuspicious) badges.push({ text: 'Suspicious IP', cls: 'bg-[#B5D4F4] text-[#0C447C]' }); // BLUE
+                  const badges: { text: string, cls: string, icon?: React.ReactNode }[] = [];
+                  if (user.sharedAccount) badges.push({ text: 'Shared Account?', cls: 'bg-red-600 text-white animate-pulse', icon: <ShieldAlert size={10} /> });
+                  else if (user.hasDifferentLocations) badges.push({ text: 'Suspicious Location', cls: 'bg-[#F7C1C1] text-[#791F1F]', icon: <MapPin size={10} /> }); // RED
+                  else if (isSuspicious) badges.push({ text: 'Suspicious IP', cls: 'bg-[#B5D4F4] text-[#0C447C]', icon: <Fingerprint size={10} /> }); // BLUE
 
-                  if (hasFailed) badges.push({ text: 'Failed', cls: 'bg-[#F7C1C1] text-[#791F1F]' });
-                  if (isNewDevice) badges.push({ text: 'New device', cls: 'bg-[#FAC775] text-[#633806]' });
-                  if (isMulti) badges.push({ text: `${user.login_count}x logins`, cls: 'bg-[#CECBF6] text-[#3C3489]' });
-                  if (user.hasSearchActivity) badges.push({ text: 'Searched', cls: 'bg-purple-100 text-purple-700 border border-purple-200' });
-                  if (badges.length === 0) badges.push({ text: 'OK', cls: 'bg-[#C0DD97] text-[#27500A]' });
+                  if (hasFailed) badges.push({ text: 'Failed', cls: 'bg-[#F7C1C1] text-[#791F1F]', icon: <ShieldAlert size={10} /> });
+                  if (isNewDevice) badges.push({ text: 'New device', cls: 'bg-[#FAC775] text-[#633806]', icon: <Monitor size={10} /> });
+                  if (isMulti) badges.push({ text: `${user.login_count}x logins`, cls: 'bg-[#CECBF6] text-[#3C3489]', icon: <Activity size={10} /> });
+                  if (user.hasSearchActivity) badges.push({ text: 'Searched', cls: 'bg-purple-100 text-purple-700 border border-purple-200', icon: <Search size={10} /> });
+                  if (badges.length === 0) badges.push({ text: 'OK', cls: 'bg-[#C0DD97] text-[#27500A]', icon: <CheckCircle size={10} /> });
 
                   let theme = { row: 'bg-muted/10 border-transparent hover:border-border', bar: 'bg-border', avatar: 'bg-[#D3D1C7] text-[#2C2C2A]', loginBadge: 'bg-[#D3D1C7] text-[#2C2C2A]' };
                   if (hasFailed || user.hasDifferentLocations) {
@@ -1755,7 +2123,7 @@ const AdminRecentActivity: React.FC = () => {
                           {user.username.slice(0, 2).toUpperCase()}
                         </div>
                         <div className="flex flex-col min-w-0 w-[120px] shrink-0">
-                          <span 
+                          <span
                             className="text-xs font-medium text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer truncate"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1763,9 +2131,9 @@ const AdminRecentActivity: React.FC = () => {
                                 setMapCenter([user.lng, user.lat]);
                                 setMapZoom(6);
                                 window.scrollTo({ top: 0, behavior: 'smooth' });
-                                toast({ 
-                                  title: `Locating ${user.username}`, 
-                                  description: `Center map on ${user.city || 'Unknown'}, ${user.country || 'Unknown'}` 
+                                toast({
+                                  title: `Locating ${user.username}`,
+                                  description: `Center map on ${user.city || 'Unknown'}, ${user.country || 'Unknown'}`
                                 });
                               }
                             }}
@@ -1775,11 +2143,13 @@ const AdminRecentActivity: React.FC = () => {
                           <span className="text-[10px] text-muted-foreground truncate">{user.email}</span>
                         </div>
 
-                        <div className="flex gap-1 shrink-0 w-[180px] flex-wrap items-center">
-                          {badges.map((b, i) => (
-                            <span key={i} className={`text-[9px] px-1.5 py-0.5 rounded-full whitespace-nowrap font-medium ${b.cls}`}>{b.text}</span>
-                          ))}
-                        </div>
+                      <div className="flex gap-1 shrink-0 w-[180px] flex-wrap items-center">
+                        {badges.map((b, i) => (
+                          <span key={i} className={`text-[8px] px-1.5 py-0.5 rounded-md whitespace-nowrap font-bold flex items-center gap-1 uppercase tracking-tighter ${b.cls}`}>
+                            {b.icon} {b.text}
+                          </span>
+                        ))}
+                      </div>
 
                         <div className="flex flex-col shrink-0 w-[150px] text-[10px]">
                           <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -1793,7 +2163,7 @@ const AdminRecentActivity: React.FC = () => {
                                 const today = new Date();
                                 const yesterday = new Date();
                                 yesterday.setDate(today.getDate() - 1);
-                                
+
                                 if (d.toDateString() === today.toDateString()) return 'Today';
                                 if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
                                 return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
@@ -1803,17 +2173,17 @@ const AdminRecentActivity: React.FC = () => {
                           <span className="opacity-70 truncate">– {(() => {
                             const country = user.country;
                             const city = user.city;
-                            
+
                             const isValid = (val: any) => val && val !== 'Unknown' && val !== 'Tracking...' && val !== 'Location Tracking...';
 
                             if (isValid(city) && isValid(country)) return `${city}, ${country}`;
                             if (isValid(country)) return country;
                             if (isValid(city)) return city;
-                            
+
                             // If we have an IP but still no location, show IP for debugging
                             const ip = user.logs?.[0]?.ip_address || '';
                             if (ip) return `Tracking... (${ip})`;
-                            
+
                             return 'Tracking...';
                           })()}</span>
                         </div>
@@ -1869,10 +2239,10 @@ const AdminRecentActivity: React.FC = () => {
                       </div>
                     </div>
                     {isExpanded && <div className="p-2 mb-2 bg-muted/10 border border-muted rounded-b-md shadow-inner animate-in slide-in-from-top-2">
-                      <ExpandedUserDetails 
-                        user={user} 
+                      <ExpandedUserDetails
+                        user={user}
                         automationQueueItem={automationQueue.find(q => q.user_id === user.user_id)}
-                        onMailSent={loadData} 
+                        onMailSent={loadData}
                         onAutomateOffers={(userId) => {
                           setSelectedUserIds(new Set([userId]));
                           setBulkAutomationOpen(true);
@@ -1905,52 +2275,52 @@ const AdminRecentActivity: React.FC = () => {
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
                   <span className="text-xs font-medium">Engine Status</span>
-                  <input 
-                    type="checkbox" 
-                    checked={automationSettings.enabled} 
-                    onChange={e => setAutomationSettings({...automationSettings, enabled: e.target.checked})} 
+                  <input
+                    type="checkbox"
+                    checked={automationSettings.enabled}
+                    onChange={e => setAutomationSettings({ ...automationSettings, enabled: e.target.checked })}
                     className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                   />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold text-slate-500">Delay (Hours)</label>
-                  <Input type="number" value={automationSettings.initial_delay_hours} onChange={e => setAutomationSettings({...automationSettings, initial_delay_hours: parseInt(e.target.value)})} />
+                  <Input type="number" value={automationSettings.initial_delay_hours} onChange={e => setAutomationSettings({ ...automationSettings, initial_delay_hours: parseInt(e.target.value) })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold text-slate-500">Step Interval (Min)</label>
-                  <Input type="number" value={automationSettings.step_interval_minutes} onChange={e => setAutomationSettings({...automationSettings, step_interval_minutes: parseInt(e.target.value)})} />
+                  <Input type="number" value={automationSettings.step_interval_minutes} onChange={e => setAutomationSettings({ ...automationSettings, step_interval_minutes: parseInt(e.target.value) })} />
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold text-slate-500">Cooldown (Days)</label>
-                  <Input type="number" value={automationSettings.cooldown_days} onChange={e => setAutomationSettings({...automationSettings, cooldown_days: parseInt(e.target.value)})} />
+                  <Input type="number" value={automationSettings.cooldown_days} onChange={e => setAutomationSettings({ ...automationSettings, cooldown_days: parseInt(e.target.value) })} />
                 </div>
                 <Button className="w-full bg-slate-900" onClick={async () => {
                   try {
                     const token = localStorage.getItem('token');
                     // Strip internal _id and other MongoDB metadata before sending
                     const { _id, updated_at, ...cleanSettings } = automationSettings as any;
-                    
+
                     const res = await fetch(`${API_URL}/api/admin/automation/settings`, {
                       method: 'POST',
-                      headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${token}` 
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
                       },
                       body: JSON.stringify(cleanSettings)
                     });
-                    
+
                     if (!res.ok) {
                       const errorData = await res.json().catch(() => ({}));
                       throw new Error(errorData.error || `Update failed with status ${res.status}`);
                     }
-                    
+
                     toast({ title: 'Success', description: 'Automation settings updated successfully' });
                   } catch (e: any) {
                     console.error("Settings update error:", e);
-                    toast({ 
-                      title: 'Update Failed', 
-                      description: e.message || 'Check network connection and try again', 
-                      variant: 'destructive' 
+                    toast({
+                      title: 'Update Failed',
+                      description: e.message || 'Check network connection and try again',
+                      variant: 'destructive'
                     });
                   }
                 }}>Save Settings</Button>
@@ -1985,9 +2355,9 @@ const AdminRecentActivity: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      <OfferQueueDashboardModal 
-        open={queueDashboardOpen} 
-        onOpenChange={setQueueDashboardOpen} 
+      <OfferQueueDashboardModal
+        open={queueDashboardOpen}
+        onOpenChange={setQueueDashboardOpen}
         allUsers={users.map(u => ({
           user_id: u.user_id,
           username: u.username,
@@ -2005,15 +2375,26 @@ const AdminRecentActivity: React.FC = () => {
         open={automationQueueOpen}
         onOpenChange={setAutomationQueueOpen}
         apiUrl={API_URL}
+        allUsers={users.map(u => ({
+          user_id: u.user_id,
+          username: u.username,
+          logs: u.logs,
+          country: u.country,
+          isSuspicious: u.isSuspicious,
+          sharedAccount: u.sharedAccount,
+          hasDifferentLocations: u.hasDifferentLocations,
+          hasNewDevice: u.hasNewDevice,
+          failedLogin: u.failedLogin
+        }))}
       />
 
       {/* Support Hub Command Center Overlay */}
       {messagingHubOpen && (
         <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 md:p-6 lg:p-10 animate-in fade-in duration-300">
           <div className="w-full max-w-[1600px] h-fit max-h-[90vh] bg-white rounded-[2rem] shadow-[0_32px_64px_-15px_rgba(0,0,0,0.3)] overflow-hidden border border-white/20 flex flex-col animate-in zoom-in-95 slide-in-from-bottom-10 duration-500">
-            <SupportHubContent 
-              onClose={() => setMessagingHubOpen(false)} 
-              apiUrl={API_URL} 
+            <SupportHubContent
+              onClose={() => setMessagingHubOpen(false)}
+              apiUrl={API_URL}
               initialUsers={users}
               initialSelectedIds={selectedUserIds}
               className="flex-1"
@@ -2028,10 +2409,33 @@ const AdminRecentActivity: React.FC = () => {
 const ALL_COUNTRIES = [
   'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola', 'Antigua and Barbuda', 'Argentina', 'Armenia', 'Australia', 'Austria', 'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados', 'Belarus', 'Belgium', 'Belize', 'Benin', 'Bhutan', 'Bolivia', 'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei', 'Bulgaria', 'Burkina Faso', 'Burundi', 'Côte d\'Ivoire', 'Cabo Verde', 'Cambodia', 'Cameroon', 'Canada', 'Central African Republic', 'Chad', 'Chile', 'China', 'Colombia', 'Comoros', 'Congo', 'Costa Rica', 'Croatia', 'Cuba', 'Cyprus', 'Czech Republic', 'Democratic Republic of the Congo', 'Denmark', 'Djibouti', 'Dominica', 'Dominican Republic', 'Ecuador', 'Egypt', 'El Salvador', 'Equatorial Guinea', 'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji', 'Finland', 'France', 'Gabon', 'Gambia', 'Georgia', 'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala', 'Guinea', 'Guinea-Bissau', 'Guyana', 'Haiti', 'Holy See', 'Honduras', 'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran', 'Iraq', 'Ireland', 'Israel', 'Italy', 'Jamaica', 'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'Kiribati', 'Kuwait', 'Kyrgyzstan', 'Laos', 'Latvia', 'Lebanon', 'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania', 'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives', 'Mali', 'Malta', 'Marshall Islands', 'Mauritania', 'Mauritius', 'Mexico', 'Micronesia', 'Moldova', 'Monaco', 'Mongolia', 'Montenegro', 'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nauru', 'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Niger', 'Nigeria', 'North Korea', 'North Macedonia', 'Norway', 'Oman', 'Pakistan', 'Palau', 'Palestine State', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal', 'Qatar', 'Romania', 'Russia', 'Rwanda', 'Saint Kitts and Nevis', 'Saint Lucia', 'Saint Vincent and the Grenadines', 'Samoa', 'San Marino', 'Sao Tome and Principe', 'Saudi Arabia', 'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone', 'Singapore', 'Slovakia', 'Slovenia', 'Solomon Islands', 'Somalia', 'South Africa', 'South Korea', 'South Sudan', 'Spain', 'Sri Lanka', 'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syria', 'Tajikistan', 'Tanzania', 'Thailand', 'Timor-Leste', 'Togo', 'Tonga', 'Trinidad and Tobago', 'Tunisia', 'Turkey', 'Turkmenistan', 'Tuvalu', 'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan', 'Vanuatu', 'Venezuela', 'Vietnam', 'Worldwide', 'Yemen', 'Zambia', 'Zimbabwe'
 ];
-const ADVANCED_VERTICALS = ['Sweeps', 'Finance', 'Dating', 'CPA', 'CPI', 'Crypto', 'Nutra', 'E-commerce', 'Gaming', 'Software', 'Surveys', 'Other'];
+const ADVANCED_VERTICALS = ['Sweeps', 'Sweepstakes', 'Finance', 'Dating', 'CPA', 'CPI', 'Crypto', 'Nutra', 'E-commerce', 'Gaming', 'Games', 'Install', 'Installs', 'Software', 'Surveys', 'Insurance', 'Health', 'Education', 'Other'];
+
+// Vertical alias map: normalize different spellings to a canonical set for matching
+const VERTICAL_ALIASES: Record<string, string[]> = {
+  'SWEEPS': ['SWEEPSTAKES', 'SWEEPS', 'SWEEP'],
+  'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'SWEEP'],
+  'GAMING': ['GAMING', 'GAMES', 'GAME', 'GAMES_INSTALL'],
+  'GAMES': ['GAMING', 'GAMES', 'GAME', 'GAMES_INSTALL'],
+  'INSTALL': ['INSTALL', 'INSTALLS', 'APP_INSTALL', 'GAMES_INSTALL'],
+  'INSTALLS': ['INSTALL', 'INSTALLS', 'APP_INSTALL'],
+  'CPI': ['CPI'],
+  'FINANCE': ['FINANCE', 'FINANCIAL', 'FINTECH'],
+  'INSURANCE': ['INSURANCE'],
+  'HEALTH': ['HEALTH', 'NUTRA', 'HEALTHCARE'],
+  'NUTRA': ['NUTRA', 'HEALTH', 'HEALTHCARE'],
+  'DATING': ['DATING'],
+  'SURVEYS': ['SURVEYS', 'SURVEY'],
+  'EDUCATION': ['EDUCATION', 'EDU'],
+};
+
+const getVerticalAliases = (v: string): string[] => {
+  const upper = v.toUpperCase().trim();
+  return VERTICAL_ALIASES[upper] || [upper];
+};
 const LOGIN_COUNTS = ['Any', '1x', '2x', '3x', '4x', '5x+'];
-const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only', 'Searched Something'];
-const MAIL_STATUS_OPTIONS = ['Welcome Mail Not Sent', 'Referral Mail Not Sent', 'Welcome Mail Sent', 'Referral Mail Sent'];
+const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only', 'Searched Something', 'Approved Actions', 'Requested Actions', 'Clicked Actions', 'Viewed Offers'];
+const MAIL_STATUS_OPTIONS = ['Welcome Mail Not Sent', 'Referral Mail Not Sent', 'Welcome Mail Sent', 'Referral Mail Sent', 'Call Scheduled', 'Call Completed'];
 
 const AdvancedFilterModal: React.FC<{
   open: boolean;
@@ -2040,7 +2444,8 @@ const AdvancedFilterModal: React.FC<{
   setFilters: (f: any) => void;
   availableGeos: string[];
   availableCities: string[];
-}> = ({ open, onOpenChange, filters, setFilters, availableGeos, availableCities }) => {
+  availableVerticals: string[];
+}> = ({ open, onOpenChange, filters, setFilters, availableGeos, availableCities, availableVerticals }) => {
   const [localFilters, setLocalFilters] = React.useState(filters);
   const [searchQuery, setSearchQuery] = React.useState('');
 
@@ -2075,7 +2480,10 @@ const AdvancedFilterModal: React.FC<{
   const filteredLoginCounts = LOGIN_COUNTS.filter(l => typeof l === 'string' && l.toLowerCase().includes(q));
   const filteredStatus = STATUS_OPTIONS.filter(s => typeof s === 'string' && s.toLowerCase().includes(q));
   const filteredGeoPrefs = ALL_COUNTRIES.filter(g => typeof g === 'string' && g.toLowerCase().includes(q));
-  const filteredVerticals = ADVANCED_VERTICALS.filter(v => typeof v === 'string' && v.toLowerCase().includes(q));
+  // Deduplicate and normalize options
+  const normalizedAdvanced = ADVANCED_VERTICALS.map(v => normalizeVertical(v));
+  const allVerticalOptions = Array.from(new Set([...normalizedAdvanced, ...availableVerticals])).filter(Boolean).sort();
+  const filteredVerticals = allVerticalOptions.filter(v => typeof v === 'string' && v.toLowerCase().includes(q));
   const filteredMailStatus = MAIL_STATUS_OPTIONS.filter(m => typeof m === 'string' && m.toLowerCase().includes(q));
 
   return (

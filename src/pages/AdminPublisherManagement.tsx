@@ -25,7 +25,9 @@ import {
   XCircle,
   Clock,
   Building,
-  Link as LinkIcon
+  Link as LinkIcon,
+  Download,
+  FileCheck
 } from 'lucide-react';
 import {
   Table,
@@ -67,6 +69,8 @@ interface Publisher {
   firstName: string;
   lastName: string;
   companyName: string;
+  registrationNo?: string;
+  accountType?: string;
   website: string;
   postbackUrl: string;
   role: string;
@@ -80,6 +84,40 @@ interface Publisher {
     pending: number;
     rejected: number;
   };
+  agreement_signed?: boolean;
+  agreement_signed_at?: string;
+  company_name?: string;
+}
+
+interface PublisherDetails extends Publisher {
+  placements?: any[];
+  verticals?: string[];
+  geos?: string[];
+  trafficSources?: string[];
+  websiteUrls?: string[];
+  socialContacts?: {
+    linkedin?: string;
+    telegram?: string;
+    agency?: string;
+  };
+  smartLinkInterest?: string;
+  smartLinkTrafficSource?: string;
+  address?: {
+    unit?: string;
+    street?: string;
+    city?: string;
+    country?: string;
+    state?: string;
+    postal?: string;
+  };
+  payoutDetails?: {
+    bank_name?: string;
+    account_name?: string;
+    account_number?: string;
+    routing_number?: string;
+  };
+  digital_signature?: string;
+  signed_agreement_pdf?: string;
 }
 
 const AdminPublisherManagement = () => {
@@ -144,15 +182,42 @@ const AdminPublisherManagement = () => {
         total: data.pagination?.total || 0
       }));
 
-    } catch (error) {
-      console.error('Error fetching publishers:', error);
+    } catch (error: any) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to fetch publishers",
+        description: error.message || "Failed to fetch publishers",
         variant: "destructive",
       });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadAgreement = async (filename: string) => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/download-agreement/${filename}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to download agreement');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Download Error",
+        description: "Failed to download the signed agreement PDF.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -170,14 +235,15 @@ const AdminPublisherManagement = () => {
       setSelectedPublisher(publisherDetails);
       
       // Pre-fill edit form
-      setEditForm({
+      setEditForm(prev => ({
+        ...prev,
         firstName: publisherDetails.firstName || '',
         lastName: publisherDetails.lastName || '',
         companyName: publisherDetails.companyName || '',
         website: publisherDetails.website || '',
         postbackUrl: publisherDetails.postbackUrl || '',
         email: publisherDetails.email || ''
-      });
+      }));
 
     } catch (error) {
       console.error('Error fetching publisher details:', error);
@@ -293,7 +359,11 @@ const AdminPublisherManagement = () => {
       companyName: '',
       website: '',
       postbackUrl: '',
-      email: ''
+      email: '',
+      username: '',
+      password: '',
+      role: 'user',
+      approve: true
     });
   };
 
@@ -421,6 +491,7 @@ const AdminPublisherManagement = () => {
                   <TableHead>Company</TableHead>
                   <TableHead>Placements</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Agreement</TableHead>
                   <TableHead>Joined</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -486,6 +557,17 @@ const AdminPublisherManagement = () => {
                     <TableCell>
                       {getStatusBadge(publisher.status)}
                     </TableCell>
+                    <TableCell>
+                       {publisher.agreement_signed ? (
+                         <Badge className="bg-blue-100 text-blue-800 flex items-center gap-1 w-fit">
+                           <FileCheck className="h-3 w-3" /> Signed
+                         </Badge>
+                       ) : (
+                         <Badge variant="outline" className="text-muted-foreground flex items-center gap-1 w-fit">
+                           <Clock className="h-3 w-3" /> Pending
+                         </Badge>
+                       )}
+                     </TableCell>
                     <TableCell>
                       <div className="flex items-center text-sm text-muted-foreground">
                         <Calendar className="h-3 w-3 mr-1" />
@@ -579,6 +661,7 @@ const AdminPublisherManagement = () => {
                     <TabsTrigger value="preferences">Preferences</TabsTrigger>
                     <TabsTrigger value="placements">Placements ({selectedPublisher.placements?.length || 0})</TabsTrigger>
                     <TabsTrigger value="api">API Access</TabsTrigger>
+                    <TabsTrigger value="agreement">Agreement</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="details" className="space-y-4">
@@ -606,6 +689,16 @@ const AdminPublisherManagement = () => {
                           <Label className="text-sm font-medium text-gray-600">Role</Label>
                           <p className="text-sm capitalize">{selectedPublisher.role}</p>
                         </div>
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Account Type</Label>
+                          <p className="text-sm capitalize">{selectedPublisher.accountType || 'Individual'}</p>
+                        </div>
+                        {selectedPublisher.accountType === 'company' && (
+                          <div>
+                            <Label className="text-sm font-medium text-gray-600">Registration No.</Label>
+                            <p className="text-sm">{selectedPublisher.registrationNo || 'N/A'}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </TabsContent>
@@ -736,6 +829,89 @@ const AdminPublisherManagement = () => {
                       <p className="text-center text-muted-foreground py-8">No placements found</p>
                     )}
                   </TabsContent>
+
+                  <TabsContent value="agreement" className="space-y-4">
+                    <div className="p-6 border rounded-lg bg-slate-50">
+                      <h4 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+                        <FileCheck className="h-5 w-5 text-blue-600" /> Legal Agreement Status
+                      </h4>
+                      
+                      {selectedPublisher.agreement_signed ? (
+                        <div className="space-y-6">
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-white p-4 rounded-md border">
+                              <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Signed On</p>
+                              <p className="text-sm font-medium">{new Date(selectedPublisher.agreement_signed_at || '').toLocaleString()}</p>
+                            </div>
+                            <div className="bg-white p-4 rounded-md border">
+                              <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mb-1">Agreement Version</p>
+                              <p className="text-sm font-medium">v1.0 (Publisher + Mutual NDA)</p>
+                            </div>
+                          </div>
+                          <div className="bg-white p-6 rounded-md border space-y-4">
+                            <p className="text-xs text-slate-500 uppercase font-bold tracking-wider">Contract Information</p>
+                            <div className="grid grid-cols-2 gap-x-8 gap-y-4">
+                              <div>
+                                <p className="text-xs text-slate-400">Publisher Name</p>
+                                <p className="text-sm font-medium">{selectedPublisher.firstName} {selectedPublisher.lastName}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-400">Company Name</p>
+                                <p className="text-sm font-medium">{selectedPublisher.company_name || 'N/A'}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-400">Email Address</p>
+                                <p className="text-sm font-medium">{selectedPublisher.email}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-slate-400">Address</p>
+                                <p className="text-sm font-medium">
+                                  {selectedPublisher.address ? 
+                                    `${selectedPublisher.address.street}, ${selectedPublisher.address.city}, ${selectedPublisher.address.country}` : 
+                                    'N/A'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          
+                          <div>
+                            <Label className="text-sm font-medium text-gray-600 mb-2 block">Digital Signature</Label>
+                            <div className="bg-white border rounded-lg p-4 flex items-center justify-center min-h-[160px]">
+                              {selectedPublisher.digital_signature ? (
+                                <img 
+                                  src={selectedPublisher.digital_signature} 
+                                  alt="Publisher Signature" 
+                                  className="max-h-32 object-contain"
+                                />
+                              ) : (
+                                <span className="text-sm text-slate-400 italic">Signature image not available</span>
+                              )}
+                            </div>
+                          </div>
+                          
+                          <div className="pt-4 flex justify-end">
+                             <Button 
+                               variant="outline" 
+                               className="flex items-center gap-2"
+                               onClick={() => handleDownloadAgreement(selectedPublisher.signed_agreement_pdf || '')}
+                               disabled={!selectedPublisher.signed_agreement_pdf}
+                             >
+                               <Download className="h-4 w-4" /> Download Signed PDF
+                             </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center py-12">
+                          <div className="w-16 h-16 bg-amber-50 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Clock className="h-8 w-8" />
+                          </div>
+                          <h5 className="font-bold text-slate-900">Pending Signature</h5>
+                          <p className="text-sm text-slate-500 mt-1">This publisher hasn't reviewed or signed the legal agreement yet.</p>
+                        </div>
+                      )}
+                    </div>
+                  </TabsContent>
                 </Tabs>
               )}
 
@@ -839,40 +1015,8 @@ const AdminPublisherManagement = () => {
                   </p>
                 </div>
               )}
-
-                  <TabsContent value="placements" className="space-y-4">
-                    {selectedPublisher.placements && selectedPublisher.placements.length > 0 ? (
-                      <div className="space-y-3">
-                        {selectedPublisher.placements.map((placement: any) => (
-                          <Card key={placement.id}>
-                            <CardContent className="pt-4">
-                              <div className="flex items-center justify-between">
-                                  <div>
-                                    <h4 className="font-medium">{placement.offerwallTitle}</h4>
-                                    <p className="text-sm text-muted-foreground">
-                                      {placement.platformType} • {placement.currencyName} (1 USD = {placement.exchangeRate})
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      Created: {new Date(placement.createdAt).toLocaleDateString()}
-                                    </p>
-                                  </div>
-                                  <Badge className={getPlacementStatusColor(placement.approvalStatus)}>
-                                    {placement.approvalStatus.replace('_', ' ')}
-                                  </Badge>
-                                </div>
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-center text-muted-foreground py-8">No placements found</p>
-                      )}
-                    </TabsContent>
-                  </Tabs>
-                )}
-                {/* ... existing forms ... */}
-              </div>
-            )}
+            </div>
+          )}
 
             <DialogFooter>
               <Button variant="outline" onClick={closeDialog}>

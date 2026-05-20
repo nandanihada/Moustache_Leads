@@ -110,6 +110,8 @@ import PromoTabV2 from "./components/PromoTabV2";
 const AdminPromoAnalyticsV2 = lazy(() => import("./pages/AdminPromoAnalyticsV2"));
 const AdminAutomationDashboard = lazy(() => import("./pages/AdminAutomationDashboard"));
 const AdminSupportHub = lazy(() => import("./pages/AdminSupportHub"));
+import { AgreementPage } from "./pages/AgreementPage";
+import { SignaturePage } from "./pages/SignaturePage";
 const AdminOfferwallManager = lazy(() => import("./pages/AdminOfferwallManager"));
 const AdminSurveyBuilder = lazy(() => import("./pages/AdminSurveyBuilder"));
 const AdminSubWalls = lazy(() => import("./pages/AdminSubWalls"));
@@ -149,6 +151,8 @@ const App = () => (
                 <Route path="/team" element={<Team />} />
                 <Route path="/test-modal" element={<TestOfferModal />} />
                 <Route path="/offerwall" element={<OfferwallPage />} />
+                <Route path="/agreement" element={<AgreementPage />} />
+                <Route path="/signature" element={<SignaturePage />} />
                 <Route path="/smart-link-preview" element={<PublicSmartLink />} />
                 <Route path="/smart/:slug" element={<SmartLinkRedirector />} />
                 <Route path="/wall/:slug" element={<SubWallPage />} />
