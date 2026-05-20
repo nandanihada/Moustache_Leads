@@ -611,6 +611,13 @@ const PublisherOffersContent = () => {
           if (!exists) return [...prev, { ...applyOffer, has_access: true, request_status: 'approved' }];
           return prev;
         });
+      } else {
+        // For manual approval, optimistically show "Pending" immediately
+        setOffers(prev => prev.map(o => 
+          o.offer_id === applyOffer.offer_id 
+            ? { ...o, request_status: 'pending' } 
+            : o
+        ));
       }
       
       fetchMyRequests();

@@ -19,6 +19,15 @@ publisher_offers_bp = Blueprint('publisher_offers', __name__)
 logger = logging.getLogger(__name__)
 access_service = AccessControlService()
 
+# DEBUG: Version marker to verify code is loaded
+_CODE_VERSION = "v3-objectid-fix-cache-disabled"
+
+
+@publisher_offers_bp.route('/offers/debug-version', methods=['GET'])
+def debug_version():
+    """Debug endpoint to verify which code version is running"""
+    return jsonify({'version': _CODE_VERSION, 'fix': 'ObjectId + cache disabled'}), 200
+
 @publisher_offers_bp.route('/offers/available', methods=['GET', 'OPTIONS'])
 @token_required
 def get_available_offers():
@@ -41,9 +50,9 @@ def get_available_offers():
         if not hasattr(get_available_offers, '_cache'):
             get_available_offers._cache = {}
         
-        cached = get_available_offers._cache.get(cache_key)
-        if cached and _time.time() < cached['expires']:
-            return safe_json_response(cached['data'])
+        # CACHE DISABLED — was serving stale access status after approval
+        # Will re-enable once the system is stable
+        cached = None
         
         offers_collection = db_instance.get_collection('offers')
         if offers_collection is None:
@@ -107,15 +116,32 @@ def get_available_offers():
         offer_ids = [o.get('offer_id') for o in offers]
         requests_by_offer = {}
         try:
+            from bson import ObjectId
             requests_collection = db_instance.get_collection('affiliate_requests')
-            if requests_collection:
+            if requests_collection is not None:
                 user_id_str = str(user_id)
+                # Query with BOTH string and ObjectId since user_id may be stored as either type
+                user_id_variants = [user_id_str]
+                try:
+                    if ObjectId.is_valid(user_id_str):
+                        user_id_variants.append(ObjectId(user_id_str))
+                except:
+                    pass
+                
                 user_requests = list(requests_collection.find(
-                    {'offer_id': {'$in': offer_ids}, '$or': [{'user_id': user_id_str}, {'publisher_id': user_id_str}]},
+                    {
+                        'offer_id': {'$in': offer_ids},
+                        '$or': [
+                            {'user_id': {'$in': user_id_variants}},
+                            {'publisher_id': {'$in': user_id_variants}}
+                        ]
+                    },
                     {'offer_id': 1, 'status': 1, 'requested_at': 1, 'approved_at': 1}
                 ))
                 requests_by_offer = {req['offer_id']: req for req in user_requests}
-        except Exception:
+                logger.info(f"🔍 ACCESS CHECK [{_CODE_VERSION}]: user={user_id_str}, found {len(user_requests)} requests for {len(offer_ids)} offers. Statuses: {[(r['offer_id'], r['status']) for r in user_requests[:5]]}")
+        except Exception as e:
+            logger.error(f"❌ ACCESS CHECK ERROR: {e}")
             pass
         
         # Batch fetch user's offer grants (admin-granted access)
@@ -354,6 +380,13 @@ def request_offer_access(offer_id):
         result = access_service.request_offer_access(offer_id, user.get('_id'), message)
         
         logger.info(f"📊 Access request result for offer {offer_id}: status={result.get('status')} error={result.get('error')}")
+        
+        # Invalidate cache for this user so next load reflects the new access status
+        if hasattr(get_available_offers, '_cache'):
+            user_id_str = str(user.get('_id'))
+            keys_to_remove = [k for k in get_available_offers._cache if k.startswith(f"{user_id_str}:")]
+            for k in keys_to_remove:
+                del get_available_offers._cache[k]
         
         if 'error' in result and result.get('status') not in ('pending', 'approved'):
             return jsonify(result), 400
