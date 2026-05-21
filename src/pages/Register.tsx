@@ -638,19 +638,19 @@ export default function Register() {
               <div className={fieldClass}>
                 <label className={labelClass}>Password</label>
                 <div className="relative">
-                  <input type={showPassword ? "text" : "password"} name="password" value={formData.password} onChange={handleChange} className={inputClass} placeholder="••••••••" />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-300 hover:text-white transition-colors">
+                  <input type={showPassword ? "text" : "password"} name="password" value={formData.password} onChange={handleChange} className={`${inputClass} pr-12`} placeholder="••••••••" />
+                  <div onClick={() => setShowPassword(prev => !prev)} className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-300 hover:text-white transition-colors z-10 cursor-pointer p-1">
                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                  </button>
+                  </div>
                 </div>
               </div>
               <div className={fieldClass}>
                 <label className={labelClass}>Confirm Password</label>
                 <div className="relative">
-                  <input type={showConfirmPassword ? "text" : "password"} name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} className={inputClass} placeholder="••••••••" />
-                  <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-300 hover:text-white transition-colors">
+                  <input type={showConfirmPassword ? "text" : "password"} name="confirmPassword" value={formData.confirmPassword} onChange={handleChange} className={`${inputClass} pr-12`} placeholder="••••••••" />
+                  <div onClick={() => setShowConfirmPassword(prev => !prev)} className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-300 hover:text-white transition-colors z-10 cursor-pointer p-1">
                     {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                  </button>
+                  </div>
                 </div>
               </div>
             </div>

@@ -186,7 +186,7 @@ const getCity = (log: any, profile?: any) => {
       }
     }
     if (typeof log.location !== 'string') {
-      if (log.location.city && log.location.city !== 'Unknown') return log.location.city;
+      if (log.location.city && isValidLocationValue(log.location.city)) return log.location.city;
     }
   }
 
@@ -199,14 +199,14 @@ const getCity = (log: any, profile?: any) => {
     if (cleanIp === '127.0.0.1' || cleanIp === 'localhost' || cleanIp === '::1' || cleanIp.startsWith('192.168.') || cleanIp.startsWith('10.')) {
       return 'Location Unavailable';
     }
-    if (ip.startsWith('103.232.')) return 'Dhaka';
-    if (ip.startsWith('103.147.')) return 'Chittagong';
-    if (ip.startsWith('106.213.') || ip.startsWith('106.208.')) return 'Bhopal';
-    if (ip.startsWith('106.192.')) return 'Indore';
-    if (ip.startsWith('157.34.')) return 'Indore';
+    if (cleanIp.startsWith('103.232.')) return 'Dhaka';
+    if (cleanIp.startsWith('103.147.')) return 'Chittagong';
+    if (cleanIp.startsWith('106.213.') || cleanIp.startsWith('106.208.')) return 'Bhopal';
+    if (cleanIp.startsWith('106.192.')) return 'Indore';
+    if (cleanIp.startsWith('157.34.')) return 'Indore';
   }
 
-  if (profile && profile.city && profile.city !== 'Unknown') return profile.city;
+  if (profile && profile.city && isValidLocationValue(profile.city)) return profile.city;
 
   return "Location Unavailable";
 };
@@ -303,6 +303,11 @@ interface AggregatedUser {
   verticals?: string[];
   geoPreferences?: string[];
   hasSearchActivity?: boolean;
+  placements_count?: number;
+  has_approved_placement?: boolean;
+  clicks_count?: number;
+  conversions_count?: number;
+  created_at?: string;
 }
 
 
@@ -653,7 +658,8 @@ const AdminRecentActivity: React.FC = () => {
     verticals: [] as string[],
     status: [] as string[],
     loginCount: 'Any',
-    mailStatus: [] as string[]
+    mailStatus: [] as string[],
+    smartFilters: [] as string[]
   });
   const [availableGeos, setAvailableGeos] = useState<string[]>([]);
   const [availableCities, setAvailableCities] = useState<string[]>([]);
@@ -751,6 +757,42 @@ const AdminRecentActivity: React.FC = () => {
         if (advancedFilters.mailStatus.includes('Referral Mail Sent') && u.referralMailSentAt) match = true;
         if (!match) return false;
       }
+      if (advancedFilters.smartFilters && advancedFilters.smartFilters.length > 0) {
+        for (const sf of advancedFilters.smartFilters) {
+          if (sf === 'No Placement Created') {
+            if ((u.placements_count !== undefined && u.placements_count > 0) || u.has_approved_placement) {
+              return false;
+            }
+          }
+          if (sf === 'Has Placement + Zero Conversions') {
+            const hasPlacement = (u.placements_count !== undefined && u.placements_count > 0);
+            const hasConversions = (u.conversions_count !== undefined && u.conversions_count > 0);
+            if (!hasPlacement || hasConversions) {
+              return false;
+            }
+          }
+          if (sf === 'Zero Clicks') {
+            const hasPlacement = (u.placements_count !== undefined && u.placements_count > 0);
+            const hasClicks = (u.clicks_count !== undefined && u.clicks_count > 0);
+            if (!hasPlacement || hasClicks) {
+              return false;
+            }
+          }
+          if (sf === 'Last Active 7+ Days') {
+            const sevenDaysAgo = new Date();
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+            const activeTime = u.latest_login ? new Date(u.latest_login) : null;
+            if (!activeTime || activeTime >= sevenDaysAgo) {
+              return false;
+            }
+          }
+          if (sf === 'Welcome Mail Not Sent') {
+            if (u.welcomeMailSentAt) {
+              return false;
+            }
+          }
+        }
+      }
       if (advancedFilters.geoPreferences.length > 0) {
         if (!u.geoPreferences || u.geoPreferences.length === 0) return false;
         const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -771,10 +813,12 @@ const AdminRecentActivity: React.FC = () => {
     });
   }, [allUsers, advancedFilters, searchTerm]);
 
-  const loadData = async () => {
-    setLoading(true);
-    setSelectedUserIds(new Set());
-    setExpandedId(null);
+  const loadData = async (isSilent = false) => {
+    if (!isSilent) {
+      setLoading(true);
+      setSelectedUserIds(new Set());
+      setExpandedId(null);
+    }
     try {
       const params: any = { page: 1, limit: 400 };
       const now = new Date();
@@ -870,6 +914,8 @@ const AdminRecentActivity: React.FC = () => {
       });
 
       const userMap = new Map<string, AggregatedUser>();
+      
+      // Iterate over logsRes.logs to attach login sessions to the user map
       for (const log of (logsRes.logs || [])) {
         let key = String(log.user_id || log.email || log.username || log._id);
         if (!key || key === 'undefined' || key === 'null') continue;
@@ -914,9 +960,15 @@ const AdminRecentActivity: React.FC = () => {
             country: getCountry(log, profile),
             verticals: Array.isArray(verticals) ? verticals : (verticals ? [verticals] : []),
             geoPreferences: Array.isArray(geos) ? geos : (geos ? [geos] : []),
-            hasSearchActivity: searchUserIds.has(key) || searchUserIds.has(log.user_id)
+            hasSearchActivity: searchUserIds.has(key) || searchUserIds.has(log.user_id),
+            placements_count: profile.placements_count || 0,
+            has_approved_placement: profile.has_approved_placement || false,
+            clicks_count: profile.clicks_count || 0,
+            conversions_count: profile.conversions_count || 0,
+            created_at: profile.created_at
           });
         }
+        
         const userAgg = userMap.get(key)!;
         userAgg.login_count += 1;
         userAgg.logs.push(log);
@@ -1044,6 +1096,7 @@ const AdminRecentActivity: React.FC = () => {
       setAvailableCities(Array.from(citiesSet).sort());
 
       setAllUsers(sortedUsers);
+      console.log("Recent Activity Aggregated Users:", sortedUsers);
 
       // Sync Automation Stats with CURRENT users in view (Filtered)
       const autoStatsQueue = (window as any)._rawQueue || [];
@@ -1073,7 +1126,18 @@ const AdminRecentActivity: React.FC = () => {
   };
 
   useEffect(() => {
-    loadData();
+    loadData(false);
+    
+    // Auto-refresh feed using visibility-aware silent interval polling every 10 seconds
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadData(true);
+      }
+    }, 10000);
+    
+    return () => {
+      clearInterval(intervalId);
+    };
   }, [timeFilter]);
 
   const toggleUserSelection = (userId: string) => {
@@ -1813,7 +1877,7 @@ const AdminRecentActivity: React.FC = () => {
                               })()}
                             </span>
                           </div>
-                          <span className="opacity-70 truncate">– {(() => {
+                          <span className="opacity-70 truncate block">– {(() => {
                             const country = user.country;
                             const city = user.city;
 
@@ -2066,6 +2130,14 @@ const LOGIN_COUNTS = ['Any', '1x', '2x', '3x', '4x', '5x+'];
 const STATUS_OPTIONS = ['Normal', 'Suspicious', 'Failed Logins Only', 'Searched Something'];
 const MAIL_STATUS_OPTIONS = ['Welcome Mail Not Sent', 'Referral Mail Not Sent', 'Welcome Mail Sent', 'Referral Mail Sent'];
 
+const SMART_SEGMENT_OPTIONS = [
+  'No Placement Created',
+  'Has Placement + Zero Conversions',
+  'Zero Clicks',
+  'Last Active 7+ Days',
+  'Welcome Mail Not Sent'
+];
+
 const AdvancedFilterModal: React.FC<{
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -2110,6 +2182,7 @@ const AdvancedFilterModal: React.FC<{
   const filteredGeoPrefs = ALL_COUNTRIES.filter(g => typeof g === 'string' && g.toLowerCase().includes(q));
   const filteredVerticals = ADVANCED_VERTICALS.filter(v => typeof v === 'string' && v.toLowerCase().includes(q));
   const filteredMailStatus = MAIL_STATUS_OPTIONS.filter(m => typeof m === 'string' && m.toLowerCase().includes(q));
+  const filteredSmartFilters = SMART_SEGMENT_OPTIONS.filter(sf => typeof sf === 'string' && sf.toLowerCase().includes(q));
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900 overflow-y-auto flex justify-center py-12 px-4 animate-in fade-in duration-300">
@@ -2223,10 +2296,23 @@ const AdvancedFilterModal: React.FC<{
           </div>
         )}
 
+        {filteredSmartFilters.length > 0 && (
+          <div className="mb-8">
+            <label className="block text-sm font-medium text-amber-200 mb-3">Smart CRM Segments — Quick Filter by Publisher Activity</label>
+            <div className="flex flex-wrap gap-2">
+              {filteredSmartFilters.map(opt => (
+                <div key={opt} onClick={() => toggleArray('smartFilters', opt)} className={`px-4 py-2 border rounded-full cursor-pointer text-sm font-medium transition-all ${localFilters.smartFilters?.includes(opt) ? 'border-amber-400 bg-amber-500/20 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]' : 'border-white/10 bg-white/5 text-purple-200 hover:border-white/30 hover:bg-white/10'}`}>
+                  {opt}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mt-10 pt-6 border-t border-white/10">
           <button className="px-5 py-3 bg-transparent border border-purple-500/30 rounded-lg text-base text-purple-300 hover:border-purple-400 hover:text-white transition-colors" onClick={() => onOpenChange(false)}>Cancel</button>
           <div className="flex gap-4">
-            <button className="px-5 py-3 bg-transparent text-base text-purple-300 hover:text-white transition-colors font-medium" onClick={() => setLocalFilters({ geos: [], cities: [], geoPreferences: [], verticals: [], status: [], loginCount: 'Any', mailStatus: [] })}>Clear All</button>
+            <button className="px-5 py-3 bg-transparent text-base text-purple-300 hover:text-white transition-colors font-medium" onClick={() => setLocalFilters({ geos: [], cities: [], geoPreferences: [], verticals: [], status: [], loginCount: 'Any', mailStatus: [], smartFilters: [] })}>Clear All</button>
             <button className="px-8 py-3 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-lg text-base font-semibold hover:from-purple-600 hover:to-indigo-700 transition-all shadow-lg transform hover:scale-[1.02]" onClick={apply}>Apply Filters &rarr;</button>
           </div>
         </div>

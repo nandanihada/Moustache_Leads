@@ -116,6 +116,7 @@ admin_surveys_bp = safe_import_blueprint('routes.admin_surveys', 'admin_surveys_
 admin_sub_walls_bp = safe_import_blueprint('routes.admin_sub_walls', 'admin_sub_walls_bp')
 redirect_router_bp = safe_import_blueprint('routes.redirect_router', 'redirect_router_bp')
 survey_funnel_bp = safe_import_blueprint('routes.survey_funnel', 'survey_funnel_bp')
+top_offers_bp = safe_import_blueprint('routes.top_offers', 'top_offers_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -221,6 +222,7 @@ blueprints = [
     (admin_sub_walls_bp, '/api/admin'),
     (redirect_router_bp, ''),
     (survey_funnel_bp, ''),
+    (top_offers_bp, '/api/admin'),
 ]
 
 def create_app():

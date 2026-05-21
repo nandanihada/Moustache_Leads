@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X, Link, UploadCloud, CheckCircle } from "lucide-react";
+import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X, Link, UploadCloud, CheckCircle, Flame, Zap, Sparkles } from "lucide-react";
 import PlacementRequired from "@/components/PlacementRequired";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { dashboardApi, DashboardStats, ChartDataPoint, TopOffer } from "@/services/dashboardApi";
@@ -421,6 +421,84 @@ const DashboardContent = () => {
             onClick={() => navigate('/settings?tab=credentials')}
           />
       </div>
+
+        {/* Recommended Offers Grid */}
+        {topOffers.length > 0 && (
+          <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex items-center gap-2 mb-4">
+              <Sparkles className="h-5 w-5 text-orange-500 animate-pulse" />
+              <h3 className="text-lg font-bold text-gray-900">Featured Recommendations</h3>
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-orange-100 text-orange-600 border border-orange-200">
+                Admin Curated
+              </span>
+            </div>
+                <div className="flex gap-5 overflow-x-auto pb-4 pt-1 snap-x scroll-smooth custom-scrollbar -mx-2 px-2">
+              {topOffers.map((offer: any, idx) => {
+                // Determine card badge colors by category
+                const isPinned = offer.is_pinned;
+                const category = offer.category?.toLowerCase() || 'other';
+                let badgeColor = 'bg-gray-100 text-gray-700';
+                if (category.includes('survey')) badgeColor = 'bg-orange-50 text-orange-700 border border-orange-100';
+                else if (category.includes('app') || category.includes('game')) badgeColor = 'bg-blue-50 text-blue-700 border border-blue-100';
+                else if (category.includes('finance') || category.includes('crypto')) badgeColor = 'bg-emerald-50 text-emerald-700 border border-emerald-100';
+
+                return (
+                  <div
+                    key={offer.offer_id || idx}
+                    onClick={() => offer.offer_id && navigate(`/dashboard/offers?search=${offer.offer_id}`)}
+                    className="relative group bg-white border border-gray-100 rounded-2xl p-5 hover:border-orange-200 hover:shadow-xl hover:shadow-orange-500/5 transition-all duration-300 cursor-pointer flex flex-col justify-between overflow-hidden flex-shrink-0 w-[290px] sm:w-[320px] snap-start"
+                  >
+                    {/* Glowing Accent for Pinned Offers */}
+                    {isPinned && (
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br from-orange-400 to-amber-300 opacity-10 rounded-full blur-xl group-hover:scale-150 transition-all duration-500" />
+                    )}
+
+                    <div>
+                      {/* Top Row with Badge & Pinned Icon */}
+                      <div className="flex items-center justify-between mb-3.5">
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${badgeColor}`}>
+                          {offer.category || 'Offer'}
+                        </span>
+                        {isPinned ? (
+                          <span className="text-[10px] font-bold text-orange-600 flex items-center gap-0.5 bg-orange-50 px-1.5 py-0.5 rounded-md border border-orange-100">
+                            <Flame className="h-3 w-3 fill-current text-orange-500 animate-bounce" /> Pinned
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-md border border-blue-100 flex items-center gap-0.5">
+                            <Zap className="h-3 w-3 text-blue-500" /> Hot
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Offer Name */}
+                      <h4 className="font-bold text-gray-900 text-sm group-hover:text-orange-600 transition-colors line-clamp-1">
+                        {offer.name}
+                      </h4>
+                      
+                      {/* Description */}
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">
+                        {offer.description || 'High paying campaign selected by system administrators for maximum conversion success.'}
+                      </p>
+                    </div>
+
+                    {/* Footer Payout and CTA */}
+                    <div className="mt-4 pt-3.5 border-t border-gray-50 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block font-medium uppercase tracking-wider">Payout</span>
+                        <span className="text-base font-extrabold text-emerald-600">
+                          {offer.payout ? `$${offer.payout.toFixed(2)}` : 'High Payout'}
+                        </span>
+                      </div>
+                      <span className="text-xs font-bold text-orange-600 flex items-center gap-0.5 group-hover:translate-x-1 transition-transform">
+                        Promote <ArrowUpRight className="h-3.5 w-3.5" />
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Charts Section */}
         <div className="grid gap-5 lg:grid-cols-7 mb-8">

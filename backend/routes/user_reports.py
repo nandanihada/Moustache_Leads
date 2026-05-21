@@ -100,7 +100,8 @@ def get_performance_report():
             filters=filters,
             group_by=group_by,
             pagination=pagination,
-            sort=sort
+            sort=sort,
+            force_publisher_view=True
         )
         
         if 'error' in report:
@@ -178,7 +179,8 @@ def get_conversion_report():
             user_id=user_id,
             date_range=date_range,
             filters=filters,
-            pagination=pagination
+            pagination=pagination,
+            force_publisher_view=True
         )
         
         if 'error' in report:
@@ -242,7 +244,8 @@ def get_chart_data():
             date_range=date_range,
             metric=metric,
             granularity=granularity,
-            filters=filters
+            filters=filters,
+            force_publisher_view=True
         )
         
         if 'error' in chart_data:
@@ -275,7 +278,8 @@ def get_summary():
             user_id=user_id,
             date_range={'start': today_start, 'end': today_end},
             group_by=['date'],
-            pagination={'page': 1, 'per_page': 1}
+            pagination={'page': 1, 'per_page': 1},
+            force_publisher_view=True
         )
         
         # Get last 7 days stats
@@ -284,7 +288,8 @@ def get_summary():
             user_id=user_id,
             date_range={'start': week_start, 'end': today_end},
             group_by=['date'],
-            pagination={'page': 1, 'per_page': 1}
+            pagination={'page': 1, 'per_page': 1},
+            force_publisher_view=True
         )
         
         # Get last 30 days stats
@@ -293,7 +298,8 @@ def get_summary():
             user_id=user_id,
             date_range={'start': month_start, 'end': today_end},
             group_by=['date'],
-            pagination={'page': 1, 'per_page': 1}
+            pagination={'page': 1, 'per_page': 1},
+            force_publisher_view=True
         )
         
         return jsonify({
@@ -350,7 +356,8 @@ def export_report():
                 date_range=date_range,
                 filters=filters,
                 group_by=group_by,
-                pagination={'page': 1, 'per_page': 1000}  # Max 1000 for export
+                pagination={'page': 1, 'per_page': 1000},  # Max 1000 for export
+                force_publisher_view=True
             )
             
             if 'error' in report:
@@ -395,7 +402,8 @@ def export_report():
                 user_id=user_id,
                 date_range=date_range,
                 filters=filters,
-                pagination={'page': 1, 'per_page': 1000}
+                pagination={'page': 1, 'per_page': 1000},
+                force_publisher_view=True
             )
             
             if 'error' in report:

@@ -90,6 +90,10 @@ const Users = () => {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [previewUser, setPreviewUser] = useState<User | null>(null);
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("Your MoustacheLeads Signed Agreement");
+  const [emailContent, setEmailContent] = useState("");
+  const [emailUser, setEmailUser] = useState<User | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [inlineMailTo, setInlineMailTo] = useState<string | null>(null);
   const [selectedLevel, setSelectedLevel] = useState<string>("");
@@ -262,6 +266,38 @@ const Users = () => {
     const status = activeTab === 'all' ? undefined : activeTab;
     fetchUsers(status);
   }, [activeTab]);
+
+  const openEmailDialog = (user: User) => {
+    setEmailUser(user);
+    setEmailSubject("Your MoustacheLeads Signed Agreement");
+    setEmailContent(`<p>Dear ${user.first_name || user.username || 'Partner'},</p>
+<p>Please find attached your signed Publisher Agreement with MoustacheLeads.</p>
+<p>Thank you for partnering with us!</p>
+<br/>
+<p>Best regards,<br/>The MoustacheLeads Team</p>`);
+    setShowEmailDialog(true);
+  };
+
+  const handleSendAgreement = async () => {
+    if (!emailUser) return;
+    try {
+      const token = localStorage.getItem('token');
+      toast({ title: "Sending...", description: "Preparing to email the agreement." });
+      setShowEmailDialog(false);
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/users/${emailUser._id}/send-agreement`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: emailSubject, content: emailContent })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to send agreement');
+
+      toast({ title: "Success", description: data.message });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message || "Failed to send agreement email", variant: "destructive" });
+    }
+  };
+
 
   const handleApprove = async (userId: string) => {
     try {
@@ -1187,16 +1223,25 @@ const Users = () => {
                                                 <p className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Agreement Version</p>
                                                 <p className="text-sm font-bold text-slate-900">v1.0 (Publisher + NDA)</p>
                                               </div>
-                                              <Button 
-                                                 variant="outline" 
-                                                 className="w-full flex items-center justify-center gap-2 border-blue-600 text-blue-600 hover:bg-blue-50 font-bold"
-                                                 onClick={() => {
-                                                   setPreviewUser(user);
-                                                   setShowPreviewDialog(true);
-                                                 }}
-                                               >
-                                                 <Eye className="h-4 w-4" /> View Signed Agreement
-                                               </Button>
+                                              <div className="grid grid-cols-2 gap-2">
+                                                <Button 
+                                                   variant="outline" 
+                                                   className="w-full flex items-center justify-center gap-2 border-blue-600 text-blue-600 hover:bg-blue-50 font-bold text-xs px-2"
+                                                   onClick={() => {
+                                                     setPreviewUser(user);
+                                                     setShowPreviewDialog(true);
+                                                   }}
+                                                 >
+                                                   <Eye className="h-4 w-4" /> View PDF
+                                                 </Button>
+                                                 <Button 
+                                                   variant="outline" 
+                                                   className="w-full flex items-center justify-center gap-2 border-indigo-600 text-indigo-600 hover:bg-indigo-50 font-bold text-xs px-2"
+                                                   onClick={() => openEmailDialog(user)}
+                                                 >
+                                                   <Send className="h-4 w-4" /> Email PDF
+                                                 </Button>
+                                              </div>
                                             </div>
                                             
                                             {/* Column 2: Contract Information */}
@@ -1662,7 +1707,7 @@ const Users = () => {
                   <div className="space-y-4">
                     <p className="text-[10px] font-bold uppercase text-slate-400 tracking-widest">For Company</p>
                     <div className="h-32 border border-slate-100 rounded-lg bg-slate-50 flex items-center justify-center p-4">
-                      <img src="https://i.imgur.com/7bQ6p2v.png" alt="Stamp" className="h-24 object-contain opacity-90" />
+                      <img src="/signature.jpeg" alt="Stamp" className="h-24 object-contain opacity-90" />
                     </div>
                     <div className="pt-2 border-t-2 border-slate-900">
                       <p className="font-bold text-slate-900 uppercase">Shivam Julka</p>
@@ -1810,7 +1855,7 @@ const Users = () => {
                 <div className="grid grid-cols-2 gap-12 mt-8">
                   <div className="space-y-4">
                     <div className="h-24 border border-slate-50 bg-slate-50/50 flex items-center justify-center p-4">
-                      <img src="https://i.imgur.com/7bQ6p2v.png" alt="Stamp" className="h-16 object-contain opacity-70" />
+                      <img src="/signature.jpeg" alt="Stamp" className="h-16 object-contain opacity-70" />
                     </div>
                     <div className="pt-1 border-t border-slate-900">
                       <p className="font-bold text-sm">Shivam Julka</p>
@@ -1838,9 +1883,68 @@ const Users = () => {
             </div>
           </div>
 
-          <DialogFooter className="p-6 border-t bg-white sticky bottom-0 z-50">
-            <Button onClick={() => setShowPreviewDialog(false)} className="px-8 bg-slate-900 hover:bg-slate-800 text-white font-bold h-12 rounded-xl">
+          <DialogFooter className="p-6 border-t bg-white sticky bottom-0 z-50 flex sm:justify-between items-center w-full">
+            <Button onClick={() => setShowPreviewDialog(false)} variant="outline" className="px-8 font-bold h-12 rounded-xl">
               Close Preview
+            </Button>
+            <Button 
+              onClick={() => {
+                if (previewUser) {
+                  setShowPreviewDialog(false);
+                  openEmailDialog(previewUser);
+                }
+              }} 
+              className="px-8 bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-12 rounded-xl flex items-center gap-2"
+            >
+              <Send className="h-5 w-5" /> Email Agreement to Publisher
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Email Dialog */}
+      <Dialog open={showEmailDialog} onOpenChange={setShowEmailDialog}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto bg-slate-50 border-0 p-0 shadow-2xl">
+          <DialogHeader className="bg-gradient-to-r from-indigo-900 to-indigo-800 p-6 rounded-t-lg sticky top-0 z-10">
+            <div className="flex justify-between items-start">
+              <div>
+                <DialogTitle className="text-xl font-bold text-white flex items-center gap-2">
+                  <Send className="w-5 h-5 text-indigo-300" /> Send Agreement PDF
+                </DialogTitle>
+                <DialogDescription className="text-indigo-200 mt-1">
+                  Email the signed Publisher Agreement to {emailUser?.first_name} {emailUser?.last_name} ({emailUser?.email})
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="p-6 space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700">Email Subject</label>
+              <Input 
+                value={emailSubject}
+                onChange={(e) => setEmailSubject(e.target.value)}
+                className="font-medium"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700">Email Body (HTML supported)</label>
+              <Textarea 
+                value={emailContent}
+                onChange={(e) => setEmailContent(e.target.value)}
+                rows={10}
+                className="font-mono text-sm resize-none"
+              />
+              <p className="text-xs text-slate-500">The PDF will be automatically attached to this email.</p>
+            </div>
+          </div>
+
+          <DialogFooter className="p-6 border-t bg-white sticky bottom-0 z-10 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowEmailDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendAgreement} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold flex items-center gap-2">
+              <Send className="w-4 h-4" /> Send Email
             </Button>
           </DialogFooter>
         </DialogContent>

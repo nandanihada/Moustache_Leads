@@ -114,6 +114,7 @@ import { AgreementPage } from "./pages/AgreementPage";
 import { SignaturePage } from "./pages/SignaturePage";
 import { AdminSearchIntelligence } from "./pages/AdminSearchIntelligence";
 import AdminPlatformSettings from "./pages/AdminPlatformSettings";
+import AdminTopOffers from "./pages/AdminTopOffers";
 import AdminReviewSubmissions from "./pages/AdminReviewSubmissions";
 const AdminOfferwallManager = lazy(() => import("./pages/AdminOfferwallManager"));
 const AdminSurveyBuilder = lazy(() => import("./pages/AdminSurveyBuilder"));
@@ -258,6 +259,7 @@ const App = () => (
                 <Route path="support-hub" element={<AdminSupportHub />} />
                 <Route path="search-intelligence" element={<AdminSearchIntelligence />} />
                 <Route path="platform-settings" element={<AdminPlatformSettings />} />
+                <Route path="top-offers" element={<AdminTopOffers />} />
                 <Route path="review-submissions" element={<AdminReviewSubmissions />} />
                 <Route path="offerwall-manager" element={<AdminOfferwallManager />} />
                 <Route path="survey-builder" element={<AdminSurveyBuilder />} />

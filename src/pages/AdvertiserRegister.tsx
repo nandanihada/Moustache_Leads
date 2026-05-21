@@ -247,8 +247,8 @@ export default function AdvertiserRegister() {
                 <div>
                   <label className="block text-sm font-medium text-gray-200 mb-1">Password *</label>
                   <div className="relative">
-                    <input name="password" type={showPassword ? "text" : "password"} className={inputClass('password')} placeholder="••••••••" value={formData.password} onChange={handleChange} />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                    <input name="password" type={showPassword ? "text" : "password"} className={`${inputClass('password')} pr-12`} placeholder="••••••••" value={formData.password} onChange={handleChange} />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white z-10">
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                   </div>
@@ -257,8 +257,8 @@ export default function AdvertiserRegister() {
                 <div>
                   <label className="block text-sm font-medium text-gray-200 mb-1">Password Confirmation *</label>
                   <div className="relative">
-                    <input name="passwordConfirmation" type={showConfirmPassword ? "text" : "password"} className={inputClass('passwordConfirmation')} placeholder="••••••••" value={formData.passwordConfirmation} onChange={handleChange} />
-                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white">
+                    <input name="passwordConfirmation" type={showConfirmPassword ? "text" : "password"} className={`${inputClass('passwordConfirmation')} pr-12`} placeholder="••••••••" value={formData.passwordConfirmation} onChange={handleChange} />
+                    <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white z-10">
                       {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
                   </div>

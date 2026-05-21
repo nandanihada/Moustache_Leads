@@ -7,9 +7,8 @@ client = MongoClient(Config.MONGODB_URI)
 db = client[Config.DATABASE_NAME]
 coll = db['login_logs']
 users = [
-    {'username': 'tomaswin529', 'email': 'tomaswin5@gmail.com'},
-    {'username': 'owner58', 'email': 'owner@cashylo.com'},
-    {'username': 'jahnson439', 'email': 'jahnson4@gmail.com'},
+    {'username': 'harry.singh64', 'email': 'harry.singh@pepsico.com'},
+    {'username': 'admin', 'email': 'admin@moustacheleads.com'},
 ]
 
 for u in users:

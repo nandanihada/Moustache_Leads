@@ -59,28 +59,25 @@ class PDFService:
         elements = []
 
         def get_signature_table():
-            # Prepare Company Side
-            company_col = []
-            company_col.append(Paragraph("<b>For Company</b>", self.styles['Normal']))
-            company_col.append(Spacer(1, 0.1 * inch))
+            # Get Company Image
+            company_img = None
             try:
-                import urllib.request
-                stamp_url = "https://i.imgur.com/7bQ6p2v.png"
-                stamp_data = urllib.request.urlopen(stamp_url).read()
-                stamp_img = Image(BytesIO(stamp_data))
-                stamp_img.drawWidth = 1.2 * inch
-                stamp_img.drawHeight = 0.8 * inch
-                company_col.append(stamp_img)
-            except:
-                company_col.append(Spacer(1, 0.8 * inch))
-            company_col.append(Paragraph("<b>Shivam Julka</b>", self.styles['Normal']))
-            company_col.append(Paragraph("CMO / Co-founder", self.styles['Normal']))
-            company_col.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d')}", self.styles['Normal']))
+                import os
+                signature_path = os.path.join(os.getcwd(), 'uploads', 'signature.jpeg')
+                if os.path.exists(signature_path):
+                    stamp_img = Image(signature_path)
+                    aspect = stamp_img.imageWidth / stamp_img.imageHeight
+                    stamp_img.drawWidth = 1.6 * inch
+                    stamp_img.drawHeight = (1.6 * inch) / aspect
+                    company_img = stamp_img
+                else:
+                    company_img = Spacer(1, 0.8 * inch)
+            except Exception as e:
+                logger.error(f"Error loading company signature: {e}")
+                company_img = Spacer(1, 0.8 * inch)
 
-            # Prepare Publisher Side
-            publisher_col = []
-            publisher_col.append(Paragraph("<b>For Publisher</b>", self.styles['Normal']))
-            publisher_col.append(Spacer(1, 0.1 * inch))
+            # Get Publisher Image
+            publisher_img = None
             try:
                 if "," in signature_base64:
                     encoded = signature_base64.split(",", 1)[1]
@@ -89,22 +86,39 @@ class PDFService:
                 img_data = base64.b64decode(encoded)
                 sig_img = Image(BytesIO(img_data))
                 aspect = sig_img.imageWidth / sig_img.imageHeight
-                sig_img.drawWidth = 1.8 * inch
-                sig_img.drawHeight = (1.8 * inch) / aspect
-                publisher_col.append(sig_img)
+                sig_img.drawWidth = 1.6 * inch
+                sig_img.drawHeight = (1.6 * inch) / aspect
+                publisher_img = sig_img
             except:
-                publisher_col.append(Spacer(1, 0.8 * inch))
-            publisher_col.append(Paragraph(f"<b>{user_data.get('firstName', '')} {user_data.get('lastName', '')}</b>", self.styles['Normal']))
-            publisher_col.append(Paragraph("Authorized Representative", self.styles['Normal']))
-            publisher_col.append(Paragraph(f"Date: {datetime.now().strftime('%Y-%m-%d')}", self.styles['Normal']))
+                publisher_img = Spacer(1, 0.8 * inch)
 
-            # Combine into Table
-            data = [[company_col, publisher_col]]
-            t = Table(data, colWidths=[3 * inch, 3 * inch])
+            pub_name = f"{user_data.get('firstName', '')} {user_data.get('lastName', '')}".strip()
+            if not pub_name:
+                pub_name = "PUBLISHER"
+
+            # Build Table Data (Row by Row to ensure alignment)
+            data = [
+                [Paragraph("<font size=7 color=gray><b>SURVTIT MARKET RESEARCH SURVEY LLP</b></font>", self.styles['Normal']), 
+                 Paragraph(f"<font size=7 color=gray><b>{pub_name.upper()} (PUBLISHER)</b></font>", self.styles['Normal'])],
+                [Spacer(1, 0.1 * inch), Spacer(1, 0.1 * inch)],
+                [company_img, publisher_img],
+                [Spacer(1, 0.1 * inch), Spacer(1, 0.1 * inch)],
+                [Paragraph("<b>SHIVAM JULKA</b>", self.styles['Normal']), Paragraph(f"<b>{pub_name.upper()}</b>", self.styles['Normal'])],
+                [Paragraph("<font color=gray>CMO / Co-founder</font>", self.styles['Normal']), Paragraph("<font color=gray>Authorized Representative</font>", self.styles['Normal'])],
+                [Paragraph(f"<font size=8 color=gray><i>Date: {datetime.now().strftime('%B %d, %Y')}</i></font>", self.styles['Normal']), 
+                 Paragraph(f"<font size=8 color=gray><i>Date: {datetime.now().strftime('%B %d, %Y')}</i></font>", self.styles['Normal'])]
+            ]
+            
+            t = Table(data, colWidths=[3.2 * inch, 3.2 * inch])
             t.setStyle(TableStyle([
-                ('VALIGN', (0,0), (-1,-1), 'TOP'),
+                ('VALIGN', (0,0), (-1,-1), 'BOTTOM'),
                 ('LEFTPADDING', (0,0), (-1,-1), 0),
-                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 20),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+                ('TOPPADDING', (0,0), (-1,-1), 2),
+                ('LINEABOVE', (0,4), (0,4), 1, colors.black),
+                ('LINEABOVE', (1,4), (1,4), 1, colors.black),
+                ('TOPPADDING', (0,4), (-1,4), 6),
             ]))
             return t
 

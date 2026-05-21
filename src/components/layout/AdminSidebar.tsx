@@ -112,6 +112,7 @@ const adminMenuStructure = [
     type: "group" as const,
     subtabs: [
       { title: "Offers", url: "/admin/offers", icon: Gift, tab: "offers" },
+      { title: "Top Offers Management", url: "/admin/top-offers", icon: Sparkles, tab: "top-offers" },
       { title: "OffersNew", url: "/admin/offers-new", icon: Gift, tab: "offers-new" },
       { title: "Public Smart Link", url: "/admin/offers-v3", icon: Globe, tab: "offers-v3" },
       { title: "Smart Links", url: "/admin/smart-links", icon: Zap, tab: "smart-links" },
