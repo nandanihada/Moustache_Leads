@@ -124,6 +124,15 @@ export default function SurveyFunnelPage() {
     if (!funnelId || !survey) return;
     setSubmitting(true);
 
+    // Open a blank tab IMMEDIATELY (while we still have user gesture context)
+    // This prevents popup blockers. We'll use it later if needed, or close it.
+    const preOpenedTab = window.open('about:blank', '_blank');
+    // Show a loading state in the new tab so user doesn't see blank page
+    if (preOpenedTab) {
+      preOpenedTab.document.write('<html><head><title>Loading...</title><style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f8f5ff}div{text-align:center}.spinner{width:48px;height:48px;border:4px solid #e5e7eb;border-top-color:#8b5cf6;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px}@keyframes spin{to{transform:rotate(360deg)}}h2{color:#1f2937;font-size:18px;margin-bottom:8px}p{color:#6b7280;font-size:14px}</style></head><body><div><div class="spinner"></div><h2>Loading your survey...</h2><p>Please wait</p></div></body></html>');
+      preOpenedTab.document.close();
+    }
+
     // Phase 1: Show processing spinner
     setPhase('processing');
 
@@ -153,18 +162,73 @@ export default function SurveyFunnelPage() {
           });
           setPhase('result');
 
-          // After showing pass message, spin again then redirect
-          setTimeout(() => {
-            setPhase('transitioning');
-            setTimeout(() => {
-              if (data.redirect_url) {
-                window.location.href = data.redirect_url;
+          // Check if this step uses the survey router
+          if (data.use_survey_router && data.router_partner_id) {
+            // Route to external survey via survey router
+            setTimeout(async () => {
+              setPhase('transitioning');
+              try {
+                const { startRouterSession } = await import('@/services/surveyRouterApi');
+                const routerRes = await startRouterSession({
+                  user_id: 'anonymous',
+                  funnel_id: funnelId || '',
+                  qualification_answers: Object.entries(answers).map(([qIdx, answer]) => ({
+                    question_index: Number(qIdx),
+                    answer
+                  })),
+                  partner_id: data.router_partner_id,
+                  redirect_url: data.redirect_url || '',
+                  scenario: data.router_scenario || 'new_tab',
+                });
+                if (routerRes.success) {
+                  const targetUrl = data.redirect_url || routerRes.redirect_url;
+                  const scenario = data.router_scenario || 'new_tab';
+                  
+                  if (scenario === 'same_tab' && targetUrl) {
+                    // Same tab: close pre-opened tab, redirect current tab
+                    if (preOpenedTab && !preOpenedTab.closed) preOpenedTab.close();
+                    window.location.href = targetUrl;
+                  } else if (targetUrl) {
+                    // New tab: navigate pre-opened tab to survey, current tab to polling
+                    if (preOpenedTab && !preOpenedTab.closed) {
+                      preOpenedTab.location.href = targetUrl;
+                    }
+                    window.location.href = `/survey-router/poll?session_id=${routerRes.session_id}&attempt_id=${routerRes.attempt_id}`;
+                  } else {
+                    if (preOpenedTab && !preOpenedTab.closed) preOpenedTab.close();
+                    window.location.href = `/survey-router/poll?session_id=${routerRes.session_id}&attempt_id=${routerRes.attempt_id}`;
+                  }
+                } else if (data.redirect_url) {
+                  // Fallback: just redirect to pass_url directly
+                  if (preOpenedTab && !preOpenedTab.closed) preOpenedTab.close();
+                  window.location.href = data.redirect_url;
+                }
+              } catch (err) {
+                console.error('Survey router start failed:', err);
+                // Fallback: redirect directly
+                if (preOpenedTab && !preOpenedTab.closed) preOpenedTab.close();
+                if (data.redirect_url) {
+                  window.location.href = data.redirect_url;
+                }
+                setPhase('result');
               }
-            }, spinnerDuration * 1000);
-          }, 3000); // Show pass message for 3 seconds
+            }, 3000);
+          } else {
+            // Normal redirect to offer URL — close pre-opened tab
+            if (preOpenedTab && !preOpenedTab.closed) preOpenedTab.close();
+            setTimeout(() => {
+              setPhase('transitioning');
+              setTimeout(() => {
+                if (data.redirect_url) {
+                  window.location.href = data.redirect_url;
+                }
+              }, spinnerDuration * 1000);
+            }, 3000); // Show pass message for 3 seconds
+          }
 
         } else {
-          // Failed
+          // Failed — close pre-opened tab
+          if (preOpenedTab && !preOpenedTab.closed) preOpenedTab.close();
           setResultData({
             type: 'fail',
             message: data.message,

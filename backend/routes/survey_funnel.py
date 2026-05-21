@@ -192,7 +192,8 @@ def update_funnel(funnel_id):
         update_fields = {'updated_at': datetime.utcnow()}
         allowed = ['name', 'description', 'status', 'placement', 'placement_offer_id', 'steps', 'fail_message',
                    'display_title', 'display_description', 'display_image_url', 'display_payout', 'display_category',
-                   'survey_template', 'questions_per_page', 'spinner_duration', 'survey_timeout']
+                   'survey_template', 'questions_per_page', 'spinner_duration', 'survey_timeout',
+                   'use_survey_router', 'router_provider_id']
         for field in allowed:
             if field in data:
                 update_fields[field] = data[field]
@@ -395,9 +396,12 @@ def submit_step(funnel_id):
             )
 
         if passed:
-            # User passed! Redirect to offer URL
+            # User passed! Check if this step routes to an external survey (survey router)
             redirect_url = current_step.get('pass_url', '')
-            
+            use_survey_router = current_step.get('use_survey_router', False)
+            router_partner_id = current_step.get('router_partner_id', '')
+            router_scenario = current_step.get('router_scenario', 'new_tab')
+
             # Update history
             if history_col is not None and session_id:
                 history_col.update_one(
@@ -413,6 +417,17 @@ def submit_step(funnel_id):
             
             # Update funnel stats
             funnels_col.update_one({'funnel_id': funnel_id}, {'$inc': {'stats.total_passes': 1}})
+
+            # If survey router is enabled for this step, return router info
+            if use_survey_router and router_partner_id:
+                return jsonify({
+                    'result': 'passed',
+                    'use_survey_router': True,
+                    'router_partner_id': router_partner_id,
+                    'router_scenario': router_scenario,
+                    'redirect_url': redirect_url,
+                    'message': current_step.get('pass_message', 'Congratulations! You qualify.'),
+                }), 200
 
             return jsonify({
                 'result': 'passed',

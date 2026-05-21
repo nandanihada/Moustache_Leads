@@ -14,6 +14,8 @@ import {
   PassCriteria,
   PassRule,
 } from '@/services/surveyFunnelApi';
+import { getProviders, SurveyProvider } from '@/services/surveyRouterApi';
+import { partnerApi, Partner } from '@/services/partnerApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -239,6 +241,13 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
   const [expandedStep, setExpandedStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  // Fetch upward partners for the survey router dropdown
+  const { data: partnersData } = useQuery({
+    queryKey: ['partners-for-router'],
+    queryFn: () => partnerApi.getPartners('active'),
+  });
+  const partners: Partner[] = partnersData?.partners || [];
+
   function createEmptyStep(num: number): FunnelStep {
     return {
       survey_title: `Survey ${num}`,
@@ -335,7 +344,7 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
 
   const handleSave = async () => {
     if (!name.trim()) { toast.error('Funnel name is required'); return; }
-    if (steps.some(s => !s.pass_url.trim())) { toast.error('Each step needs a redirect URL on pass'); return; }
+    if (steps.some(s => !s.pass_url.trim())) { toast.error('Each step needs a redirect URL'); return; }
 
     setSaving(true);
     try {
@@ -510,7 +519,7 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
             <div key={i} className="flex items-center gap-1">
               <div className="flex items-center gap-1 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
                 <span className="font-bold">{i + 1}.</span> {step.survey_title}
-                <span className="text-[10px] text-blue-500 ml-1">→ {step.pass_url ? '✓ Offer' : '⚠ No URL'}</span>
+                <span className="text-[10px] text-blue-500 ml-1">→ {step.use_survey_router ? '🔀 Router' : step.pass_url ? '✓ Offer' : '⚠ No URL'}</span>
               </div>
               {i < steps.length - 1 && <span className="text-red-400 text-xs font-medium">fail →</span>}
             </div>
@@ -531,7 +540,8 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
                 <span className="bg-blue-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center">{stepIdx + 1}</span>
                 <span className="font-medium">{step.survey_title}</span>
                 <Badge variant="outline" className="text-xs">{step.questions.length} Q</Badge>
-                {step.pass_url && <Badge className="text-xs bg-green-100 text-green-700">Has redirect</Badge>}
+                {step.use_survey_router && <Badge className="text-xs bg-purple-100 text-purple-700">Survey Router</Badge>}
+                {!step.use_survey_router && step.pass_url && <Badge className="text-xs bg-green-100 text-green-700">Has redirect</Badge>}
               </div>
               <div className="flex items-center gap-1">
                 {steps.length > 1 && (
@@ -552,9 +562,110 @@ function FunnelBuilder({ funnel, onBack, onSaved }: { funnel: SurveyFunnel | nul
                     <Input value={step.survey_title} onChange={(e) => updateStep(stepIdx, { survey_title: e.target.value })} />
                   </div>
                   <div>
-                    <label className="text-sm font-medium">Redirect URL on Pass *</label>
-                    <Input value={step.pass_url} onChange={(e) => updateStep(stepIdx, { pass_url: e.target.value })} placeholder="https://offer-link.com/..." />
+                    <label className="text-sm font-medium">{step.use_survey_router ? 'External Survey URL *' : 'Redirect URL on Pass *'}</label>
+                    <Input
+                      value={step.pass_url}
+                      onChange={(e) => updateStep(stepIdx, { pass_url: e.target.value })}
+                      placeholder={step.use_survey_router ? 'https://partner-survey.com/survey/123' : 'https://offer-link.com/...'}
+                    />
                   </div>
+                </div>
+
+                {/* Survey Router Toggle */}
+                <div className="border rounded-lg p-3 bg-purple-50/50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm font-medium flex items-center gap-2">
+                        <Route className="h-4 w-4 text-purple-600" />
+                        Use Survey Router
+                      </label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Route user to an external survey (partner) and wait for postback result
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updateStep(stepIdx, { use_survey_router: !step.use_survey_router })}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        step.use_survey_router ? 'bg-purple-600' : 'bg-gray-200'
+                      }`}
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        step.use_survey_router ? 'translate-x-6' : 'translate-x-1'
+                      }`} />
+                    </button>
+                  </div>
+
+                  {step.use_survey_router && (
+                    <div className="space-y-3 pt-2 border-t">
+                      {/* Partner Selection */}
+                      <div>
+                        <label className="text-sm font-medium">Upward Partner</label>
+                        <p className="text-xs text-muted-foreground">The partner whose postback will confirm survey completion</p>
+                        {partners.length === 0 ? (
+                          <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded mt-1">
+                            No active partners found. Create one in Partners section first.
+                          </p>
+                        ) : (
+                          <Select
+                            value={step.router_partner_id || ''}
+                            onValueChange={(v) => updateStep(stepIdx, { router_partner_id: v })}
+                          >
+                            <SelectTrigger className="mt-1"><SelectValue placeholder="Select partner..." /></SelectTrigger>
+                            <SelectContent>
+                              {partners.map((p) => (
+                                <SelectItem key={p.partner_id} value={p.partner_id}>
+                                  {p.partner_name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+
+                      {/* Scenario: Same Tab vs New Tab */}
+                      <div>
+                        <label className="text-sm font-medium">Redirect Behavior</label>
+                        <div className="flex gap-2 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => updateStep(stepIdx, { router_scenario: 'same_tab' })}
+                            className={`flex-1 p-3 rounded-lg border-2 text-left transition-all ${
+                              step.router_scenario === 'same_tab'
+                                ? 'border-purple-500 bg-purple-50'
+                                : 'border-gray-200 hover:border-gray-300'
+                            }`}
+                          >
+                            <p className="text-sm font-medium">Same Tab</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Redirect user in same tab. Partner redirects back when done.
+                            </p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateStep(stepIdx, { router_scenario: 'new_tab' })}
+                            className={`flex-1 p-3 rounded-lg border-2 text-left transition-all ${
+                              step.router_scenario === 'new_tab'
+                                ? 'border-purple-500 bg-purple-50'
+                                : 'border-gray-200 hover:border-gray-300'
+                            }`}
+                          >
+                            <p className="text-sm font-medium">New Tab</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              Open survey in new tab. Show spinner and poll for postback.
+                            </p>
+                          </button>
+                        </div>
+                      </div>
+
+                      {step.router_partner_id && (
+                        <p className="text-xs text-purple-600 bg-purple-50 p-2 rounded">
+                          ✓ When user passes qualification → redirected to pass_url (survey link).
+                          Partner &quot;{partners.find(p => p.partner_id === step.router_partner_id)?.partner_name}&quot; fires postback to confirm result.
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

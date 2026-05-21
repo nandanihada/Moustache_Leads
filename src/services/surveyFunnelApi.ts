@@ -34,6 +34,9 @@ export interface FunnelStep {
   pass_url: string;
   pass_message?: string;
   fail_message?: string;
+  use_survey_router?: boolean;
+  router_partner_id?: string;
+  router_scenario?: 'same_tab' | 'new_tab';
 }
 
 export interface SurveyFunnel {

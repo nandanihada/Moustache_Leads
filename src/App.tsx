@@ -122,6 +122,7 @@ const AdminRedirectRouter = lazy(() => import("./pages/AdminRedirectRouter"));
 import SubWallPage from "./pages/SubWallPage";
 import SurveyFunnelPage from "./pages/SurveyFunnelPage";
 import SurveyPage from "./pages/SurveyPage";
+import SurveyRouterPage from "./pages/SurveyRouterPage";
 
 // Loading fallback for lazy-loaded pages
 const PageLoader = () => <div className="flex items-center justify-center h-full min-h-[200px]"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
@@ -161,6 +162,8 @@ const App = () => (
                 <Route path="/wall/:slug" element={<SubWallPage />} />
                 <Route path="/survey/:surveyId" element={<SurveyPage />} />
                 <Route path="/funnel/:funnelId" element={<SurveyFunnelPage />} />
+                <Route path="/survey-router/return" element={<SurveyRouterPage />} />
+                <Route path="/survey-router/poll" element={<SurveyRouterPage />} />
 
               {/* Protected dashboard routes */}
               <Route

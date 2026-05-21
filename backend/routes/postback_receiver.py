@@ -380,6 +380,12 @@ def receive_postback(unique_key):
         result = received_postbacks_collection.insert_one(received_log)
         logger.info(f"✅ Postback logged: {result.inserted_id}")
 
+        # 🔀 SURVEY ROUTER: Check if this postback matches an active survey router session
+        try:
+            _update_survey_router_session(unique_key, params, post_data, _get_param)
+        except Exception as sr_err:
+            logger.warning(f"Survey router session update failed (non-critical): {sr_err}")
+
         # 🎯 AUTO-CREATE CONVERSION (only from real matched clicks — no fallback)
         conversion_created = False
         conversion_id_result = None
@@ -1324,3 +1330,109 @@ def run_cleanup():
     except Exception as e:
         logger.error(f"Error running cleanup: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# SURVEY ROUTER: Update session when partner postback arrives
+# ============================================================
+
+def _update_survey_router_session(unique_key, params, post_data, get_param_fn):
+    """
+    When a postback arrives from a partner, check if there's an active
+    survey_router_session waiting for this partner's postback.
+    If found, update the session status so the polling frontend knows.
+    
+    Matching logic:
+    - Find sessions where current_attempt.partner_unique_key == unique_key
+    - OR match by session_id/attempt_id if passed in postback params
+    """
+    sessions_col = get_collection('survey_router_sessions')
+    if sessions_col is None:
+        return
+
+    # Try to match by session_id first (if partner passes it through)
+    session_id = get_param_fn('session_id')
+    attempt_id = get_param_fn('attempt_id')
+    
+    # Also try click_id as session_id (common mapping)
+    if not session_id:
+        session_id = get_param_fn('click_id')
+    if not attempt_id:
+        attempt_id = get_param_fn('sub1')
+
+    session = None
+    
+    if session_id:
+        session = sessions_col.find_one({'session_id': session_id, 'status': 'in_progress'})
+    
+    # Fallback: find by partner unique key (any in-progress session for this partner)
+    if not session:
+        # Find partner_id from unique_key
+        partners_col = get_collection('partners')
+        if partners_col is not None:
+            partner = partners_col.find_one({'unique_postback_key': unique_key})
+            if partner:
+                partner_id = partner.get('partner_id', '')
+                logger.info(f"🔀 Survey router: looking for session with partner_id={partner_id}")
+                # Find most recent in-progress session for this partner
+                session = sessions_col.find_one(
+                    {'current_attempt.partner_id': partner_id, 'status': 'in_progress'},
+                    sort=[('created_at', -1)]
+                )
+
+    if not session:
+        logger.info(f"🔀 Survey router: no matching session found for key={unique_key}")
+        return  # No matching survey router session
+
+    # Determine status from postback params
+    status_raw = get_param_fn('status') or get_param_fn('event_type') or get_param_fn('event') or ''
+    status_lower = status_raw.lower().strip()
+    
+    if status_lower in ('complete', 'completed', 'success', '1', 'approved'):
+        status = 'completed'
+    elif status_lower in ('fail', 'failed', 'disqualified', 'dq', 'screenout', '0', 'rejected'):
+        status = 'failed'
+    elif status_lower in ('quota_full', 'quotafull', 'over_quota', 'overquota', '2'):
+        status = 'quota_full'
+    else:
+        status = 'completed'  # Default to completed if status unclear
+        status = 'completed'  # Default to completed if status unclear
+
+    payout = 0
+    try:
+        payout_str = get_param_fn('payout') or get_param_fn('amount') or '0'
+        payout = float(payout_str) if payout_str else 0
+    except (ValueError, TypeError):
+        payout = 0
+
+    now = datetime.utcnow()
+    
+    # Update the session
+    update_set = {
+        'current_attempt.status': status,
+        'current_attempt.payout': payout,
+        'current_attempt.postback_received_at': now,
+        'updated_at': now,
+    }
+    
+    if status == 'completed':
+        update_set['status'] = 'completed'
+    
+    sessions_col.update_one(
+        {'_id': session['_id']},
+        {'$set': update_set}
+    )
+    
+    # Also update in the attempts array if we have attempt_id
+    current_attempt_id = session.get('current_attempt', {}).get('attempt_id', '')
+    if current_attempt_id:
+        sessions_col.update_one(
+            {'_id': session['_id'], 'attempts.attempt_id': current_attempt_id},
+            {'$set': {
+                'attempts.$.status': status,
+                'attempts.$.payout': payout,
+                'attempts.$.postback_received_at': now,
+            }}
+        )
+
+    logger.info(f"🔀 Survey router session updated: {session.get('session_id')} → {status} (payout: {payout})")
