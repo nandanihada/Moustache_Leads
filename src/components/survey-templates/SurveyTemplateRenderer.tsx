@@ -352,9 +352,9 @@ function UnifiedTemplate({ title, description, questions, answers, onAnswer, onS
   const pageAllAnswered = visibleQuestions.every(q => answers[q._origIdx] !== undefined);
 
   return (
-    <div style={{ fontFamily: theme.fontFamily }} className="min-h-screen flex flex-col md:flex-row">
+    <div style={{ fontFamily: theme.fontFamily }} className="h-screen flex flex-col md:flex-row overflow-hidden">
       {/* ===== LEFT PANEL: Questions ===== */}
-      <div className="flex-1 relative overflow-hidden" style={{ background: theme.bgGradient }}>
+      <div className="flex-1 relative overflow-y-auto" style={{ background: theme.bgGradient }}>
         {/* Decorative background pattern */}
         <div className="absolute inset-0 pointer-events-none" style={{ opacity: theme.patternOpacity }}>
           <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
@@ -372,7 +372,7 @@ function UnifiedTemplate({ title, description, questions, answers, onAnswer, onS
         <div className="absolute bottom-20 right-10 w-48 h-48 rounded-full opacity-10" style={{ background: 'radial-gradient(circle, white 0%, transparent 70%)' }} />
 
         {/* Content */}
-        <div className="relative z-10 flex items-start justify-center p-6 md:p-10 lg:p-14 min-h-screen">
+        <div className="relative z-10 flex items-start justify-center p-6 md:p-10 lg:p-14 min-h-full">
           <div
             className="w-full max-w-2xl rounded-3xl overflow-hidden"
             style={{
@@ -514,7 +514,7 @@ function UnifiedTemplate({ title, description, questions, answers, onAnswer, onS
 
       {/* ===== RIGHT PANEL: Submit ===== */}
       <div
-        className="w-full md:w-[320px] lg:w-[360px] flex flex-col border-l"
+        className="w-full md:w-[320px] lg:w-[360px] flex flex-col border-l flex-shrink-0"
         style={{ background: theme.rightPanelBg, borderColor: theme.optionBorder }}
       >
         <div className="flex-1 flex flex-col justify-center items-center px-8 py-12">
