@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { offerwallManagerApi, OfferwallSettings, OfferwallStats } from "@/services/offerwallManagerApi";
 import { useToast } from "@/hooks/use-toast";
+import { TEMPLATE_OPTIONS, TemplateName } from "@/components/survey-templates/SurveyTemplateRenderer";
 import {
   Card, CardContent, CardHeader, CardTitle
 } from "@/components/ui/card";
@@ -36,7 +37,7 @@ const AdminOfferwallManager = () => {
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
   const [offerwallPage, setOfferwallPage] = useState(1);
   const [starterOfferIds, setStarterOfferIds] = useState<string[]>([]);
-  const [qualSurveySettings, setQualSurveySettings] = useState<{points: number; display_title: string; display_description: string; display_image_url: string} | null>(null);
+  const [qualSurveySettings, setQualSurveySettings] = useState<{points: number; display_title: string; display_description: string; display_image_url: string; template: string} | null>(null);
   const [qualSaving, setQualSaving] = useState(false);
 
   // Fetch starter offers
@@ -55,6 +56,7 @@ const AdminOfferwallManager = () => {
             display_title: d.survey.display_title || 'Qualification Survey',
             display_description: d.survey.display_description || 'Complete this survey to unlock all offers and start earning',
             display_image_url: d.survey.display_image_url || '',
+            template: d.survey.template || 'moustache-default',
           });
         }
       })
@@ -670,6 +672,27 @@ const AdminOfferwallManager = () => {
                     {qualSurveySettings.display_image_url && (
                       <img src={qualSurveySettings.display_image_url} alt="Preview" className="mt-2 h-16 w-auto rounded border object-cover" onError={(e) => ((e.target as HTMLImageElement).style.display = 'none')} />
                     )}
+                  </div>
+                  <div>
+                    <Label>Survey Template</Label>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
+                      {TEMPLATE_OPTIONS.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setQualSurveySettings({ ...qualSurveySettings, template: t.id })}
+                          className={`text-left p-3 rounded-lg border-2 transition-all hover:scale-[1.02] ${
+                            qualSurveySettings.template === t.id
+                              ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                              : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="text-xl mb-1">{t.icon}</div>
+                          <p className="font-semibold text-xs text-gray-900">{t.name}</p>
+                          {qualSurveySettings.template === t.id && <p className="text-[10px] text-blue-600 font-semibold mt-0.5">✓ Active</p>}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <Button
                     disabled={qualSaving}

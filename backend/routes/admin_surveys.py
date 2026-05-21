@@ -551,6 +551,10 @@ def update_qualification_settings():
             update_fields['display_description'] = data['display_description']
         if 'display_image_url' in data:
             update_fields['display_image_url'] = data['display_image_url']
+        if 'template' in data:
+            update_fields['template'] = data['template']
+        if 'questions_per_page' in data:
+            update_fields['questions_per_page'] = int(data['questions_per_page'])
 
         if update_fields:
             collection.update_one({'_id': survey['_id']}, {'$set': update_fields})
