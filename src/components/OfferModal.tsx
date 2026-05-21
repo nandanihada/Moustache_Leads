@@ -196,7 +196,7 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
                   <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1">Earn {currencyName}</p>
                   <div className="flex items-baseline gap-2">
                     <span className="text-4xl font-black bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
-                      {payoutToPoints(offer.payout || offer.reward_amount || 0).toLocaleString()}
+                      {payoutToPoints(offer.reward_amount || 0).toLocaleString()}
                     </span>
                     <span className="text-sm font-bold text-gray-600 uppercase">
                       {currencyName}
