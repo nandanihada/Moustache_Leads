@@ -50,8 +50,10 @@ const getDisplayLocation = (user: any) => {
   const city = user.city || user.location?.city;
   const country = user.country || user.location?.country || user.country_code || user.location?.country_code;
 
-  if (city && country && city !== 'Unknown' && country !== 'Unknown') return `${city}, ${country}`;
-  if (country && country !== 'Unknown') {
+  const isValidVal = (val: any) => val && val !== 'Unknown' && val !== 'Tracking...' && val !== 'Location Tracking...' && val !== 'Location Unavailable' && val !== 'XX';
+
+  if (isValidVal(city) && isValidVal(country)) return `${city}, ${country}`;
+  if (isValidVal(country)) {
     if (country.length === 2) {
       try {
         const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -60,12 +62,12 @@ const getDisplayLocation = (user: any) => {
     }
     return country;
   }
-  if (city && city !== 'Unknown') return city;
+  if (isValidVal(city)) return city;
 
   // 2. Intelligence Geos (Top detected geos)
   if (user.intelligence_geos && user.intelligence_geos.length > 0) {
     const topGeo = user.intelligence_geos[0];
-    if (topGeo && topGeo !== 'Unknown' && topGeo !== 'XX') {
+    if (isValidVal(topGeo)) {
       if (topGeo.length === 2) {
         try {
           const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -84,7 +86,7 @@ const getDisplayLocation = (user: any) => {
     if (ip.startsWith('106.') || ip.startsWith('115.') || ip.startsWith('122.')) return 'India';
   }
 
-  return "Unknown";
+  return "Location Unavailable";
 };
 
 const getVerticalsArray = (user: any): string[] => {
@@ -100,9 +102,10 @@ export const SupportHubContent: React.FC<{
   onClose?: () => void;
   initialUsers?: any[];
   initialSelectedIds?: Set<string>;
+  onSelectionChange?: (selectedIds: Set<string>) => void;
   apiUrl?: string;
   className?: string;
-}> = ({ onClose, initialUsers, initialSelectedIds, apiUrl, className }) => {
+}> = ({ onClose, initialUsers, initialSelectedIds, onSelectionChange, apiUrl, className }) => {
   const BASE_API_URL = apiUrl || import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const [activeTab, setActiveTab] = useState('explorer');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'replies'>('replies');
@@ -114,6 +117,7 @@ export const SupportHubContent: React.FC<{
   const [conversations, setConversations] = useState<SupportConversation[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [initialFilterActive, setInitialFilterActive] = useState(!!initialUsers);
+  const [initialSelectionSynced, setInitialSelectionSynced] = useState(false);
   const [channelConnections, setChannelConnections] = useState<Record<string, boolean>>({
     'Telegram': false,
     'Teams': false,
@@ -123,7 +127,7 @@ export const SupportHubContent: React.FC<{
 
   const toggleSelectAll = () => {
     // Check if ALL currently filtered users are already selected
-    const allFilteredSelected = filteredUsers.length > 0 && 
+    const allFilteredSelected = filteredUsers.length > 0 &&
       filteredUsers.every(u => selectedUsers.has(String(u.user_id || u._id)));
 
     if (allFilteredSelected) {
@@ -141,7 +145,12 @@ export const SupportHubContent: React.FC<{
         return next;
       });
     }
-  };
+  };  // Notify parent of selection changes to prevent layout re-renders from clearing state
+  useEffect(() => {
+    if (onSelectionChange) {
+      onSelectionChange(selectedUsers);
+    }
+  }, [selectedUsers, onSelectionChange]);
 
   useEffect(() => {
     if (initialUsers) {
@@ -198,7 +207,7 @@ export const SupportHubContent: React.FC<{
   const combinedOffers = useMemo(() => {
     const selectedIdsArr = Array.from(selectedUsers);
     const currentUserId = selectedIdsArr[previewIdx];
-    
+   
     // Combine queue items, intelligence matched offers, and BACKEND automation offers for ALL SELECTED USERS
     const offers: any[] = [];
     const seenOfferUserKeys = new Set<string>();
@@ -211,7 +220,8 @@ export const SupportHubContent: React.FC<{
           seenOfferUserKeys.add(String(offerId));
           offers.push({
             ...q,
-            id: String(offerId)
+            id: String(offerId),
+            categoryKey: 'queue'
           });
         }
       }
@@ -221,7 +231,7 @@ export const SupportHubContent: React.FC<{
     selectedIdsArr.forEach(uId => {
       const autoItem = automationQueue.find(q => String(q.user_id) === uId);
       const userProfile = allSupportUsers.find(u => String(u.user_id || u._id) === uId);
-      
+     
       if (autoItem?.next_offers && Array.isArray(autoItem.next_offers)) {
         autoItem.next_offers.forEach((o: any) => {
           const offerId = o.id || o.offer_id;
@@ -241,7 +251,8 @@ export const SupportHubContent: React.FC<{
               sendMode: 'combined',
               addedAt: Date.now(),
               scheduledTime: Date.now(),
-              matchScore: 100 // Priority
+              matchScore: 100, // Priority
+              categoryKey: 'queue'
             });
           }
         });
@@ -266,7 +277,8 @@ export const SupportHubContent: React.FC<{
           isIntelligence: true,
           sendMode: 'combined',
           addedAt: Date.now(),
-          scheduledTime: Date.now()
+          scheduledTime: Date.now(),
+          categoryKey: mo.categoryKey || mo.categoryName || 'recommended_offers'
         });
       }
     });
@@ -274,7 +286,7 @@ export const SupportHubContent: React.FC<{
     // Final sorting to ensure Backend/Priority is at top
     offers.sort((a, b) => ((b as any).matchScore || 0) - ((a as any).matchScore || 0));
     return offers;
-  }, [userQueueItems, automationQueue, matchedOffers, selectedUsers, previewIdx, allSupportUsers]);
+  }, [userQueueItems, automationQueue, matchedOffers, selectedUsers, previewIdx, allSupportUsers, currentAutomationItem]);
 
   // Load queue items, intelligence-matched offers, and backend automation state for selected users
   useEffect(() => {
@@ -296,7 +308,7 @@ export const SupportHubContent: React.FC<{
         setUserQueueItems(q);
 
         const token = localStorage.getItem('token');
-        
+       
         // Prepare initial selection for NEW users only
         const userOffers = q.filter(item => String(item.userId) === String(currentUserId) && item.status === 'queued');
         const initialSelected = new Set(userOffers.map(o => String(o.id || o.offerId)));
@@ -322,7 +334,7 @@ export const SupportHubContent: React.FC<{
               adminOfferApi.getOffers({ status: 'active', per_page: 6 }).catch(() => ({ offers: [] }))
             ]);
 
-            if (!active) return; 
+            if (!active) return;
 
             let currentSessionVerticals = null;
             if (viewsRes?.logs && viewsRes.logs.length > 0) {
@@ -348,7 +360,7 @@ export const SupportHubContent: React.FC<{
             // Handle Intelligence Matches (Normalized like UserIntelligenceProfile)
             const matched: any[] = [];
             const seenIds = new Set();
-            
+           
             // PRIORITY: Use backend automation queue (Next steps in the cycle)
             const queueItems = (autoRes.item?.next_offers || globalAutoItem?.next_offers || []);
             if (Array.isArray(queueItems)) {
@@ -356,14 +368,15 @@ export const SupportHubContent: React.FC<{
                 const id = o.offer_id || o._id || o.id;
                 if (id && !seenIds.has(id)) {
                   seenIds.add(id);
-                  matched.push({ 
-                    ...o, 
+                  matched.push({
+                    ...o,
                     id: id,
                     offer_id: id,
                     offerName: o.name || o.offer_name || 'Automation Offer',
-                    source: 'Automation Queue', 
+                    source: 'Automation Queue',
                     matchScore: 100, // Top priority
-                    isBackend: true 
+                    isBackend: true,
+                    categoryKey: 'queue'
                   });
                 }
               });
@@ -375,7 +388,7 @@ export const SupportHubContent: React.FC<{
                   const id = o.offer_id || o._id || o.id;
                   if (!seenIds.has(id)) {
                     seenIds.add(id);
-                    
+                   
                     // Apply optimized vertical-boosting logic
                     let matchScore = Math.max(50, baseScore - (idx * 4));
                     if (allKnownCats.size > 0) {
@@ -394,7 +407,8 @@ export const SupportHubContent: React.FC<{
                       offerName: o.name || o.offer_name || 'Matched Offer',
                       matchScore: matchScore,
                       source: sourceLabel,
-                      isIntelligenceMatch: true
+                      isIntelligenceMatch: true,
+                      categoryKey: sectionName
                     });
                   }
                 });
@@ -402,11 +416,13 @@ export const SupportHubContent: React.FC<{
             };
 
             // Standard sections from loginLogsService.getInventoryMatchedOffers
-            addSection('most_approved', 'Most Approved', 98);
-            addSection('newly_added', 'Newly Added', 91);
-            addSection('highly_clicked', 'Highly Clicked', 87);
-            addSection('recently_edited', 'Recently Edited', 79);
-            addSection('recently_deleted', 'Clearance', 74);
+            addSection('recommended_offers', 'Recommended Offers', 99);
+            addSection('recently_edited', 'Recommended Offers', 99);
+            addSection('most_approved', 'Most Approved Offers', 98);
+            addSection('highly_clicked', 'Most Clicked Offers', 87);
+            addSection('requested_offers', 'Requested Offers', 85);
+            addSection('recently_deleted', 'Requested Offers', 85);
+            addSection('newly_added', 'Newly Added Offers', 91);
 
             // Fallback for generic 'offers' or 'matched_offers' keys
             const genericOffers = intelRes.matched_offers || intelRes.offers || [];
@@ -422,7 +438,8 @@ export const SupportHubContent: React.FC<{
                     offerName: o.name || o.offer_name || 'Matched Offer',
                     matchScore: o.matchScore || 85,
                     source: 'AI Recommendation',
-                    isIntelligenceMatch: true
+                    isIntelligenceMatch: true,
+                    categoryKey: 'ai_recommendation'
                   });
                 }
               });
@@ -441,7 +458,8 @@ export const SupportHubContent: React.FC<{
                     offerName: o.name || o.offer_name || 'Global Offer',
                     matchScore: 50,
                     source: 'Global Match',
-                    isIntelligenceMatch: true
+                    isIntelligenceMatch: true,
+                    categoryKey: 'global'
                   });
                 }
               });
@@ -449,13 +467,26 @@ export const SupportHubContent: React.FC<{
 
             if (!active) return;
 
-            // Sort by match score and limit to top 6
+            // Sort by match score
             matched.sort((a, b) => b.matchScore - a.matchScore);
-            setMatchedOffers(matched.slice(0, 6));
+            setMatchedOffers(matched);
 
             // Handle Backend Automation Item
             const autoItem = autoRes.item || globalAutoItem;
             setCurrentAutomationItem(autoItem);
+
+            if (autoRes.item) {
+              setAutomationQueue(prev => {
+                const index = prev.findIndex(q => String(q.user_id) === String(currentUserId));
+                if (index !== -1) {
+                  const updated = [...prev];
+                  updated[index] = { ...updated[index], ...autoRes.item };
+                  return updated;
+                } else {
+                  return [...prev, autoRes.item];
+                }
+              });
+            }
 
             // If backend has assigned offers, add them to selected by default if they are the primary target
             if (autoItem && autoItem.next_offers && autoItem.next_offers.length > 0) {
@@ -526,17 +557,17 @@ export const SupportHubContent: React.FC<{
     // Robust Placeholder Replacement (handles {user}, {{user}}, [user], [USER], etc.)
     body = body.replace(/{user}|{{user}}|\[user\]/gi, u.username || "User");
     body = body.replace(/{location}|{{location}}|\[location\]/gi, u.city || u.country || "your area");
-    
+   
     const v = Array.isArray(u.verticals) ? u.verticals[0] : (u.verticals || u.vertical || "");
     body = body.replace(/{vertical}|{{vertical}}|\[vertical\]/gi, v || "exclusive");
 
     // Strategy based hooks are now handled by the caller or passed in templateBody
-    
+   
     // Color-coded categorization logic:
     // 1. Purple (Intelligence Matches) -> Show directly in mail
     // 2. Yellow (Automation/Queued) -> Show under "See More"
-    
-    const primaryOffers = intelOffers.filter(mo => 
+   
+    const primaryOffers = intelOffers.filter(mo =>
       selectedQueueOfferIds.has(String(mo.id || mo.offer_id))
     ).map(mo => {
       let text = `[${mo.offerName || mo.name || mo.offer_name}]`;
@@ -545,7 +576,7 @@ export const SupportHubContent: React.FC<{
       return text;
     });
 
-    const secondaryOffers = autoOffers.filter((o: any) => 
+    const secondaryOffers = autoOffers.filter((o: any) =>
       selectedQueueOfferIds.has(String(o.id || o.offer_id))
     ).map((o: any) => {
       let text = `[${o.name || o.offer_name}]`;
@@ -558,7 +589,7 @@ export const SupportHubContent: React.FC<{
     if (primaryOffers.length > 0) {
       offerText = primaryOffers.join(', ');
     }
-    
+   
     if (secondaryOffers.length > 0) {
       const secondaryDisplay = secondaryOffers.join(', ');
       if (offerText) {
@@ -618,7 +649,7 @@ export const SupportHubContent: React.FC<{
     try {
       const token = localStorage.getItem('token');
       const userIds = allSelected ? Array.from(selectedUsers) : [Array.from(selectedUsers)[previewIdx]];
-      
+     
       const promises = userIds.map(uId => {
         const personal = personalOverrides[uId] || { subject: emailSubject, body: editingTemplateBody };
         return fetch(`${BASE_API_URL}/api/admin/automation/override`, {
@@ -632,11 +663,11 @@ export const SupportHubContent: React.FC<{
           }),
         });
       });
-      
+     
       await Promise.all(promises);
-      toast({ 
-        title: 'Content Saved', 
-        description: `Subject and message persisted for ${userIds.length} user(s) into their automation flow.` 
+      toast({
+        title: 'Content Saved',
+        description: `Subject and message persisted for ${userIds.length} user(s) into their automation flow.`
       });
     } catch (e) {
       toast({ title: 'Error', description: 'Failed to save to automation queue', variant: 'destructive' });
@@ -715,9 +746,9 @@ export const SupportHubContent: React.FC<{
           const userAuto = automationQueue.find(q => String(q.user_id) === String(uId));
           const hookText = activeStrategyHook || supportSettings.strategy_hooks?.[selectedMessageType] || '';
           const personalizedBody = getPreview(
-            `${hookText} ${bodyText}`, 
-            user, 
-            user?.inventory_matched_offers || [], 
+            `${hookText} ${bodyText}`,
+            user,
+            user?.inventory_matched_offers || [],
             userAuto?.next_offers || []
           );
 
@@ -844,7 +875,7 @@ export const SupportHubContent: React.FC<{
       const templatesRes = await supportHubService.getTemplates().catch(() => []);
       const templatesList = Array.isArray(templatesRes) ? templatesRes : [];
       setTemplates(templatesList);
-      
+     
       // Auto-select first template if none selected
       if (templatesList.length > 0 && !selectedTemplateId) {
         setSelectedTemplateId(templatesList[0]._id);
@@ -896,10 +927,10 @@ export const SupportHubContent: React.FC<{
       }
 
       // If initialUsers were provided (e.g. from dashboard), set the correct selection state
-      if (initialUsers && initialFilterActive) {
+      if (initialUsers && initialFilterActive && !initialSelectionSynced) {
         console.log(`Support Hub: Syncing with dashboard state (${initialUsers.length} users)`);
-        
-        // If specific selected IDs were passed, use those. 
+       
+        // If specific selected IDs were passed, use those.
         if (initialSelectedIds && initialSelectedIds.size > 0) {
           setSelectedUsers(new Set(initialSelectedIds));
         } else if (initialUsers.length === 1) {
@@ -909,9 +940,13 @@ export const SupportHubContent: React.FC<{
         } else {
           // If we came from the dashboard with multiple users but NO explicit selection,
           // default to NO selection instead of selecting all (prevents user surprise)
-          setSelectedUsers(new Set());
+          // Do not overwrite runtime selection on refresh.
+          if (selectedUsers.size === 0) {
+            setSelectedUsers(new Set());
+          }
         }
         setInitialFilterActive(true);
+        setInitialSelectionSynced(true);
       }
 
       setAllSupportUsers(finalUsers);
@@ -955,12 +990,12 @@ export const SupportHubContent: React.FC<{
 
         const userAuto = automationQueue.find(q => String(q.user_id) === uId);
         const hookText = activeStrategyHook || supportSettings.strategy_hooks?.[selectedMessageType] || '';
-        
+       
         const override = personalOverrides[uId];
         const personalized = override ? override.body : getPreview(
-          `${hookText} ${activeTemplate?.body || ''}`, 
-          user, 
-          user?.inventory_matched_offers || [], 
+          `${hookText} ${activeTemplate?.body || ''}`,
+          user,
+          user?.inventory_matched_offers || [],
           userAuto?.next_offers || []
         );
         const subject = override ? override.subject : (activeTemplate?.subject || 'Recommended Offers');
@@ -1451,9 +1486,15 @@ export const SupportHubContent: React.FC<{
                           <tr
                             key={`${userId}-${idx}`}
                             className={`transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/40' : theme.row}`}
-                            onClick={() => toggleUserSelection(userId)}
+                            onClick={(e) => {
+                              const target = e.target as HTMLElement;
+                              if (target.closest('[role="checkbox"]')) {
+                                return;
+                              }
+                              toggleUserSelection(userId);
+                            }}
                           >
-                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <td className="p-3 text-center">
                               <Checkbox checked={isSelected} onCheckedChange={() => toggleUserSelection(userId)} className="h-4 w-4 rounded-md" />
                             </td>
                             <td className="p-3">
@@ -1674,8 +1715,8 @@ export const SupportHubContent: React.FC<{
                <Badge variant="outline" className="h-6 border-indigo-100 text-indigo-600 bg-indigo-50 font-bold">
                  {offerQueueService.getQueue().filter(q => q.status === 'queued').length} Items Queued
                </Badge>
-               <Button 
-                size="sm" 
+               <Button
+                size="sm"
                 variant={offerQueueService.getIsProcessing() ? "destructive" : "default"}
                 onClick={() => {
                   if (offerQueueService.getIsProcessing()) offerQueueService.pauseQueue();
@@ -1743,9 +1784,9 @@ export const SupportHubContent: React.FC<{
                             <div className="flex justify-end gap-2">
                                {item.status === 'queued' && (
                                  <>
-                                   <Button 
-                                    size="sm" 
-                                    variant="ghost" 
+                                   <Button
+                                    size="sm"
+                                    variant="ghost"
                                     className="h-7 w-7 p-0 text-amber-600"
                                     onClick={() => {
                                       if (item.isPaused) offerQueueService.resumeItem(item.id);
@@ -1755,9 +1796,9 @@ export const SupportHubContent: React.FC<{
                                    >
                                      {item.isPaused ? <Play size={12} /> : <Pause size={12} />}
                                    </Button>
-                                   <Button 
-                                    size="sm" 
-                                    variant="ghost" 
+                                   <Button
+                                    size="sm"
+                                    variant="ghost"
                                     className="h-7 w-7 p-0 text-red-600"
                                     onClick={() => {
                                       offerQueueService.removeItem(item.id);
@@ -2241,7 +2282,7 @@ export const SupportHubContent: React.FC<{
                           <p className="text-[9px] font-bold text-slate-400">Select queued or AI-matched offers</p>
                         </div>
                       </div>
-                      
+                     
 
                     </div>
 
@@ -2283,57 +2324,113 @@ export const SupportHubContent: React.FC<{
                               </div>
                               {isLoadingMatched && <Loader2 size={12} className="animate-spin text-indigo-400" />}
                             </div>
-                             <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                               {combinedOffers.map(offer => {
-                                 const isIntel = offer.isIntelligence;
-                                 const isPrimary = !isIntel;
-                                 const isSelected = selectedQueueOfferIds.has(offer.id);
-                                 
-                                 return (
-                                  <div key={offer.id} onClick={() => {
-                                    setSelectedQueueOfferIds(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(offer.id)) next.delete(offer.id);
-                                      else next.add(offer.id);
-                                      return next;
-                                    });
-                                  }}
-                                    className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all border ${isSelected ? (isPrimary ? 'bg-amber-50/50 border-amber-200 shadow-sm' : 'bg-purple-50/50 border-purple-200 shadow-sm') : 'bg-white border-slate-100 hover:border-slate-300'} group relative`}>
-                                    
-                                    <div className="flex items-center justify-center pl-2">
-                                      <Checkbox checked={isSelected} className={isSelected ? (isPrimary ? 'data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500' : 'data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600') : ''} />
-                                    </div>
+                             <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
+                               {(() => {
+                                 const grouped: Record<string, any[]> = {
+                                   queue: [],
+                                   recommended_offers: [],
+                                   most_approved: [],
+                                   highly_clicked: [],
+                                   requested_offers: [],
+                                   newly_added: []
+                                 };
 
-                                    {/* Image Placeholder */}
-                                    <div className="w-10 h-10 bg-white rounded border border-slate-200 p-1 flex items-center justify-center shrink-0 shadow-sm">
-                                      <img src={offer.image_url || offer.thumbnail_url || 'https://pub-2035987158934571.r2.dev/placeholder.png'} className="w-full h-full object-contain" alt="" />
-                                    </div>
+                                 combinedOffers.forEach(o => {
+                                   const key = o.categoryKey || 'recommended_offers';
+                                   if (key === 'queue') grouped.queue.push(o);
+                                   else if (key === 'recommended_offers' || key === 'recently_edited') grouped.recommended_offers.push(o);
+                                   else if (key === 'most_approved') grouped.most_approved.push(o);
+                                   else if (key === 'highly_clicked') grouped.highly_clicked.push(o);
+                                   else if (key === 'requested_offers' || key === 'recently_deleted') grouped.requested_offers.push(o);
+                                   else if (key === 'newly_added') grouped.newly_added.push(o);
+                                   else grouped.recommended_offers.push(o);
+                                 });
 
-                                    <div className="flex-1 min-w-0 pr-2">
-                                      <div className="flex items-center justify-between mb-0.5">
-                                        <h4 className="text-xs font-bold text-slate-800 truncate pr-2 group-hover:text-indigo-600 transition-colors">{offer.offerName || offer.name || 'Automation Offer'}</h4>
-                                        <Badge variant="outline" className={`text-[8px] border-slate-200 font-bold uppercase tracking-widest shrink-0 ${isPrimary ? 'text-amber-600 bg-amber-50' : 'text-purple-600 bg-purple-50'}`}>
-                                          {isPrimary ? 'Automation Queue' : 'AI Matched'}
-                                        </Badge>
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[9px] font-black uppercase text-slate-400">Payout</span>
-                                          <span className="text-[11px] font-black text-emerald-600">${offer.payout || 0}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[9px] font-black uppercase text-slate-400">Vertical</span>
-                                          <span className="text-[10px] font-bold text-indigo-500">{offer.vertical || offer.category || 'Global'}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[9px] font-black uppercase text-slate-400">Timing</span>
-                                          <span className="text-[10px] font-bold text-slate-500">less than a minute ago</span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                 );
-                               })}
+                                 const getStyles = (k: string) => {
+                                   switch(k) {
+                                     case 'queue': return { label: 'Active Queue Offers', color: 'rgb(127, 47, 190)', bg: 'bg-purple-50/50', border: 'border-purple-200', text: 'text-purple-700', icon: '⚡' };
+                                     case 'recommended_offers': return { label: 'Recommended Offers', color: 'rgb(83, 74, 183)', bg: 'bg-indigo-50/50', border: 'border-indigo-200', text: 'text-indigo-700', icon: '🛍️' };
+                                     case 'most_approved': return { label: 'Most Approved Offers', color: 'rgb(29, 158, 117)', bg: 'bg-emerald-50/50', border: 'border-emerald-200', text: 'text-emerald-700', icon: '✅' };
+                                     case 'highly_clicked': return { label: 'Most Clicked Offers', color: 'rgb(186, 117, 23)', bg: 'bg-amber-50/50', border: 'border-amber-200', text: 'text-amber-700', icon: '🔥' };
+                                     case 'requested_offers': return { label: 'Requested Offers', color: 'rgb(163, 45, 45)', bg: 'bg-red-50/50', border: 'border-red-200', text: 'text-red-700', icon: '🙋' };
+                                     case 'newly_added': return { label: 'Newly Added Offers', color: 'rgb(24, 95, 165)', bg: 'bg-blue-50/50', border: 'border-blue-200', text: 'text-blue-700', icon: '🆕' };
+                                     default: return { label: 'Other Offers', color: 'rgb(100, 116, 139)', bg: 'bg-slate-50/50', border: 'border-slate-200', text: 'text-slate-700', icon: '🎯' };
+                                   }
+                                 };
+
+                                 const hasData = Object.values(grouped).some(arr => arr.length > 0);
+                                 if (!hasData) {
+                                   return <div className="text-center py-6 text-xs text-slate-400 italic">No candidate offers available.</div>;
+                                 }
+
+                                 return Object.entries(grouped).map(([catKey, catOffers]) => {
+                                   if (catOffers.length === 0) return null;
+                                   const styles = getStyles(catKey);
+
+                                   return (
+                                     <div key={catKey} className="space-y-2 border-l-2 pl-3" style={{ borderColor: styles.color }}>
+                                       <div className="flex items-center gap-2 py-0.5">
+                                         <span className="text-[10px]">{styles.icon}</span>
+                                         <span className="text-[10px] font-black uppercase tracking-wider" style={{ color: styles.color }}>
+                                           {styles.label} ({catOffers.length})
+                                         </span>
+                                       </div>
+                                       <div className="space-y-2">
+                                         {catOffers.map(offer => {
+                                           const isIntel = offer.isIntelligence;
+                                           const isPrimary = !isIntel;
+                                           const isSelected = selectedQueueOfferIds.has(offer.id);
+
+                                           return (
+                                             <div key={offer.id} onClick={() => {
+                                               setSelectedQueueOfferIds(prev => {
+                                                 const next = new Set(prev);
+                                                 if (next.has(offer.id)) next.delete(offer.id);
+                                                 else next.add(offer.id);
+                                                 return next;
+                                               });
+                                             }}
+                                               className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all border ${isSelected ? `${styles.bg} ${styles.border} shadow-sm` : 'bg-white border-slate-100 hover:border-slate-300'} group relative`}>
+                                               
+                                               <div className="flex items-center justify-center pl-2">
+                                                 <Checkbox checked={isSelected} className={isSelected ? `data-[state=checked]:bg-[${styles.color}] data-[state=checked]:border-[${styles.color}]` : ''} style={{ backgroundColor: isSelected ? styles.color : '', borderColor: isSelected ? styles.color : '' }} />
+                                               </div>
+
+                                               {/* Image Placeholder */}
+                                               <div className="w-10 h-10 bg-white rounded border border-slate-200 p-1 flex items-center justify-center shrink-0 shadow-sm">
+                                                 <img src={offer.image_url || offer.thumbnail_url || 'https://pub-2035987158934571.r2.dev/placeholder.png'} className="w-full h-full object-contain" alt="" />
+                                               </div>
+
+                                               <div className="flex-1 min-w-0 pr-2">
+                                                 <div className="flex items-center justify-between mb-0.5">
+                                                   <h4 className="text-xs font-bold text-slate-800 truncate pr-2 group-hover:text-indigo-600 transition-colors">{offer.offerName || offer.name || 'Automation Offer'}</h4>
+                                                   <Badge variant="outline" className={`text-[8px] border-slate-200 font-bold uppercase tracking-widest shrink-0 ${isPrimary ? 'text-amber-600 bg-amber-50' : 'text-purple-600 bg-purple-50'}`}>
+                                                     {isPrimary ? 'Automation Queue' : 'AI Matched'}
+                                                   </Badge>
+                                                 </div>
+                                                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
+                                                   <div className="flex items-center gap-1.5">
+                                                     <span className="text-[9px] font-black uppercase text-slate-400">Payout</span>
+                                                     <span className="text-[11px] font-black text-emerald-600">${offer.payout || 0}</span>
+                                                   </div>
+                                                   <div className="flex items-center gap-1.5">
+                                                     <span className="text-[9px] font-black uppercase text-slate-400">Vertical</span>
+                                                     <span className="text-[10px] font-bold text-indigo-500">{offer.vertical || offer.category || 'Global'}</span>
+                                                   </div>
+                                                   <div className="flex items-center gap-1.5">
+                                                     <span className="text-[9px] font-black uppercase text-slate-400">Timing</span>
+                                                     <span className="text-[10px] font-bold text-slate-500">less than a minute ago</span>
+                                                   </div>
+                                                 </div>
+                                               </div>
+                                             </div>
+                                           );
+                                         })}
+                                       </div>
+                                     </div>
+                                   );
+                                 });
+                               })()}
                              </div>
                           </div>
                         );
@@ -2610,7 +2707,7 @@ export const SupportHubContent: React.FC<{
             <div className="flex gap-3">
               <Button variant="ghost" size="sm" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
               <div className="flex gap-2 mr-2">
-                <Button 
+                <Button
                   variant="outline"
                   size="sm"
                   className="h-11 rounded-xl font-bold text-[10px] uppercase border-indigo-200 text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100"
@@ -2619,7 +2716,7 @@ export const SupportHubContent: React.FC<{
                 >
                   <Save size={14} className="mr-2" /> Save for This User
                 </Button>
-                <Button 
+                <Button
                   variant="outline"
                   size="sm"
                   className="h-11 rounded-xl font-bold text-[10px] uppercase border-emerald-200 text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100"
@@ -2725,7 +2822,7 @@ export const SupportHubContent: React.FC<{
                                 </div>
                               </div>
                             </div>
-                            
+                           
                             <div className="p-8 space-y-6">
                               {/* Message Body */}
                               <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap font-medium">

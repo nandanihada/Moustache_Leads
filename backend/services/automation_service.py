@@ -345,29 +345,38 @@ class AutomationService:
         self._thread.start()
         logger.info("Automation Engine background service started")
 
-    def sync_active_users(self, force_reset=False):
+    def sync_active_users(self, force_reset=False, user_ids=None):
         """Find users from recent activity logs and ensure they have an automation state"""
         try:
-            # 1. Get users with logins in the last 72 hours
-            three_days_ago = datetime.utcnow() - timedelta(hours=72)
-            logs_col = db_instance.get_collection('login_logs')
-            recent_logins = []
-            if logs_col is not None:
-                recent_logins = logs_col.distinct('user_id', {'login_time': {'$gte': three_days_ago}})
-            
-            # 2. Get users with page visits or clicks
-            visits_col = db_instance.get_collection('page_visits')
-            clicks_col = db_instance.get_collection('click_logs')
-            
-            recent_visitors = []
-            if visits_col is not None:
-                recent_visitors = visits_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
-            
-            recent_clickers = []
-            if clicks_col is not None:
-                recent_clickers = clicks_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
-            
-            all_active_ids = list(set([str(uid) for uid in (recent_logins + recent_visitors + recent_clickers) if uid]))
+            if user_ids:
+                all_active_ids = [str(uid) for uid in user_ids if uid]
+            else:
+                # 1. Get users with logins in the last 72 hours
+                three_days_ago = datetime.utcnow() - timedelta(hours=72)
+                logs_col = db_instance.get_collection('login_logs')
+                recent_logins = []
+                if logs_col is not None:
+                    recent_logins = logs_col.distinct('user_id', {'login_time': {'$gte': three_days_ago}})
+                
+                # 2. Get users with page visits or clicks
+                visits_col = db_instance.get_collection('page_visits')
+                clicks_col = db_instance.get_collection('click_logs')
+                
+                recent_visitors = []
+                if visits_col is not None:
+                    recent_visitors = visits_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
+                
+                recent_clickers = []
+                if clicks_col is not None:
+                    recent_clickers = clicks_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
+                
+                all_active_ids = list(set([str(uid) for uid in (recent_logins + recent_visitors + recent_clickers) if uid]))
+                
+                # 3. Final fallback: If no active users found, get all registered users
+                if not all_active_ids:
+                    users_col = db_instance.get_collection('users')
+                    if users_col is not None:
+                        all_active_ids = [str(u['_id']) for u in users_col.find({}, {'_id': 1})]
             
             count = 0
             for user_id in all_active_ids:

@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify, send_from_directory
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import ObjectId
 import os
 import uuid
@@ -210,6 +210,9 @@ def user_reply(message_id):
                 'read_by_admin': False,
                 'read_by_user': True,
                 'last_read_by_user_at': datetime.utcnow(),
+            },
+            '$unset': {
+                'user_draft': ""
             }
         }
     )
@@ -246,6 +249,54 @@ def get_my_messages():
         sort=[('created_at', -1)]
     ))
     return jsonify({'success': True, 'messages': [_serialize(d) for d in docs]})
+
+
+# ── Draft endpoints (for both Admin and User) ──────────────────────────────────
+@support_bp.route('/api/support/messages/<message_id>/draft', methods=['PUT'])
+@token_required
+def save_draft(message_id):
+    user = request.current_user
+    data = request.get_json() or {}
+    draft_text = (data.get('draft') or '').strip()
+    
+    is_admin = user.get('role') == 'admin'
+    
+    query = {'_id': ObjectId(message_id)}
+    if not is_admin:
+        query['user_id'] = ObjectId(str(user['_id']))
+        
+    doc = _col().find_one(query)
+    if not doc:
+        return jsonify({'error': 'Conversation not found'}), 404
+        
+    field = 'admin_draft' if is_admin else 'user_draft'
+    
+    if draft_text:
+        _col().update_one({'_id': ObjectId(message_id)}, {'$set': {field: draft_text}})
+    else:
+        _col().update_one({'_id': ObjectId(message_id)}, {'$unset': {field: ""}})
+        
+    return jsonify({'success': True, 'message': 'Draft saved'})
+
+
+@support_bp.route('/api/support/messages/<message_id>/draft', methods=['DELETE'])
+@token_required
+def delete_draft(message_id):
+    user = request.current_user
+    is_admin = user.get('role') == 'admin'
+    
+    query = {'_id': ObjectId(message_id)}
+    if not is_admin:
+        query['user_id'] = ObjectId(str(user['_id']))
+        
+    doc = _col().find_one(query)
+    if not doc:
+        return jsonify({'error': 'Conversation not found'}), 404
+        
+    field = 'admin_draft' if is_admin else 'user_draft'
+    _col().update_one({'_id': ObjectId(message_id)}, {'$unset': {field: ""}})
+    
+    return jsonify({'success': True, 'message': 'Draft deleted'})
 
 
 # ── Publisher: check for admin replies (used on login popup) ───────────────────
@@ -299,7 +350,9 @@ def mark_replies_read():
 def admin_get_all_messages():
     status_filter = request.args.get('status')
     query = {}
-    if status_filter and status_filter != 'all':
+    if status_filter == 'draft':
+        query['admin_draft'] = {'$exists': True, '$ne': ''}
+    elif status_filter and status_filter != 'all':
         query['status'] = status_filter
 
     docs = list(_col().find(query, sort=[('updated_at', -1)]))
@@ -310,6 +363,7 @@ def admin_get_all_messages():
     open_count = _col().count_documents({'status': 'open'})
     replied_count = _col().count_documents({'status': 'replied'})
     closed_count = _col().count_documents({'status': 'closed'})
+    draft_count = _col().count_documents({'admin_draft': {'$exists': True, '$ne': ''}})
 
     return jsonify({
         'success': True,
@@ -320,6 +374,7 @@ def admin_get_all_messages():
             'open': open_count,
             'replied': replied_count,
             'closed': closed_count,
+            'draft': draft_count,
         }
     })
 
@@ -339,6 +394,7 @@ def admin_unread_count():
 @token_required
 @admin_required
 def admin_reply(message_id):
+    from datetime import timedelta
     data = request.get_json() or {}
     reply_text = (data.get('reply') or '').strip()
     image_url = (data.get('image_url') or '').strip()
@@ -362,7 +418,11 @@ def admin_reply(message_id):
                 'updated_at': datetime.utcnow(),
                 'read_by_admin': True,
                 'read_by_user': False,   # user hasn't seen this reply yet
+                'last_read_by_user_at': datetime.utcnow() - timedelta(days=1), # invalidate to trigger new notification
                 'last_read_by_admin_at': datetime.utcnow(),
+            },
+            '$unset': {
+                'admin_draft': ""
             }
         }
     )

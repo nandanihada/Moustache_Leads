@@ -149,6 +149,7 @@ export const BulkOfferAutomationDialog: React.FC<BulkOfferAutomationDialogProps>
                       const id = o.offer_id || o._id;
                       if (!seenIds.has(id)) {
                           seenIds.add(id);
+                          o.categoryKey = sectionName;
                           allOffers.push(o);
                       }
                   });
@@ -327,31 +328,87 @@ export const BulkOfferAutomationDialog: React.FC<BulkOfferAutomationDialogProps>
                           </button>
                           
                           {u.expanded && !u.loadingOffers && (
-                            <div className="mt-2 space-y-1 pl-2 border-l-2 border-indigo-100">
-                              {u.fetchedOffers.slice(0, u.offersCount).map(o => {
-                                const oId = o.offer_id || o._id;
-                                const isSkipped = u.skippedOfferIds.has(oId);
-                                return (
-                                  <div key={oId} className="flex items-center gap-2 py-1">
-                                    <Checkbox 
-                                      checked={!isSkipped} 
-                                      onCheckedChange={(checked) => {
-                                        const newSels = [...userSelections];
-                                        if (checked) {
-                                          newSels[i].skippedOfferIds.delete(oId);
-                                        } else {
-                                          newSels[i].skippedOfferIds.add(oId);
-                                        }
-                                        setUserSelections(newSels);
-                                      }} 
-                                    />
-                                    <span className={`text-xs ${isSkipped ? 'text-muted-foreground line-through' : ''}`}>
-                                      {o.name || o.offer_name || 'Offer'}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                              {u.fetchedOffers.length === 0 && <span className="text-xs text-muted-foreground">No matching offers found.</span>}
+                            <div className="mt-2 space-y-3 pl-2 border-l-2 border-indigo-100">
+                              {(() => {
+                                const slicedOffers = u.fetchedOffers.slice(0, u.offersCount);
+                                const grouped: Record<string, any[]> = {
+                                  queue: [],
+                                  recommended_offers: [],
+                                  most_approved: [],
+                                  highly_clicked: [],
+                                  requested_offers: [],
+                                  newly_added: []
+                                };
+
+                                slicedOffers.forEach(o => {
+                                  const key = o.categoryKey || 'recommended_offers';
+                                  if (key === 'queue') grouped.queue.push(o);
+                                  else if (key === 'recommended_offers' || key === 'recently_edited') grouped.recommended_offers.push(o);
+                                  else if (key === 'most_approved') grouped.most_approved.push(o);
+                                  else if (key === 'highly_clicked') grouped.highly_clicked.push(o);
+                                  else if (key === 'requested_offers' || key === 'recently_deleted') grouped.requested_offers.push(o);
+                                  else if (key === 'newly_added') grouped.newly_added.push(o);
+                                  else grouped.recommended_offers.push(o);
+                                });
+
+                                const getStyles = (k: string) => {
+                                  switch(k) {
+                                    case 'queue': return { label: 'Active Queue Offers', color: 'rgb(127, 47, 190)', icon: '⚡' };
+                                    case 'recommended_offers': return { label: 'Recommended Offers', color: 'rgb(83, 74, 183)', icon: '🛍️' };
+                                    case 'most_approved': return { label: 'Most Approved Offers', color: 'rgb(29, 158, 117)', icon: '✅' };
+                                    case 'highly_clicked': return { label: 'Most Clicked Offers', color: 'rgb(186, 117, 23)', icon: '🔥' };
+                                    case 'requested_offers': return { label: 'Requested Offers', color: 'rgb(163, 45, 45)', icon: '🙋' };
+                                    case 'newly_added': return { label: 'Newly Added Offers', color: 'rgb(24, 95, 165)', icon: '🆕' };
+                                    default: return { label: 'Other Offers', color: 'rgb(100, 116, 139)', icon: '🎯' };
+                                  }
+                                };
+
+                                const hasData = Object.values(grouped).some(arr => arr.length > 0);
+                                if (!hasData) {
+                                  return <span className="text-xs text-muted-foreground">No matching offers found.</span>;
+                                }
+
+                                return Object.entries(grouped).map(([catKey, catOffers]) => {
+                                  if (catOffers.length === 0) return null;
+                                  const styles = getStyles(catKey);
+
+                                  return (
+                                    <div key={catKey} className="space-y-1">
+                                      <div className="flex items-center gap-1.5 py-0.5">
+                                        <span className="text-[10px]">{styles.icon}</span>
+                                        <span className="text-[9px] font-black uppercase tracking-wider" style={{ color: styles.color }}>
+                                          {styles.label} ({catOffers.length})
+                                        </span>
+                                      </div>
+                                      <div className="space-y-1">
+                                        {catOffers.map(o => {
+                                          const oId = o.offer_id || o._id;
+                                          const isSkipped = u.skippedOfferIds.has(oId);
+                                          return (
+                                            <div key={oId} className="flex items-center gap-2 py-0.5 pl-1.5">
+                                              <Checkbox
+                                                checked={!isSkipped}
+                                                onCheckedChange={(checked) => {
+                                                  const newSels = [...userSelections];
+                                                  if (checked) {
+                                                    newSels[i].skippedOfferIds.delete(oId);
+                                                  } else {
+                                                    newSels[i].skippedOfferIds.add(oId);
+                                                  }
+                                                  setUserSelections(newSels);
+                                                }}
+                                              />
+                                              <span className={`text-xs ${isSkipped ? 'text-muted-foreground line-through' : ''}`}>
+                                                {o.name || o.offer_name || 'Offer'}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                              })()}
                             </div>
                           )}
                         </div>

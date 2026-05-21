@@ -17,6 +17,7 @@ interface Submission {
   status: string;
   submitted_at: string;
   reward_amount?: number;
+  review_url?: string;
 }
 
 interface ButtonClick {
@@ -26,6 +27,7 @@ interface ButtonClick {
   email: string;
   clicked_at: string;
   ip_address?: string;
+  review_url?: string;
 }
 
 export default function AdminReviewSubmissions() {
@@ -159,6 +161,7 @@ export default function AdminReviewSubmissions() {
                     <thead className="text-xs text-muted-foreground uppercase bg-muted/50">
                       <tr>
                         <th className="px-4 py-3">User</th>
+                        <th className="px-4 py-3">Review Link</th>
                         <th className="px-4 py-3">Date</th>
                         <th className="px-4 py-3">Proof Image</th>
                         <th className="px-4 py-3">Status</th>
@@ -172,6 +175,21 @@ export default function AdminReviewSubmissions() {
                           <td className="px-4 py-4 font-medium">
                             <div>{sub.username}</div>
                             <div className="text-xs text-muted-foreground">{sub.email}</div>
+                          </td>
+                          <td className="px-4 py-4 max-w-[200px] truncate">
+                            {sub.review_url ? (
+                              <a 
+                                href={sub.review_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-500 hover:underline truncate block text-xs"
+                                title={sub.review_url}
+                              >
+                                {sub.review_url}
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground italic text-xs">Legacy Link</span>
+                            )}
                           </td>
                           <td className="px-4 py-4 text-muted-foreground">
                             {new Date(sub.submitted_at).toLocaleDateString()}
@@ -248,6 +266,7 @@ export default function AdminReviewSubmissions() {
                       <thead className="text-xs text-muted-foreground uppercase bg-muted/50">
                         <tr>
                           <th className="px-4 py-3">User</th>
+                          <th className="px-4 py-3">Clicked Link</th>
                           <th className="px-4 py-3">Clicked At</th>
                           <th className="px-4 py-3">IP Address</th>
                         </tr>
@@ -258,6 +277,21 @@ export default function AdminReviewSubmissions() {
                             <td className="px-4 py-4 font-medium">
                               <div>{click.username}</div>
                               <div className="text-xs text-muted-foreground">{click.email}</div>
+                            </td>
+                            <td className="px-4 py-4 max-w-[200px] truncate">
+                              {click.review_url ? (
+                                <a 
+                                  href={click.review_url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:underline truncate block text-xs"
+                                  title={click.review_url}
+                                >
+                                  {click.review_url}
+                                </a>
+                              ) : (
+                                <span className="text-muted-foreground italic text-xs">Legacy Link</span>
+                              )}
                             </td>
                             <td className="px-4 py-4 text-muted-foreground">
                               {new Date(click.clicked_at).toLocaleString()}

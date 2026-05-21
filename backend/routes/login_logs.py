@@ -931,13 +931,13 @@ def get_inventory_matched_offers(current_user, user_id):
         ]
         most_approved = list(offers_col.aggregate(pipeline, allowDiskUse=True))
 
-        # 3. Highly clicked — use pre-aggregated click counts to avoid memory-heavy $lookup
-        # First get offer_ids from base query, then count clicks per offer
+        # 3. Highly clicked / Most Clicked
         try:
             candidate_offers = list(offers_col.find(base_query, {'offer_id': 1, '_id': 0}).limit(200))
             candidate_offer_ids = [o['offer_id'] for o in candidate_offers if o.get('offer_id')]
             
             clicks_col = db_instance.get_collection('clicks')
+            click_pipeline = []
             if clicks_col and candidate_offer_ids:
                 click_pipeline = [
                     {'$match': {'offer_id': {'$in': candidate_offer_ids}}},
@@ -953,7 +953,6 @@ def get_inventory_matched_offers(current_user, user_id):
                         {'offer_id': {'$in': top_clicked_ids}},
                         project_fields
                     ))
-                    # Sort by click count order
                     click_order = {oid: idx for idx, oid in enumerate(top_clicked_ids)}
                     highly_clicked.sort(key=lambda o: click_order.get(o.get('offer_id'), 999))
                 else:
@@ -964,42 +963,96 @@ def get_inventory_matched_offers(current_user, user_id):
             logger.warning(f"Highly clicked query failed: {click_err}")
             highly_clicked = []
 
-        # 4. Recently deleted
-        deleted_query = {'status': {'$in': ['deleted', 'inactive', 'paused']}}
-        if sent_offer_ids:
-            deleted_query['offer_id'] = {'$nin': list(sent_offer_ids)}
-        if fav_categories: deleted_query['category'] = {'$in': list(fav_categories)}
-        if fav_countries: deleted_query['countries'] = {'$in': list(fav_countries)}
-        recently_deleted = list(offers_col.find(deleted_query, project_fields).sort('updated_at', -1).limit(limit))
+        # 4. Recommended Offers (Personalized AI/Vertical based matches)
+        recommended_offers = list(offers_col.find(base_query, project_fields).sort('payout', -1).limit(limit))
 
-        # 5. Recently edited
-        recently_edited = list(offers_col.find(base_query, project_fields).sort('updated_at', -1).limit(limit))
+        # 5. Requested Offers (Offers the publisher has requested access for)
+        requested_offers = []
+        affiliate_requests_col = db_instance.get_collection('affiliate_requests')
+        if affiliate_requests_col is not None and user:
+            user_id_str = str(user.get('_id'))
+            username_str = user.get('username')
+            user_reqs = list(affiliate_requests_col.find({
+                '$or': [
+                    {'user_id': user_id_str},
+                    {'user_id': ObjectId(user_id_str) if ObjectId.is_valid(user_id_str) else None},
+                    {'username': username_str}
+                ]
+            }))
+            req_offer_ids = [r.get('offer_id') for r in user_reqs if r.get('offer_id')]
+            if req_offer_ids:
+                requested_offers = list(offers_col.find(
+                    {'offer_id': {'$in': list(set(req_offer_ids))}, 'status': {'$in': ['active', 'running']}},
+                    project_fields
+                ).limit(limit))
 
         # Fallback if too strict
-        if len(newly_added) < 2 and len(most_approved) < 2:
-            base_query_fallback = {'status': {'$in': ['active', 'running']}}
-            if sent_offer_ids: base_query_fallback['offer_id'] = {'$nin': list(sent_offer_ids)}
+        base_query_fallback = {'status': {'$in': ['active', 'running']}}
+        if sent_offer_ids:
+            base_query_fallback['offer_id'] = {'$nin': list(sent_offer_ids)}
+
+        if len(newly_added) < limit:
+            newly_added.extend(list(offers_col.find(base_query_fallback, project_fields).sort('created_at', -1).limit(limit - len(newly_added))))
             
-            if len(newly_added) < limit:
-                newly_added.extend(list(offers_col.find(base_query_fallback, project_fields).sort('created_at', -1).limit(limit - len(newly_added))))
-            if len(recently_edited) < limit:
-                recently_edited.extend(list(offers_col.find(base_query_fallback, project_fields).sort('updated_at', -1).limit(limit - len(recently_edited))))
-            
-            # Use global for aggregation fallbacks if needed
-            if len(most_approved) < limit:
-                pipeline[0]['$match'] = base_query_fallback
-                most_approved.extend(list(offers_col.aggregate(pipeline, allowDiskUse=True)))
-            
-            if len(highly_clicked) < limit:
-                pipeline_clicks[0]['$match'] = base_query_fallback
-                highly_clicked.extend(list(offers_col.aggregate(pipeline_clicks, allowDiskUse=True)))
+        if len(recommended_offers) < limit:
+            recommended_offers.extend(list(offers_col.find(base_query_fallback, project_fields).sort('payout', -1).limit(limit - len(recommended_offers))))
+
+        if len(most_approved) < limit:
+            pipeline[0]['$match'] = base_query_fallback
+            most_approved.extend(list(offers_col.aggregate(pipeline, allowDiskUse=True)))
+
+        if len(highly_clicked) < limit:
+            try:
+                candidate_offers_fallback = list(offers_col.find(base_query_fallback, {'offer_id': 1, '_id': 0}).limit(200))
+                candidate_offer_ids_fallback = [o['offer_id'] for o in candidate_offers_fallback if o.get('offer_id')]
+                if clicks_col and candidate_offer_ids_fallback:
+                    click_pipeline_fallback = [
+                        {'$match': {'offer_id': {'$in': candidate_offer_ids_fallback}}},
+                        {'$group': {'_id': '$offer_id', 'click_count': {'$sum': 1}}},
+                        {'$sort': {'click_count': -1}},
+                        {'$limit': limit}
+                    ]
+                    top_clicked_fallback = list(clicks_col.aggregate(click_pipeline_fallback))
+                    top_clicked_ids_fallback = [c['_id'] for c in top_clicked_fallback]
+                    if top_clicked_ids_fallback:
+                        fallback_clicked = list(offers_col.find(
+                            {'offer_id': {'$in': top_clicked_ids_fallback}},
+                            project_fields
+                        ))
+                        highly_clicked.extend(fallback_clicked)
+            except Exception as e_click_fallback:
+                logger.warning(f"Highly clicked fallback failed: {e_click_fallback}")
+
+        if not requested_offers:
+            # Get globally requested/approved offers as a fallback
+            try:
+                pipeline_req_fallback = [
+                    {'$match': base_query_fallback},
+                    {'$lookup': {
+                        'from': 'affiliate_requests',
+                        'localField': 'offer_id',
+                        'foreignField': 'offer_id',
+                        'as': 'requests'
+                    }},
+                    {'$addFields': {'req_count': {'$size': '$requests'}}},
+                    {'$sort': {'req_count': -1}},
+                    {'$limit': limit},
+                    {'$project': project_fields}
+                ]
+                requested_offers = list(offers_col.aggregate(pipeline_req_fallback, allowDiskUse=True))
+            except Exception as req_fallback_err:
+                logger.warning(f"Requested offers fallback failed: {req_fallback_err}")
+                requested_offers = newly_added[:limit]
 
         return jsonify(mongodb_to_json({
-            'newly_added': newly_added[:limit],
+            'recommended_offers': recommended_offers[:limit],
             'most_approved': most_approved[:limit],
             'highly_clicked': highly_clicked[:limit],
-            'recently_deleted': recently_deleted[:limit],
-            'recently_edited': recently_edited[:limit]
+            'requested_offers': requested_offers[:limit],
+            'newly_added': newly_added[:limit],
+            # Compatibility mappings
+            'recently_edited': recommended_offers[:limit],
+            'recently_deleted': requested_offers[:limit]
         })), 200
 
     except Exception as e:

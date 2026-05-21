@@ -27,33 +27,41 @@ def log_signup_attempt(data: dict, status: str, error_message: str = None):
             ip_address = request.headers.get('X-Real-IP')
         else:
             ip_address = request.remote_addr
-        
         # Get location from IP
-        location = {'city': 'Unknown', 'region': 'Unknown', 'country': 'Unknown', 'country_code': 'XX'}
+        location = {'city': 'Location Unavailable', 'region': 'Location Unavailable', 'country': 'Location Unavailable', 'country_code': 'XX', 'latitude': 0, 'longitude': 0, 'isp': 'Location Unavailable'}
         try:
             from services.ipinfo_service import get_ipinfo_service
             geo_service = get_ipinfo_service()
+            
             ip_data = geo_service.lookup_ip(ip_address)
             
             country_hint = request.headers.get('CF-IPCountry')
             
             if ip_data:
-                country = ip_data.get('country', 'Unknown')
-                country_code = ip_data.get('country_code', 'XX')
+                city = ip_data.get('city') or 'Location Unavailable'
+                region = ip_data.get('region') or 'Location Unavailable'
+                country = ip_data.get('country') or 'Location Unavailable'
+                country_code = ip_data.get('country_code') or 'XX'
+                if city == 'Unknown':
+                    city = 'Location Unavailable'
+                if region == 'Unknown':
+                    region = 'Location Unavailable'
+                if country == 'Unknown':
+                    country = 'Location Unavailable'
                 
                 # Apply hint if IP data is missing country
-                if (country == 'Unknown' or country_code == 'XX') and country_hint and country_hint != 'XX':
+                if (country == 'Location Unavailable' or country_code == 'XX') and country_hint and country_hint != 'XX':
                     country_code = country_hint
                     country = geo_service.country_names.get(country_code, country_code)
                 
                 location = {
-                    'city': ip_data.get('city', 'Unknown'),
-                    'region': ip_data.get('region', 'Unknown'),
+                    'city': city,
+                    'region': region,
                     'country': country,
                     'country_code': country_code,
                     'latitude': ip_data.get('latitude', 0),
                     'longitude': ip_data.get('longitude', 0),
-                    'isp': ip_data.get('isp', 'Unknown')
+                    'isp': ip_data.get('isp') or 'Location Unavailable'
                 }
             elif country_hint and country_hint != 'XX':
                 # Only hint available
@@ -614,6 +622,7 @@ def login():
         
         username = data.get('username', '').strip()
         password = data.get('password', '')
+        public_ip = data.get('public_ip')
         
         if not username:
             return jsonify({'error': 'Username is required'}), 400
@@ -637,7 +646,8 @@ def login():
                 request,
                 status='failed',
                 failure_reason='wrong_password',
-                login_method='password'
+                login_method='password',
+                ip_address=public_ip
             )
             return jsonify({'error': 'Invalid username or password'}), 401
         
@@ -649,7 +659,8 @@ def login():
                 request,
                 status='failed',
                 failure_reason='account_deactivated',
-                login_method='password'
+                login_method='password',
+                ip_address=public_ip
             )
             return jsonify({'error': 'Account is deactivated'}), 401
         
@@ -666,7 +677,8 @@ def login():
             user_data,
             request,
             status='success',
-            login_method='password'
+            login_method='password',
+            ip_address=public_ip
         )
 
         # Trigger Automation Engine
@@ -689,7 +701,6 @@ def login():
         # Ensure user has an API key (auto-generate for legacy users)
         api_key = user_data.get('api_key')
         if not api_key:
-            from models.user import User
             _, api_key = user_model.reset_api_key(str(user_data['_id']))
             user_data['api_key'] = api_key
 

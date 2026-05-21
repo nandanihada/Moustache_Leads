@@ -114,9 +114,7 @@ const DashboardContent = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.submission) {
-        setReviewSubmission(data.submission);
-      }
+      setReviewSubmission(data.submission || null);
     } catch (err) {
       console.error('Failed to fetch review submission', err);
     }

@@ -31,19 +31,45 @@ def create_submission():
         if col is None:
             return jsonify({'error': 'Database unavailable'}), 500
 
-        # Check if user already has a pending or approved submission
-        existing = col.find_one({
+        # Get current Review Us settings
+        settings_col = _get_settings_col()
+        settings = (settings_col.find_one({'key': 'review_us'}) or {}) if settings_col is not None else {}
+        current_url = settings.get('url', '').strip()
+
+        # Check if user already has a pending or approved submission for this URL
+        query = {
             'user_id': current_user['_id'],
             'status': {'$in': ['pending', 'approved']}
-        })
+        }
+        if current_url:
+            from routes.platform_settings import DEFAULT_REVIEW_US
+            default_url = DEFAULT_REVIEW_US.get('url', '').strip()
+            if current_url == default_url:
+                query['$or'] = [
+                    {'review_url': current_url},
+                    {'review_url': {'$exists': False}},
+                    {'review_url': None},
+                    {'review_url': ''}
+                ]
+            else:
+                query['review_url'] = current_url
+        else:
+            query['$or'] = [
+                {'review_url': {'$exists': False}},
+                {'review_url': None},
+                {'review_url': ''}
+            ]
+
+        existing = col.find_one(query)
         if existing:
-            return jsonify({'error': f'You already have a {existing["status"]} submission.'}), 400
+            return jsonify({'error': f'You already have a {existing["status"]} submission for this review link.'}), 400
 
         doc = {
             'user_id': current_user['_id'],
             'username': current_user.get('username', ''),
             'email': current_user.get('email', ''),
             'proof_image_url': data['proof_image_url'],
+            'review_url': current_url,
             'status': 'pending',
             'submitted_at': datetime.utcnow(),
             'reward_applied': False
@@ -58,14 +84,41 @@ def create_submission():
 @review_submissions_bp.route('/api/user/review-submissions', methods=['GET'])
 @token_required
 def get_user_submission():
-    """Get the current user's review submission."""
+    """Get the current user's review submission for the current active review link."""
     current_user = request.current_user
     try:
         col = _get_submissions_col()
         if col is None:
             return jsonify({'error': 'Database unavailable'}), 500
 
-        doc = col.find_one({'user_id': current_user['_id']}, sort=[('submitted_at', -1)])
+        # Get current Review Us settings
+        settings_col = _get_settings_col()
+        settings = (settings_col.find_one({'key': 'review_us'}) or {}) if settings_col is not None else {}
+        current_url = settings.get('url', '').strip()
+
+        query = {
+            'user_id': current_user['_id']
+        }
+        if current_url:
+            from routes.platform_settings import DEFAULT_REVIEW_US
+            default_url = DEFAULT_REVIEW_US.get('url', '').strip()
+            if current_url == default_url:
+                query['$or'] = [
+                    {'review_url': current_url},
+                    {'review_url': {'$exists': False}},
+                    {'review_url': None},
+                    {'review_url': ''}
+                ]
+            else:
+                query['review_url'] = current_url
+        else:
+            query['$or'] = [
+                {'review_url': {'$exists': False}},
+                {'review_url': None},
+                {'review_url': ''}
+            ]
+
+        doc = col.find_one(query, sort=[('submitted_at', -1)])
         if not doc:
             return jsonify({'submission': None}), 200
 
@@ -208,10 +261,16 @@ def track_review_button_click():
         if col is None:
             return jsonify({'error': 'Database unavailable'}), 500
 
+        # Get current Review Us settings to log which URL was clicked
+        settings_col = _get_settings_col()
+        settings = (settings_col.find_one({'key': 'review_us'}) or {}) if settings_col is not None else {}
+        current_url = settings.get('url', '').strip()
+
         doc = {
             'user_id': current_user['_id'],
             'username': current_user.get('username', ''),
             'email': current_user.get('email', ''),
+            'review_url': current_url,
             'clicked_at': datetime.utcnow(),
             'ip_address': request.headers.get('X-Forwarded-For', request.remote_addr),
             'user_agent': request.headers.get('User-Agent', '')

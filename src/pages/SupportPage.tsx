@@ -18,6 +18,63 @@ const SupportPage: React.FC = () => {
   const [replyText, setReplyText] = useState('');
   const [replying, setReplying] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const saveDraftTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync/load drafts from local storage or backend
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const newDrafts: Record<string, string> = { ...drafts };
+    let updated = false;
+
+    messages.forEach(msg => {
+      const storageKey = `pub_draft_${msg._id}`;
+      const localVal = localStorage.getItem(storageKey);
+      if (localVal) {
+        if (newDrafts[msg._id] !== localVal) {
+          newDrafts[msg._id] = localVal;
+          updated = true;
+        }
+      } else if (msg.user_draft) {
+        localStorage.setItem(storageKey, msg.user_draft);
+        newDrafts[msg._id] = msg.user_draft;
+        updated = true;
+      }
+    });
+
+    if (updated) {
+      setDrafts(newDrafts);
+    }
+  }, [messages]);
+
+  const handleReplyTextChange = (val: string) => {
+    setReplyText(val);
+    if (!selected) return;
+
+    const storageKey = `pub_draft_${selected._id}`;
+    const newDrafts = { ...drafts };
+
+    if (val.trim()) {
+      newDrafts[selected._id] = val;
+      localStorage.setItem(storageKey, val);
+
+      if (saveDraftTimeoutRef.current) {
+        clearTimeout(saveDraftTimeoutRef.current);
+      }
+      saveDraftTimeoutRef.current = setTimeout(() => {
+        supportApi.saveDraft(selected._id, val).catch(err => console.error("Error saving draft:", err));
+      }, 1500);
+    } else {
+      delete newDrafts[selected._id];
+      localStorage.removeItem(storageKey);
+
+      if (saveDraftTimeoutRef.current) {
+        clearTimeout(saveDraftTimeoutRef.current);
+      }
+      supportApi.deleteDraft(selected._id).catch(err => console.error("Error deleting draft:", err));
+    }
+    setDrafts(newDrafts);
+  };
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [sending, setSending] = useState(false);
@@ -80,7 +137,11 @@ const SupportPage: React.FC = () => {
 
   const openConversation = (msg: SupportMessage) => {
     setSelected(msg);
-    setReplyText('');
+    if (saveDraftTimeoutRef.current) {
+      clearTimeout(saveDraftTimeoutRef.current);
+    }
+    const draft = drafts[msg._id] || '';
+    setReplyText(draft);
     if (msg.status === 'replied' && !msg.read_by_user) {
       supportApi.markRepliesRead().catch(() => {});
       setMessages(prev => prev.map(m => m._id === msg._id ? { ...m, read_by_user: true } : m));
@@ -115,6 +176,16 @@ const SupportPage: React.FC = () => {
         toast.success('Reply sent');
         setReplyText('');
         setReplyImageUrl('');
+        
+        // Remove draft
+        const newDrafts = { ...drafts };
+        delete newDrafts[selected._id];
+        setDrafts(newDrafts);
+        localStorage.removeItem(`pub_draft_${selected._id}`);
+        if (saveDraftTimeoutRef.current) {
+          clearTimeout(saveDraftTimeoutRef.current);
+        }
+
         setSelected(res.message);
         setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
       } else { toast.error(res.error || 'Failed to send'); }
@@ -215,19 +286,27 @@ const SupportPage: React.FC = () => {
                             {msg.subject}
                           </p>
                         </div>
-                        {isUnread && (
-                          <p className="text-xs text-green-600 font-semibold mt-0.5">
-                            🟢 New Message from Support
+                        {drafts[msg._id] ? (
+                          <p className="text-xs text-red-500 font-medium truncate mt-0.5">
+                            <span className="font-semibold">[Draft]</span> {drafts[msg._id]}
                           </p>
-                        )}
-                        {msg.status === 'open' && (
-                          <p className="text-xs text-yellow-600 mt-0.5">⏳ Waiting for reply...</p>
-                        )}
-                        {msg.status === 'closed' && (
-                          <p className="text-xs text-gray-500 mt-0.5">Closed</p>
-                        )}
-                        {msg.status === 'replied' && msg.read_by_user && (
-                          <p className="text-xs text-blue-600 mt-0.5">✓ Read</p>
+                        ) : (
+                          <>
+                            {isUnread && (
+                              <p className="text-xs text-green-600 font-semibold mt-0.5">
+                                🟢 New Message from Support
+                              </p>
+                            )}
+                            {msg.status === 'open' && (
+                              <p className="text-xs text-yellow-600 mt-0.5">⏳ Waiting for reply...</p>
+                            )}
+                            {msg.status === 'closed' && (
+                              <p className="text-xs text-gray-500 mt-0.5">Closed</p>
+                            )}
+                            {msg.status === 'replied' && msg.read_by_user && (
+                              <p className="text-xs text-blue-600 mt-0.5">✓ Read</p>
+                            )}
+                          </>
                         )}
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-xs text-muted-foreground">{fmt(msg.updated_at || msg.created_at)}</p>
@@ -415,7 +494,7 @@ const SupportPage: React.FC = () => {
                     </button>
                     <textarea
                       value={replyText}
-                      onChange={e => setReplyText(e.target.value)}
+                      onChange={e => handleReplyTextChange(e.target.value)}
                       placeholder="Type your message..."
                       rows={2}
                       className="flex-1 text-sm border border-border rounded-xl px-4 py-3 bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-none"

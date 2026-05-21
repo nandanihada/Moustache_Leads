@@ -20,17 +20,74 @@ const StatusBadge: React.FC<{ status: SupportMessage['status']; readByAdmin?: bo
   return <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${map[status]}`}>{status}</span>;
 };
 
-type FilterType = 'all' | 'new' | 'open' | 'replied' | 'closed';
+type FilterType = 'all' | 'new' | 'open' | 'replied' | 'closed' | 'draft';
 
 const AdminSupportInbox: React.FC = () => {
   const [messages, setMessages] = useState<SupportMessage[]>([]);
-  const [counts, setCounts] = useState<SupportCounts>({ total: 0, new: 0, open: 0, replied: 0, closed: 0 });
+  const [counts, setCounts] = useState<SupportCounts>({ total: 0, new: 0, open: 0, replied: 0, closed: 0, draft: 0 });
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterType>('all');
   const [selected, setSelected] = useState<SupportMessage | null>(null);
   const [replyText, setReplyText] = useState('');
   const [replying, setReplying] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const saveDraftTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync/load drafts from local storage or backend
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const newDrafts: Record<string, string> = { ...drafts };
+    let updated = false;
+
+    messages.forEach(msg => {
+      const storageKey = `admin_draft_${msg._id}`;
+      const localVal = localStorage.getItem(storageKey);
+      if (localVal) {
+        if (newDrafts[msg._id] !== localVal) {
+          newDrafts[msg._id] = localVal;
+          updated = true;
+        }
+      } else if (msg.admin_draft) {
+        localStorage.setItem(storageKey, msg.admin_draft);
+        newDrafts[msg._id] = msg.admin_draft;
+        updated = true;
+      }
+    });
+
+    if (updated) {
+      setDrafts(newDrafts);
+    }
+  }, [messages]);
+
+  const handleReplyTextChange = (val: string) => {
+    setReplyText(val);
+    if (!selected) return;
+
+    const storageKey = `admin_draft_${selected._id}`;
+    const newDrafts = { ...drafts };
+
+    if (val.trim()) {
+      newDrafts[selected._id] = val;
+      localStorage.setItem(storageKey, val);
+
+      if (saveDraftTimeoutRef.current) {
+        clearTimeout(saveDraftTimeoutRef.current);
+      }
+      saveDraftTimeoutRef.current = setTimeout(() => {
+        supportApi.saveDraft(selected._id, val).catch(err => console.error("Error saving draft:", err));
+      }, 1500);
+    } else {
+      delete newDrafts[selected._id];
+      localStorage.removeItem(storageKey);
+
+      if (saveDraftTimeoutRef.current) {
+        clearTimeout(saveDraftTimeoutRef.current);
+      }
+      supportApi.deleteDraft(selected._id).catch(err => console.error("Error deleting draft:", err));
+    }
+    setDrafts(newDrafts);
+  };
 
   // Broadcast modal state
   const [showCompose, setShowCompose] = useState(false);
@@ -104,7 +161,11 @@ const AdminSupportInbox: React.FC = () => {
 
   const openMessage = async (msg: SupportMessage) => {
     setSelected(msg);
-    setReplyText('');
+    if (saveDraftTimeoutRef.current) {
+      clearTimeout(saveDraftTimeoutRef.current);
+    }
+    const draft = drafts[msg._id] || '';
+    setReplyText(draft);
     if (!msg.read_by_admin) {
       await supportApi.adminMarkRead(msg._id);
       setMessages(prev => prev.map(m => m._id === msg._id ? { ...m, read_by_admin: true } : m));
@@ -121,6 +182,16 @@ const AdminSupportInbox: React.FC = () => {
         toast.success('Reply sent');
         setReplyText('');
         setReplyImageUrl('');
+        
+        // Remove draft
+        const newDrafts = { ...drafts };
+        delete newDrafts[selected._id];
+        setDrafts(newDrafts);
+        localStorage.removeItem(`admin_draft_${selected._id}`);
+        if (saveDraftTimeoutRef.current) {
+          clearTimeout(saveDraftTimeoutRef.current);
+        }
+
         setSelected(res.message);
         setMessages(prev => prev.map(m => m._id === res.message._id ? res.message : m));
       } else {
@@ -159,6 +230,14 @@ const AdminSupportInbox: React.FC = () => {
         if (selected?._id === msgId) setSelected(null);
         setMessages(prev => prev.filter(m => m._id !== msgId));
         setCounts(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+
+        // Clear draft from localStorage & state
+        localStorage.removeItem(`admin_draft_${msgId}`);
+        setDrafts(prev => {
+          const n = { ...prev };
+          delete n[msgId];
+          return n;
+        });
       } else { toast.error(res.error || 'Failed to delete'); }
     } catch { toast.error('Failed to delete'); }
   };
@@ -185,6 +264,15 @@ const AdminSupportInbox: React.FC = () => {
         toast.success(`Deleted ${res.deleted_count} message(s)`);
         setMessages(prev => prev.filter(m => !selectedMsgIds.has(m._id)));
         if (selected && selectedMsgIds.has(selected._id)) setSelected(null);
+
+        // Clear drafts for all deleted conversations
+        const newDrafts = { ...drafts };
+        selectedMsgIds.forEach(id => {
+          localStorage.removeItem(`admin_draft_${id}`);
+          delete newDrafts[id];
+        });
+        setDrafts(newDrafts);
+
         setSelectedMsgIds(new Set());
         setSelectMode(false);
         setCounts(prev => ({ ...prev, total: Math.max(0, prev.total - res.deleted_count) }));
@@ -249,6 +337,7 @@ const AdminSupportInbox: React.FC = () => {
     { key: 'open', label: 'Open', count: counts.open },
     { key: 'replied', label: 'Replied', count: counts.replied },
     { key: 'closed', label: 'Closed', count: counts.closed },
+    { key: 'draft', label: 'Draft', count: counts.draft || 0 },
   ];
 
   return (
@@ -295,13 +384,14 @@ const AdminSupportInbox: React.FC = () => {
       </div>
 
       {/* Stats boxes */}
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
           { label: 'Total', value: counts.total, icon: MessageCircle, color: 'text-blue-600' },
           { label: 'New', value: counts.new, icon: Mail, color: 'text-red-600' },
           { label: 'Open', value: counts.open, icon: Clock, color: 'text-yellow-600' },
           { label: 'Replied', value: counts.replied, icon: CheckCircle, color: 'text-green-600' },
           { label: 'Closed', value: counts.closed, icon: XCircle, color: 'text-gray-500' },
+          { label: 'Draft', value: counts.draft || 0, icon: PenSquare, color: 'text-purple-600' },
         ].map(s => (
           <div key={s.label} className="bg-card border border-border rounded-xl p-3 flex items-center gap-3">
             <s.icon className={`w-7 h-7 ${s.color}`} />
@@ -316,23 +406,25 @@ const AdminSupportInbox: React.FC = () => {
       {/* Main layout */}
       <div className="flex gap-4 h-[600px]">
         {/* Message list */}
-        <div className={`${selected ? 'hidden md:flex' : 'flex'} w-full md:w-80 flex-shrink-0 flex-col border border-border rounded-xl overflow-hidden bg-card`}>
+        <div className={`${selected ? 'hidden md:flex' : 'flex'} w-full md:w-96 flex-shrink-0 flex-col border border-border rounded-xl overflow-hidden bg-card`}>
           {/* Filter tabs */}
-          <div className="flex border-b border-border overflow-x-auto">
+          <div className="flex gap-1.5 p-2 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] border-b border-border bg-muted/20">
             {filterTabs.map(f => (
               <button
                 key={f.key}
                 onClick={() => setFilter(f.key)}
-                className={`flex-1 py-2 text-xs font-medium capitalize transition-colors whitespace-nowrap px-2 ${
-                  filter === f.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap shrink-0 flex items-center gap-1.5 ${
+                  filter === f.key
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 }`}
               >
-                {f.label}
-                {f.count > 0 && (
-                  <span className={`ml-1 ${filter === f.key ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                    ({f.count})
-                  </span>
-                )}
+                <span>{f.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  filter === f.key ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-muted text-muted-foreground'
+                }`}>
+                  {f.count}
+                </span>
               </button>
             ))}
           </div>
@@ -394,7 +486,13 @@ const AdminSupportInbox: React.FC = () => {
                           {msg.username || msg.email}
                         </p>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.subject}</p>
+                      {drafts[msg._id] ? (
+                        <p className="text-xs text-red-500 font-medium truncate mt-0.5">
+                          <span className="font-semibold">[Draft]</span> {drafts[msg._id]}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{msg.subject}</p>
+                      )}
                       {!msg.read_by_admin && (
                         <p className="text-xs text-red-600 font-semibold mt-0.5">🔴 Unread</p>
                       )}
@@ -613,7 +711,7 @@ const AdminSupportInbox: React.FC = () => {
                     </button>
                     <textarea
                       value={replyText}
-                      onChange={e => setReplyText(e.target.value)}
+                      onChange={e => handleReplyTextChange(e.target.value)}
                       placeholder="Type your reply..."
                       rows={3}
                       className="flex-1 text-sm border border-border rounded-xl px-4 py-3 bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-none"

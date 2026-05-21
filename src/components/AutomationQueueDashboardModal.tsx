@@ -151,7 +151,7 @@ export const AutomationQueueDashboardModal: React.FC<{
         });
       }
 
-      const userIds = allUsers.map(u => String(u.user_id));
+      const userIds = allUsers.map(u => String(u.user_id)).filter(id => id && id !== 'undefined' && id !== 'null');
 
       const res = await fetch(`${apiUrl}/api/admin/automation/sync`, {
         method: 'POST',
@@ -161,7 +161,7 @@ export const AutomationQueueDashboardModal: React.FC<{
         },
         body: JSON.stringify({ 
           force_reset: forceReset,
-          user_ids: userIds // Pass only the users currently in the recent activity view
+          user_ids: userIds.length > 0 ? userIds : null
         })
       });
       const data = await res.json();

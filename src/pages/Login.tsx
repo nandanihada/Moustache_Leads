@@ -27,10 +27,30 @@ export default function Login() {
 
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      let publicIp = '';
+      try {
+        const ipRes = await fetch("https://api.ipify.org?format=json");
+        if (ipRes.ok) {
+          const ipData = await ipRes.json();
+          publicIp = ipData.ip;
+        }
+      } catch (err) {
+        console.warn("ipify failed, trying fallback", err);
+        try {
+          const ipRes = await fetch("https://ipinfo.io/json");
+          if (ipRes.ok) {
+            const ipData = await ipRes.json();
+            publicIp = ipData.ip;
+          }
+        } catch (err2) {
+          console.error("All public IP lookups failed:", err2);
+        }
+      }
+
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, public_ip: publicIp }),
       });
 
       const data = await res.json();

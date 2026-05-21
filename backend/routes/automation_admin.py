@@ -90,9 +90,10 @@ def sync_queue():
     
     data = request.get_json() or {}
     force_reset = data.get('force_reset', False)
+    user_ids = data.get('user_ids', None)
     
     service = get_automation_service()
-    count = service.sync_active_users(force_reset=force_reset)
+    count = service.sync_active_users(force_reset=force_reset, user_ids=user_ids)
     return jsonify({'message': f'Synced {count} users successfully', 'count': count})
 
 @automation_admin_bp.route('/automation/override', methods=['POST'])

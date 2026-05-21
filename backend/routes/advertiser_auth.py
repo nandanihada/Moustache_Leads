@@ -190,6 +190,8 @@ def register_advertiser():
 def login_advertiser():
     """Authenticate an advertiser"""
     try:
+        from services.activity_tracking_service import activity_tracking_service
+        
         data = request.get_json()
         
         if not data:
@@ -197,6 +199,7 @@ def login_advertiser():
         
         email = data.get('email', '').strip()
         password = data.get('password', '')
+        public_ip = data.get('public_ip')
         
         if not email:
             return jsonify({'error': 'Email is required'}), 400
@@ -209,21 +212,52 @@ def login_advertiser():
         advertiser_data = advertiser_model.verify_password(email, password)
         
         if not advertiser_data:
-            # Generic error message - don't reveal which field is wrong
+            # Track failed login attempt
+            failed_user_data = {
+                '_id': email,
+                'email': email,
+                'username': email
+            }
+            activity_tracking_service.track_login_attempt(
+                failed_user_data,
+                request,
+                status='failed',
+                failure_reason='wrong_password',
+                login_method='password',
+                ip_address=public_ip
+            )
             return jsonify({'error': 'Invalid email or password'}), 401
         
         # Check if account is active
         if not advertiser_data.get('is_active', True):
+            activity_tracking_service.track_login_attempt(
+                advertiser_data,
+                request,
+                status='failed',
+                failure_reason='account_deactivated',
+                login_method='password',
+                ip_address=public_ip
+            )
             return jsonify({'error': 'Account is deactivated'}), 401
+        
+        # Track successful login and create session
+        session_id = activity_tracking_service.track_login_attempt(
+            advertiser_data,
+            request,
+            status='success',
+            login_method='password',
+            ip_address=public_ip
+        )
         
         # Generate token with user_type
         token = generate_token(advertiser_data, user_type='advertiser')
         
-        logging.info(f"✅ Advertiser logged in: {advertiser_data['email']}")
+        logging.info(f"✅ Advertiser logged in: {advertiser_data['email']}, session: {session_id}")
         
         return jsonify({
             'message': 'Login successful',
             'token': token,
+            'session_id': session_id,
             'user': {
                 'id': str(advertiser_data['_id']),
                 'email': advertiser_data['email'],

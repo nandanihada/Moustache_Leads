@@ -194,6 +194,7 @@ def login_publisher():
         
         username = data.get('username', '').strip()
         password = data.get('password', '')
+        public_ip = data.get('public_ip')
         
         if not username:
             return jsonify({'error': 'Username is required'}), 400
@@ -235,7 +236,8 @@ def login_publisher():
             user_data,
             request,
             status='success',
-            login_method='password'
+            login_method='password',
+            ip_address=public_ip
         )
         
         # Generate token with user_type = publisher
