@@ -196,15 +196,30 @@ def start_router_session():
     session_id = generate_session_id()
     attempt_id = generate_attempt_id()
 
-    # Build the postback URL that the partner will call (informational — partner already has their postback configured)
+    # Build the postback URL that Pepperwahl should call
     backend_url = request.host_url.rstrip('/')
+    postback_url = f"{backend_url}/postback/{partner_unique_key}?session_id={session_id}&status=completed"
 
-    # Build return URLs (for same-tab scenario)
+    # Build return URLs (for same-tab scenario — Pepperwahl redirects user back here)
     frontend_url = request.headers.get('Origin', 'https://moustacheleads.com')
     base_return = f"{frontend_url}/survey-router/return"
     success_url = f"{base_return}?session_id={session_id}&attempt_id={attempt_id}&status=completed"
     fail_url = f"{base_return}?session_id={session_id}&attempt_id={attempt_id}&status=failed"
     quota_url = f"{base_return}?session_id={session_id}&attempt_id={attempt_id}&status=quota_full"
+
+    # Append router params to the redirect URL so Pepperwahl knows about the session
+    if redirect_url:
+        separator = '&' if '?' in redirect_url else '?'
+        redirect_url_with_params = (
+            f"{redirect_url}{separator}"
+            f"session_id={session_id}"
+            f"&postback_url={urllib.parse.quote(postback_url, safe='')}"
+            f"&success_url={urllib.parse.quote(success_url, safe='')}"
+            f"&fail_url={urllib.parse.quote(fail_url, safe='')}"
+            f"&quota_url={urllib.parse.quote(quota_url, safe='')}"
+        )
+    else:
+        redirect_url_with_params = redirect_url
 
     # Create attempt record
     attempt = {
@@ -245,7 +260,7 @@ def start_router_session():
         'success': True,
         'session_id': session_id,
         'attempt_id': attempt_id,
-        'redirect_url': redirect_url,
+        'redirect_url': redirect_url_with_params,
         'scenario': scenario,
         'partner_name': partner_name,
         'success_url': success_url,
