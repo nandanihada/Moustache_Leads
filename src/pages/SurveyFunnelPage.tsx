@@ -181,7 +181,7 @@ export default function SurveyFunnelPage() {
                   scenario: data.router_scenario || 'new_tab',
                 });
                 if (routerRes.success) {
-                  const targetUrl = data.redirect_url || routerRes.redirect_url;
+                  const targetUrl = routerRes.redirect_url || data.redirect_url;
                   const scenario = data.router_scenario || 'new_tab';
                   
                   if (scenario === 'same_tab' && targetUrl) {
