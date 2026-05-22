@@ -420,12 +420,19 @@ def submit_step(funnel_id):
 
             # If survey router is enabled for this step, return router info
             if use_survey_router and router_partner_id:
+                # Get next step's pass_url for "try another" functionality
+                next_step_url = ''
+                next_step_index = step_index + 1
+                if next_step_index < len(steps):
+                    next_step_url = steps[next_step_index].get('pass_url', '')
+                
                 return jsonify({
                     'result': 'passed',
                     'use_survey_router': True,
                     'router_partner_id': router_partner_id,
                     'router_scenario': router_scenario,
                     'redirect_url': redirect_url,
+                    'next_redirect_url': next_step_url,
                     'message': current_step.get('pass_message', 'Congratulations! You qualify.'),
                 }), 200
 

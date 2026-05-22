@@ -179,6 +179,7 @@ export default function SurveyFunnelPage() {
                   partner_id: data.router_partner_id,
                   redirect_url: data.redirect_url || '',
                   scenario: data.router_scenario || 'new_tab',
+                  next_redirect_url: data.next_redirect_url || '',
                 });
                 if (routerRes.success) {
                   const targetUrl = routerRes.redirect_url || data.redirect_url;

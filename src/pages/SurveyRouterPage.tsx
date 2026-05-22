@@ -28,6 +28,8 @@ export default function SurveyRouterPage() {
   const attemptId = searchParams.get('attempt_id') || '';
   const returnStatus = searchParams.get('status') || '';
   const surveyUrl = searchParams.get('survey_url') || '';
+  const funnelId = searchParams.get('funnel_id') || '';
+  const nextSurveyUrl = searchParams.get('next_survey_url') || '';
 
   // Handle Scenario 1: User returned via URL with status
   useEffect(() => {
@@ -118,7 +120,15 @@ export default function SurveyRouterPage() {
   }, [sessionId]);
 
   const handleTryAnother = () => {
-    handleRouteToNext();
+    if (nextSurveyUrl) {
+      // Redirect directly to the next survey
+      window.location.href = nextSurveyUrl;
+    } else if (funnelId) {
+      // Fallback: redirect back to the funnel
+      window.location.href = `/funnel/${funnelId}`;
+    } else {
+      handleRouteToNext();
+    }
   };
 
   return (
@@ -196,19 +206,23 @@ export default function SurveyRouterPage() {
                   Survey Not Completed
                 </h1>
                 <p className="text-gray-500 text-sm mb-6">
-                  You didn&apos;t qualify for this survey. Would you like to try another one?
+                  {nextSurveyUrl
+                    ? "You didn\u0027t qualify for this survey. Would you like to try another one?"
+                    : "You didn\u0027t qualify for this survey. Please try again later."}
                 </p>
                 <div className="flex gap-3">
-                  <Button
-                    onClick={handleTryAnother}
-                    className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
-                  >
-                    Try Another Survey
-                  </Button>
+                  {nextSurveyUrl && (
+                    <Button
+                      onClick={handleTryAnother}
+                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                    >
+                      Try Another Survey
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() => window.close()}
-                    className="flex-1"
+                    className={nextSurveyUrl ? 'flex-1' : 'w-full'}
                   >
                     Close
                   </Button>

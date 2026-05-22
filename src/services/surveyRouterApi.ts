@@ -133,6 +133,7 @@ export async function startRouterSession(data: {
   partner_id?: string;
   redirect_url?: string;
   scenario?: string;
+  next_redirect_url?: string;
 }): Promise<{
   success: boolean;
   session_id: string;
