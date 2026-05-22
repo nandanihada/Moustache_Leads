@@ -302,10 +302,15 @@ def start_funnel(funnel_id):
 
         data = request.get_json() or {}
         user_id = data.get('user_id', 'anonymous')
+        start_step = int(data.get('start_step', 0))
 
         steps = funnel.get('steps', [])
         if not steps:
             return jsonify({'error': 'Funnel has no steps'}), 400
+
+        # Validate start_step
+        if start_step >= len(steps):
+            start_step = 0
 
         # Create history record
         session_id = f"FS-{secrets.token_hex(6).upper()}"
@@ -314,7 +319,7 @@ def start_funnel(funnel_id):
                 'session_id': session_id,
                 'funnel_id': funnel_id,
                 'user_id': user_id,
-                'current_step': 0,
+                'current_step': start_step,
                 'responses': [],
                 'status': 'in_progress',
                 'started_at': datetime.utcnow(),
@@ -327,19 +332,19 @@ def start_funnel(funnel_id):
         # Increment stats
         funnels_col.update_one({'funnel_id': funnel_id}, {'$inc': {'stats.total_starts': 1}})
 
-        # Return first step (without pass criteria — user shouldn't see that)
-        first_step = steps[0]
+        # Return the step at start_step index
+        target_step = steps[start_step]
         return jsonify({
             'session_id': session_id,
-            'step_index': 0,
+            'step_index': start_step,
             'total_steps': len(steps),
             'survey_template': funnel.get('survey_template', 'modern-card'),
             'questions_per_page': funnel.get('questions_per_page', 0),
             'spinner_duration': funnel.get('spinner_duration', 8),
             'survey_timeout': funnel.get('survey_timeout', 5),
             'survey': {
-                'title': first_step.get('survey_title', f'Survey {1}'),
-                'questions': first_step.get('questions', []),
+                'title': target_step.get('survey_title', f'Survey {start_step + 1}'),
+                'questions': target_step.get('questions', []),
             }
         }), 200
 
@@ -433,6 +438,7 @@ def submit_step(funnel_id):
                     'router_scenario': router_scenario,
                     'redirect_url': redirect_url,
                     'next_redirect_url': next_step_url,
+                    'next_step_index': next_step_index if next_step_index < len(steps) else -1,
                     'message': current_step.get('pass_message', 'Congratulations! You qualify.'),
                 }), 200
 

@@ -134,6 +134,7 @@ export async function startRouterSession(data: {
   redirect_url?: string;
   scenario?: string;
   next_redirect_url?: string;
+  next_step_index?: number;
 }): Promise<{
   success: boolean;
   session_id: string;

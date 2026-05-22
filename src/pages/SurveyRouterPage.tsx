@@ -29,7 +29,7 @@ export default function SurveyRouterPage() {
   const returnStatus = searchParams.get('status') || '';
   const surveyUrl = searchParams.get('survey_url') || '';
   const funnelId = searchParams.get('funnel_id') || '';
-  const nextSurveyUrl = searchParams.get('next_survey_url') || '';
+  const nextStep = searchParams.get('next_step') || '';
 
   // Handle Scenario 1: User returned via URL with status
   useEffect(() => {
@@ -120,11 +120,10 @@ export default function SurveyRouterPage() {
   }, [sessionId]);
 
   const handleTryAnother = () => {
-    if (nextSurveyUrl) {
-      // Redirect directly to the next survey
-      window.location.href = nextSurveyUrl;
+    if (funnelId && nextStep) {
+      // Redirect back to the funnel at the next step (qualification questions)
+      window.location.href = `/funnel/${funnelId}?start_step=${nextStep}`;
     } else if (funnelId) {
-      // Fallback: redirect back to the funnel
       window.location.href = `/funnel/${funnelId}`;
     } else {
       handleRouteToNext();
@@ -170,59 +169,91 @@ export default function SurveyRouterPage() {
           <div className="w-full max-w-md">
             {/* Completed */}
             {phase === 'completed' && (
-              <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
+              <div className="fixed inset-0 z-20 flex flex-col items-center justify-center p-6" style={{ background: 'linear-gradient(135deg, #1a4a3a 0%, #0d2b20 100%)' }}>
+                {/* Animated checkmark */}
                 <div className="mb-6">
-                  <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto" />
+                  <svg className="w-24 h-24" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(74, 222, 128, 0.2)" strokeWidth="4" />
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="#4ade80" strokeWidth="4"
+                      strokeDasharray="283" strokeDashoffset="283" strokeLinecap="round"
+                      style={{ animation: 'circleDraw 0.6s ease-out 0.2s forwards' }} />
+                    <path d="M30 52 L44 66 L70 38" fill="none" stroke="#4ade80" strokeWidth="5"
+                      strokeLinecap="round" strokeLinejoin="round"
+                      strokeDasharray="60" strokeDashoffset="60"
+                      style={{ animation: 'checkDraw 0.4s ease-out 0.7s forwards' }} />
+                  </svg>
+                  <style>{`
+                    @keyframes circleDraw { to { stroke-dashoffset: 0; } }
+                    @keyframes checkDraw { to { stroke-dashoffset: 0; } }
+                  `}</style>
                 </div>
-                <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                  Congratulations!
+                <h1 className="text-3xl font-bold text-white mb-2" style={{ animation: 'fadeInUp 0.5s ease-out 0.9s both' }}>
+                  Congratulations! 🎉
                 </h1>
-                <p className="text-gray-600 mb-4">
-                  You&apos;ve successfully completed the survey.
+                <p className="text-green-200 text-center mb-1" style={{ animation: 'fadeInUp 0.5s ease-out 1.1s both' }}>
+                  You&apos;ve successfully completed the survey!
                 </p>
-                {payout > 0 && (
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
-                    <p className="text-green-800 font-semibold text-lg">
-                      +${payout.toFixed(2)} earned
-                    </p>
+                <p className="text-green-300/70 text-sm text-center mb-8" style={{ animation: 'fadeInUp 0.5s ease-out 1.2s both' }}>
+                  Your reward will be credited to your account shortly.
+                </p>
+                <div className="bg-white/10 backdrop-blur border border-white/20 rounded-xl p-5 max-w-sm w-full mb-8" style={{ animation: 'fadeInUp 0.5s ease-out 1.4s both' }}>
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🪙</span>
+                    <div>
+                      <p className="text-white font-semibold">Reward Pending</p>
+                      <p className="text-green-200/70 text-sm">Your completion has been recorded. Rewards are typically credited within 24 hours.</p>
+                    </div>
                   </div>
-                )}
+                </div>
                 <Button
                   onClick={() => window.close()}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                  className="bg-white/20 hover:bg-white/30 text-white border border-white/30 px-8 py-3"
+                  style={{ animation: 'fadeInUp 0.5s ease-out 1.6s both' }}
                 >
-                  Done
+                  ← Done
                 </Button>
+                <style>{`
+                  @keyframes fadeInUp {
+                    from { opacity: 0; transform: translateY(16px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                `}</style>
               </div>
             )}
 
             {/* Failed */}
             {phase === 'failed' && (
-              <div className="bg-white rounded-2xl shadow-lg p-8 text-center">
-                <div className="mb-6">
-                  <XCircle className="w-16 h-16 text-red-400 mx-auto" />
+              <div className="fixed inset-0 z-20 flex flex-col items-center justify-center p-6" style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%)' }}>
+                <div className="w-20 h-20 rounded-full bg-gray-700/50 border-4 border-gray-500 flex items-center justify-center mb-6">
+                  <XCircle className="w-10 h-10 text-gray-400" />
                 </div>
-                <h1 className="text-xl font-bold text-gray-900 mb-2">
-                  Survey Not Completed
+                <h1 className="text-2xl font-bold text-white mb-2">
+                  Not Eligible This Time
                 </h1>
-                <p className="text-gray-500 text-sm mb-6">
-                  {nextSurveyUrl
-                    ? "You didn\u0027t qualify for this survey. Would you like to try another one?"
-                    : "You didn\u0027t qualify for this survey. Please try again later."}
+                <p className="text-gray-300 text-center mb-1">
+                  Unfortunately, you didn&apos;t qualify for this survey.
                 </p>
+                <p className="text-gray-400 text-sm text-center mb-8">
+                  Don&apos;t worry — there are plenty of other offers available for you!
+                </p>
+                <div className="bg-white/5 backdrop-blur border border-white/10 rounded-xl p-5 max-w-sm w-full mb-8">
+                  <p className="text-gray-300 text-sm text-center">
+                    💡 Tip: Try other surveys and offers on the offerwall. Different surveys have different eligibility criteria.
+                  </p>
+                </div>
                 <div className="flex gap-3">
-                  {nextSurveyUrl && (
+                  {(nextStep && funnelId) && (
                     <Button
                       onClick={handleTryAnother}
-                      className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3"
                     >
                       Try Another Survey
                     </Button>
                   )}
                   <Button
-                    variant="outline"
                     onClick={() => window.close()}
-                    className={nextSurveyUrl ? 'flex-1' : 'w-full'}
+                    variant="outline"
+                    className="border-gray-500 text-gray-300 hover:bg-white/10 px-6 py-3"
                   >
                     Close
                   </Button>

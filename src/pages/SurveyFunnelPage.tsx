@@ -40,6 +40,7 @@ export default function SurveyFunnelPage() {
   const userId = searchParams.get('user_id') || 'anonymous';
   const templateOverride = searchParams.get('template') as TemplateName | null;
   const isAdmin = searchParams.get('admin') === '1';
+  const startStep = parseInt(searchParams.get('start_step') || '0', 10);
   const baseUrl = getApiBaseUrl();
 
   // Core state
@@ -95,7 +96,7 @@ export default function SurveyFunnelPage() {
       const res = await fetch(`${baseUrl}/api/survey-funnel/${funnelId}/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId })
+        body: JSON.stringify({ user_id: userId, start_step: startStep })
       });
       if (!res.ok) throw new Error('Funnel not found');
       const data = await res.json();
@@ -180,6 +181,7 @@ export default function SurveyFunnelPage() {
                   redirect_url: data.redirect_url || '',
                   scenario: data.router_scenario || 'new_tab',
                   next_redirect_url: data.next_redirect_url || '',
+                  next_step_index: data.next_step_index ?? -1,
                 });
                 if (routerRes.success) {
                   const targetUrl = routerRes.redirect_url || data.redirect_url;

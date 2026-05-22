@@ -182,6 +182,7 @@ def start_router_session():
     redirect_url = data.get('redirect_url', '')
     scenario = data.get('scenario', 'new_tab')
     next_redirect_url = data.get('next_redirect_url', '')
+    next_step_index = data.get('next_step_index', -1)
 
     # Find partner to get their unique_postback_key
     partners_col = get_collection('partners')
@@ -206,11 +207,11 @@ def start_router_session():
     base_return = f"{frontend_url}/survey-router/return"
     success_url = f"{base_return}?session_id={session_id}&attempt_id={attempt_id}&status=completed&funnel_id={funnel_id}"
     fail_url = f"{base_return}?session_id={session_id}&attempt_id={attempt_id}&status=failed&funnel_id={funnel_id}"
-    if next_redirect_url:
-        fail_url += f"&next_survey_url={urllib.parse.quote(next_redirect_url, safe='')}"
+    if next_step_index >= 0:
+        fail_url += f"&next_step={next_step_index}"
     quota_url = f"{base_return}?session_id={session_id}&attempt_id={attempt_id}&status=quota_full&funnel_id={funnel_id}"
-    if next_redirect_url:
-        quota_url += f"&next_survey_url={urllib.parse.quote(next_redirect_url, safe='')}"
+    if next_step_index >= 0:
+        quota_url += f"&next_step={next_step_index}"
 
     # Append router params to the redirect URL so Pepperwahl knows about the session
     if redirect_url:
