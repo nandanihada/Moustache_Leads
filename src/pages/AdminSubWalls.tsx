@@ -40,6 +40,7 @@ export default function AdminSubWalls() {
   const [formDescription, setFormDescription] = useState("");
   const [formImageUrl, setFormImageUrl] = useState("");
   const [formOfferIds, setFormOfferIds] = useState<string[]>([]);
+  const [formSurveyCards, setFormSurveyCards] = useState<Array<{survey_id: string; title: string; description: string; image_url: string; points: number; position: number; badge_text: string; badge_color: string}>>([]);
   const [formPreScreening, setFormPreScreening] = useState(false);
   const [formSurveyId, setFormSurveyId] = useState<string>("");
   const [formFilterByAnswers, setFormFilterByAnswers] = useState(false);
@@ -115,6 +116,7 @@ export default function AdminSubWalls() {
     setFormDescription("");
     setFormImageUrl("");
     setFormOfferIds([]);
+    setFormSurveyCards([]);
     setFormPreScreening(false);
     setFormSurveyId("");
     setFormFilterByAnswers(false);
@@ -148,6 +150,7 @@ export default function AdminSubWalls() {
     setFormDescription(sw.description || "");
     setFormImageUrl(sw.image_url || "");
     setFormOfferIds(sw.offer_ids || []);
+    setFormSurveyCards((sw as any).survey_cards || []);
     setFormPreScreening(sw.pre_screening_enabled);
     setFormSurveyId(sw.pre_screening_survey_id || "");
     setFormFilterByAnswers(sw.filter_by_answers);
@@ -176,6 +179,7 @@ export default function AdminSubWalls() {
       description: formDescription.trim(),
       image_url: formImageUrl.trim(),
       offer_ids: formOfferIds,
+      survey_cards: formSurveyCards,
       pre_screening_enabled: formPreScreening,
       pre_screening_survey_id: formPreScreening ? formSurveyId || null : null,
       filter_by_answers: formFilterByAnswers,
@@ -507,6 +511,153 @@ export default function AdminSubWalls() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Survey Cards Section */}
+            <div className="space-y-3 border rounded-lg p-4 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label className="text-base font-semibold">Survey Cards</Label>
+                  <p className="text-xs text-muted-foreground">Add surveys as cards in this sub-wall (shown alongside offers)</p>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setFormSurveyCards([...formSurveyCards, { survey_id: '', title: 'Complete Survey', description: 'Answer questions to earn rewards', image_url: '', points: 5, position: formOfferIds.length, badge_text: '📋 Survey', badge_color: '#8b5cf6' }])}
+                >
+                  <Plus className="h-3 w-3 mr-1" /> Add Survey Card
+                </Button>
+              </div>
+              {formSurveyCards.length === 0 && (
+                <p className="text-xs text-muted-foreground text-center py-3">No survey cards added. Click "Add Survey Card" to include surveys in this sub-wall.</p>
+              )}
+              {formSurveyCards.map((card, idx) => (
+                <div key={idx} className="border rounded-lg p-3 space-y-2 bg-white relative">
+                  <button
+                    type="button"
+                    onClick={() => setFormSurveyCards(formSurveyCards.filter((_, i) => i !== idx))}
+                    className="absolute top-2 right-2 text-red-400 hover:text-red-600"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Survey</Label>
+                      <Select
+                        value={card.survey_id}
+                        onValueChange={(v) => {
+                          const updated = [...formSurveyCards];
+                          updated[idx] = { ...updated[idx], survey_id: v };
+                          setFormSurveyCards(updated);
+                        }}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue placeholder="Select survey" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(surveysData?.surveys || []).map((s: any) => (
+                            <SelectItem key={s._id} value={s._id}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Points</Label>
+                      <Input
+                        type="number"
+                        className="h-8 text-xs"
+                        value={card.points}
+                        onChange={(e) => {
+                          const updated = [...formSurveyCards];
+                          updated[idx] = { ...updated[idx], points: Number(e.target.value) };
+                          setFormSurveyCards(updated);
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Card Title</Label>
+                      <Input
+                        className="h-8 text-xs"
+                        value={card.title}
+                        onChange={(e) => {
+                          const updated = [...formSurveyCards];
+                          updated[idx] = { ...updated[idx], title: e.target.value };
+                          setFormSurveyCards(updated);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Badge Text</Label>
+                      <Input
+                        className="h-8 text-xs"
+                        value={card.badge_text}
+                        placeholder="📋 Survey"
+                        onChange={(e) => {
+                          const updated = [...formSurveyCards];
+                          updated[idx] = { ...updated[idx], badge_text: e.target.value };
+                          setFormSurveyCards(updated);
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Description</Label>
+                    <Input
+                      className="h-8 text-xs"
+                      value={card.description}
+                      onChange={(e) => {
+                        const updated = [...formSurveyCards];
+                        updated[idx] = { ...updated[idx], description: e.target.value };
+                        setFormSurveyCards(updated);
+                      }}
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <Label className="text-xs">Image URL</Label>
+                      <Input
+                        className="h-8 text-xs"
+                        value={card.image_url}
+                        placeholder="https://..."
+                        onChange={(e) => {
+                          const updated = [...formSurveyCards];
+                          updated[idx] = { ...updated[idx], image_url: e.target.value };
+                          setFormSurveyCards(updated);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Position</Label>
+                      <Input
+                        type="number"
+                        className="h-8 text-xs"
+                        value={card.position}
+                        onChange={(e) => {
+                          const updated = [...formSurveyCards];
+                          updated[idx] = { ...updated[idx], position: Number(e.target.value) };
+                          setFormSurveyCards(updated);
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Badge Color</Label>
+                      <Input
+                        type="color"
+                        className="h-8 w-full"
+                        value={card.badge_color}
+                        onChange={(e) => {
+                          const updated = [...formSurveyCards];
+                          updated[idx] = { ...updated[idx], badge_color: e.target.value };
+                          setFormSurveyCards(updated);
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Pre-screening toggle */}

@@ -3,6 +3,17 @@ import { getAuthToken } from '@/utils/cookies';
 
 const API_BASE_URL = `${getApiBaseUrl()}/api/admin/sub-walls`;
 
+export interface SurveyCard {
+  survey_id: string;
+  title: string;
+  description?: string;
+  image_url?: string;
+  points?: number;
+  position?: number;  // Position in the grid (0 = first, -1 = last)
+  badge_text?: string;
+  badge_color?: string;
+}
+
 export interface SubWall {
   _id?: string;
   name: string;
@@ -10,6 +21,7 @@ export interface SubWall {
   description?: string;
   image_url?: string;
   offer_ids: string[];
+  survey_cards?: SurveyCard[];
   pre_screening_enabled: boolean;
   pre_screening_survey_id?: string | null;
   filter_by_answers: boolean;
@@ -24,6 +36,7 @@ export interface SubWall {
   theme_color?: string;
   banner_image?: string;
   button_text?: string;
+  survey_frequency?: string;
   created_at?: string;
   created_by?: string;
 }

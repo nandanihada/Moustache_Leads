@@ -104,6 +104,7 @@ def create_sub_wall():
             'description': data.get('description', ''),
             'image_url': data.get('image_url', ''),
             'offer_ids': data.get('offer_ids', []),
+            'survey_cards': data.get('survey_cards', []),  # Array of {survey_id, title, description, image_url, points, position, badge_text, badge_color}
             'pre_screening_enabled': data.get('pre_screening_enabled', False),
             'pre_screening_survey_id': data.get('pre_screening_survey_id', None),
             'filter_by_answers': data.get('filter_by_answers', False),
@@ -212,7 +213,7 @@ def update_sub_wall(sub_wall_id):
         # Build update fields
         update_fields = {}
         allowed_fields = [
-            'name', 'slug', 'description', 'image_url', 'offer_ids',
+            'name', 'slug', 'description', 'image_url', 'offer_ids', 'survey_cards',
             'pre_screening_enabled', 'pre_screening_survey_id',
             'filter_by_answers', 'filter_rules', 'status', 'display_order',
             'visibility', 'visible_to_publishers', 'visible_countries',
@@ -422,6 +423,7 @@ def get_public_sub_wall(slug):
             'image_url': sub_wall.get('image_url', ''),
             'offer_count': len(offers),
             'offers': offers,
+            'survey_cards': sub_wall.get('survey_cards', []),
             'pre_screening_enabled': sub_wall.get('pre_screening_enabled', False),
             'pre_screening_survey_id': str(sub_wall['pre_screening_survey_id']) if sub_wall.get('pre_screening_survey_id') else None,
             # Customization

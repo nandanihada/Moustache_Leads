@@ -326,6 +326,7 @@ const SubWallPage: React.FC = () => {
 
   // Main offers view
   const offersToShow = subWall.offers;
+  const surveyCards = (subWall as any).survey_cards || [];
   const themeColor = subWall.theme_color || '#6366f1';
   const buttonText = subWall.button_text || 'Click to Earn';
   const headingText = subWall.heading_text || subWall.name;
@@ -361,66 +362,128 @@ const SubWallPage: React.FC = () => {
         </div>
 
         {/* Offers Grid */}
-        {offersToShow.length === 0 ? (
+        {offersToShow.length === 0 && surveyCards.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-gray-400 text-lg">No offers available at this time.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {offersToShow.map((offer) => (
-              <div
-                key={offer._id || offer.offer_id}
-                onClick={() => handleOfferClick(offer)}
-                className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden hover:border-opacity-80 transition-all cursor-pointer hover:shadow-lg group"
-                style={{ '--hover-color': themeColor } as React.CSSProperties}
-              >
-                {offer.image_url && (
-                  <div className="h-40 overflow-hidden">
-                    <img
-                      src={offer.image_url}
-                      alt={offer.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform"
-                    />
-                  </div>
-                )}
-                <div className="p-4">
-                  <h3 className="text-white font-semibold text-lg mb-1 line-clamp-2">{offer.name}</h3>
-                  {offer.description && (
-                    <p className="text-gray-400 text-sm line-clamp-2 mb-3">{offer.description}</p>
-                  )}
-                  <div className="flex items-center justify-between mb-3">
-                    {offer.payout && (
-                      <span className="text-green-400 font-bold">
-                        ${offer.payout.toFixed(2)} {offer.payout_type || 'CPA'}
-                      </span>
-                    )}
-                    {offer.category && (
-                      <span className="text-xs bg-slate-700 text-gray-300 px-2 py-1 rounded">
-                        {offer.category}
-                      </span>
-                    )}
-                  </div>
-                  {offer.countries && offer.countries.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1 mb-3">
-                      {offer.countries.slice(0, 5).map((c) => (
-                        <span key={c} className="text-xs bg-slate-700 text-gray-400 px-1.5 py-0.5 rounded">
-                          {c}
-                        </span>
-                      ))}
-                      {offer.countries.length > 5 && (
-                        <span className="text-xs text-gray-500">+{offer.countries.length - 5}</span>
+            {(() => {
+              // Build combined items: offers + survey cards at their positions
+              type GridItem = { type: 'offer'; data: Offer } | { type: 'survey'; data: typeof surveyCards[0] };
+              const items: GridItem[] = offersToShow.map(o => ({ type: 'offer' as const, data: o }));
+              
+              // Insert survey cards at their specified positions
+              surveyCards.forEach((card: any) => {
+                const pos = Math.min(card.position ?? items.length, items.length);
+                items.splice(pos, 0, { type: 'survey', data: card });
+              });
+
+              return items.map((item, idx) => {
+                if (item.type === 'survey') {
+                  const card = item.data as any;
+                  return (
+                    <div
+                      key={`survey-${idx}`}
+                      onClick={() => window.open(`/survey/${card.survey_id}`, '_blank')}
+                      className="bg-gradient-to-br from-purple-900/50 to-slate-800 rounded-xl border-2 overflow-hidden transition-all cursor-pointer hover:shadow-xl hover:scale-[1.02] group"
+                      style={{ borderColor: card.badge_color || '#8b5cf6' }}
+                    >
+                      {card.image_url ? (
+                        <div className="h-40 overflow-hidden">
+                          <img src={card.image_url} alt={card.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                        </div>
+                      ) : (
+                        <div className="h-40 flex items-center justify-center bg-gradient-to-br from-purple-600/30 to-indigo-600/30">
+                          <span className="text-6xl">📋</span>
+                        </div>
                       )}
+                      <div className="p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span
+                            className="text-xs font-bold px-2 py-0.5 rounded-full text-white"
+                            style={{ backgroundColor: card.badge_color || '#8b5cf6' }}
+                          >
+                            {card.badge_text || '📋 Survey'}
+                          </span>
+                        </div>
+                        <h3 className="text-white font-semibold text-lg mb-1">{card.title}</h3>
+                        {card.description && (
+                          <p className="text-gray-400 text-sm line-clamp-2 mb-3">{card.description}</p>
+                        )}
+                        <div className="flex items-center justify-between mb-3">
+                          <span className="text-yellow-400 font-bold text-lg">+{card.points || 0} pts</span>
+                          <span className="text-xs text-gray-400">~2 min</span>
+                        </div>
+                        <button
+                          className="w-full py-2.5 rounded-lg text-white font-semibold text-sm transition-opacity hover:opacity-90"
+                          style={{ background: card.badge_color || '#8b5cf6' }}
+                        >
+                          Start Survey →
+                        </button>
+                      </div>
                     </div>
-                  )}
-                  <button
-                    className="w-full py-2.5 rounded-lg text-white font-semibold text-sm transition-opacity hover:opacity-90"
-                    style={{ background: themeColor }}
+                  );
+                }
+
+                // Regular offer card
+                const offer = item.data as Offer;
+                return (
+                  <div
+                    key={offer._id || offer.offer_id}
+                    onClick={() => handleOfferClick(offer)}
+                    className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden hover:border-opacity-80 transition-all cursor-pointer hover:shadow-lg group"
+                    style={{ '--hover-color': themeColor } as React.CSSProperties}
                   >
-                    {buttonText}
-                  </button>
-                </div>
-              </div>
-            ))}
+                    {offer.image_url && (
+                      <div className="h-40 overflow-hidden">
+                        <img
+                          src={offer.image_url}
+                          alt={offer.name}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        />
+                      </div>
+                    )}
+                    <div className="p-4">
+                      <h3 className="text-white font-semibold text-lg mb-1 line-clamp-2">{offer.name}</h3>
+                      {offer.description && (
+                        <p className="text-gray-400 text-sm line-clamp-2 mb-3">{offer.description}</p>
+                      )}
+                      <div className="flex items-center justify-between mb-3">
+                        {offer.payout && (
+                          <span className="text-green-400 font-bold">
+                            ${offer.payout.toFixed(2)} {offer.payout_type || 'CPA'}
+                          </span>
+                        )}
+                        {offer.category && (
+                          <span className="text-xs bg-slate-700 text-gray-300 px-2 py-1 rounded">
+                            {offer.category}
+                          </span>
+                        )}
+                      </div>
+                      {offer.countries && offer.countries.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1 mb-3">
+                          {offer.countries.slice(0, 5).map((c) => (
+                            <span key={c} className="text-xs bg-slate-700 text-gray-400 px-1.5 py-0.5 rounded">
+                              {c}
+                            </span>
+                          ))}
+                          {offer.countries.length > 5 && (
+                            <span className="text-xs text-gray-500">+{offer.countries.length - 5}</span>
+                          )}
+                        </div>
+                      )}
+                      <button
+                        className="w-full py-2.5 rounded-lg text-white font-semibold text-sm transition-opacity hover:opacity-90"
+                        style={{ background: themeColor }}
+                      >
+                        {buttonText}
+                      </button>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         )}
 
