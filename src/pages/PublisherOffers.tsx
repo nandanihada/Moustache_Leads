@@ -159,14 +159,18 @@ const PublisherOffersContent = () => {
   const [page, setPage] = useState(1);
   const [perPageState, setPerPageState] = useState(50);
   const perPage = perPageState;
+  const [totalOffers, setTotalOffers] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
-  // Fetch available offers
-  const fetchOffers = async () => {
+  // Fetch available offers - uses server-side pagination
+  const fetchOffers = async (fetchPage = 1, fetchPerPage = 50, fetchSearch = "") => {
     setLoading(true);
     setError(null);
     try {
-      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 10000, search: "" });
+      const res = await publisherOfferApi.getAvailableOffers({ page: fetchPage, per_page: fetchPerPage, search: fetchSearch });
       setOffers(res.offers || []);
+      setTotalOffers(res.pagination?.total || 0);
+      setTotalPages(res.pagination?.pages || 0);
     } catch (err: any) {
       setError(err.message || "Failed to load offers");
     } finally {
@@ -178,7 +182,7 @@ const PublisherOffersContent = () => {
   const fetchMyRequests = async () => {
     setRequestsLoading(true);
     try {
-      const res = await publisherOfferApi.getMyAccessRequests({ page: 1, per_page: 10000 });
+      const res = await publisherOfferApi.getMyAccessRequests({ page: 1, per_page: 500 });
       setMyRequests(res.requests || []);
     } catch (err: any) {
       console.error("Failed to load requests:", err);
@@ -191,7 +195,7 @@ const PublisherOffersContent = () => {
   const fetchMyOffers = async () => {
     setMyOffersLoading(true);
     try {
-      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 10000 });
+      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 500 });
       const approved = (res.offers || []).filter((o) => o.has_access);
       setMyOffers(approved);
     } catch (err: any) {
@@ -202,10 +206,17 @@ const PublisherOffersContent = () => {
   };
 
   useEffect(() => {
-    fetchOffers();
+    fetchOffers(1, perPage, "");
     fetchMyRequests();
     fetchMyOffers();
   }, []);
+
+  // Re-fetch when page or perPage changes
+  useEffect(() => {
+    if (viewMode === "available") {
+      fetchOffers(page, perPage, searchTerm);
+    }
+  }, [page, perPage]);
 
   // Refresh when view changes
   useEffect(() => {
@@ -238,7 +249,8 @@ const PublisherOffersContent = () => {
   // Filtered + sorted offers
   const filteredOffers = useMemo(() => {
     let list = viewMode === "my_offers" ? [...myOffers] : viewMode === "requests" ? [] : [...offers];
-    if (searchTerm) {
+    // In "available" mode, search is handled server-side, skip client-side search filter
+    if (searchTerm && viewMode !== "available") {
       const q = searchTerm.toLowerCase();
       list = list.filter((o) => {
         // Search by name, offer_id, network
@@ -298,6 +310,27 @@ const PublisherOffersContent = () => {
     }
     return () => { if (searchLogTimer.current) clearTimeout(searchLogTimer.current); };
   }, [searchTerm, filteredOffers.length]);
+
+  // Debounced server-side search: re-fetch from backend when search term changes
+  const serverSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (serverSearchTimer.current) clearTimeout(serverSearchTimer.current);
+    if (viewMode !== "available") return;
+    const term = searchTerm.trim();
+    // If search is cleared, fetch all offers immediately
+    if (term.length === 0) {
+      fetchOffers(1, perPage, "");
+      return;
+    }
+    // Debounce 500ms for search
+    if (term.length >= 2) {
+      serverSearchTimer.current = setTimeout(() => {
+        setPage(1);
+        fetchOffers(1, perPage, term);
+      }, 500);
+    }
+    return () => { if (serverSearchTimer.current) clearTimeout(serverSearchTimer.current); };
+  }, [searchTerm, viewMode]);
 
   // Autocomplete: fetch suggestions as user types (300ms debounce)
   // Suppress when wizard is active (user already picked a keyword)
@@ -533,13 +566,19 @@ const PublisherOffersContent = () => {
     return filteredOffers;
   }, [filteredOffers]);
 
-  // Paginated (only applied to regular offers)
+  // When using server-side pagination (available view), show all offers from current page
+  // When using client-side (my_offers view), paginate locally
   const paginatedOffers = useMemo(() => {
+    if (viewMode === "available") {
+      // Server already paginated, just return filtered results from current page
+      return regularFilteredOffers;
+    }
     const start = (page - 1) * perPage;
     return regularFilteredOffers.slice(start, start + perPage);
-  }, [regularFilteredOffers, page]);
+  }, [regularFilteredOffers, page, viewMode]);
 
-  const totalPages = Math.ceil(regularFilteredOffers.length / perPage);
+  const displayTotalPages = viewMode === "available" ? totalPages : Math.ceil(regularFilteredOffers.length / perPage);
+  const displayTotalOffers = viewMode === "available" ? totalOffers : regularFilteredOffers.length;
 
   // Track dashboard click
   const trackDashboardClick = async (offer: PublisherOffer) => {
@@ -815,7 +854,7 @@ const PublisherOffersContent = () => {
           {viewMode !== "requests" && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground hidden sm:inline">
-                {filteredOffers.length} offers
+                {displayTotalOffers} offers
               </span>
               <Select value={String(perPage)} onValueChange={(v) => { setPerPageState(Number(v)); setPage(1); }}>
                 <SelectTrigger className="w-[80px] h-8 text-xs border-purple-200">
@@ -828,13 +867,13 @@ const PublisherOffersContent = () => {
                   <SelectItem value="200">200</SelectItem>
                 </SelectContent>
               </Select>
-              {totalPages > 1 && (
+              {displayTotalPages > 1 && (
                 <div className="flex items-center gap-1">
                   <Button variant="outline" size="sm" className="h-8 w-8 p-0 border-purple-200 text-purple-600 hover:bg-purple-50" disabled={page <= 1} onClick={() => setPage(page - 1)}>
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <span className="text-xs text-muted-foreground px-1 whitespace-nowrap">{page} / {totalPages}</span>
-                  <Button variant="outline" size="sm" className="h-8 w-8 p-0 border-purple-200 text-purple-600 hover:bg-purple-50" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                  <span className="text-xs text-muted-foreground px-1 whitespace-nowrap">{page} / {displayTotalPages}</span>
+                  <Button variant="outline" size="sm" className="h-8 w-8 p-0 border-purple-200 text-purple-600 hover:bg-purple-50" disabled={page >= displayTotalPages} onClick={() => setPage(page + 1)}>
                     <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>

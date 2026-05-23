@@ -36,7 +36,7 @@ def get_available_offers():
         
         # Get query parameters
         page = int(request.args.get('page', 1))
-        per_page = min(int(request.args.get('per_page', 50)), 100)  # Default 50, max 100
+        per_page = int(request.args.get('per_page', 100))
         status = request.args.get('status', 'active')
         search = request.args.get('search', '')
         
@@ -142,7 +142,7 @@ def get_available_offers():
         except Exception as pin_err:
             logger.warning(f"Pin expiry cleanup error (non-critical): {pin_err}")
 
-        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]).max_time_ms(30000))
+        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]).max_time_ms(45000))
         
         if not offers:
             # Log search even if no results
