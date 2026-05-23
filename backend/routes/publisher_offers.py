@@ -56,7 +56,7 @@ def get_available_offers():
             grant_model = OfferGrant()
             granted_offer_ids = grant_model.get_granted_offer_ids(str(user_id))
         except Exception as grant_err:
-            logger.warning(f"Failed to fetch offer grants: {grant_err}")
+            logger.warning(f"Failed to fetch offer grants (skipping): {grant_err}")
         
         # Use 'deleted: {$ne: true}' instead of '$or' on deleted field — much more index-friendly
         if not granted_offer_ids:
@@ -109,10 +109,14 @@ def get_available_offers():
         
         # Get total count (with timeout protection)
         try:
-            total = offers_collection.count_documents(query, maxTimeMS=15000)
+            total = offers_collection.count_documents(query, maxTimeMS=10000)
         except Exception as count_err:
             logger.warning(f"Count query timed out, using estimate: {count_err}")
-            total = offers_collection.estimated_document_count()
+            # Fallback: estimate based on visible statuses only
+            try:
+                total = offers_collection.count_documents({'status': {'$in': visible_statuses}}, maxTimeMS=5000)
+            except:
+                total = 500  # Safe fallback
         
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
@@ -130,17 +134,18 @@ def get_available_offers():
         # Get paginated results with projection
         skip = (page - 1) * per_page
 
-        # Auto-expire pinned offers whose pin_expires_at has passed (non-blocking)
-        try:
-            offers_collection.update_many(
-                {
-                    'is_pinned': True,
-                    'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}
-                },
-                {'$set': {'is_pinned': False, 'pinned_at': None, 'pin_expires_at': None}}
-            )
-        except Exception as pin_err:
-            logger.warning(f"Pin expiry cleanup error (non-critical): {pin_err}")
+        # Auto-expire pinned offers (run async, don't block the response)
+        # This is a maintenance task, not critical for the response
+        import threading
+        def _expire_pins():
+            try:
+                offers_collection.update_many(
+                    {'is_pinned': True, 'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}},
+                    {'$set': {'is_pinned': False, 'pinned_at': None, 'pin_expires_at': None}}
+                )
+            except Exception:
+                pass
+        threading.Thread(target=_expire_pins, daemon=True).start()
 
         offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]).max_time_ms(45000))
         
@@ -164,29 +169,21 @@ def get_available_offers():
         # BATCH QUERY 1: Get all affiliate_requests for this user and these offers (single query)
         requests_collection = db_instance.get_collection('affiliate_requests')
         
-        # Build query to match both string and ObjectId formats for user_id
         user_id_str = str(user_id)
-        user_query_conditions = [
-            {'user_id': user_id_str},
-            {'user_id': user_id},
-            {'publisher_id': user_id_str},
-            {'publisher_id': user_id}
-        ]
-        try:
-            from bson import ObjectId
-            if ObjectId.is_valid(user_id_str):
-                user_obj_id = ObjectId(user_id_str)
-                user_query_conditions.extend([
-                    {'user_id': user_obj_id},
-                    {'publisher_id': user_obj_id}
-                ])
-        except:
-            pass
         
-        user_requests = list(requests_collection.find({
-            'offer_id': {'$in': offer_ids},
-            '$or': user_query_conditions
-        }))
+        # Simplified query - just check user_id and publisher_id as strings
+        try:
+            user_requests = list(requests_collection.find({
+                'offer_id': {'$in': offer_ids},
+                '$or': [
+                    {'user_id': user_id_str},
+                    {'publisher_id': user_id_str}
+                ]
+            }).max_time_ms(10000))
+        except Exception as req_err:
+            logger.warning(f"Affiliate requests query failed: {req_err}")
+            user_requests = []
+        
         # Create a lookup dict for O(1) access
         requests_by_offer = {req['offer_id']: req for req in user_requests}
         
@@ -194,7 +191,10 @@ def get_available_offers():
         
         # BATCH QUERY 2: Get user data once (already have it from token, but verify active status)
         users_collection = db_instance.get_collection('users')
-        user_data = users_collection.find_one({'_id': user_id})
+        try:
+            user_data = users_collection.find_one({'_id': user_id}, max_time_ms=5000)
+        except Exception:
+            user_data = None
         user_is_active = user_data.get('is_active', True) if user_data else True
         user_is_premium = (user_data.get('account_type') == 'premium' or user_data.get('is_premium', False)) if user_data else False
         
