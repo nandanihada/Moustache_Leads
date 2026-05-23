@@ -69,6 +69,10 @@ def create_indexes():
     # Publisher offers query: status + deleted + is_pinned + created_at (covers the main publisher view)
     safe_create('offers', [('status', ASCENDING), ('deleted', ASCENDING), ('is_pinned', DESCENDING), ('created_at', DESCENDING)])
     safe_create('offers', [('status', ASCENDING), ('deleted', ASCENDING), ('created_at', DESCENDING)])
+    # Optimal index for publisher offers sort: status + deleted + is_pinned + pinned_at + created_at
+    safe_create('offers', [('status', ASCENDING), ('deleted', ASCENDING), ('is_pinned', DESCENDING), ('pinned_at', DESCENDING), ('created_at', DESCENDING)], name='idx_publisher_offers_sort')
+    # Index for name search with status filter
+    safe_create('offers', [('status', ASCENDING), ('deleted', ASCENDING), ('name', ASCENDING)], name='idx_offers_search_name')
     
     # ===== CLICKS COLLECTION =====
     log("Creating clicks indexes...")

@@ -36,7 +36,7 @@ def get_available_offers():
         
         # Get query parameters
         page = int(request.args.get('page', 1))
-        per_page = int(request.args.get('per_page', 100))
+        per_page = min(int(request.args.get('per_page', 50)), 100)  # Default 50, max 100
         status = request.args.get('status', 'active')
         search = request.args.get('search', '')
         
@@ -58,26 +58,26 @@ def get_available_offers():
         except Exception as grant_err:
             logger.warning(f"Failed to fetch offer grants: {grant_err}")
         
-        query = {
-            '$or': [
-                # Normal: globally active/running/rotating offers
-                {
-                    'status': {'$in': visible_statuses},
-                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
-                },
-                # Granted: inactive offers specifically granted to this user
-                *([{
-                    'offer_id': {'$in': granted_offer_ids},
-                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
-                }] if granted_offer_ids else [])
-            ]
-        }
-        
-        # Simplify if no grants
+        # Use 'deleted: {$ne: true}' instead of '$or' on deleted field — much more index-friendly
         if not granted_offer_ids:
             query = {
                 'status': {'$in': visible_statuses},
-                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                'deleted': {'$ne': True}
+            }
+        else:
+            query = {
+                '$or': [
+                    # Normal: globally active/running/rotating offers
+                    {
+                        'status': {'$in': visible_statuses},
+                        'deleted': {'$ne': True}
+                    },
+                    # Granted: inactive offers specifically granted to this user
+                    {
+                        'offer_id': {'$in': granted_offer_ids},
+                        'deleted': {'$ne': True}
+                    }
+                ]
             }
         
         # Add search if provided
@@ -93,7 +93,7 @@ def get_available_offers():
                 query = {
                     '$and': [
                         {'$or': search_conditions},
-                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        {'deleted': {'$ne': True}},
                         {'$or': [
                             {'status': {'$in': visible_statuses}},
                             {'offer_id': {'$in': granted_offer_ids}},
@@ -103,14 +103,16 @@ def get_available_offers():
             else:
                 query = {
                     'status': {'$in': visible_statuses},
-                    '$and': [
-                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
-                        {'$or': search_conditions}
-                    ]
+                    'deleted': {'$ne': True},
+                    '$or': search_conditions
                 }
         
-        # Get total count
-        total = offers_collection.count_documents(query)
+        # Get total count (with timeout protection)
+        try:
+            total = offers_collection.count_documents(query, maxTimeMS=15000)
+        except Exception as count_err:
+            logger.warning(f"Count query timed out, using estimate: {count_err}")
+            total = offers_collection.estimated_document_count()
         
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
@@ -128,7 +130,7 @@ def get_available_offers():
         # Get paginated results with projection
         skip = (page - 1) * per_page
 
-        # Auto-expire pinned offers whose pin_expires_at has passed
+        # Auto-expire pinned offers whose pin_expires_at has passed (non-blocking)
         try:
             offers_collection.update_many(
                 {
@@ -138,9 +140,9 @@ def get_available_offers():
                 {'$set': {'is_pinned': False, 'pinned_at': None, 'pin_expires_at': None}}
             )
         except Exception as pin_err:
-            logger.warning(f"Pin expiry cleanup error: {pin_err}")
+            logger.warning(f"Pin expiry cleanup error (non-critical): {pin_err}")
 
-        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]))
+        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]).max_time_ms(30000))
         
         if not offers:
             # Log search even if no results

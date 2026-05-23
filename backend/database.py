@@ -35,9 +35,10 @@ class Database:
                     tlsCAFile=certifi.where(),
                     serverSelectionTimeoutMS=30000,
                     connectTimeoutMS=30000,
-                    socketTimeoutMS=60000,
+                    socketTimeoutMS=90000,
                     maxPoolSize=50,
                     minPoolSize=5,
+                    maxIdleTimeMS=45000,
                     retryWrites=True,
                     retryReads=True
                 ),
@@ -47,9 +48,10 @@ class Database:
                     tlsAllowInvalidCertificates=True,
                     serverSelectionTimeoutMS=30000,
                     connectTimeoutMS=30000,
-                    socketTimeoutMS=60000,
+                    socketTimeoutMS=90000,
                     maxPoolSize=50,
                     minPoolSize=5,
+                    maxIdleTimeMS=45000,
                     retryWrites=True,
                     retryReads=True
                 ),
@@ -57,8 +59,10 @@ class Database:
                 lambda: MongoClient(
                     Config.MONGODB_URI,
                     serverSelectionTimeoutMS=30000,
+                    socketTimeoutMS=90000,
                     maxPoolSize=50,
                     minPoolSize=5,
+                    maxIdleTimeMS=45000,
                     retryWrites=True,
                     retryReads=True
                 ),
