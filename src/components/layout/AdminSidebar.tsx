@@ -135,6 +135,7 @@ const adminMenuStructure = [
       { title: "Search Logs", url: "/admin/search-logs", icon: Search, tab: "search-logs" },
       { title: "Search Intelligence", url: "/admin/search-intelligence", icon: Search, tab: "search-intelligence" },
       { title: "Reactivation", url: "/admin/reactivation", icon: RefreshCw, tab: "reactivation" },
+      { title: "Per-User Offer Track", url: "/admin/per-user-offers", icon: Zap, tab: "per-user-offers" },
       { title: "Masked Links", url: "/admin/masked-links", icon: Link2, tab: "masked-links" },
     ]
   },

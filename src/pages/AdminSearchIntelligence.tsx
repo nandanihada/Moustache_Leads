@@ -13,7 +13,7 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
 } from 'recharts';
 import {
-  Search, Mail, Send, CheckCircle, XCircle, AlertTriangle, Eye, FileText, Link, ChevronRight, RefreshCw, AlertCircle, Info, MessageSquare
+  Search, Mail, Send, CheckCircle, XCircle, AlertTriangle, Eye, FileText, Link, ChevronRight, RefreshCw, AlertCircle, Info, MessageSquare, History, Settings2
 } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import EmailSettingsPanel, { EmailSettings, DEFAULT_EMAIL_SETTINGS } from '@/components/EmailSettingsPanel';
@@ -750,6 +750,10 @@ export const AdminSearchIntelligence: React.FC = () => {
               <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Revenue (30D)</div>
               <div className="text-xl font-bold text-slate-800">${globalStats.revenue}</div>
             </div>
+
+            {/* Auto-Activation Service Control */}
+            <AutoActivationQuickControl />
+            <AutoActivationHistoryButton />
           </div>
         </div>
       </div>
@@ -895,6 +899,12 @@ export const AdminSearchIntelligence: React.FC = () => {
                     {intelData.summary.total_searches > 0 && intelData.summary.conversions === 0 && (
                       <span className="bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">3</span>
                     )}
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="auto_activation" 
+                    className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-0 h-12 font-medium flex items-center gap-2"
+                  >
+                    Auto-Activation
                   </TabsTrigger>
                 </TabsList>
               </div>
@@ -1386,6 +1396,11 @@ export const AdminSearchIntelligence: React.FC = () => {
                       </div>
                     </CardContent>
                   </Card>
+                </TabsContent>
+
+                {/* Auto-Activation Tab */}
+                <TabsContent value="auto_activation" className="m-0 space-y-4">
+                  <AutoActivationPanel userId={selectedUser!} username={intelData.summary.username} />
                 </TabsContent>
               </div>
             </Tabs>
@@ -1979,5 +1994,688 @@ export const AdminSearchIntelligence: React.FC = () => {
     </div>
   );
 };
+
+/** Auto-Activation History Button — opens a sheet showing all users who received auto-activated offers */
+function AutoActivationHistoryButton() {
+  const [open, setOpen] = useState(false);
+  const [activations, setActivations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const token = localStorage.getItem('token');
+
+  const fetchHistory = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/activations?per_page=100`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActivations(data.activations || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch activation history:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleOpen = () => {
+    setOpen(true);
+    fetchHistory();
+  };
+
+  // Group activations by user
+  const groupedByUser = activations.reduce((acc: Record<string, any[]>, act: any) => {
+    const key = act.user_id;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(act);
+    return acc;
+  }, {});
+
+  const userList = Object.entries(groupedByUser).map(([userId, acts]) => ({
+    user_id: userId,
+    username: (acts as any[])[0]?.username || 'Unknown',
+    total_offers: (acts as any[]).reduce((sum: number, a: any) => sum + (a.offer_ids?.length || 0), 0),
+    activations: acts as any[],
+    latest: (acts as any[])[0]?.activated_at,
+  }));
+
+  const formatDate = (d: string | null) => {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <>
+      <button
+        onClick={handleOpen}
+        className="flex flex-col items-center cursor-pointer group"
+      >
+        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 group-hover:text-slate-800 transition-colors flex items-center gap-1">
+          <History className="w-3 h-3" />
+          History
+        </div>
+        <div className="text-sm font-bold text-blue-600">View</div>
+      </button>
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="right" className="w-[45vw] sm:max-w-[45vw] p-0 flex flex-col border-l shadow-2xl overflow-hidden">
+          <SheetHeader className="p-5 bg-white border-b shrink-0">
+            <SheetTitle className="flex items-center gap-2 text-base">
+              <History className="w-4 h-4 text-blue-500" />
+              Auto-Activation History
+            </SheetTitle>
+            <SheetDescription className="text-xs">
+              All users who received auto-activated offers. Click a user to see which offers were sent.
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="flex-1 overflow-y-auto p-4">
+            {loading ? (
+              <div className="text-center py-8 text-slate-500">Loading history...</div>
+            ) : userList.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <p className="text-sm">No auto-activations yet.</p>
+                <p className="text-xs mt-1">The system will auto-send offers after publishers search for inactive inventory.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {userList.map((user) => (
+                  <div key={user.user_id} className="border rounded-lg overflow-hidden bg-white">
+                    {/* User row */}
+                    <button
+                      onClick={() => setExpandedUser(expandedUser === user.user_id ? null : user.user_id)}
+                      className="w-full flex items-center justify-between p-3 hover:bg-slate-50 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
+                          {user.username.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-semibold text-sm text-slate-800">@{user.username}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {user.total_offers} offers sent · Last: {formatDate(user.latest)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                          {user.activations.length} batch{user.activations.length !== 1 ? 'es' : ''}
+                        </span>
+                        <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${expandedUser === user.user_id ? 'rotate-90' : ''}`} />
+                      </div>
+                    </button>
+
+                    {/* Expanded: show offers */}
+                    {expandedUser === user.user_id && (
+                      <div className="border-t bg-slate-50/50 p-3 space-y-3">
+                        {user.activations.map((act: any, idx: number) => (
+                          <div key={idx} className="bg-white border rounded-lg p-3 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className={`text-[9px] ${act.trigger === 'search_auto_activation' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-purple-50 text-purple-700 border-purple-200'}`}>
+                                  {act.trigger === 'search_auto_activation' ? '🔍 Auto (Search)' : '👤 Manual'}
+                                </Badge>
+                                <Badge variant="outline" className={`text-[9px] ${act.status === 'active' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+                                  {act.status}
+                                </Badge>
+                              </div>
+                              <span className="text-[10px] text-slate-400">{formatDate(act.activated_at)}</span>
+                            </div>
+                            {act.trigger_reason && (
+                              <div className="text-[11px] text-slate-600">
+                                <strong>Why:</strong> {act.trigger_reason}
+                              </div>
+                            )}
+                            {act.keywords?.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {act.keywords.map((kw: string, i: number) => (
+                                  <span key={i} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{kw}</span>
+                                ))}
+                              </div>
+                            )}
+                            {/* Offers list */}
+                            <div className="grid grid-cols-1 gap-1.5 mt-1">
+                              {(act.offers || []).map((offer: any, oi: number) => (
+                                <div key={oi} className="flex items-center justify-between p-2 rounded bg-slate-50 border border-slate-100">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-[11px] font-medium text-slate-700 truncate">{offer.name}</div>
+                                    <div className="text-[9px] text-slate-400">{offer.offer_id} · {offer.category || offer.vertical || '—'}</div>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0 ml-2">
+                                    <span className="text-[10px] font-semibold text-green-600">${offer.payout}</span>
+                                    <Badge variant="outline" className="text-[8px] bg-green-50 text-green-700 border-green-200">Active for user</Badge>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            {act.clicks > 0 && (
+                              <div className="text-[10px] text-green-600 font-medium">✓ {act.clicks} click(s) received</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
+/** Auto-Activation Quick Control — shown in the top bar of Search Intelligence */
+function AutoActivationQuickControl() {
+  const [settings, setSettings] = useState<{ enabled: boolean; delay_hours: number; max_offers: number; grant_duration_days: number; email_subject?: string; email_message?: string; template_style?: string; payout_type?: string } | null>(null);
+  const [showPopover, setShowPopover] = useState(false);
+  const [showTemplateSettings, setShowTemplateSettings] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
+  const { toast } = useToast();
+  const token = localStorage.getItem('token');
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/admin/per-user-offers/settings`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(d => { if (d.success) setSettings(d.settings); })
+      .catch(() => {});
+  }, []);
+
+  const toggleService = async () => {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enabled: !settings.enabled })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSettings(data.settings);
+        toast({ title: data.settings.enabled ? 'Auto-Activation Resumed' : 'Auto-Activation Paused' });
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveSettings = async () => {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(settings)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSettings(data.settings);
+        toast({ title: 'Settings saved' });
+        setShowPopover(false);
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!settings) return null;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setShowPopover(!showPopover)}
+        className="flex flex-col items-center cursor-pointer group"
+      >
+        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5 group-hover:text-slate-800 transition-colors flex items-center gap-1">
+          <span className={`w-1.5 h-1.5 rounded-full ${settings.enabled ? 'bg-green-500 animate-pulse' : 'bg-red-400'}`}></span>
+          Auto-Send
+        </div>
+        <div className={`text-sm font-bold ${settings.enabled ? 'text-green-600' : 'text-red-500'}`}>
+          {settings.enabled ? `${settings.delay_hours}h` : 'OFF'}
+        </div>
+      </button>
+
+      {showPopover && (
+        <div className="absolute top-full right-0 mt-2 w-80 max-h-[80vh] overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700">Auto-Activation Service</span>
+            <button
+              onClick={toggleService}
+              disabled={saving}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${settings.enabled ? 'bg-green-500' : 'bg-slate-300'}`}
+            >
+              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-4.5' : 'translate-x-0.5'}`} style={{ transform: settings.enabled ? 'translateX(16px)' : 'translateX(2px)' }} />
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-500">
+            {settings.enabled
+              ? 'Running — auto-sends offers to publishers who search for inactive inventory'
+              : 'Paused — no auto-activation happening'}
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[9px] font-bold text-slate-400 uppercase">Delay (h)</label>
+              <input
+                type="number"
+                min={1}
+                max={72}
+                value={settings.delay_hours}
+                onChange={(e) => setSettings({ ...settings, delay_hours: Number(e.target.value) })}
+                className="w-full mt-0.5 h-7 text-xs border rounded px-2 text-center"
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-bold text-slate-400 uppercase">Offers</label>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={settings.max_offers}
+                onChange={(e) => setSettings({ ...settings, max_offers: Number(e.target.value) })}
+                className="w-full mt-0.5 h-7 text-xs border rounded px-2 text-center"
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-bold text-slate-400 uppercase">Expiry (d)</label>
+              <input
+                type="number"
+                min={7}
+                max={90}
+                value={settings.grant_duration_days}
+                onChange={(e) => setSettings({ ...settings, grant_duration_days: Number(e.target.value) })}
+                className="w-full mt-0.5 h-7 text-xs border rounded px-2 text-center"
+              />
+            </div>
+          </div>
+          {/* Email Content Settings */}
+          <div className="border-t pt-2 space-y-2">
+            <label className="text-[9px] font-bold text-slate-400 uppercase">Email Subject</label>
+            <input
+              type="text"
+              value={settings.email_subject || 'Recommended Offers for You'}
+              onChange={(e) => setSettings({ ...settings, email_subject: e.target.value })}
+              className="w-full h-7 text-xs border rounded px-2"
+              placeholder="Recommended Offers for You"
+            />
+            <label className="text-[9px] font-bold text-slate-400 uppercase">Email Message</label>
+            <textarea
+              value={settings.email_message || 'Hi {name},\n\nWe have handpicked {count} offers that we think are a great fit for you. Check them out and start earning!'}
+              onChange={(e) => setSettings({ ...settings, email_message: e.target.value })}
+              className="w-full h-16 text-xs border rounded px-2 py-1 resize-none"
+              placeholder="Use {name} and {count} as placeholders"
+            />
+            <p className="text-[9px] text-slate-400">Use {'{name}'} for publisher name, {'{count}'} for offer count</p>
+          </div>
+          {/* Template Settings Toggle */}
+          <div className="border-t pt-2">
+            <button
+              onClick={() => setShowTemplateSettings(!showTemplateSettings)}
+              className="text-[10px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1"
+            >
+              <Settings2 className="w-3 h-3" />
+              {showTemplateSettings ? 'Hide' : 'Show'} Email Template Settings
+            </button>
+            {showTemplateSettings && (
+              <div className="mt-2 max-h-48 overflow-y-auto border rounded p-2 bg-slate-50">
+                <EmailSettingsPanel settings={emailSettings} onChange={setEmailSettings} />
+              </div>
+            )}
+          </div>
+          <Button size="sm" onClick={saveSettings} disabled={saving} className="w-full h-7 text-xs bg-blue-600 hover:bg-blue-700">
+            {saving ? 'Saving...' : 'Save'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Auto-Activation Panel — shows service controls + history for a specific user */
+function AutoActivationPanel({ userId, username }: { userId: string; username: string }) {
+  const [settings, setSettings] = useState<{ enabled: boolean; delay_hours: number; max_offers: number; grant_duration_days: number } | null>(null);
+  const [activations, setActivations] = useState<any[]>([]);
+  const [grants, setGrants] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const { toast } = useToast();
+  const token = localStorage.getItem('token');
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch settings
+      const settingsRes = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/settings`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const settingsData = await settingsRes.json();
+      if (settingsData.success) setSettings(settingsData.settings);
+
+      // Fetch user-specific activations
+      const userRes = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/user/${userId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const userData = await userRes.json();
+      if (userData.success) {
+        setActivations(userData.activations || []);
+        setGrants(userData.grants || []);
+      }
+    } catch (err) {
+      console.error('Failed to load auto-activation data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchData(); }, [userId]);
+
+  const handleToggleService = async () => {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enabled: !settings.enabled })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSettings(data.settings);
+        toast({ title: data.settings.enabled ? 'Service Resumed' : 'Service Paused' });
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveSettings = async () => {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(settings)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSettings(data.settings);
+        toast({ title: 'Settings saved' });
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRunNow = async () => {
+    setRunning(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/run-now`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'Done', description: `${data.offers_activated} offers activated` });
+        fetchData();
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const handleDeactivate = async (activationId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/admin/per-user-offers/deactivate/${activationId}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'Deactivated' });
+        fetchData();
+      }
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const formatDate = (d: string | null) => {
+    if (!d) return '—';
+    return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getDaysLeft = (expiresAt: string | null) => {
+    if (!expiresAt) return null;
+    const diff = new Date(expiresAt).getTime() - Date.now();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  };
+
+  if (loading) return <div className="p-6 text-center text-slate-500">Loading auto-activation data...</div>;
+
+  return (
+    <div className="space-y-5">
+      {/* Service Controls */}
+      <Card className="shadow-sm border-slate-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <RefreshCw className="h-4 w-4 text-blue-500" />
+            Auto-Activation Service Controls
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {settings && (
+            <>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleToggleService}
+                    disabled={saving}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.enabled ? 'bg-green-500' : 'bg-slate-300'}`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
+                  <span className={`text-sm font-semibold ${settings.enabled ? 'text-green-600' : 'text-slate-500'}`}>
+                    {settings.enabled ? '● Service Running' : '○ Service Paused'}
+                  </span>
+                </div>
+                <Button size="sm" variant="outline" onClick={handleRunNow} disabled={running} className="text-xs gap-1">
+                  <RefreshCw className={`h-3 w-3 ${running ? 'animate-spin' : ''}`} />
+                  {running ? 'Running...' : 'Run Now'}
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Delay (hours)</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={72}
+                    value={settings.delay_hours}
+                    onChange={(e) => setSettings({ ...settings, delay_hours: Number(e.target.value) })}
+                    className="mt-1 h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Max Offers</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={settings.max_offers}
+                    onChange={(e) => setSettings({ ...settings, max_offers: Number(e.target.value) })}
+                    className="mt-1 h-8 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Expiry (days)</label>
+                  <Input
+                    type="number"
+                    min={7}
+                    max={90}
+                    value={settings.grant_duration_days}
+                    onChange={(e) => setSettings({ ...settings, grant_duration_days: Number(e.target.value) })}
+                    className="mt-1 h-8 text-sm"
+                  />
+                </div>
+              </div>
+              <Button size="sm" onClick={handleSaveSettings} disabled={saving} className="bg-blue-600 hover:bg-blue-700 text-xs">
+                {saving ? 'Saving...' : 'Save Settings'}
+              </Button>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* User's Auto-Activation History */}
+      <Card className="shadow-sm border-slate-200">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-bold text-slate-700 flex items-center gap-2">
+            <Mail className="h-4 w-4 text-orange-500" />
+            Offers Sent to @{username} (Auto-Activated)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {activations.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-4">No auto-activations for this user yet. The system will send offers after they search for inactive inventory.</p>
+          ) : (
+            <div className="space-y-3">
+              {activations.map((act) => {
+                const daysLeft = getDaysLeft(act.expires_at);
+                return (
+                  <div key={act._id} className="border border-slate-200 rounded-lg p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge className={`text-[10px] ${act.trigger === 'search_auto_activation' ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-purple-100 text-purple-700 border-purple-200'}`}>
+                          {act.trigger === 'search_auto_activation' ? '🔍 Auto (Search)' : '👤 Manual'}
+                        </Badge>
+                        <Badge className={`text-[10px] ${act.status === 'active' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}>
+                          {act.status}
+                        </Badge>
+                        {act.status === 'active' && daysLeft !== null && (
+                          <span className={`text-[10px] font-semibold ${daysLeft <= 7 ? 'text-orange-600' : 'text-slate-500'}`}>
+                            {daysLeft}d until expiry
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {act.clicks > 0 && (
+                          <span className="text-[10px] font-bold text-green-600">{act.clicks} clicks</span>
+                        )}
+                        {act.status === 'active' && (
+                          <Button variant="ghost" size="sm" className="h-6 text-[10px] text-red-500 hover:text-red-700" onClick={() => handleDeactivate(act._id)}>
+                            Deactivate
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-slate-600">
+                      <strong>Reason:</strong> {act.trigger_reason}
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      Activated: {formatDate(act.activated_at)} · Expires: {formatDate(act.expires_at)}
+                      {act.last_click_at && ` · Last click: ${formatDate(act.last_click_at)}`}
+                    </div>
+                    {act.keywords?.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {act.keywords.map((kw: string, i: number) => (
+                          <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{kw}</span>
+                        ))}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-1.5 mt-1">
+                      {(act.offers || []).map((offer: any, idx: number) => (
+                        <div key={idx} className="text-[10px] p-1.5 rounded bg-slate-50 border border-slate-100">
+                          <div className="font-medium text-slate-700 truncate">{offer.name}</div>
+                          <div className="flex items-center gap-1 text-slate-400 mt-0.5">
+                            <span>{offer.category || offer.vertical || '—'}</span>
+                            <span className="text-green-600 font-semibold">${offer.payout}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* All Grants for this user */}
+      {grants.length > 0 && (
+        <Card className="shadow-sm border-slate-200">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-bold text-slate-700 flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-green-500" />
+              All Exclusive Grants for @{username}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="text-left px-2 py-1.5 font-bold text-slate-500 uppercase text-[10px]">Offer ID</th>
+                  <th className="text-left px-2 py-1.5 font-bold text-slate-500 uppercase text-[10px]">Source</th>
+                  <th className="text-left px-2 py-1.5 font-bold text-slate-500 uppercase text-[10px]">Granted</th>
+                  <th className="text-left px-2 py-1.5 font-bold text-slate-500 uppercase text-[10px]">Expires</th>
+                  <th className="text-center px-2 py-1.5 font-bold text-slate-500 uppercase text-[10px]">Status</th>
+                  <th className="text-center px-2 py-1.5 font-bold text-slate-500 uppercase text-[10px]">Clicked</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {grants.map((g) => (
+                  <tr key={g._id} className="hover:bg-slate-50">
+                    <td className="px-2 py-1.5 font-mono text-slate-700">{g.offer_id}</td>
+                    <td className="px-2 py-1.5">
+                      <Badge variant="outline" className="text-[9px]">
+                        {g.source === 'search_auto_activation' ? '🔍 Auto' : g.source === 'admin_manual' ? '👤 Admin' : g.source}
+                      </Badge>
+                    </td>
+                    <td className="px-2 py-1.5 text-slate-500">{formatDate(g.granted_at)}</td>
+                    <td className="px-2 py-1.5 text-slate-500">{formatDate(g.expires_at)}</td>
+                    <td className="px-2 py-1.5 text-center">
+                      {g.is_active ? (
+                        <span className="text-green-600 font-bold">Active</span>
+                      ) : (
+                        <span className="text-red-500">Expired</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 text-center">
+                      {g.clicked ? (
+                        <span className="text-green-600">✓ {g.click_date ? formatDate(g.click_date) : 'Yes'}</span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 export default AdminSearchIntelligence;

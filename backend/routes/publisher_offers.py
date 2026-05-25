@@ -5,6 +5,7 @@ Publisher Offers API - Public offers endpoint for publishers
 
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
+from bson import ObjectId
 from database import db_instance
 from utils.auth import token_required
 from services.access_control_service import AccessControlService
@@ -173,11 +174,17 @@ def get_available_offers():
         
         # Simplified query - just check user_id and publisher_id as strings
         try:
+            # Query with both ObjectId and string formats since affiliate_requests
+            # may store user_id in either format
+            user_id_queries = [user_id_str]
+            if ObjectId.is_valid(user_id_str):
+                user_id_queries.append(ObjectId(user_id_str))
+            
             user_requests = list(requests_collection.find({
                 'offer_id': {'$in': offer_ids},
                 '$or': [
-                    {'user_id': user_id_str},
-                    {'publisher_id': user_id_str}
+                    {'user_id': {'$in': user_id_queries}},
+                    {'publisher_id': {'$in': user_id_queries}}
                 ]
             }).max_time_ms(10000))
         except Exception as req_err:

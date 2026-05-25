@@ -38,7 +38,7 @@ NETWORK_PATTERNS = [
 ]
 
 # Network names in the 'network' field
-NETWORK_NAMES = ['cpamerchant', 'leadads', 'chameleonads', 'cpa_merchant', 'lead_ads', 'chameleon_ads']
+NETWORK_NAMES = ['']
 
 
 def url_has_param(url, param_name):

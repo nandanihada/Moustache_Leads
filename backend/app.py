@@ -117,6 +117,7 @@ admin_sub_walls_bp = safe_import_blueprint('routes.admin_sub_walls', 'admin_sub_
 redirect_router_bp = safe_import_blueprint('routes.redirect_router', 'redirect_router_bp')
 survey_funnel_bp = safe_import_blueprint('routes.survey_funnel', 'survey_funnel_bp')
 survey_router_bp = safe_import_blueprint('routes.survey_router', 'survey_router_bp')
+search_auto_activation_bp = safe_import_blueprint('routes.search_auto_activation', 'search_auto_activation_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -223,6 +224,7 @@ blueprints = [
     (redirect_router_bp, ''),
     (survey_funnel_bp, ''),
     (survey_router_bp, ''),
+    (search_auto_activation_bp, '/api/admin'),
 ]
 
 def create_app():
@@ -650,6 +652,14 @@ def start_background_services():
             logging.info("✅ Automation Engine background service started")
         except Exception as e:
             logging.warning(f"⚠️ Automation Engine failed to start: {str(e)}")
+
+        try:
+            from services.search_auto_activation_service import get_search_auto_activation_service
+            search_auto_activation_svc = get_search_auto_activation_service()
+            search_auto_activation_svc.start_service()
+            logging.info("✅ Search auto-activation service started (per-user offer grants)")
+        except Exception as e:
+            logging.warning(f"⚠️ Search auto-activation service failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:
