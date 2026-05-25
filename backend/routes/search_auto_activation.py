@@ -476,78 +476,79 @@ def get_offer_visibility():
 @token_required
 @admin_required
 def get_users_summary():
-    """Get user-centric summary: each user with count of exclusive offers visible to them."""
+    """Get ALL users with their exclusive offer counts + approved request counts."""
     try:
-        grants_col = db_instance.get_collection('offer_grants')
         users_col = db_instance.get_collection('users')
+        grants_col = db_instance.get_collection('offer_grants')
+        requests_col = db_instance.get_collection('affiliate_requests')
 
-        if grants_col is None:
-            return jsonify({'success': True, 'users': [], 'total': 0})
-
-        # Check if collection has any active grants
-        active_count = grants_col.count_documents({'is_active': True})
-        if active_count == 0:
+        if users_col is None:
             return jsonify({'success': True, 'users': [], 'total': 0})
 
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 25, type=int)
         search = request.args.get('search', '').strip()
+        skip = (page - 1) * per_page
 
-        # Aggregate: group by user_id, count active grants
-        pipeline = [
-            {'$match': {'is_active': True}},
-            {'$group': {
-                '_id': '$user_id',
-                'offer_count': {'$sum': 1},
-                'sources': {'$addToSet': '$source'},
-                'clicked_count': {'$sum': {'$cond': [{'$eq': ['$clicked', True]}, 1, 0]}},
-                'latest_grant': {'$max': '$granted_at'},
-            }},
-            {'$sort': {'offer_count': -1}},
-            {'$limit': 200},
-        ]
+        # Build user query - show all users except admins
+        user_query = {'role': {'$nin': ['admin', 'subadmin']}}
+        if search:
+            user_query['$or'] = [
+                {'username': {'$regex': search, '$options': 'i'}},
+                {'email': {'$regex': search, '$options': 'i'}},
+            ]
 
-        all_results = list(grants_col.aggregate(pipeline))
+        total = users_col.count_documents(user_query)
+        user_docs = list(users_col.find(user_query, {'username': 1, 'email': 1, 'country': 1, 'created_at': 1}).sort('created_at', -1).skip(skip).limit(per_page))
 
-        if not all_results:
-            return jsonify({'success': True, 'users': [], 'total': 0})
+        # Batch get grant counts and approved request counts for these users
+        user_ids_str = [str(u['_id']) for u in user_docs]
+        user_ids_oid = [u['_id'] for u in user_docs]
 
-        # Batch fetch usernames
-        user_ids = [r['_id'] for r in all_results if r.get('_id')]
-        username_cache = {}
-        if users_col is not None and user_ids:
-            valid_oids = [ObjectId(uid) for uid in user_ids if ObjectId.is_valid(uid)]
-            if valid_oids:
-                for user_doc in users_col.find({'_id': {'$in': valid_oids}}, {'username': 1}):
-                    username_cache[str(user_doc['_id'])] = user_doc.get('username', '')
+        # Get exclusive grant counts per user
+        grant_counts = {}
+        if grants_col is not None and user_ids_str:
+            pipeline = [
+                {'$match': {'user_id': {'$in': user_ids_str}, 'is_active': True}},
+                {'$group': {'_id': '$user_id', 'count': {'$sum': 1}, 'clicked': {'$sum': {'$cond': [{'$eq': ['$clicked', True]}, 1, 0]}}, 'sources': {'$addToSet': '$source'}}},
+            ]
+            for doc in grants_col.aggregate(pipeline):
+                grant_counts[doc['_id']] = {'count': doc['count'], 'clicked': doc.get('clicked', 0), 'sources': doc.get('sources', [])}
+
+        # Get approved request counts per user
+        approved_counts = {}
+        if requests_col is not None:
+            pipeline = [
+                {'$match': {'user_id': {'$in': user_ids_str + user_ids_oid}, 'status': 'approved'}},
+                {'$group': {'_id': {'$toString': '$user_id'}, 'count': {'$sum': 1}}},
+            ]
+            try:
+                for doc in requests_col.aggregate(pipeline):
+                    uid = doc['_id']
+                    approved_counts[uid] = doc['count']
+            except Exception:
+                pass
 
         # Build response
-        enriched = []
-        for r in all_results:
-            uid = r.get('_id', '')
-            if not uid:
-                continue
-            username = username_cache.get(uid, uid[:8])
-
-            if search and search.lower() not in username.lower() and search.lower() not in uid.lower():
-                continue
-
-            latest_grant = r.get('latest_grant')
-            enriched.append({
+        users = []
+        for u in user_docs:
+            uid = str(u['_id'])
+            grants = grant_counts.get(uid, {'count': 0, 'clicked': 0, 'sources': []})
+            approved = approved_counts.get(uid, 0)
+            users.append({
                 'user_id': uid,
-                'username': username,
-                'offer_count': r.get('offer_count', 0),
-                'clicked_count': r.get('clicked_count', 0),
-                'sources': r.get('sources', []),
-                'latest_grant': latest_grant.isoformat() + 'Z' if isinstance(latest_grant, datetime) else str(latest_grant) if latest_grant else None,
+                'username': u.get('username', 'Unknown'),
+                'email': u.get('email', ''),
+                'offer_count': grants['count'],
+                'clicked_count': grants.get('clicked', 0),
+                'approved_count': approved,
+                'sources': grants.get('sources', []),
+                'latest_grant': None,
             })
-
-        total = len(enriched)
-        paginated = enriched[(page - 1) * per_page: page * per_page]
 
         return jsonify({
             'success': True,
-            'users': paginated,
+            'users': users,
             'total': total,
             'pagination': {
                 'page': page,
@@ -558,7 +559,7 @@ def get_users_summary():
         })
 
     except Exception as e:
-        logger.error(f"Error fetching users summary: {e}")
+        logger.error(f"Error fetching users summary: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 

@@ -79,15 +79,17 @@ export default function AdminPerUserOfferTrack() {
   const [activeTab, setActiveTab] = useState("users");
   const [userSearch, setUserSearch] = useState("");
   const [offerSearch, setOfferSearch] = useState("");
+  const [userPage, setUserPage] = useState(1);
+  const [offerPage, setOfferPage] = useState(1);
   const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null);
   const [expandedOffer, setExpandedOffer] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"all" | "global" | "exclusive" | "approved">("all");
 
   // Fetch users summary
   const { data: usersData, isLoading: usersLoading } = useQuery({
-    queryKey: ["per-user-offers-users", userSearch],
+    queryKey: ["per-user-offers-users", userSearch, userPage],
     queryFn: async () => {
-      const params = new URLSearchParams({ per_page: "50" });
+      const params = new URLSearchParams({ per_page: "25", page: String(userPage) });
       if (userSearch) params.set("search", userSearch);
       const res = await fetch(`${API_BASE}/api/admin/per-user-offers/users-summary?${params}`, { headers: getHeaders() });
       return res.json();
@@ -96,9 +98,9 @@ export default function AdminPerUserOfferTrack() {
 
   // Fetch offer visibility
   const { data: offersData, isLoading: offersLoading } = useQuery({
-    queryKey: ["per-user-offers-visibility", offerSearch],
+    queryKey: ["per-user-offers-visibility", offerSearch, offerPage],
     queryFn: async () => {
-      const params = new URLSearchParams({ per_page: "50" });
+      const params = new URLSearchParams({ per_page: "25", page: String(offerPage) });
       if (offerSearch) params.set("search", offerSearch);
       const res = await fetch(`${API_BASE}/api/admin/per-user-offers/offer-visibility?${params}`, { headers: getHeaders() });
       return res.json();
@@ -414,75 +416,106 @@ export default function AdminPerUserOfferTrack() {
 
         {/* BY USER TAB */}
         <TabsContent value="users" className="mt-4 space-y-4">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search username..."
-              value={userSearch}
-              onChange={(e) => setUserSearch(e.target.value)}
-              className="pl-9"
-            />
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search username..."
+                value={userSearch}
+                onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
+                className="pl-9"
+              />
+            </div>
+            <span className="text-xs text-muted-foreground">{usersData?.total || 0} users total</span>
           </div>
 
           {usersLoading ? (
             <div className="text-center py-8 text-muted-foreground">Loading...</div>
           ) : !usersData?.users?.length ? (
-            <div className="text-center py-8 text-muted-foreground">No users with exclusive offers found.</div>
+            <div className="text-center py-8 text-muted-foreground">No users found.</div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {usersData.users.map((user: UserSummary) => (
-                <Card
-                  key={user.user_id}
-                  className="cursor-pointer hover:border-blue-300 hover:shadow-md transition-all"
-                  onClick={() => setSelectedUser(user)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
-                          {user.username.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="font-semibold text-sm">@{user.username}</div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5">
-                            Last grant: {formatDate(user.latest_grant)}
-                          </div>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/30 border-b">
+                      <tr>
+                        <th className="text-left p-3 font-semibold">User</th>
+                        <th className="text-center p-3 font-semibold">Exclusive</th>
+                        <th className="text-center p-3 font-semibold">Approved</th>
+                        <th className="text-center p-3 font-semibold">Clicked</th>
+                        <th className="text-left p-3 font-semibold">Sources</th>
+                        <th className="text-center p-3 font-semibold">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {usersData.users.map((user: any) => (
+                        <tr key={user.user_id} className="hover:bg-muted/20 cursor-pointer" onClick={() => setSelectedUser(user)}>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2">
+                              <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">
+                                {user.username?.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-medium text-sm">@{user.username}</div>
+                                <div className="text-[10px] text-muted-foreground">{user.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`font-bold ${user.offer_count > 0 ? "text-purple-600" : "text-muted-foreground"}`}>{user.offer_count}</span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`font-bold ${user.approved_count > 0 ? "text-blue-600" : "text-muted-foreground"}`}>{user.approved_count || 0}</span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`font-bold ${user.clicked_count > 0 ? "text-green-600" : "text-muted-foreground"}`}>{user.clicked_count}</span>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex flex-wrap gap-1">
+                              {(user.sources || []).map((s: string, i: number) => (
+                                <Badge key={i} variant="outline" className="text-[9px]">{getSourceLabel(s)}</Badge>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-blue-600">View</Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Pagination */}
+                {usersData.total > 25 && (
+                  <div className="flex items-center justify-between p-3 border-t">
+                    <span className="text-xs text-muted-foreground">
+                      Page {userPage} of {Math.ceil(usersData.total / 25)}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" disabled={userPage <= 1} onClick={() => setUserPage(userPage - 1)}>Previous</Button>
+                      <Button variant="outline" size="sm" disabled={userPage * 25 >= usersData.total} onClick={() => setUserPage(userPage + 1)}>Next</Button>
                     </div>
-                    <div className="flex items-center gap-4 mt-3 pt-3 border-t">
-                      <div className="text-center">
-                        <div className="text-lg font-bold text-blue-600">{user.offer_count}</div>
-                        <div className="text-[9px] text-muted-foreground uppercase">Offers</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-lg font-bold text-green-600">{user.clicked_count}</div>
-                        <div className="text-[9px] text-muted-foreground uppercase">Clicked</div>
-                      </div>
-                      <div className="flex-1 flex flex-wrap gap-1 justify-end">
-                        {user.sources.map((s, i) => (
-                          <Badge key={i} variant="outline" className="text-[9px]">{getSourceLabel(s)}</Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
 
         {/* BY OFFER TAB */}
         <TabsContent value="offers" className="mt-4 space-y-4">
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search offer name or ID..."
-              value={offerSearch}
-              onChange={(e) => setOfferSearch(e.target.value)}
-              className="pl-9"
-            />
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search offer name or ID..."
+                value={offerSearch}
+                onChange={(e) => { setOfferSearch(e.target.value); setOfferPage(1); }}
+                className="pl-9"
+              />
+            </div>
+            <span className="text-xs text-muted-foreground">{offersData?.total || 0} offers with exclusive access</span>
           </div>
 
           {offersLoading ? (
@@ -490,61 +523,80 @@ export default function AdminPerUserOfferTrack() {
           ) : !offersData?.offers?.length ? (
             <div className="text-center py-8 text-muted-foreground">No offers with exclusive visibility found.</div>
           ) : (
-            <div className="space-y-2">
-              {offersData.offers.map((offer: OfferVisibility) => (
-                <Card key={offer.offer_id} className="overflow-hidden">
-                  <div
-                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-muted/20 transition-colors"
-                    onClick={() => setExpandedOffer(expandedOffer === offer.offer_id ? null : offer.offer_id)}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-9 h-9 rounded bg-orange-100 text-orange-700 flex items-center justify-center font-bold text-xs shrink-0">
-                        {offer.user_count}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-medium text-sm truncate">{offer.name}</div>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-                          <span className="font-mono">{offer.offer_id}</span>
-                          <span>·</span>
-                          <span>{offer.category || offer.vertical || "—"}</span>
-                          <span>·</span>
-                          <span className="text-green-600 font-semibold">${offer.payout}</span>
-                          <span>·</span>
-                          <Badge variant="outline" className="text-[9px]">{offer.status}</Badge>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <div className="text-right">
-                        <div className="text-sm font-bold">{offer.user_count} user{offer.user_count !== 1 ? "s" : ""}</div>
-                        <div className="text-[10px] text-muted-foreground">can see this</div>
-                      </div>
-                      <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${expandedOffer === offer.offer_id ? "rotate-90" : ""}`} />
+            <Card>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/30 border-b">
+                      <tr>
+                        <th className="text-left p-3 font-semibold">Offer</th>
+                        <th className="text-left p-3 font-semibold">Category</th>
+                        <th className="text-right p-3 font-semibold">Payout</th>
+                        <th className="text-center p-3 font-semibold">Users</th>
+                        <th className="text-left p-3 font-semibold">Status</th>
+                        <th className="text-center p-3 font-semibold">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {offersData.offers.map((offer: OfferVisibility) => (
+                        <React.Fragment key={offer.offer_id}>
+                          <tr className="hover:bg-muted/20 cursor-pointer" onClick={() => setExpandedOffer(expandedOffer === offer.offer_id ? null : offer.offer_id)}>
+                            <td className="p-3">
+                              <div className="font-medium text-sm">{offer.name}</div>
+                              <div className="text-[10px] text-muted-foreground font-mono">{offer.offer_id}</div>
+                            </td>
+                            <td className="p-3 text-muted-foreground text-xs">{offer.category || offer.vertical || "—"}</td>
+                            <td className="p-3 text-right text-green-600 font-semibold">${offer.payout}</td>
+                            <td className="p-3 text-center">
+                              <span className="font-bold text-purple-600">{offer.user_count}</span>
+                            </td>
+                            <td className="p-3">
+                              <Badge variant="outline" className="text-[9px]">{offer.status}</Badge>
+                            </td>
+                            <td className="p-3 text-center">
+                              <ChevronRight className={`w-4 h-4 text-muted-foreground inline transition-transform ${expandedOffer === offer.offer_id ? "rotate-90" : ""}`} />
+                            </td>
+                          </tr>
+                          {expandedOffer === offer.offer_id && (
+                            <tr className="bg-muted/10">
+                              <td colSpan={6} className="p-3">
+                                <div className="text-xs font-semibold text-muted-foreground mb-2">Users who can see this offer:</div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {offer.users.map((u, i) => (
+                                    <div key={i} className="flex items-center justify-between p-2 rounded border bg-background">
+                                      <div>
+                                        <span className="text-xs font-medium">@{u.username}</span>
+                                        <div className="text-[10px] text-muted-foreground">{formatDate(u.granted_at)}</div>
+                                      </div>
+                                      <div className="flex items-center gap-1.5">
+                                        <Badge variant="outline" className="text-[9px]">{getSourceLabel(u.source)}</Badge>
+                                        {u.clicked && <MousePointerClick className="w-3 h-3 text-green-500" />}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Pagination */}
+                {offersData.total > 25 && (
+                  <div className="flex items-center justify-between p-3 border-t">
+                    <span className="text-xs text-muted-foreground">
+                      Page {offerPage} of {Math.ceil(offersData.total / 25)}
+                    </span>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" disabled={offerPage <= 1} onClick={() => setOfferPage(offerPage - 1)}>Previous</Button>
+                      <Button variant="outline" size="sm" disabled={offerPage * 25 >= offersData.total} onClick={() => setOfferPage(offerPage + 1)}>Next</Button>
                     </div>
                   </div>
-
-                  {expandedOffer === offer.offer_id && (
-                    <div className="border-t bg-muted/10 p-4">
-                      <div className="text-xs font-semibold text-muted-foreground mb-2">Users who can see this offer:</div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {offer.users.map((u, i) => (
-                          <div key={i} className="flex items-center justify-between p-2 rounded border bg-background">
-                            <div>
-                              <span className="text-xs font-medium">@{u.username}</span>
-                              <div className="text-[10px] text-muted-foreground">{formatDate(u.granted_at)}</div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <Badge variant="outline" className="text-[9px]">{getSourceLabel(u.source)}</Badge>
-                              {u.clicked && <MousePointerClick className="w-3 h-3 text-green-500" />}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </Card>
-              ))}
-            </div>
+                )}
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>
