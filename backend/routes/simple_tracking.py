@@ -41,7 +41,8 @@ def _get_offer_cached(offer_id):
         {'offer_id': 1, 'name': 1, 'status': 1, 'target_url': 1, 'payout': 1, 
          'currency': 1, 'network': 1, 'category': 1, 'vertical': 1,
          'campaign_id': 1, 'fallback_redirect_enabled': 1, 
-         'fallback_redirect_url': 1, 'fallback_redirect_timer': 1}
+         'fallback_redirect_url': 1, 'fallback_redirect_timer': 1,
+         'countries': 1, 'allowed_countries': 1, 'geo': 1}
     )
     
     if offer:
