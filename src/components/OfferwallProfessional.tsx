@@ -240,6 +240,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedCountry, setSelectedCountry] = useState('all');
   const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [currencyName, setCurrencyName] = useState('Points');
@@ -304,7 +305,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
 
   useEffect(() => {
     filterOffers();
-  }, [offers, searchTerm, selectedCategory, isQualified, newUserOfferIds]);
+  }, [offers, searchTerm, selectedCategory, selectedCountry, isQualified, newUserOfferIds]);
 
   const checkQualification = async () => {
     try {
@@ -527,6 +528,18 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
       );
     }
 
+    // Country filter
+    if (selectedCountry !== 'all') {
+      const countryUpper = selectedCountry.toUpperCase();
+      filtered = filtered.filter(offer => {
+        const countries = (offer as any).countries || [];
+        // If offer has no country restrictions, show it for all
+        if (!countries || countries.length === 0) return true;
+        // Check if selected country is in the offer's countries list
+        return countries.some((c: string) => c.toUpperCase() === countryUpper);
+      });
+    }
+
     setFilteredOffers(filtered);
   };
 
@@ -723,7 +736,7 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
         {/* Category Filter Dropdown */}
         {displaySettings.show_categories && (
         <div className="border-t border-slate-700/50 bg-slate-800/30">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
             <span className="text-gray-400 text-sm whitespace-nowrap">Filter by:</span>
             <div className="relative w-full max-w-xs">
               <select
@@ -736,6 +749,69 @@ export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
                     {cat.icon} {cat.name}
                   </option>
                 ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+
+            {/* Country Filter */}
+            <div className="relative w-full max-w-[180px]">
+              <select
+                value={selectedCountry}
+                onChange={(e) => setSelectedCountry(e.target.value)}
+                className="w-full appearance-none bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer pr-8"
+              >
+                <option value="all" className="bg-slate-800 text-white">🌍 All Countries</option>
+                <option value="US" className="bg-slate-800 text-white">🇺🇸 United States</option>
+                <option value="GB" className="bg-slate-800 text-white">🇬🇧 United Kingdom</option>
+                <option value="CA" className="bg-slate-800 text-white">🇨🇦 Canada</option>
+                <option value="AU" className="bg-slate-800 text-white">🇦🇺 Australia</option>
+                <option value="DE" className="bg-slate-800 text-white">🇩🇪 Germany</option>
+                <option value="FR" className="bg-slate-800 text-white">🇫🇷 France</option>
+                <option value="IN" className="bg-slate-800 text-white">🇮🇳 India</option>
+                <option value="BR" className="bg-slate-800 text-white">🇧🇷 Brazil</option>
+                <option value="MX" className="bg-slate-800 text-white">🇲🇽 Mexico</option>
+                <option value="ES" className="bg-slate-800 text-white">🇪🇸 Spain</option>
+                <option value="IT" className="bg-slate-800 text-white">🇮🇹 Italy</option>
+                <option value="NL" className="bg-slate-800 text-white">🇳🇱 Netherlands</option>
+                <option value="SE" className="bg-slate-800 text-white">🇸🇪 Sweden</option>
+                <option value="NO" className="bg-slate-800 text-white">🇳🇴 Norway</option>
+                <option value="DK" className="bg-slate-800 text-white">🇩🇰 Denmark</option>
+                <option value="PL" className="bg-slate-800 text-white">🇵🇱 Poland</option>
+                <option value="JP" className="bg-slate-800 text-white">🇯🇵 Japan</option>
+                <option value="KR" className="bg-slate-800 text-white">🇰🇷 South Korea</option>
+                <option value="SG" className="bg-slate-800 text-white">🇸🇬 Singapore</option>
+                <option value="AE" className="bg-slate-800 text-white">🇦🇪 UAE</option>
+                <option value="SA" className="bg-slate-800 text-white">🇸🇦 Saudi Arabia</option>
+                <option value="ZA" className="bg-slate-800 text-white">🇿🇦 South Africa</option>
+                <option value="NG" className="bg-slate-800 text-white">🇳🇬 Nigeria</option>
+                <option value="ID" className="bg-slate-800 text-white">🇮🇩 Indonesia</option>
+                <option value="TH" className="bg-slate-800 text-white">🇹🇭 Thailand</option>
+                <option value="PH" className="bg-slate-800 text-white">🇵🇭 Philippines</option>
+                <option value="VN" className="bg-slate-800 text-white">🇻🇳 Vietnam</option>
+                <option value="TR" className="bg-slate-800 text-white">🇹🇷 Turkey</option>
+                <option value="RU" className="bg-slate-800 text-white">🇷🇺 Russia</option>
+                <option value="AR" className="bg-slate-800 text-white">🇦🇷 Argentina</option>
+                <option value="CL" className="bg-slate-800 text-white">🇨🇱 Chile</option>
+                <option value="CO" className="bg-slate-800 text-white">🇨🇴 Colombia</option>
+                <option value="PE" className="bg-slate-800 text-white">🇵🇪 Peru</option>
+                <option value="EG" className="bg-slate-800 text-white">🇪🇬 Egypt</option>
+                <option value="IL" className="bg-slate-800 text-white">🇮🇱 Israel</option>
+                <option value="HK" className="bg-slate-800 text-white">🇭🇰 Hong Kong</option>
+                <option value="TW" className="bg-slate-800 text-white">🇹🇼 Taiwan</option>
+                <option value="MY" className="bg-slate-800 text-white">🇲🇾 Malaysia</option>
+                <option value="NZ" className="bg-slate-800 text-white">🇳🇿 New Zealand</option>
+                <option value="CH" className="bg-slate-800 text-white">🇨🇭 Switzerland</option>
+                <option value="AT" className="bg-slate-800 text-white">🇦🇹 Austria</option>
+                <option value="BE" className="bg-slate-800 text-white">🇧🇪 Belgium</option>
+                <option value="PT" className="bg-slate-800 text-white">🇵🇹 Portugal</option>
+                <option value="IE" className="bg-slate-800 text-white">🇮🇪 Ireland</option>
+                <option value="FI" className="bg-slate-800 text-white">🇫🇮 Finland</option>
+                <option value="CZ" className="bg-slate-800 text-white">🇨🇿 Czech Republic</option>
+                <option value="RO" className="bg-slate-800 text-white">🇷🇴 Romania</option>
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1926,6 +1926,21 @@ def serve_offerwall():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+def _offer_matches_country(offer, user_country_code):
+    """Check if an offer is available in the user's country. 
+    Returns True if offer has no country restrictions OR user's country is in the allowed list."""
+    countries = offer.get('countries', []) or offer.get('allowed_countries', []) or offer.get('geo', [])
+    if not countries:
+        return True  # No restrictions = available everywhere
+    if isinstance(countries, str):
+        countries = [c.strip().upper() for c in countries.replace(',', ' ').split() if c.strip()]
+    # Normalize to uppercase
+    allowed = [c.upper().strip() for c in countries if c]
+    if not allowed:
+        return True  # Empty list = available everywhere
+    return user_country_code in allowed
+
+
 @offerwall_bp.route('/api/offerwall/offers', methods=['GET'])
 def get_offers():
     """Get offers for the offerwall (JSON API) - fetches from admin's offer database
@@ -1952,6 +1967,21 @@ def get_offers():
         skip = (page - 1) * limit
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
+        
+        # === GEO DETECTION: Detect end user's country from IP ===
+        user_country_code = ''
+        try:
+            ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+            if ip_address:
+                ip_address = ip_address.split(',')[0].strip()
+            from services.ipinfo_service import get_ipinfo_service
+            ipinfo_svc = get_ipinfo_service()
+            ip_data = ipinfo_svc.lookup_ip(ip_address)
+            if ip_data:
+                user_country_code = (ip_data.get('country_code', '') or ip_data.get('country', '')).upper().strip()
+                logger.info(f"🌍 User country detected: {user_country_code} (IP: {ip_address})")
+        except Exception as geo_err:
+            logger.warning(f"⚠️ Geo detection failed for offerwall: {geo_err}")
         
         # Fetch placement exchange rate, currency name, and publisher ID
         placement_exchange_rate = 100  # Default: $1 = 100 points
@@ -2172,6 +2202,19 @@ def get_offers():
                 logger.warning(f"Failed to fetch user-granted offers: {e}")
         
         # OPTIMIZATION: Compute tracking base URL ONCE (not per-offer)
+        
+        # === COUNTRY FILTER: Only show offers available in user's country ===
+        if user_country_code:
+            before_geo_filter = len(offers_list)
+            offers_list = [
+                o for o in offers_list
+                if _offer_matches_country(o, user_country_code)
+            ]
+            filtered_out = before_geo_filter - len(offers_list)
+            if filtered_out > 0:
+                total_count -= filtered_out
+                logger.info(f"🌍 Country filter ({user_country_code}): removed {filtered_out} offers, {len(offers_list)} remaining")
+        
         if 'localhost' in request.host or '127.0.0.1' in request.host:
             tracking_base_url = "http://localhost:5000"
         else:
