@@ -81,16 +81,18 @@ export default function AdminPerUserOfferTrack() {
   const [offerSearch, setOfferSearch] = useState("");
   const [userPage, setUserPage] = useState(1);
   const [offerPage, setOfferPage] = useState(1);
+  const [userFilter, setUserFilter] = useState<"all" | "has_exclusive" | "has_approved" | "has_clicked">("all");
   const [selectedUser, setSelectedUser] = useState<UserSummary | null>(null);
   const [expandedOffer, setExpandedOffer] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<"all" | "global" | "exclusive" | "approved">("all");
 
   // Fetch users summary
   const { data: usersData, isLoading: usersLoading } = useQuery({
-    queryKey: ["per-user-offers-users", userSearch, userPage],
+    queryKey: ["per-user-offers-users", userSearch, userPage, userFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ per_page: "25", page: String(userPage) });
       if (userSearch) params.set("search", userSearch);
+      if (userFilter !== "all") params.set("filter", userFilter);
       const res = await fetch(`${API_BASE}/api/admin/per-user-offers/users-summary?${params}`, { headers: getHeaders() });
       return res.json();
     },
@@ -416,7 +418,7 @@ export default function AdminPerUserOfferTrack() {
 
         {/* BY USER TAB */}
         <TabsContent value="users" className="mt-4 space-y-4">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -426,7 +428,29 @@ export default function AdminPerUserOfferTrack() {
                 className="pl-9"
               />
             </div>
-            <span className="text-xs text-muted-foreground">{usersData?.total || 0} users total</span>
+            <div className="flex items-center gap-1.5">
+              <Badge
+                variant={userFilter === "all" ? "default" : "outline"}
+                className="cursor-pointer text-xs"
+                onClick={() => { setUserFilter("all"); setUserPage(1); }}
+              >All</Badge>
+              <Badge
+                variant={userFilter === "has_exclusive" ? "default" : "outline"}
+                className="cursor-pointer text-xs"
+                onClick={() => { setUserFilter("has_exclusive"); setUserPage(1); }}
+              >Has Exclusive</Badge>
+              <Badge
+                variant={userFilter === "has_approved" ? "default" : "outline"}
+                className="cursor-pointer text-xs"
+                onClick={() => { setUserFilter("has_approved"); setUserPage(1); }}
+              >Has Approved</Badge>
+              <Badge
+                variant={userFilter === "has_clicked" ? "default" : "outline"}
+                className="cursor-pointer text-xs"
+                onClick={() => { setUserFilter("has_clicked"); setUserPage(1); }}
+              >Has Clicked</Badge>
+            </div>
+            <span className="text-xs text-muted-foreground">{usersData?.total || 0} users</span>
           </div>
 
           {usersLoading ? (

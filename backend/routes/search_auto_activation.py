@@ -488,6 +488,7 @@ def get_users_summary():
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 25, type=int)
         search = request.args.get('search', '').strip()
+        filter_type = request.args.get('filter', '').strip()  # has_exclusive, has_approved, has_clicked
         skip = (page - 1) * per_page
 
         # Build user query - show all users except admins
@@ -497,6 +498,29 @@ def get_users_summary():
                 {'username': {'$regex': search, '$options': 'i'}},
                 {'email': {'$regex': search, '$options': 'i'}},
             ]
+
+        # Apply filter: restrict to users who have grants/approved/clicked
+        if filter_type == 'has_exclusive' and grants_col is not None:
+            user_ids_with_grants = grants_col.distinct('user_id', {'is_active': True})
+            if user_ids_with_grants:
+                valid_oids = [ObjectId(uid) for uid in user_ids_with_grants if ObjectId.is_valid(uid)]
+                user_query['_id'] = {'$in': valid_oids}
+            else:
+                return jsonify({'success': True, 'users': [], 'total': 0, 'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'pages': 0}})
+        elif filter_type == 'has_approved' and requests_col is not None:
+            user_ids_approved = requests_col.distinct('user_id', {'status': 'approved'})
+            if user_ids_approved:
+                valid_oids = [ObjectId(uid) if ObjectId.is_valid(str(uid)) else uid for uid in user_ids_approved]
+                user_query['_id'] = {'$in': valid_oids}
+            else:
+                return jsonify({'success': True, 'users': [], 'total': 0, 'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'pages': 0}})
+        elif filter_type == 'has_clicked' and grants_col is not None:
+            user_ids_clicked = grants_col.distinct('user_id', {'clicked': True})
+            if user_ids_clicked:
+                valid_oids = [ObjectId(uid) for uid in user_ids_clicked if ObjectId.is_valid(uid)]
+                user_query['_id'] = {'$in': valid_oids}
+            else:
+                return jsonify({'success': True, 'users': [], 'total': 0, 'pagination': {'page': page, 'per_page': per_page, 'total': 0, 'pages': 0}})
 
         total = users_col.count_documents(user_query)
         user_docs = list(users_col.find(user_query, {'username': 1, 'email': 1, 'country': 1, 'created_at': 1}).sort('created_at', -1).skip(skip).limit(per_page))
