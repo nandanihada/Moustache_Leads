@@ -719,8 +719,13 @@ class UserReports:
                 # Set status as 'approved' since all forwarded postbacks are successful
                 conv['status'] = 'approved'
                 
-                # Add transaction_id from username field
-                conv['transaction_id'] = conv.get('username', '')
+                # Show the Transaction ID - use placement_id from the conversion record
+                # This is the same value shown in "Placement/Source" column of click tracking
+                # It's what the publisher passes as sub1 in their tracking URL
+                conv['transaction_id'] = conv.get('placement_id', '') or conv.get('sub_id1', '') or ''
+                
+                # Add publisher_name for display
+                conv['publisher_name'] = conv.get('publisher_name', '')
 
                 
                 # Convert ObjectIds to strings

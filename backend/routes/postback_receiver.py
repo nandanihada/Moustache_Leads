@@ -661,6 +661,11 @@ def receive_postback(unique_key):
                         'country': click.get('country', '') if click else '',
                         'device_type': click.get('device_type', '') if click else '',
                         'ip_address': click.get('ip_address', '') if click else '',
+                        'sub_id1': click.get('sub_id1', '') if click else '',
+                        'sub_id2': click.get('sub_id2', '') if click else '',
+                        'sub_id3': click.get('sub_id3', '') if click else '',
+                        'sub_id4': click.get('sub_id4', '') if click else '',
+                        'sub_id5': click.get('sub_id5', '') if click else '',
                     }
                     forwarded_postbacks_col.insert_one(fwd_record)
                     logger.info(f"📝 Created forwarded_postbacks record (status={forward_status})")

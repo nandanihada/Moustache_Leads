@@ -1329,6 +1329,23 @@ def approve_access_request(request_id):
             }
         )
         
+        # Create offer grant so the offer appears in this user's offerwall
+        try:
+            from models.offer_grant import OfferGrant
+            grant_model = OfferGrant()
+            publisher_user_id = str(access_request.get('user_id', ''))
+            offer_id = access_request.get('offer_id', '')
+            if publisher_user_id and offer_id:
+                grant_model.grant_offers_to_user(
+                    publisher_user_id, 
+                    [offer_id], 
+                    source='offer_access_request', 
+                    granted_by=user.get('username', 'admin')
+                )
+                logging.info(f"✅ Created offer grant for user {publisher_user_id}, offer {offer_id}")
+        except Exception as grant_err:
+            logging.warning(f"Failed to create offer grant on approval: {grant_err}")
+        
         # Send approval email notification
         try:
             logging.info(f"📧 Preparing to send approval email for request {request_id}")

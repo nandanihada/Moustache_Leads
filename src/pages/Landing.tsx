@@ -261,12 +261,12 @@ export default function Landing() {
             >
               <img
                 src="/logo.png"
-                alt="Mustache Leads"
+                alt="Moustache Leads"
                 className="h-8 w-8 sm:h-12 sm:w-12 drop-shadow-lg"
               />
             </motion.div>
             <span className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-purple-600 via-purple-500 to-purple-700 bg-clip-text text-transparent">
-              Mustache Leads
+              Moustache Leads
             </span>
           </motion.div>
 
@@ -416,7 +416,7 @@ export default function Landing() {
             className="mt-8 max-w-2xl mx-auto px-4"
           >
             <p className="text-lg sm:text-xl text-gray-600">
-              {"Capture, nurture, and convert leads effortlessly. Grow your business with Mustache Leads.".split(
+              {"Capture, nurture, and convert leads effortlessly. Grow your business with Moustache Leads.".split(
                 " "
               ).map((word, i) => (
                 <motion.span
@@ -741,7 +741,7 @@ export default function Landing() {
               transition={{ delay: 0.1 }}
               className="text-purple-100 text-xl mb-10"
             >
-              Join thousands of businesses growing with Mustache Leads
+              Join thousands of businesses growing with Moustache Leads
             </motion.p>
 
             <motion.div
@@ -813,12 +813,12 @@ export default function Landing() {
                 >
                   <img
                     src="/logo.png"
-                    alt="Mustache Leads"
+                    alt="Moustache Leads"
                     className="h-12 w-12"
                   />
                 </motion.div>
                 <h3 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-purple-800 bg-clip-text text-transparent">
-                  Mustache Leads
+                  Moustache Leads
                 </h3>
               </div>
               <p className="text-gray-600">
@@ -829,7 +829,7 @@ export default function Landing() {
             <motion.div variants={fadeBlurUp}>
               <h4 className="font-semibold text-gray-900 mb-4">Contact</h4>
               <p className="text-gray-600 hover:text-purple-600 transition-colors duration-300 cursor-pointer">
-                contact@mustacheleads.com
+                contact@moustacheleads.com
               </p>
               <p className="text-gray-600 hover:text-purple-600 transition-colors duration-300 cursor-pointer">
                 +91 90000 00000
@@ -930,7 +930,7 @@ export default function Landing() {
             viewport={{ once: true }}
             className="mt-8 text-center text-gray-500"
           >
-            © {new Date().getFullYear()} Mustache Leads. All rights reserved.
+            © {new Date().getFullYear()} Moustache Leads. All rights reserved.
           </motion.div>
         </div>
       </footer>

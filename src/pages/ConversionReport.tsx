@@ -15,6 +15,7 @@ import PlacementRequired from '../components/PlacementRequired';
 // Column definitions for Conversion Report - ALL FIELDS SAME AS PERFORMANCE REPORT
 const CONVERSION_COLUMNS: ColumnDefinition[] = [
   { id: 'time', label: 'Time', defaultVisible: true, alwaysVisible: true },
+  { id: 'publisher_name', label: 'Publisher', defaultVisible: true },
   { id: 'transaction_id', label: 'Transaction ID', defaultVisible: true },
   { id: 'offer_name', label: 'Offer Name', defaultVisible: true },
   { id: 'offer_url', label: 'Offer URL', defaultVisible: false },
@@ -48,7 +49,7 @@ export function ConversionReportContent() {
   const [loading, setLoading] = useState(false);
   const [conversions, setConversions] = useState<Conversion[]>([]);
   const [summary, setSummary] = useState<any>(null);
-  const [pagination, setPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
+  const [pagination, setPagination] = useState({ page: 1, per_page: 50, total: 0, pages: 0 });
   const [chartData, setChartData] = useState<any[]>([]);
   const [reportOptions, setReportOptions] = useState<ReportColumnOptions | null>(null);
   const [activeFilters, setActiveFilters] = useState<any>({});
@@ -157,7 +158,7 @@ export function ConversionReportContent() {
   useEffect(() => {
     fetchReport();
     fetchChartData();
-  }, [dateRange, pagination.page]);
+  }, [dateRange, pagination.page, pagination.per_page]);
 
   // Export handler
   const handleExport = async () => {
@@ -325,6 +326,7 @@ export function ConversionReportContent() {
             <thead className="bg-muted">
               <tr>
                 {visibleColumns.time && <th className="p-3 text-left">Time</th>}
+                {visibleColumns.publisher_name && <th className="p-3 text-left">Publisher</th>}
                 {visibleColumns.transaction_id && <th className="p-3 text-left">Transaction ID</th>}
                 {visibleColumns.offer_name && <th className="p-3 text-left">Offer</th>}
                 {visibleColumns.offer_url && <th className="p-3 text-left">Offer URL</th>}
@@ -375,9 +377,14 @@ export function ConversionReportContent() {
                         {new Date(conv.time).toLocaleString()}
                       </td>
                     )}
+                    {visibleColumns.publisher_name && (
+                      <td className="p-3 text-sm font-medium">
+                        {conv.publisher_name || '-'}
+                      </td>
+                    )}
                     {visibleColumns.transaction_id && (
                       <td className="p-3 font-mono text-xs">
-                        {conv.transaction_id}
+                        {conv.transaction_id || '-'}
                       </td>
                     )}
                     {visibleColumns.offer_name && <td className="p-3">{conv.offer_name}</td>}
@@ -440,31 +447,63 @@ export function ConversionReportContent() {
         </div>
 
         {/* Pagination */}
-        {pagination.pages > 1 && (
-          <div className="p-4 flex justify-between items-center border-t">
+        <div className="p-4 flex flex-col sm:flex-row justify-between items-center border-t gap-3">
+          <div className="flex items-center gap-3">
             <div className="text-sm text-muted-foreground">
-              Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} results
+              {pagination.total > 0 ? (
+                <>Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} results</>
+              ) : (
+                <>No results</>
+              )}
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPagination({...pagination, page: pagination.page - 1})}
-                disabled={pagination.page === 1}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPagination({...pagination, page: pagination.page + 1})}
-                disabled={pagination.page === pagination.pages}
-              >
-                Next
-              </Button>
-            </div>
+            <select
+              className="border rounded px-2 py-1 text-sm"
+              value={pagination.per_page}
+              onChange={(e) => setPagination({...pagination, page: 1, per_page: Number(e.target.value)})}
+            >
+              <option value={20}>20 / page</option>
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
+            </select>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: 1})}
+              disabled={pagination.page === 1}
+            >
+              First
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: pagination.page - 1})}
+              disabled={pagination.page === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-sm px-2">
+              Page {pagination.page} of {pagination.pages || 1}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: pagination.page + 1})}
+              disabled={pagination.page >= pagination.pages}
+            >
+              Next
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: pagination.pages})}
+              disabled={pagination.page >= pagination.pages}
+            >
+              Last
+            </Button>
+          </div>
+        </div>
       </Card>
 
       {/* Conversion Details Modal */}

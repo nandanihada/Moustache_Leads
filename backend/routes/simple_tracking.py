@@ -124,6 +124,35 @@ TRACKING_REDIRECT_TEMPLATE = """{% autoescape false %}<!DOCTYPE html>
 <noscript><meta http-equiv="refresh" content="0;url={{ target_url }}"></noscript>
 </body></html>{% endautoescape %}"""
 
+# HTML template for geo-blocked users
+GEO_BLOCKED_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offer Not Available</title>
+<style>
+body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff}
+.container{text-align:center;padding:40px;max-width:500px}
+.icon{font-size:64px;margin-bottom:20px}
+h1{font-size:24px;margin-bottom:12px}
+p{font-size:16px;opacity:0.9;line-height:1.6}
+.countries{margin-top:16px;padding:12px 20px;background:rgba(255,255,255,0.15);border-radius:8px;font-size:14px}
+.back-btn{display:inline-block;margin-top:24px;padding:12px 32px;background:#fff;color:#764ba2;border-radius:8px;text-decoration:none;font-weight:600;transition:transform 0.2s}
+.back-btn:hover{transform:scale(1.05)}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="icon">🌍</div>
+<h1>Offer Not Available in Your Region</h1>
+<p><strong>{{ offer_name }}</strong> is not available in your country ({{ user_country }}).</p>
+<div class="countries">Available in: {{ allowed_countries }}</div>
+<a href="javascript:history.back()" class="back-btn">← Go Back</a>
+</div>
+</body>
+</html>"""
+
 @simple_tracking_bp.route('/track/<offer_id>', methods=['GET'])
 def track_offer_click(offer_id):
     """
@@ -167,6 +196,33 @@ def track_offer_click(offer_id):
             target_url = target_url.strip().replace('\n', '').replace('\r', '')
         if not target_url:
             return jsonify({'error': 'Invalid offer configuration'}), 400
+        
+        # === GEO-RESTRICTION CHECK: Block users from non-allowed countries ===
+        offer_countries = offer.get('countries', []) or offer.get('allowed_countries', []) or []
+        if isinstance(offer_countries, str):
+            offer_countries = [c.strip().upper() for c in offer_countries.replace(',', ' ').split() if c.strip()]
+        
+        if offer_countries:  # Only check if offer has country restrictions
+            try:
+                from services.ipinfo_service import get_ipinfo_service
+                ipinfo_svc = get_ipinfo_service()
+                ip_data = ipinfo_svc.lookup_ip(ip_address)
+                if ip_data:
+                    user_country = (ip_data.get('country_code', '') or ip_data.get('country', '')).upper().strip()
+                    # Normalize offer countries to uppercase 2-letter codes
+                    allowed_codes = [c.upper().strip() for c in offer_countries if c]
+                    
+                    if user_country and user_country not in allowed_codes:
+                        logger.info(f"🚫 Geo-blocked: user from {user_country}, offer requires {allowed_codes} (offer={offer_id})")
+                        # Return a blocked page instead of redirecting
+                        return render_template_string(
+                            GEO_BLOCKED_TEMPLATE,
+                            offer_name=offer.get('name', 'This Offer'),
+                            user_country=user_country,
+                            allowed_countries=', '.join(allowed_codes[:10])
+                        ), 403
+            except Exception as geo_err:
+                logger.warning(f"⚠️ Geo check failed (allowing through): {geo_err}")
         
         # Generate unique click ID
         click_id = generate_click_id()

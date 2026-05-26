@@ -118,6 +118,7 @@ export interface Conversion {
   // Partner data
   partner_id?: string;
   partner_name?: string;
+  publisher_name?: string;
   
   // Complete postback data
   raw_postback?: Record<string, any>;

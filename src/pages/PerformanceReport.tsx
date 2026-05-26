@@ -56,7 +56,7 @@ function PerformanceReportContent() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<PerformanceRow[]>([]);
   const [summary, setSummary] = useState<any>(null);
-  const [pagination, setPagination] = useState({ page: 1, per_page: 20, total: 0, pages: 0 });
+  const [pagination, setPagination] = useState({ page: 1, per_page: 50, total: 0, pages: 0 });
   const [chartData, setChartData] = useState<any[]>([]);
   
   // Date range state (default: last 30 days)
@@ -167,7 +167,7 @@ function PerformanceReportContent() {
   useEffect(() => {
     fetchReport();
     fetchChartData();
-  }, [dateRange, pagination.page]);
+  }, [dateRange, pagination.page, pagination.per_page]);
 
   // Export handler
   const handleExport = async () => {
@@ -430,31 +430,63 @@ function PerformanceReportContent() {
         </div>
 
         {/* Pagination */}
-        {pagination.pages > 1 && (
-          <div className="p-4 flex justify-between items-center border-t">
+        <div className="p-4 flex flex-col sm:flex-row justify-between items-center border-t gap-3">
+          <div className="flex items-center gap-3">
             <div className="text-sm text-muted-foreground">
-              Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} results
+              {pagination.total > 0 ? (
+                <>Showing {((pagination.page - 1) * pagination.per_page) + 1} to {Math.min(pagination.page * pagination.per_page, pagination.total)} of {pagination.total} results</>
+              ) : (
+                <>No results</>
+              )}
             </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPagination({...pagination, page: pagination.page - 1})}
-                disabled={pagination.page === 1}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setPagination({...pagination, page: pagination.page + 1})}
-                disabled={pagination.page === pagination.pages}
-              >
-                Next
-              </Button>
-            </div>
+            <select
+              className="border rounded px-2 py-1 text-sm"
+              value={pagination.per_page}
+              onChange={(e) => setPagination({...pagination, page: 1, per_page: Number(e.target.value)})}
+            >
+              <option value={20}>20 / page</option>
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
+            </select>
           </div>
-        )}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: 1})}
+              disabled={pagination.page === 1}
+            >
+              First
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: pagination.page - 1})}
+              disabled={pagination.page === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-sm px-2">
+              Page {pagination.page} of {pagination.pages || 1}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: pagination.page + 1})}
+              disabled={pagination.page >= pagination.pages}
+            >
+              Next
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPagination({...pagination, page: pagination.pages})}
+              disabled={pagination.page >= pagination.pages}
+            >
+              Last
+            </Button>
+          </div>
+        </div>
       </Card>
     </div>
   );

@@ -96,7 +96,7 @@ export default function PublisherEmailSettings({ token }: PublisherEmailSettings
           Email Notification Preferences
         </h2>
         <p className="text-gray-600 mt-2">
-          Manage which emails you'd like to receive from MustacheLeads
+          Manage which emails you'd like to receive from MoustacheLeads
         </p>
       </div>
 

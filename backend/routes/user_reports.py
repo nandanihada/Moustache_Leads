@@ -94,6 +94,8 @@ def get_performance_report():
         
         # Generate report
         date_range = {'start': start_date, 'end': end_date}
+        # Admin sees all publishers' data, publishers only see their own
+        is_admin_user = user.get('role') in ('admin', 'subadmin')
         report = user_reports_model.get_performance_report(
             user_id=user_id,
             date_range=date_range,
@@ -101,7 +103,7 @@ def get_performance_report():
             group_by=group_by,
             pagination=pagination,
             sort=sort,
-            force_publisher_view=True
+            force_publisher_view=not is_admin_user
         )
         
         if 'error' in report:
@@ -175,12 +177,14 @@ def get_conversion_report():
         
         # Generate report
         date_range = {'start': start_date, 'end': end_date}
+        # Admin sees all publishers' data, publishers only see their own
+        is_admin_user = user.get('role') in ('admin', 'subadmin')
         report = user_reports_model.get_conversion_report(
             user_id=user_id,
             date_range=date_range,
             filters=filters,
             pagination=pagination,
-            force_publisher_view=True
+            force_publisher_view=not is_admin_user
         )
         
         if 'error' in report:
@@ -239,13 +243,14 @@ def get_chart_data():
         
         # Generate chart data
         date_range = {'start': start_date, 'end': end_date}
+        is_admin_user = user.get('role') in ('admin', 'subadmin')
         chart_data = user_reports_model.get_chart_data(
             user_id=user_id,
             date_range=date_range,
             metric=metric,
             granularity=granularity,
             filters=filters,
-            force_publisher_view=True
+            force_publisher_view=not is_admin_user
         )
         
         if 'error' in chart_data:
@@ -351,13 +356,14 @@ def export_report():
             
             group_by = request.args.get('group_by', 'date').split(',')
             
+            is_admin_user = user.get('role') in ('admin', 'subadmin')
             report = user_reports_model.get_performance_report(
                 user_id=user_id,
                 date_range=date_range,
                 filters=filters,
                 group_by=group_by,
                 pagination={'page': 1, 'per_page': 1000},  # Max 1000 for export
-                force_publisher_view=True
+                force_publisher_view=not is_admin_user
             )
             
             if 'error' in report:
@@ -398,12 +404,13 @@ def export_report():
             if request.args.get('offer_id'):
                 filters['offer_id'] = request.args.get('offer_id')
             
+            is_admin_user = user.get('role') in ('admin', 'subadmin')
             report = user_reports_model.get_conversion_report(
                 user_id=user_id,
                 date_range=date_range,
                 filters=filters,
                 pagination={'page': 1, 'per_page': 1000},
-                force_publisher_view=True
+                force_publisher_view=not is_admin_user
             )
             
             if 'error' in report:

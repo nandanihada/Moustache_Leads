@@ -1953,16 +1953,17 @@ def get_offers():
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
         
-        # Fetch placement exchange rate and currency name
+        # Fetch placement exchange rate, currency name, and publisher ID
         placement_exchange_rate = 100  # Default: $1 = 100 points
         placement_currency_name = 'Points'
+        placement_publisher_id = None
         if placement_id:
             try:
                 placements_col = db_instance.get_collection('placements')
                 if placements_col is not None:
                     placement_doc = placements_col.find_one(
                         {'placementIdentifier': placement_id},
-                        {'exchangeRate': 1, 'currencyName': 1}
+                        {'exchangeRate': 1, 'currencyName': 1, 'publisherId': 1}
                     )
                     if placement_doc:
                         try:
@@ -1972,7 +1973,12 @@ def get_offers():
                         except (ValueError, TypeError):
                             pass
                         placement_currency_name = placement_doc.get('currencyName', 'Points') or 'Points'
-                        logger.info(f"💱 Placement exchange rate: 1 USD = {placement_exchange_rate} {placement_currency_name}")
+                        # Get publisher ID from placement for offer access checks
+                        pub_id = placement_doc.get('publisherId')
+                        if pub_id:
+                            from bson import ObjectId as BsonObjectId
+                            placement_publisher_id = str(pub_id) if isinstance(pub_id, BsonObjectId) else str(pub_id)
+                        logger.info(f"💱 Placement exchange rate: 1 USD = {placement_exchange_rate} {placement_currency_name}, publisher: {placement_publisher_id}")
             except Exception as e:
                 logger.warning(f"Failed to fetch placement exchange rate: {e}")
         
@@ -2063,18 +2069,107 @@ def get_offers():
         
         logger.info(f"✅ Found {len(regular_offers_list)} regular offers (page {page}, total {total_count})")
         
-        # Filter out unhealthy REGULAR offers (starter offers bypass health check)
+        # === PRE-FETCH: Get publisher's approved offer IDs to bypass health check ===
+        # Use publisher ID (from placement) for access checks, not end-user ID
+        placement_publisher_id_for_health = placement_publisher_id
+        
+        # If no publisher from placement, try to resolve from user_id (might be publisher's ObjectId or username)
+        if not placement_publisher_id_for_health and user_id:
+            try:
+                users_col = db_instance.get_collection('users')
+                if users_col:
+                    from bson import ObjectId
+                    # Try as ObjectId first
+                    pub_user = None
+                    if ObjectId.is_valid(str(user_id)):
+                        pub_user = users_col.find_one({'_id': ObjectId(str(user_id))}, {'_id': 1})
+                    # Try as username
+                    if not pub_user:
+                        pub_user = users_col.find_one({'username': str(user_id)}, {'_id': 1})
+                    if pub_user:
+                        placement_publisher_id_for_health = str(pub_user['_id'])
+            except Exception:
+                pass
+        
+        publisher_approved_offer_ids = set()
+        if placement_publisher_id_for_health:
+            logger.info(f"🔍 Looking up approved offers for publisher: {placement_publisher_id_for_health}")
+            try:
+                from bson import ObjectId
+                affiliate_requests_col = db_instance.get_collection('affiliate_requests')
+                if affiliate_requests_col is not None:
+                    pub_id_str = str(placement_publisher_id_for_health)
+                    user_id_variants = [pub_id_str]
+                    try:
+                        if ObjectId.is_valid(pub_id_str):
+                            user_id_variants.append(ObjectId(pub_id_str))
+                    except:
+                        pass
+                    approved_reqs = affiliate_requests_col.find(
+                        {
+                            '$or': [
+                                {'user_id': {'$in': user_id_variants}},
+                                {'publisher_id': {'$in': user_id_variants}}
+                            ],
+                            'status': 'approved'
+                        },
+                        {'offer_id': 1}
+                    )
+                    publisher_approved_offer_ids = set(r['offer_id'] for r in approved_reqs if r.get('offer_id'))
+                    
+                # Also get offer_grants
+                from models.offer_grant import OfferGrant
+                grant_model = OfferGrant()
+                grant_ids = grant_model.get_granted_offer_ids(str(placement_publisher_id_for_health))
+                publisher_approved_offer_ids.update(grant_ids)
+                
+                if publisher_approved_offer_ids:
+                    logger.info(f"✅ Publisher has {len(publisher_approved_offer_ids)} approved/granted offers (bypass health check)")
+            except Exception as e:
+                logger.warning(f"Failed to pre-fetch approved offers: {e}")
+        
+        # Filter out unhealthy REGULAR offers (starter offers and publisher-approved offers bypass health check)
         try:
             health_service = HealthCheckService()
             health_results = health_service.evaluate_offers_batch(regular_offers_list)
-            regular_offers_list = [o for o in regular_offers_list if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
-            logger.info(f"✅ Health filter: {len(regular_offers_list)} healthy regular offers remaining")
+            regular_offers_list = [
+                o for o in regular_offers_list 
+                if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy'
+                or o.get('offer_id') in publisher_approved_offer_ids  # Approved offers bypass health check
+            ]
+            logger.info(f"✅ Health filter: {len(regular_offers_list)} offers remaining (includes approved bypasses)")
         except Exception as e:
             logger.warning(f"Offerwall health check failed, returning all offers: {e}")
         
         # Merge: starter offers first, then regular offers
         offers_list = starter_offers_list + regular_offers_list
         total_count += len(starter_offers_list)  # Include starter offers in total
+        
+        # === USER-SPECIFIC GRANTED OFFERS: Include offers approved via access requests ===
+        # Use publisher ID (from placement) for access checks, not end-user ID
+        granted_offers_list = []
+        granted_offer_ids_set = set(publisher_approved_offer_ids)  # Start with pre-fetched approved IDs
+        publisher_for_access = placement_publisher_id_for_health
+        if publisher_for_access and publisher_approved_offer_ids:
+            try:
+                # Fetch offers that are approved but not already in the list
+                existing_offer_ids = set(o.get('offer_id') for o in offers_list)
+                new_granted_ids = [oid for oid in publisher_approved_offer_ids if oid not in existing_offer_ids]
+                if new_granted_ids:
+                    granted_query = {
+                        'offer_id': {'$in': new_granted_ids},
+                        '$or': [
+                            {'deleted': {'$exists': False}},
+                            {'deleted': False},
+                            {'deleted': None}
+                        ]
+                    }
+                    granted_offers_list = list(offers_collection.find(granted_query, projection))
+                    offers_list = offers_list + granted_offers_list
+                    total_count += len(granted_offers_list)
+                    logger.info(f"✅ Added {len(granted_offers_list)} user-granted offers for publisher {publisher_for_access}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch user-granted offers: {e}")
         
         # OPTIMIZATION: Compute tracking base URL ONCE (not per-offer)
         if 'localhost' in request.host or '127.0.0.1' in request.host:
@@ -2100,23 +2195,38 @@ def get_offers():
         
         # Batch query: get all user requests for these offers in ONE query
         user_request_map = {}
-        if offers_needing_approval and user_id:
-            try:
-                affiliate_requests = db_instance.get_collection('affiliate_requests')
-                if affiliate_requests:
-                    user_id_str = str(user_id)
-                    batch_query = {
-                        'offer_id': {'$in': offers_needing_approval},
-                        '$or': [
-                            {'user_id': user_id_str},
-                            {'publisher_id': user_id_str}
-                        ]
-                    }
-                    requests_cursor = affiliate_requests.find(batch_query, {'offer_id': 1, 'status': 1})
-                    for req in requests_cursor:
-                        user_request_map[req['offer_id']] = req.get('status', 'pending')
-            except Exception as e:
-                logger.warning(f"Batch visibility query failed: {e}")
+        if offers_needing_approval and publisher_for_access:
+            # Use pre-fetched approved IDs for fast lookup
+            for oid in offers_needing_approval:
+                if oid in publisher_approved_offer_ids:
+                    user_request_map[oid] = 'approved'
+            
+            # For offers not in pre-fetched set, check if they have pending requests
+            remaining_offers = [oid for oid in offers_needing_approval if oid not in user_request_map]
+            if remaining_offers:
+                try:
+                    affiliate_requests = db_instance.get_collection('affiliate_requests')
+                    if affiliate_requests is not None:
+                        from bson import ObjectId
+                        pub_id_str = str(publisher_for_access)
+                        user_id_variants = [pub_id_str]
+                        try:
+                            if ObjectId.is_valid(pub_id_str):
+                                user_id_variants.append(ObjectId(pub_id_str))
+                        except:
+                            pass
+                        batch_query = {
+                            'offer_id': {'$in': remaining_offers},
+                            '$or': [
+                                {'user_id': {'$in': user_id_variants}},
+                                {'publisher_id': {'$in': user_id_variants}}
+                            ]
+                        }
+                        requests_cursor = affiliate_requests.find(batch_query, {'offer_id': 1, 'status': 1})
+                        for req in requests_cursor:
+                            user_request_map[req['offer_id']] = req.get('status', 'pending')
+                except Exception as e:
+                    logger.warning(f"Batch visibility query failed: {e}")
         
         # Transform offers — per-offer try/except so one bad offer doesn't kill the whole response
         transformed_offers = []
@@ -2222,8 +2332,12 @@ def get_offers():
                 if affiliates == 'request':
                     approval_type = 'manual'
                 
-                if affiliates == 'all' and approval_type == 'auto_approve':
-                    # Fast path: no DB query needed (most offers)
+                # Granted offers always have full access (admin approved via access request)
+                offer_id_val = offer.get('offer_id')
+                is_granted = offer_id_val in granted_offer_ids_set
+                
+                if is_granted or (affiliates == 'all' and approval_type == 'auto_approve'):
+                    # Fast path: no DB query needed (most offers + granted offers)
                     transformed_offer['is_locked'] = False
                     transformed_offer['has_access'] = True
                     transformed_offer['lock_reason'] = None
