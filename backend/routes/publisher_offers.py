@@ -9,7 +9,7 @@ from database import db_instance
 from utils.auth import token_required
 from services.access_control_service import AccessControlService
 from services.offer_visibility_service import offer_visibility_service
-from utils.json_serializer import safe_json_response
+from utils.json_serializer import safe_json_response, serialize_for_json
 from routes.search_logs import log_search_async
 from models.search_session import SearchSession
 import logging
