@@ -361,7 +361,7 @@ export const SignaturePage = () => {
                     <div className="space-y-6">
                       <p className="text-xs font-bold text-slate-400 uppercase tracking-widest text-center">SURVTIT MARKET RESEARCH SURVEY LLP</p>
                       <div className="h-32 flex items-center justify-center border border-slate-100 rounded-xl bg-slate-50/50">
-                        <img src="https://i.imgur.com/7bQ6p2v.png" alt="Company Stamp" className="h-24 opacity-90" />
+                        <img src="/signature.jpeg" alt="Company Stamp" className="h-24 opacity-90" />
                       </div>
                       <div className="border-t-2 border-slate-900 pt-4">
                         <p className="font-bold text-xl uppercase">Shivam Julka</p>
@@ -508,7 +508,7 @@ export const SignaturePage = () => {
                     <div className="space-y-4">
                       <p className="font-bold text-slate-400 uppercase text-xs text-center">SURVTIT MARKET RESEARCH SURVEY LLP</p>
                       <div className="h-24 border border-slate-100 bg-slate-50 flex items-center justify-center">
-                        <img src="https://i.imgur.com/7bQ6p2v.png" alt="Stamp" className="h-16 opacity-80" />
+                        <img src="/signature.jpeg" alt="Stamp" className="h-16 opacity-80" />
                       </div>
                       <div className="border-t border-slate-900 pt-2">
                         <p className="font-bold">Shivam Julka</p>
@@ -573,12 +573,6 @@ export const SignaturePage = () => {
               <p className="text-slate-500">Your signed agreement has been received and your account is now ready for review.</p>
             </div>
             <div className="flex flex-col gap-3">
-              <button
-                onClick={() => setShowPreview(true)}
-                className="w-full bg-slate-900 text-white py-4 rounded-xl font-bold hover:bg-slate-800 transition-all flex items-center justify-center gap-2"
-              >
-                <Eye size={20} /> View Signed Document
-              </button>
               <button
                 onClick={handleDownloadPDF}
                 disabled={!pdfFilename}

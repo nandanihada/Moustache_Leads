@@ -43,6 +43,7 @@
     "@types/react-signature-canvas": "^1.0.7",
     "axios": "^1.12.2",
     "bcrypt": "^6.0.0",
+    "caniuse-lite": "^1.0.30001793",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

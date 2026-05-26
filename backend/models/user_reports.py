@@ -42,7 +42,8 @@ class UserReports:
         filters: Optional[Dict] = None,
         group_by: Optional[List[str]] = None,
         pagination: Optional[Dict] = None,
-        sort: Optional[Dict] = None
+        sort: Optional[Dict] = None,
+        force_publisher_view: bool = False
     ) -> Dict[str, Any]:
         """
         Generate performance report grouped by specified dimensions
@@ -54,6 +55,7 @@ class UserReports:
             group_by: List of fields to group by (date, offer_id, country, sub_id1-5)
             pagination: {'page': int, 'per_page': int}
             sort: {'field': str, 'order': str}
+            force_publisher_view: Whether to force standard publisher isolation (ignore admin role check)
         
         Returns:
             Report data with pagination
@@ -71,7 +73,7 @@ class UserReports:
             
             # Get user info to check if admin
             user = self.users_collection.find_one({'_id': ObjectId(user_id)})
-            is_admin = user and user.get('role') == 'admin'
+            is_admin = user and user.get('role') == 'admin' if not force_publisher_view else False
             
             # Build match query - Filter by user's placements unless admin
             match_query = {
@@ -620,7 +622,8 @@ class UserReports:
         user_id: str,
         date_range: Dict[str, datetime],
         filters: Optional[Dict] = None,
-        pagination: Optional[Dict] = None
+        pagination: Optional[Dict] = None,
+        force_publisher_view: bool = False
     ) -> Dict[str, Any]:
         """
         Generate conversion report (individual conversion records)
@@ -630,6 +633,7 @@ class UserReports:
             date_range: {'start': datetime, 'end': datetime}
             filters: Optional filters
             pagination: {'page': int, 'per_page': int}
+            force_publisher_view: Whether to force standard publisher isolation (ignore admin role check)
         
         Returns:
             List of conversions with pagination
@@ -645,7 +649,7 @@ class UserReports:
             
             # Get user info to check if admin
             user = self.users_collection.find_one({'_id': ObjectId(user_id)})
-            is_admin = user and user.get('role') == 'admin'
+            is_admin = user and user.get('role') == 'admin' if not force_publisher_view else False
             
             # Build query - Filter by publisher_id unless admin
             # Only show REAL conversions — exclude flagged fakes
@@ -807,7 +811,8 @@ class UserReports:
         date_range: Dict[str, datetime],
         metric: str = 'conversions',
         granularity: str = 'day',
-        filters: Optional[Dict] = None
+        filters: Optional[Dict] = None,
+        force_publisher_view: bool = False
     ) -> Dict[str, Any]:
         """
         Generate time-series data for charts
@@ -818,6 +823,7 @@ class UserReports:
             metric: 'clicks', 'conversions', or 'revenue'
             granularity: 'hour', 'day', 'week', 'month'
             filters: Optional filters
+            force_publisher_view: Whether to force standard publisher isolation (ignore admin role check)
         
         Returns:
             Chart data points
@@ -834,7 +840,7 @@ class UserReports:
             
             # Get user info to check if admin
             user = self.users_collection.find_one({'_id': ObjectId(user_id)})
-            is_admin = user and user.get('role') == 'admin'
+            is_admin = user and user.get('role') == 'admin' if not force_publisher_view else False
             
             # Determine collection and field based on metric
             if metric in ['clicks', 'unique_clicks']:

@@ -1,4 +1,4 @@
-﻿"""
+"""
 User Dashboard API Routes
 Provides real-time statistics for user dashboard
 - Total revenue from forwarded postbacks
@@ -21,6 +21,16 @@ user_dashboard_bp = Blueprint('user_dashboard', __name__)
 # Per-user dashboard cache (60 second TTL)
 _dashboard_cache = {}  # user_id -> {'stats': data, 'chart': data, 'top_offers': data, 'expires': timestamp}
 _DASHBOARD_CACHE_TTL = 60  # seconds
+
+def clear_dashboard_cache(user_id):
+    """Clear dashboard cache for a specific user"""
+    try:
+        user_id_str = str(user_id)
+        if user_id_str in _dashboard_cache:
+            _dashboard_cache.pop(user_id_str, None)
+            logger.debug(f"🧹 Cleared dashboard cache for user {user_id_str}")
+    except Exception as e:
+        logger.error(f"Error clearing dashboard cache: {e}")
 
 def get_collection(collection_name):
     """Get collection from database instance"""
@@ -110,11 +120,23 @@ def get_dashboard_stats():
                 ]
             }
             dashboard_clicks = dashboard_clicks_col.count_documents(dashboard_clicks_query)
+            
+        # Count clicks from simple tracking links (clicks collection)
+        simple_clicks_col = get_collection('clicks')
+        simple_clicks = 0
+        if simple_clicks_col is not None:
+            simple_clicks_query = {
+                '$or': [
+                    {'user_id': user_id},
+                    {'user_id': str(user_id)}
+                ]
+            }
+            simple_clicks = simple_clicks_col.count_documents(simple_clicks_query)
         
-        # Total clicks = offerwall clicks + dashboard clicks
-        total_clicks = offerwall_clicks + dashboard_clicks
+        # Total clicks = offerwall clicks + dashboard clicks + simple clicks
+        total_clicks = offerwall_clicks + dashboard_clicks + simple_clicks
         
-        logger.debug(f"👆 Total clicks: {total_clicks} (offerwall: {offerwall_clicks}, dashboard: {dashboard_clicks})")
+        logger.debug(f"👆 Total clicks: {total_clicks} (offerwall: {offerwall_clicks}, dashboard: {dashboard_clicks}, simple: {simple_clicks})")
         
         # 3. Get Active Offers Count - Count all offers with status='active'
         active_offers_count = 0
@@ -914,6 +936,18 @@ def get_chart_data():
                     'timestamp': {'$gte': month_start, '$lt': month_end}
                 }
                 month_clicks += dashboard_clicks_col.count_documents(dashboard_clicks_query)
+                
+            # Also count simple clicks for this month
+            simple_clicks_col = get_collection('clicks')
+            if simple_clicks_col is not None:
+                simple_clicks_query = {
+                    '$or': [
+                        {'user_id': user_id},
+                        {'user_id': str(user_id)}
+                    ],
+                    'timestamp': {'$gte': month_start, '$lt': month_end}
+                }
+                month_clicks += simple_clicks_col.count_documents(simple_clicks_query)
             
             chart_data.append({
                 'name': month_name,
@@ -938,8 +972,8 @@ def get_chart_data():
 @token_required
 def get_top_offers():
     """
-    Get top performing offers for the current user
-    Returns offers sorted by revenue with click and conversion stats
+    Get top curated offers based on Admin Top Offers configuration
+    and overlay user click/conversion performance stats.
     """
     try:
         user = request.current_user
@@ -948,102 +982,247 @@ def get_top_offers():
         
         logger.debug(f"🏆 Getting top offers for user: {username} ({user_id})")
         
-        # Get collections
+        # Get database collections
+        settings_col = get_collection('top_offers_settings')
+        top_offers_col = get_collection('top_offers')
+        offers_col = get_collection('offers')
+        clicks_col = get_collection('offerwall_clicks_detailed')
+        dashboard_clicks_col = get_collection('dashboard_clicks')
         forwarded_postbacks = get_collection('forwarded_postbacks')
-        clicks_collection = get_collection('offerwall_clicks_detailed')
-        offers_collection = get_collection('offers')
         
-        if forwarded_postbacks is None or clicks_collection is None or offers_collection is None:
+        if offers_col is None:
             return jsonify({'error': 'Database collections not available'}), 503
+            
+        # 1. Load admin top offers settings
+        settings = {
+            'mode': 'hybrid',
+            'auto_criteria': 'conversions'
+        }
+        if settings_col is not None:
+            doc = settings_col.find_one({'key': 'config'})
+            if doc:
+                settings['mode'] = doc.get('mode', 'hybrid')
+                settings['auto_criteria'] = doc.get('auto_criteria', 'conversions')
+                
+        mode = settings.get('mode', 'hybrid')
+        auto_criteria = settings.get('auto_criteria', 'conversions')
         
-        # Aggregate conversions and revenue by offer
-        offer_stats_pipeline = [
-            {
-                '$match': {
-                    'publisher_id': user_id,
-                    'forward_status': {'$nin': ['reversed']},
-                    'is_reversal': {'$ne': True}
+        # 2. Get manual curated offers
+        manual_offers = []
+        curated_ids = []
+        if top_offers_col is not None and mode in ['manual', 'hybrid']:
+            curated_docs = list(top_offers_col.find().sort('position', 1))
+            curated_ids = [d['offer_id'] for d in curated_docs]
+            if curated_ids:
+                # Fetch active offers only
+                active_manual_offers = {
+                    o['offer_id']: o for o in offers_col.find({
+                        'offer_id': {'$in': curated_ids},
+                        'status': 'active',
+                        '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                    })
                 }
-            },
-            {
-                '$group': {
-                    '_id': '$offer_id',
-                    'revenue': {'$sum': '$points'},
-                    'conversions': {'$sum': 1},
-                    'offer_name': {'$first': '$offer_name'}
-                }
-            },
-            {
-                '$sort': {'revenue': -1}
-            },
-            {
-                '$limit': 10
+                # Maintain the custom position order
+                for d in curated_docs:
+                    oid = d['offer_id']
+                    if oid in active_manual_offers:
+                        offer_info = dict(active_manual_offers[oid])
+                        offer_info['is_pinned'] = True
+                        offer_info['pinned_position'] = d['position']
+                        manual_offers.append(offer_info)
+                        
+        manual_offers = manual_offers[:20]
+        
+        # 3. Resolve auto offers if needed
+        resolved_offers = []
+        if mode == 'manual':
+            resolved_offers = manual_offers[:20]
+        elif mode == 'auto':
+            needed_count = 20
+            auto_offers = []
+            
+            # Find active offers
+            query = {
+                'status': 'active',
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
             }
-        ]
-        
-        offer_stats = list(forwarded_postbacks.aggregate(offer_stats_pipeline))
-        
-        # Get click counts for each offer (from both offerwall and dashboard)
+            
+            if auto_criteria == 'clicks':
+                candidates = list(offers_col.find(query).sort('hits', -1).limit(needed_count))
+            elif auto_criteria == 'requests':
+                requests_col = get_collection('affiliate_requests')
+                if requests_col is not None:
+                    pipeline = [
+                        {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
+                        {'$sort': {'count': -1}}
+                    ]
+                    req_counts = {str(r['_id']): r['count'] for r in requests_col.aggregate(pipeline) if r['_id']}
+                    
+                    all_candidates = list(offers_col.find(query))
+                    all_candidates.sort(key=lambda o: req_counts.get(o['offer_id'], 0), reverse=True)
+                    candidates = all_candidates[:needed_count]
+                else:
+                    candidates = list(offers_col.find(query).sort('created_at', -1).limit(needed_count))
+            else:  # conversions
+                postbacks_col = get_collection('forwarded_postbacks')
+                if postbacks_col is not None:
+                    pipeline = [
+                        {'$match': {'forward_status': {'$nin': ['reversed']}, 'is_reversal': {'$ne': True}}},
+                        {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
+                        {'$sort': {'count': -1}}
+                    ]
+                    conv_counts = {str(c['_id']): c['count'] for c in postbacks_col.aggregate(pipeline) if c['_id']}
+                    
+                    all_candidates = list(offers_col.find(query))
+                    all_candidates.sort(key=lambda o: conv_counts.get(o['offer_id'], 0), reverse=True)
+                    candidates = all_candidates[:needed_count]
+                else:
+                    candidates = list(offers_col.find(query).sort('created_at', -1).limit(needed_count))
+                    
+            for o in candidates:
+                offer_info = dict(o)
+                offer_info['is_pinned'] = False
+                auto_offers.append(offer_info)
+                
+            resolved_offers = auto_offers[:20]
+        else:  # hybrid
+            if len(manual_offers) >= 20:
+                resolved_offers = manual_offers[:20]
+            else:
+                needed_count = 20 - len(manual_offers)
+                auto_offers = []
+                exclude_ids = [o['offer_id'] for o in manual_offers]
+                
+                # Find active offers not in manual list
+                query = {
+                    'status': 'active',
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}],
+                    'offer_id': {'$nin': exclude_ids}
+                }
+                
+                if auto_criteria == 'clicks':
+                    candidates = list(offers_col.find(query).sort('hits', -1).limit(needed_count))
+                elif auto_criteria == 'requests':
+                    requests_col = get_collection('affiliate_requests')
+                    if requests_col is not None:
+                        pipeline = [
+                            {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
+                            {'$sort': {'count': -1}}
+                        ]
+                        req_counts = {str(r['_id']): r['count'] for r in requests_col.aggregate(pipeline) if r['_id']}
+                        
+                        all_candidates = list(offers_col.find(query))
+                        all_candidates.sort(key=lambda o: req_counts.get(o['offer_id'], 0), reverse=True)
+                        candidates = all_candidates[:needed_count]
+                    else:
+                        candidates = list(offers_col.find(query).sort('created_at', -1).limit(needed_count))
+                else:  # conversions
+                    postbacks_col = get_collection('forwarded_postbacks')
+                    if postbacks_col is not None:
+                        pipeline = [
+                            {'$match': {'forward_status': {'$nin': ['reversed']}, 'is_reversal': {'$ne': True}}},
+                            {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
+                            {'$sort': {'count': -1}}
+                        ]
+                        conv_counts = {str(c['_id']): c['count'] for c in postbacks_col.aggregate(pipeline) if c['_id']}
+                        
+                        all_candidates = list(offers_col.find(query))
+                        all_candidates.sort(key=lambda o: conv_counts.get(o['offer_id'], 0), reverse=True)
+                        candidates = all_candidates[:needed_count]
+                    else:
+                        candidates = list(offers_col.find(query).sort('created_at', -1).limit(needed_count))
+                        
+                for o in candidates:
+                    offer_info = dict(o)
+                    offer_info['is_pinned'] = False
+                    auto_offers.append(offer_info)
+                    
+                resolved_offers = (manual_offers + auto_offers)[:20]
+
+        # 4. Gather clicks/conversions/revenue stats for resolved offers (global network metrics)
         top_offers = []
-        for idx, stat in enumerate(offer_stats):
-            offer_id = stat['_id']
+        for idx, offer in enumerate(resolved_offers):
+            offer_id = offer.get('offer_id')
             
-            # Get clicks for this offer from offerwall
-            clicks_query = {
-                '$or': [
-                    {'offer_id': offer_id},
-                    {'offer_id': str(offer_id)}
-                ]
-            }
-            offerwall_clicks = clicks_collection.count_documents(clicks_query)
-            
-            # Get clicks for this offer from dashboard
-            dashboard_clicks_col = get_collection('dashboard_clicks')
+            # Count conversions globally (across all users) to show real performance stats
+            conversions = 0
+            revenue = 0.0
+            if forwarded_postbacks is not None and offer_id:
+                conv_doc = forwarded_postbacks.aggregate([
+                    {
+                        '$match': {
+                            'offer_id': offer_id,
+                            'forward_status': {'$nin': ['reversed']},
+                            'is_reversal': {'$ne': True}
+                        }
+                    },
+                    {
+                        '$group': {
+                            '_id': None,
+                            'revenue': {'$sum': '$points'},
+                            'conversions': {'$sum': 1}
+                        }
+                    }
+                ])
+                conv_results = list(conv_doc)
+                if conv_results:
+                    conversions = conv_results[0].get('conversions', 0)
+                    revenue = conv_results[0].get('revenue', 0.0)
+
+            # Count clicks globally (across all users)
+            offerwall_clicks = 0
+            if clicks_col is not None and offer_id:
+                clicks_query = {
+                    '$or': [
+                        {'offer_id': offer_id},
+                        {'offer_id': str(offer_id)}
+                    ]
+                }
+                offerwall_clicks = clicks_col.count_documents(clicks_query)
+                
             dashboard_clicks = 0
-            if dashboard_clicks_col is not None:
+            if dashboard_clicks_col is not None and offer_id:
                 dashboard_clicks_query = {
-                    '$and': [
-                        {'$or': [
-                            {'user_id': user_id},
-                            {'user_id': str(user_id)}
-                        ]},
-                        {'$or': [
-                            {'offer_id': offer_id},
-                            {'offer_id': str(offer_id)}
-                        ]}
+                    '$or': [
+                        {'offer_id': offer_id},
+                        {'offer_id': str(offer_id)}
                     ]
                 }
                 dashboard_clicks = dashboard_clicks_col.count_documents(dashboard_clicks_query)
+                
+            simple_clicks = 0
+            simple_clicks_col = get_collection('clicks')
+            if simple_clicks_col is not None and offer_id:
+                simple_clicks_query = {
+                    '$or': [
+                        {'offer_id': offer_id},
+                        {'offer_id': str(offer_id)}
+                    ]
+                }
+                simple_clicks = simple_clicks_col.count_documents(simple_clicks_query)
+                
+            # Combine all calculated clicks and the offer's hits field for maximum accuracy
+            clicks = max(offer.get('hits', 0), offerwall_clicks + dashboard_clicks + simple_clicks)
+            conv_rate = (conversions / clicks * 100) if clicks > 0 else 0.0
             
-            clicks = offerwall_clicks + dashboard_clicks
-            
-            # Calculate conversion rate
-            conv_rate = (stat['conversions'] / clicks * 100) if clicks > 0 else 0
-            
-            # Get offer name from offers collection if not in postback
-            offer_name = stat.get('offer_name')
-            if not offer_name and offer_id:
-                try:
-                    offer_doc = offers_collection.find_one({'_id': ObjectId(offer_id)})
-                    if offer_doc:
-                        offer_name = offer_doc.get('name', offer_doc.get('title', f'Offer {offer_id}'))
-                except:
-                    pass
-            
-            if not offer_name:
-                offer_name = f'Offer #{idx + 1}'
-            
+            # Format and append matching all required table fields + extra details
             top_offers.append({
                 'id': idx + 1,
-                'offer_id': str(offer_id) if offer_id else None,
-                'name': offer_name,
+                'offer_id': offer_id,
+                'name': offer.get('name', 'Unknown Offer'),
+                'description': offer.get('description', ''),
+                'payout': offer.get('payout', 0.0),
+                'category': offer.get('category', 'OTHER'),
+                'vertical': offer.get('vertical', 'OTHER'),
+                'image_url': offer.get('image_url', ''),
+                'is_pinned': offer.get('is_pinned', False),
                 'clicks': clicks,
-                'conversions': stat['conversions'],
-                'revenue': f"${stat['revenue']:.2f}",
+                'conversions': conversions,
+                'revenue': f"${revenue:.2f}",
                 'conversionRate': f"{conv_rate:.1f}%"
             })
-        
-        logger.debug(f"🏆 Top offers generated: {len(top_offers)} offers")
+            
+        logger.debug(f"🏆 Pinned/Top offers generated: {len(top_offers)} offers")
         
         return jsonify({
             'success': True,
@@ -1053,3 +1232,4 @@ def get_top_offers():
     except Exception as e:
         logger.error(f"❌ Error getting top offers: {str(e)}", exc_info=True)
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+

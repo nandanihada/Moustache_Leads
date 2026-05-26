@@ -49,31 +49,19 @@ class IPinfoService:
         Returns:
             dict: IP intelligence data or None if lookup fails
         """
-        if not self.enabled:
-            logger.debug("IPinfo disabled, returning default data")
-            return self._get_default_data(ip_address)
-        
-        # Validate IP format before making any API call
-        if not self._is_valid_ip(ip_address):
-            logger.debug(f"Invalid IP format, skipping lookup: {ip_address}")
-            return self._get_default_data(ip_address or 'invalid')
-        
         # Normalize: take first IP from X-Forwarded-For chain
+        if not ip_address:
+            ip_address = '127.0.0.1'
         ip_address = ip_address.split(',')[0].strip()
-        
-        # Handle localhost and private IPs
-        if self._is_private_ip(ip_address):
-            logger.debug(f"Private/localhost IP detected: {ip_address}")
-            return self._get_default_data(ip_address)
-
-        if not self.enabled:
-            logger.debug("IPinfo token not found, falling back to free ip-api.com")
-            return self._lookup_ip_api_fallback(ip_address)
         
         # Check cache first
         cached_data = self._get_from_cache(ip_address)
         if cached_data:
             return cached_data
+            
+        is_private = self._is_private_ip(ip_address) or ip_address in ('invalid', 'unknown', '')
+        if is_private:
+            logger.info(f"Private/local IP address {ip_address} detected. Will fallback to host public IP.")
         
         # Prevent duplicate concurrent lookups for same IP
         with self._lock:
@@ -82,15 +70,27 @@ class IPinfoService:
             if cached_data:
                 return cached_data
         
+        if not self.enabled:
+            logger.debug("IPinfo token not found, falling back to free ip-api.com")
+            return self._lookup_ip_api_fallback(ip_address)
+            
         try:
+            # If IP is private/local, query without specifying IP to get host public IP
+            query_ip = "" if is_private else ip_address
+            
             # Make API request
-            url = f"{self.api_url}/{ip_address}/json"
+            if query_ip:
+                url = f"{self.api_url}/{query_ip}/json"
+            else:
+                url = f"{self.api_url}/json"
+                
             headers = {
-                'Authorization': f'Bearer {self.api_token}',
                 'Accept': 'application/json'
             }
+            if self.api_token:
+                headers['Authorization'] = f'Bearer {self.api_token}'
             
-            logger.debug(f"🔍 Looking up IP {ip_address} via IPinfo API")
+            logger.info(f"🔍 Looking up IP {ip_address} (query: {query_ip or 'host public IP'}) via IPinfo API")
             response = requests.get(url, headers=headers, timeout=self.timeout)
             
             if response.status_code == 200:
@@ -99,29 +99,29 @@ class IPinfoService:
                 # Check for API errors
                 if 'error' in data:
                     logger.error(f"❌ IPinfo API error: {data['error']}")
-                    return self._get_default_data(ip_address)
+                    return self._lookup_ip_api_fallback(ip_address)
                 
-                # Parse and structure the data
+                # Parse and structure the data (map to the original ip_address)
                 ip_data = self._parse_response(data, ip_address)
                 
-                # Cache the result
+                # Cache the result under original ip_address
                 self._save_to_cache(ip_address, ip_data)
                 
                 logger.debug(f"✅ IP lookup successful for {ip_address}")
                 return ip_data
             elif response.status_code == 429:
                 logger.error(f"⚠️ IPinfo API rate limit exceeded")
-                return self._get_default_data(ip_address)
+                return self._lookup_ip_api_fallback(ip_address)
             else:
                 logger.error(f"❌ IPinfo API returned status {response.status_code}")
-                return self._get_default_data(ip_address)
+                return self._lookup_ip_api_fallback(ip_address)
                 
         except requests.exceptions.Timeout:
             logger.error(f"⏱️ IPinfo API timeout for {ip_address}")
-            return self._get_default_data(ip_address)
+            return self._lookup_ip_api_fallback(ip_address)
         except Exception as e:
             logger.error(f"❌ IPinfo lookup failed: {str(e)}", exc_info=True)
-            return self._get_default_data(ip_address)
+            return self._lookup_ip_api_fallback(ip_address)
     
     def detect_vpn_proxy(self, ip_address):
         """
@@ -186,60 +186,219 @@ class IPinfoService:
         return min(score, 100)
     
     def _lookup_ip_api_fallback(self, ip_address):
-        """Fallback to ip-api.com if IPinfo is not configured."""
+        """Fallback to various free IP geolocation services if IPinfo fails."""
+        if not ip_address:
+            ip_address = '127.0.0.1'
+        ip_address = ip_address.split(',')[0].strip()
+        
         # Check cache first
         cached_data = self._get_from_cache(ip_address)
         if cached_data:
             return cached_data
             
-        try:
-            response = requests.get(
-                f'http://ip-api.com/json/{ip_address}?fields=status,country,countryCode,regionName,city,zip,lat,lon,isp,org,as,asname,proxy,vpn,hosting',
-                timeout=3
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('status') == 'success':
-                    vpn_detection = {
-                        'is_vpn': data.get('vpn', False),
-                        'is_proxy': data.get('proxy', False),
-                        'is_tor': False,
-                        'is_datacenter': data.get('hosting', False),
-                        'is_relay': False,
-                        'provider': None,
-                        'service': None,
-                        'confidence': 'high' if (data.get('vpn') or data.get('proxy') or data.get('hosting')) else 'low',
-                        'isp': data.get('isp', 'Unknown')
-                    }
-                    
-                    ip_data = {
-                        'ip_address': ip_address,
-                        'hostname': None,
-                        'country': data.get('country'),
-                        'country_code': data.get('countryCode'),
-                        'region': data.get('regionName'),
-                        'city': data.get('city'),
-                        'latitude': data.get('lat', 0),
-                        'longitude': data.get('lon', 0),
-                        'zip_code': data.get('zip', ''),
-                        'time_zone': '',
-                        'isp': data.get('isp', 'Unknown'),
-                        'domain': '',
-                        'asn': data.get('as', ''),
-                        'org': data.get('org', ''),
-                        'vpn_detection': vpn_detection,
-                        'fraud_score': self.calculate_fraud_score({'vpn_detection': vpn_detection}),
-                        'risk_level': 'low',
-                        'company': {},
-                        'carrier': {},
-                        'abuse': {}
-                    }
+        query_ip = ip_address
+        is_private = self._is_private_ip(ip_address) or ip_address in ('invalid', 'unknown', '')
+        if is_private:
+            query_ip = "" # Allow fallback providers to use host IP if supported
+            
+        providers = [
+            self._try_freeipapi,
+            self._try_ipwhois,
+            self._try_ipapico,
+            self._try_ip_api_com
+        ]
+        
+        for provider in providers:
+            try:
+                ip_data = provider(query_ip)
+                if ip_data:
+                    # Make sure the original IP is preserved in the response
+                    ip_data['ip_address'] = ip_address
+                    if ip_data.get('ip') == query_ip:
+                        ip_data['ip'] = ip_address
                     self._save_to_cache(ip_address, ip_data)
                     return ip_data
-        except Exception as e:
-            logger.warning(f"Error from ip-api fallback: {e}")
-            
+            except Exception as e:
+                logger.warning(f"Fallback provider {provider.__name__} failed for {ip_address}: {e}")
+                
         return self._get_default_data(ip_address)
+
+    def _try_freeipapi(self, ip_address):
+        logger.info(f"🔍 Trying freeipapi.com lookup for IP: {ip_address}")
+        url = f"https://freeipapi.com/api/json/{ip_address}"
+        response = requests.get(url, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('cityName') or data.get('countryName'):
+                country_code = data.get('countryCode')
+                country = self.country_names.get(country_code, data.get('countryName'))
+                vpn_detection = {
+                    'is_vpn': False,
+                    'is_proxy': False,
+                    'is_tor': False,
+                    'is_datacenter': False,
+                    'is_relay': False,
+                    'provider': None,
+                    'service': None,
+                    'confidence': 'low',
+                    'isp': 'Unknown'
+                }
+                return {
+                    'ip_address': ip_address,
+                    'hostname': None,
+                    'country': country,
+                    'country_code': country_code,
+                    'region': data.get('regionName'),
+                    'city': data.get('cityName'),
+                    'latitude': data.get('latitude', 0),
+                    'longitude': data.get('longitude', 0),
+                    'zip_code': data.get('zipCode', ''),
+                    'time_zone': data.get('timeZone', ''),
+                    'isp': 'Unknown',
+                    'domain': '',
+                    'asn': '',
+                    'org': '',
+                    'vpn_detection': vpn_detection,
+                    'fraud_score': 0,
+                    'risk_level': 'low',
+                    'company': {},
+                    'carrier': {},
+                    'abuse': {}
+                }
+        return None
+
+    def _try_ipwhois(self, ip_address):
+        logger.info(f"🔍 Trying ipwho.is lookup for IP: {ip_address}")
+        url = f"https://ipwho.is/{ip_address}"
+        response = requests.get(url, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('success'):
+                country_code = data.get('country_code')
+                country = self.country_names.get(country_code, data.get('country'))
+                vpn_detection = {
+                    'is_vpn': False,
+                    'is_proxy': False,
+                    'is_tor': False,
+                    'is_datacenter': False,
+                    'is_relay': False,
+                    'provider': None,
+                    'service': None,
+                    'confidence': 'low',
+                    'isp': data.get('connection', {}).get('isp', 'Unknown')
+                }
+                return {
+                    'ip_address': ip_address,
+                    'hostname': None,
+                    'country': country,
+                    'country_code': country_code,
+                    'region': data.get('region'),
+                    'city': data.get('city'),
+                    'latitude': data.get('latitude', 0),
+                    'longitude': data.get('longitude', 0),
+                    'zip_code': data.get('postal', ''),
+                    'time_zone': data.get('timezone', {}).get('id', ''),
+                    'isp': data.get('connection', {}).get('isp', 'Unknown'),
+                    'domain': '',
+                    'asn': str(data.get('connection', {}).get('asn', '')),
+                    'org': data.get('connection', {}).get('org', ''),
+                    'vpn_detection': vpn_detection,
+                    'fraud_score': 0,
+                    'risk_level': 'low',
+                    'company': {},
+                    'carrier': {},
+                    'abuse': {}
+                }
+        return None
+
+    def _try_ipapico(self, ip_address):
+        logger.info(f"🔍 Trying ipapi.co lookup for IP: {ip_address}")
+        url = f"https://ipapi.co/{ip_address}/json/"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            if 'error' not in data and (data.get('city') or data.get('country_name')):
+                country_code = data.get('country_code')
+                country = self.country_names.get(country_code, data.get('country_name'))
+                vpn_detection = {
+                    'is_vpn': False,
+                    'is_proxy': False,
+                    'is_tor': False,
+                    'is_datacenter': False,
+                    'is_relay': False,
+                    'provider': None,
+                    'service': None,
+                    'confidence': 'low',
+                    'isp': data.get('org', 'Unknown')
+                }
+                return {
+                    'ip_address': ip_address,
+                    'hostname': None,
+                    'country': country,
+                    'country_code': country_code,
+                    'region': data.get('region'),
+                    'city': data.get('city'),
+                    'latitude': data.get('latitude', 0),
+                    'longitude': data.get('longitude', 0),
+                    'zip_code': data.get('postal', ''),
+                    'time_zone': data.get('timezone', ''),
+                    'isp': data.get('org', 'Unknown'),
+                    'domain': '',
+                    'asn': data.get('asn', ''),
+                    'org': data.get('org', ''),
+                    'vpn_detection': vpn_detection,
+                    'fraud_score': 0,
+                    'risk_level': 'low',
+                    'company': {},
+                    'carrier': {},
+                    'abuse': {}
+                }
+        return None
+
+    def _try_ip_api_com(self, ip_address):
+        logger.info(f"🔍 Trying ip-api.com lookup for IP: {ip_address}")
+        url = f'http://ip-api.com/json/{ip_address}?fields=status,country,countryCode,regionName,city,zip,lat,lon,isp,org,as,asname,proxy,vpn,hosting'
+        response = requests.get(url, timeout=3)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('status') == 'success':
+                country_code = data.get('countryCode')
+                country = self.country_names.get(country_code, data.get('country'))
+                vpn_detection = {
+                    'is_vpn': data.get('vpn', False),
+                    'is_proxy': data.get('proxy', False),
+                    'is_tor': False,
+                    'is_datacenter': data.get('hosting', False),
+                    'is_relay': False,
+                    'provider': None,
+                    'service': None,
+                    'confidence': 'high' if (data.get('vpn') or data.get('proxy') or data.get('hosting')) else 'low',
+                    'isp': data.get('isp', 'Unknown')
+                }
+                return {
+                    'ip_address': ip_address,
+                    'hostname': None,
+                    'country': country,
+                    'country_code': country_code,
+                    'region': data.get('regionName'),
+                    'city': data.get('city'),
+                    'latitude': data.get('lat', 0),
+                    'longitude': data.get('lon', 0),
+                    'zip_code': data.get('zip', ''),
+                    'time_zone': '',
+                    'isp': data.get('isp', 'Unknown'),
+                    'domain': '',
+                    'asn': data.get('as', ''),
+                    'org': data.get('org', ''),
+                    'vpn_detection': vpn_detection,
+                    'fraud_score': self.calculate_fraud_score({'vpn_detection': vpn_detection}),
+                    'risk_level': 'low',
+                    'company': {},
+                    'carrier': {},
+                    'abuse': {}
+                }
+        return None
 
     def _parse_response(self, data, ip_address):
         """Parse IPinfo API response into structured format"""
@@ -321,18 +480,18 @@ class IPinfoService:
         return {
             'ip_address': ip_address,
             'hostname': None,
-            'country': 'Unknown',
+            'country': 'Location Unavailable',
             'country_code': 'XX',
-            'region': 'Unknown',
-            'city': 'Unknown',
+            'region': 'Location Unavailable',
+            'city': 'Location Unavailable',
             'latitude': 0,
             'longitude': 0,
             'zip_code': '',
             'time_zone': '',
-            'isp': 'Unknown',
+            'isp': 'Location Unavailable',
             'domain': '',
             'asn': '',
-            'org': '',
+            'org': 'Location Unavailable',
             'vpn_detection': {
                 'is_vpn': False,
                 'is_proxy': False,
@@ -342,7 +501,7 @@ class IPinfoService:
                 'provider': None,
                 'service': None,
                 'confidence': 'unknown',
-                'isp': 'Unknown'
+                'isp': 'Location Unavailable'
             },
             'fraud_score': 0,
             'risk_level': 'low',
@@ -422,3 +581,4 @@ def get_ipinfo_service():
 
 # Alias for backward compatibility
 get_ip2location_service = get_ipinfo_service
+

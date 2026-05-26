@@ -20,7 +20,7 @@ class ActivityTrackingService:
         self.page_visit_model = PageVisit()
         self.active_session_model = ActiveSession()
     
-    def track_login_attempt(self, user_data, request, status='success', failure_reason=None, login_method='password'):
+    def track_login_attempt(self, user_data, request, status='success', failure_reason=None, login_method='password', ip_address=None):
         """
         Track a login attempt (successful or failed)
         
@@ -30,6 +30,7 @@ class ActivityTrackingService:
             status: 'success' or 'failed'
             failure_reason: Reason for failure if status is 'failed'
             login_method: 'password', 'otp', or 'sso'
+            ip_address: Optional client public IP address override
         
         Returns:
             session_id if successful, None otherwise
@@ -42,7 +43,8 @@ class ActivityTrackingService:
             device_info = self._parse_user_agent(request.headers.get('User-Agent', ''))
             
             # Get IP address
-            ip_address = self._get_client_ip(request)
+            if not ip_address or str(ip_address).lower().strip() in ('', 'none', 'undefined', 'null', 'unknown', 'invalid'):
+                ip_address = self._get_client_ip(request)
             
             # Get location (you can integrate with geolocation service)
             location = self._get_location(ip_address)
@@ -334,21 +336,32 @@ class ActivityTrackingService:
             ip_data = geo_service.lookup_ip(ip_address)
             
             if ip_data:
+                # If city or country is "Unknown" or "Location Unavailable", ensure it shows "Location Unavailable"
+                city = ip_data.get('city') or 'Location Unavailable'
+                region = ip_data.get('region') or 'Location Unavailable'
+                country = ip_data.get('country') or 'Location Unavailable'
+                if city == 'Unknown':
+                    city = 'Location Unavailable'
+                if region == 'Unknown':
+                    region = 'Location Unavailable'
+                if country == 'Unknown':
+                    country = 'Location Unavailable'
+                    
                 # Return location data in expected format
                 return {
                     'ip': ip_address,
-                    'city': ip_data.get('city', 'Unknown'),
-                    'region': ip_data.get('region', 'Unknown'),
-                    'country': ip_data.get('country', 'Unknown'),
+                    'city': city,
+                    'region': region,
+                    'country': country,
                     'country_code': ip_data.get('country_code', 'XX'),
                     'latitude': ip_data.get('latitude', 0),
                     'longitude': ip_data.get('longitude', 0),
                     'timezone': ip_data.get('time_zone', 'UTC'),
                     # Additional fields
-                    'isp': ip_data.get('isp', 'Unknown'),
+                    'isp': ip_data.get('isp') or 'Location Unavailable',
                     'domain': '',
                     'asn': ip_data.get('asn', ''),
-                    'org': ip_data.get('organization', 'Unknown')
+                    'org': ip_data.get('org') or 'Location Unavailable'
                 }
             else:
                 # Fallback to default
@@ -362,17 +375,17 @@ class ActivityTrackingService:
         """Get default location data when IPinfo is unavailable"""
         return {
             'ip': ip_address,
-            'city': 'Unknown',
-            'region': 'Unknown',
-            'country': 'Unknown',
+            'city': 'Location Unavailable',
+            'region': 'Location Unavailable',
+            'country': 'Location Unavailable',
             'country_code': 'XX',
             'latitude': 0,
             'longitude': 0,
             'timezone': 'UTC',
-            'isp': 'Unknown',
+            'isp': 'Location Unavailable',
             'domain': '',
             'asn': '',
-            'org': 'Unknown'
+            'org': 'Location Unavailable'
         }
     
     def _extract_utm_params(self, url):

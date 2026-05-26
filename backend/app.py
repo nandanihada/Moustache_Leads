@@ -118,6 +118,7 @@ redirect_router_bp = safe_import_blueprint('routes.redirect_router', 'redirect_r
 survey_funnel_bp = safe_import_blueprint('routes.survey_funnel', 'survey_funnel_bp')
 survey_router_bp = safe_import_blueprint('routes.survey_router', 'survey_router_bp')
 search_auto_activation_bp = safe_import_blueprint('routes.search_auto_activation', 'search_auto_activation_bp')
+top_offers_bp = safe_import_blueprint('routes.top_offers', 'top_offers_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -225,6 +226,7 @@ blueprints = [
     (survey_funnel_bp, ''),
     (survey_router_bp, ''),
     (search_auto_activation_bp, '/api/admin'),
+    (top_offers_bp, '/api/admin'),
 ]
 
 def create_app():
@@ -531,6 +533,29 @@ def start_background_services():
         # Clicks indexes
         db['clicks'].create_index([('ip_address', ASCENDING), ('timestamp', DESCENDING)], background=True)
         db['clicks'].create_index([('user_id', ASCENDING), ('offer_id', ASCENDING), ('timestamp', DESCENDING)], background=True)
+        db['clicks'].create_index([('publisher_id', ASCENDING)], background=True)
+        db['clicks'].create_index([('username', ASCENDING)], background=True)
+        
+        # Offer Views indexes
+        db['offer_views'].create_index([('user_id', ASCENDING)], background=True)
+        db['offer_views'].create_index([('username', ASCENDING)], background=True)
+        
+        # Send history indexes
+        db['offer_send_history'].create_index([('user_id', ASCENDING)], background=True)
+        db['offer_send_history'].create_index([('recipient_user_ids', ASCENDING)], background=True)
+        
+        # Affiliate requests indexes
+        db['affiliate_requests'].create_index([('user_id', ASCENDING)], background=True)
+        db['affiliate_requests'].create_index([('username', ASCENDING)], background=True)
+        
+        # Login logs indexes
+        db['login_logs'].create_index([('user_id', ASCENDING)], background=True)
+        db['login_logs'].create_index([('email', ASCENDING)], background=True)
+        db['login_logs'].create_index([('username', ASCENDING)], background=True)
+
+        # Tracking events indexes
+        db['tracking_events'].create_index([('user_id', ASCENDING)], background=True)
+        
         logging.info("✅ Critical indexes ensured")
     except Exception as idx_err:
         logging.warning(f"Index creation skipped: {idx_err}")

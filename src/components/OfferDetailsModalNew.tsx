@@ -88,7 +88,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
     try {
       const u = JSON.parse(localStorage.getItem('user') || '{}');
       userId = u._id || u.id || '';
-    } catch {}
+    } catch { }
     const sub1Value = sub || customSubId || '{your_user_id}';
     return `${base}/track/${offer.offer_id}?user_id=${userId}&sub1=${sub1Value}`;
   };
@@ -125,7 +125,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
           conversion_rate: res.report.summary.avg_cr || 0,
         });
       }
-    } catch {}
+    } catch { }
     finally { setLoadingStats(false); }
   };
 
@@ -157,7 +157,7 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
   const status = ('status' in offer ? offer.status : (offer as PublisherOffer).approval_status) || 'unknown';
   const statusColor = status === 'active' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
     : status === 'pending' ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
-    : 'bg-gray-500/20 text-gray-300 border-gray-500/30';
+      : 'bg-gray-500/20 text-gray-300 border-gray-500/30';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -374,11 +374,10 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-sm text-white/50">Incentive</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                    (offer as any).incentive_allowed !== false
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                      : 'bg-red-500/20 text-red-300 border-red-500/30'
-                  }`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${(offer as any).incentive_allowed !== false
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : 'bg-red-500/20 text-red-300 border-red-500/30'
+                    }`}>
                     {(offer as any).incentive_allowed !== false ? 'Incent OK' : 'Non-Incent'}
                   </span>
                 </div>
@@ -416,11 +415,10 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                           {new Date((offer as any).expiration_date).toLocaleDateString()}
                         </span>
                         {daysRemaining !== null && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                            isExpired ? 'bg-red-500/20 text-red-300 border-red-500/30'
-                              : isExpiringSoon ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
+                          <span className={`text-xs px-2 py-0.5 rounded-full border ${isExpired ? 'bg-red-500/20 text-red-300 border-red-500/30'
+                            : isExpiringSoon ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'
                               : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                          }`}>
+                            }`}>
                             {isExpired ? 'EXPIRED' : `${daysRemaining}d left`}
                           </span>
                         )}

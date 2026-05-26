@@ -17,6 +17,8 @@ interface Submission {
   status: string;
   submitted_at: string;
   reward_amount?: number;
+  deducted_amount?: number;
+  review_url?: string;
 }
 
 interface ButtonClick {
@@ -26,6 +28,7 @@ interface ButtonClick {
   email: string;
   clicked_at: string;
   ip_address?: string;
+  review_url?: string;
 }
 
 export default function AdminReviewSubmissions() {
@@ -122,6 +125,120 @@ export default function AdminReviewSubmissions() {
     }
   };
 
+  const handleDeduct = async (id: string, maxAmount: number) => {
+    const userInput = window.prompt(
+      `Enter the amount to deduct from the user's balance (max allowed remaining: $${maxAmount.toFixed(2)}):`, 
+      maxAmount.toFixed(2)
+    );
+    
+    if (userInput === null) return; // User cancelled
+    
+    const parsedAmount = parseFloat(userInput);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      toast({
+        title: "Invalid Amount",
+        description: "Please enter a valid positive number for the deduction.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (parsedAmount > maxAmount) {
+      toast({
+        title: "Amount Too High",
+        description: `You cannot deduct more than the remaining reward of $${maxAmount.toFixed(2)}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`${API_BASE_URL}/api/admin/review-submissions/${id}/deduct`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ deduct_amount: parsedAmount })
+      });
+      const data = await res.json();
+      
+      if (res.ok && data.success) {
+        toast({
+          title: "Deducted successfully",
+          description: `Successfully deducted $${data.deducted_amount.toFixed(2)} from user's account. Status is now ${data.status.replace('_', ' ')}.`,
+        });
+        fetchSubmissions();
+      } else {
+        throw new Error(data.error || 'Deduction failed');
+      }
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleAddReward = async (id: string, maxDeducted: number) => {
+    const userInput = window.prompt(
+      `Enter the amount of reward to add/re-credit back to the user (max allowed: $${maxDeducted.toFixed(2)}):`, 
+      maxDeducted.toFixed(2)
+    );
+    
+    if (userInput === null) return; // User cancelled
+    
+    const parsedAmount = parseFloat(userInput);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      toast({
+        title: "Invalid Amount",
+        description: "Please enter a valid positive number.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (parsedAmount > maxDeducted) {
+      toast({
+        title: "Amount Too High",
+        description: `You cannot re-credit more than the currently deducted amount of $${maxDeducted.toFixed(2)}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const token = getAuthToken();
+      const res = await fetch(`${API_BASE_URL}/api/admin/review-submissions/${id}/add-reward`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ add_amount: parsedAmount })
+      });
+      const data = await res.json();
+      
+      if (res.ok && data.success) {
+        toast({
+          title: "Added successfully",
+          description: `Successfully re-credited $${data.added_amount.toFixed(2)} to user's account. Status is now ${data.status.replace('_', ' ')}.`,
+        });
+        fetchSubmissions();
+      } else {
+        throw new Error(data.error || 'Re-crediting failed');
+      }
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -159,6 +276,7 @@ export default function AdminReviewSubmissions() {
                     <thead className="text-xs text-muted-foreground uppercase bg-muted/50">
                       <tr>
                         <th className="px-4 py-3">User</th>
+                        <th className="px-4 py-3">Review Link</th>
                         <th className="px-4 py-3">Date</th>
                         <th className="px-4 py-3">Proof Image</th>
                         <th className="px-4 py-3">Status</th>
@@ -172,6 +290,21 @@ export default function AdminReviewSubmissions() {
                           <td className="px-4 py-4 font-medium">
                             <div>{sub.username}</div>
                             <div className="text-xs text-muted-foreground">{sub.email}</div>
+                          </td>
+                          <td className="px-4 py-4 max-w-[200px] truncate">
+                            {sub.review_url ? (
+                              <a 
+                                href={sub.review_url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-blue-500 hover:underline truncate block text-xs"
+                                title={sub.review_url}
+                              >
+                                {sub.review_url}
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground italic text-xs">Legacy Link</span>
+                            )}
                           </td>
                           <td className="px-4 py-4 text-muted-foreground">
                             {new Date(sub.submitted_at).toLocaleDateString()}
@@ -191,35 +324,86 @@ export default function AdminReviewSubmissions() {
                               variant={
                                 sub.status === 'approved' ? 'default' : 
                                 sub.status === 'rejected' ? 'destructive' : 
+                                sub.status === 'partially_deducted' ? 'secondary' :
+                                sub.status === 'deducted' ? 'outline' : 
                                 'secondary'
                               }
+                              className={
+                                sub.status === 'deducted' ? 'border-red-500 text-red-500 bg-red-50/50' : 
+                                sub.status === 'partially_deducted' ? 'border-amber-500 text-amber-600 bg-amber-50/50' : 
+                                ''
+                              }
                             >
-                              {sub.status.toUpperCase()}
+                              {sub.status.toUpperCase().replace('_', ' ')}
                             </Badge>
                           </td>
-                          <td className="px-4 py-4 font-semibold text-green-600">
-                            {sub.reward_amount ? `$${sub.reward_amount.toFixed(2)}` : '-'}
+                          <td className="px-4 py-4">
+                            {sub.status === 'deducted' ? (
+                              <div className="text-red-500 line-through font-semibold opacity-70">
+                                {sub.reward_amount ? `$${sub.reward_amount.toFixed(2)}` : '-'}
+                              </div>
+                            ) : sub.status === 'partially_deducted' ? (
+                              <div className="space-y-0.5 text-xs">
+                                <div className="text-muted-foreground line-through">
+                                  Credited: ${sub.reward_amount?.toFixed(2)}
+                                </div>
+                                <div className="text-red-500 font-semibold">
+                                  Deducted: -${sub.deducted_amount?.toFixed(2)}
+                                </div>
+                                <div className="text-emerald-600 font-bold">
+                                  Net: ${(sub.reward_amount || 0) - (sub.deducted_amount || 0) > 0 ? `$${((sub.reward_amount || 0) - (sub.deducted_amount || 0)).toFixed(2)}` : '$0.00'}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="font-semibold text-green-600">
+                                {sub.reward_amount ? `$${sub.reward_amount.toFixed(2)}` : '-'}
+                              </span>
+                            )}
                           </td>
                           <td className="px-4 py-4">
-                            {sub.status === 'pending' && (
-                              <div className="flex gap-2">
-                                <Button 
-                                  size="sm" 
-                                  onClick={() => handleAction(sub._id, 'approve')}
-                                  className="bg-green-600 hover:bg-green-700 h-8"
-                                >
-                                  <CheckCircle className="w-4 h-4 mr-1" /> Approve
-                                </Button>
+                            <div className="flex flex-wrap gap-2 items-center">
+                              {sub.status === 'pending' && (
+                                <>
+                                  <Button 
+                                    size="sm" 
+                                    onClick={() => handleAction(sub._id, 'approve')}
+                                    className="bg-green-600 hover:bg-green-700 h-8"
+                                  >
+                                    <CheckCircle className="w-4 h-4 mr-1" /> Approve
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="destructive"
+                                    onClick={() => handleAction(sub._id, 'reject')}
+                                    className="h-8"
+                                  >
+                                    <XCircle className="w-4 h-4 mr-1" /> Reject
+                                  </Button>
+                                </>
+                              )}
+                              {(sub.status === 'approved' || sub.status === 'partially_deducted') && (
                                 <Button 
                                   size="sm" 
                                   variant="destructive"
-                                  onClick={() => handleAction(sub._id, 'reject')}
-                                  className="h-8"
+                                  onClick={() => handleDeduct(sub._id, (sub.reward_amount || 0) - (sub.deducted_amount || 0))}
+                                  className="h-8 bg-red-500 hover:bg-red-600 text-white font-semibold flex items-center gap-1"
                                 >
-                                  <XCircle className="w-4 h-4 mr-1" /> Reject
+                                  <XCircle className="w-4 h-4" /> Deduct Reward
                                 </Button>
-                              </div>
-                            )}
+                              )}
+                              {(sub.status === 'deducted' || sub.status === 'partially_deducted') && (
+                                <Button 
+                                  size="sm" 
+                                  onClick={() => handleAddReward(sub._id, sub.deducted_amount || 0)}
+                                  className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center gap-1"
+                                >
+                                  <CheckCircle className="w-4 h-4" /> Add Reward
+                                </Button>
+                              )}
+                              {sub.status === 'deducted' && (
+                                <span className="text-xs font-semibold text-red-500 italic">Fully Deducted</span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -248,6 +432,7 @@ export default function AdminReviewSubmissions() {
                       <thead className="text-xs text-muted-foreground uppercase bg-muted/50">
                         <tr>
                           <th className="px-4 py-3">User</th>
+                          <th className="px-4 py-3">Clicked Link</th>
                           <th className="px-4 py-3">Clicked At</th>
                           <th className="px-4 py-3">IP Address</th>
                         </tr>
@@ -258,6 +443,21 @@ export default function AdminReviewSubmissions() {
                             <td className="px-4 py-4 font-medium">
                               <div>{click.username}</div>
                               <div className="text-xs text-muted-foreground">{click.email}</div>
+                            </td>
+                            <td className="px-4 py-4 max-w-[200px] truncate">
+                              {click.review_url ? (
+                                <a 
+                                  href={click.review_url} 
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="text-blue-500 hover:underline truncate block text-xs"
+                                  title={click.review_url}
+                                >
+                                  {click.review_url}
+                                </a>
+                              ) : (
+                                <span className="text-muted-foreground italic text-xs">Legacy Link</span>
+                              )}
                             </td>
                             <td className="px-4 py-4 text-muted-foreground">
                               {new Date(click.clicked_at).toLocaleString()}

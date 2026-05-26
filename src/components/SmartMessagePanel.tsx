@@ -11,7 +11,7 @@ import {
   Layout
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { loginLogsService } from '@/services/loginLogsService';
+import { loginLogsService, convertPlainTextToHtml } from '@/services/loginLogsService';
 import { Save, Users } from 'lucide-react';
 
 interface SmartMessagePanelProps {
@@ -134,7 +134,7 @@ export const SmartMessagePanel: React.FC<SmartMessagePanelProps> = ({ user, onMe
         await loginLogsService.sendCustomMail(
           [user.email], 
           subject, 
-          message, 
+          convertPlainTextToHtml(message), 
           scheduleTime ? new Date(scheduleTime).toISOString() : undefined
         );
         toast({ title: 'Success', description: scheduleTime ? 'Email scheduled!' : 'Email sent successfully!' });

@@ -147,6 +147,12 @@ export interface Offer {
   is_pinned?: boolean;
   pinned_at?: string;
   pin_expires_at?: string;
+  pinnedPosition?: number;
+  pinStartTime?: string;
+  pinEndTime?: string | null;
+  pinDuration?: string;
+  pinnedBy?: string;
+  pinStatus?: string;
   original_name?: string;
   renamed_at?: string;
 }
@@ -1031,6 +1037,53 @@ class AdminOfferApi {
       method: 'POST',
       headers: this.getAuthHeaders(),
       body: JSON.stringify({ offers }),
+    });
+    return this.handleResponse(response);
+  }
+
+  async getPinnedPositions(): Promise<{
+    success: boolean;
+    positions: Array<{
+      position: number;
+      isOccupied: boolean;
+      offer: {
+        offer_id: string;
+        name: string;
+        pinStartTime: string;
+        pinEndTime: string | null;
+        pinDuration: string;
+        pinnedBy: string;
+        pinStatus: string;
+      } | null;
+    }>;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/offers/pinned-positions`, {
+      method: 'GET',
+      headers: this.getAuthHeaders(),
+    });
+    return this.handleResponse(response);
+  }
+
+  async pinOffer(offerId: string, data: { position: number; duration: string; custom_hours?: number }): Promise<{
+    success: boolean;
+    message: string;
+    pin: any;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/offers/${offerId}/pin`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
+      body: JSON.stringify(data),
+    });
+    return this.handleResponse(response);
+  }
+
+  async unpinOffer(offerId: string): Promise<{
+    success: boolean;
+    message: string;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/offers/${offerId}/unpin`, {
+      method: 'POST',
+      headers: this.getAuthHeaders(),
     });
     return this.handleResponse(response);
   }

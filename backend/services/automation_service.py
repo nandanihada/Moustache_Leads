@@ -9,6 +9,10 @@ import time
 
 logger = logging.getLogger(__name__)
 
+_active_offers_cache = None
+_active_offers_cache_expiry = 0
+_active_offers_cache_ttl = 300 # Cache for 5 minutes
+
 class AutomationService:
     _instance = None
     _lock = threading.Lock()
@@ -28,6 +32,47 @@ class AutomationService:
         self.user_model = User()
         self._initialized = True
         self._running = False
+        
+        # Pre-warm active offers cache in background
+        try:
+            threading.Thread(target=self._get_active_offers_cached, daemon=True).start()
+        except Exception as e:
+            logger.error(f"Failed to start pre-warm thread: {e}")
+
+    def _get_active_offers_cached(self):
+        global _active_offers_cache, _active_offers_cache_expiry
+        now = time.time()
+        if _active_offers_cache is not None and now < _active_offers_cache_expiry:
+            return _active_offers_cache
+        
+        db = db_instance.get_db()
+        projection = {
+            '_id': 1,
+            'categories': 1,
+            'category': 1,
+            'vertical': 1,
+            'countries': 1,
+            'approved_count': 1,
+            'hits': 1,
+            'payout': 1,
+            'revenue_share_percent': 1,
+            'offer_name': 1,
+            'name': 1,
+            'network': 1,
+            'image_url': 1,
+            'thumbnail_url': 1,
+            'status': 1
+        }
+        try:
+            offers = list(db.offers.find({'status': 'active'}, projection))
+            _active_offers_cache = offers
+            _active_offers_cache_expiry = now + _active_offers_cache_ttl
+            return offers
+        except Exception as e:
+            logger.error(f"Error fetching active offers for cache: {e}")
+            if _active_offers_cache is not None:
+                return _active_offers_cache
+            return []
 
     def handle_user_activity(self, user_id, activity_type='Login', username=None, force_reset=False):
         """Triggered when a user logs in or is active. Enforces cooldown and activity gates."""
@@ -67,7 +112,7 @@ class AutomationService:
             'username': username or "Unknown",
             'queue_status': 'active',
             'current_step': 0,
-            'next_mail_time': now + timedelta(hours=settings.get('initial_delay_hours', 5)),
+            'next_mail_time': now + timedelta(hours=float(settings.get('initial_delay_hours', 5))),
             'sent_mail_count': 0,
             'sent_offer_ids': [],
             'delivery_status': 'pending',
@@ -182,7 +227,7 @@ class AutomationService:
         sent_ids = state.get('sent_offer_ids', [])
         
         # 6. Score all active offers
-        all_offers = list(db.offers.find({'status': 'active'}))
+        all_offers = self._get_active_offers_cached()
         scored_offers = []
         
         import random
@@ -345,29 +390,38 @@ class AutomationService:
         self._thread.start()
         logger.info("Automation Engine background service started")
 
-    def sync_active_users(self, force_reset=False):
+    def sync_active_users(self, force_reset=False, user_ids=None):
         """Find users from recent activity logs and ensure they have an automation state"""
         try:
-            # 1. Get users with logins in the last 72 hours
-            three_days_ago = datetime.utcnow() - timedelta(hours=72)
-            logs_col = db_instance.get_collection('login_logs')
-            recent_logins = []
-            if logs_col is not None:
-                recent_logins = logs_col.distinct('user_id', {'login_time': {'$gte': three_days_ago}})
-            
-            # 2. Get users with page visits or clicks
-            visits_col = db_instance.get_collection('page_visits')
-            clicks_col = db_instance.get_collection('click_logs')
-            
-            recent_visitors = []
-            if visits_col is not None:
-                recent_visitors = visits_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
-            
-            recent_clickers = []
-            if clicks_col is not None:
-                recent_clickers = clicks_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
-            
-            all_active_ids = list(set([str(uid) for uid in (recent_logins + recent_visitors + recent_clickers) if uid]))
+            if user_ids:
+                all_active_ids = [str(uid) for uid in user_ids if uid]
+            else:
+                # 1. Get users with logins in the last 72 hours
+                three_days_ago = datetime.utcnow() - timedelta(hours=72)
+                logs_col = db_instance.get_collection('login_logs')
+                recent_logins = []
+                if logs_col is not None:
+                    recent_logins = logs_col.distinct('user_id', {'login_time': {'$gte': three_days_ago}})
+                
+                # 2. Get users with page visits or clicks
+                visits_col = db_instance.get_collection('page_visits')
+                clicks_col = db_instance.get_collection('click_logs')
+                
+                recent_visitors = []
+                if visits_col is not None:
+                    recent_visitors = visits_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
+                
+                recent_clickers = []
+                if clicks_col is not None:
+                    recent_clickers = clicks_col.distinct('user_id', {'timestamp': {'$gte': three_days_ago}})
+                
+                all_active_ids = list(set([str(uid) for uid in (recent_logins + recent_visitors + recent_clickers) if uid]))
+                
+                # 3. Final fallback: If no active users found, get all registered users
+                if not all_active_ids:
+                    users_col = db_instance.get_collection('users')
+                    if users_col is not None:
+                        all_active_ids = [str(u['_id']) for u in users_col.find({}, {'_id': 1})]
             
             count = 0
             for user_id in all_active_ids:
@@ -434,7 +488,7 @@ class AutomationService:
         elif action == 'reset':
             update_data['current_step'] = 0
             update_data['queue_status'] = 'active'
-            update_data['next_mail_time'] = now + timedelta(hours=settings.get('initial_delay_hours', 5))
+            update_data['next_mail_time'] = now + timedelta(hours=float(settings.get('initial_delay_hours', 5)))
             update_data['delivery_status'] = 'pending'
             update_data['cooldown_until'] = now
 
@@ -504,44 +558,58 @@ class AutomationService:
         return False, "Invalid action"
 
     def preview_next_offers(self, user_id):
-        """Get the offers that will be sent in the next step for this user"""
+        """Get the predicted offers for the remaining steps of the cycle for this user"""
         state = self.model.get_user_state(user_id)
         if not state:
             return [], []
         
         current_step = state.get('current_step', 0)
-        next_step = current_step + 1
-        if next_step > 5:
-            # Check if we can show current step offers if already completed/finished
-            if state.get('queue_status') == 'completed':
-                next_step = 5
-            else:
-                return [], []
+        if state.get('queue_status') == 'completed':
+            return [], []
             
-        offers, interests = self._get_offers_for_step(next_step, user_id, state)
+        simulated_sent_ids = list(state.get('sent_offer_ids', []))
+        simulated_state = dict(state)
         
-        # Clean up offer objects for JSON
-        cleaned_offers = []
-        for o in offers:
-            payout = o.get('payout', 0)
-            rev_share = o.get('revenue_share_percent', 0)
-            
-            payout_display = "$0.00"
-            if payout and payout > 0:
-                payout_display = f"${payout:,.2f}"
-            elif rev_share and rev_share > 0:
-                payout_display = f"{rev_share}% Rev"
-
-            cleaned_offers.append({
-                'id': str(o.get('_id')),
-                'name': o.get('offer_name') or o.get('name'),
-                'payout': payout,
-                'payout_display': payout_display,
-                'category': o.get('category') or o.get('vertical'),
-            'countries': o.get('countries') or [],
-            'network': o.get('network') or 'Direct'
-        })
-        return cleaned_offers, interests
+        predicted_offers = []
+        interests = []
+        
+        for step in range(current_step + 1, 6):
+            simulated_state['sent_offer_ids'] = simulated_sent_ids
+            offers, step_interests = self._get_offers_for_step(step, user_id, simulated_state)
+            if step_interests:
+                for cat in step_interests:
+                    if cat not in interests:
+                        interests.append(cat)
+                
+            if offers:
+                offer = offers[0]
+                offer_id_str = str(offer.get('_id'))
+                simulated_sent_ids.append(offer_id_str)
+                
+                payout = offer.get('payout', 0)
+                rev_share = offer.get('revenue_share_percent', 0)
+                
+                payout_display = "$0.00"
+                if payout and payout > 0:
+                    payout_display = f"${payout:,.2f}"
+                elif rev_share and rev_share > 0:
+                    payout_display = f"{rev_share}% Rev"
+                    
+                predicted_offers.append({
+                    'id': offer_id_str,
+                    'name': offer.get('offer_name') or offer.get('name'),
+                    'payout': payout,
+                    'payout_display': payout_display,
+                    'category': offer.get('category') or offer.get('vertical'),
+                    'countries': offer.get('countries') or [],
+                    'network': offer.get('network') or 'Direct',
+                    'image_url': offer.get('image_url') or '',
+                    'thumbnail_url': offer.get('thumbnail_url') or ''
+                })
+            else:
+                break
+                
+        return predicted_offers, interests
 
     def get_sent_history(self, user_id):
         """Get the full history of sent offers for this user"""
@@ -582,7 +650,9 @@ class AutomationService:
                 'payout_display': payout_display,
                 'category': o.get('category') or o.get('vertical'),
                 'countries': o.get('countries') or [],
-                'network': o.get('network') or 'Direct'
+                'network': o.get('network') or 'Direct',
+                'image_url': o.get('image_url') or '',
+                'thumbnail_url': o.get('thumbnail_url') or ''
             })
             
         return cleaned_offers

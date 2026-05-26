@@ -146,6 +146,13 @@ def adjust_user_balance(user_id):
         
         adj_col.insert_one(doc)
         
+        # Clear dashboard cache so numbers refresh instantly on their dashboard
+        try:
+            from routes.user_dashboard import clear_dashboard_cache
+            clear_dashboard_cache(user_id)
+        except Exception as e:
+            logger.error(f"Failed to clear dashboard cache for adjusted user: {e}")
+        
         return jsonify({
             'success': True,
             'message': 'Balance adjusted successfully'
@@ -223,18 +230,37 @@ def get_user_transactions_admin(user_id):
 def reverse_transaction(tx_type, tx_id):
     try:
         # tx_type can be 'promo' or 'gift'
+        user_id = None
         
         if tx_type == 'promo':
             promo_col = get_collection('bonus_earnings')
+            tx = promo_col.find_one({'_id': ObjectId(tx_id)})
+            if tx:
+                user_id = tx.get('user_id')
             res = promo_col.update_one({'_id': ObjectId(tx_id)}, {'$set': {'status': 'reversed', 'updated_at': datetime.utcnow()}})
             if res.modified_count > 0:
+                if user_id:
+                    try:
+                        from routes.user_dashboard import clear_dashboard_cache
+                        clear_dashboard_cache(user_id)
+                    except Exception as e:
+                        logger.error(f"Failed to clear dashboard cache for reversed promo user: {e}")
                 return jsonify({'success': True, 'message': 'Promo reversed'})
             return jsonify({'error': 'Promo not found or already reversed'}), 400
             
         elif tx_type == 'gift':
             gift_col = get_collection('gift_card_redemptions')
+            tx = gift_col.find_one({'_id': ObjectId(tx_id)})
+            if tx:
+                user_id = tx.get('user_id')
             res = gift_col.update_one({'_id': ObjectId(tx_id)}, {'$set': {'status': 'reversed', 'updated_at': datetime.utcnow()}})
             if res.modified_count > 0:
+                if user_id:
+                    try:
+                        from routes.user_dashboard import clear_dashboard_cache
+                        clear_dashboard_cache(user_id)
+                    except Exception as e:
+                        logger.error(f"Failed to clear dashboard cache for reversed gift user: {e}")
                 return jsonify({'success': True, 'message': 'Gift card reversed'})
             return jsonify({'error': 'Gift card not found or already reversed'}), 400
             

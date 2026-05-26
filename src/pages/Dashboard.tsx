@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X, Link, UploadCloud, CheckCircle } from "lucide-react";
+import { TrendingUp, Users, MousePointer, DollarSign, Target, Gift, ArrowUpRight, ArrowDownRight, Minus, X, Link, UploadCloud, CheckCircle, Flame, Zap, Sparkles } from "lucide-react";
 import PlacementRequired from "@/components/PlacementRequired";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { dashboardApi, DashboardStats, ChartDataPoint, TopOffer } from "@/services/dashboardApi";
@@ -114,9 +114,7 @@ const DashboardContent = () => {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.submission) {
-        setReviewSubmission(data.submission);
-      }
+      setReviewSubmission(data.submission || null);
     } catch (err) {
       console.error('Failed to fetch review submission', err);
     }
@@ -290,102 +288,9 @@ const DashboardContent = () => {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
             <p className="text-gray-600">Welcome back! Here's what's happening with your campaigns.</p>
           </div>
-          {reviewUrl && (
-            <button
-              onClick={() => {
-                setIsReviewModalOpen(true);
-                // Track button click
-                const token = getAuthToken();
-                if (token) {
-                  fetch(`${API_BASE_URL}/api/user/review-button-click`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` }
-                  }).catch(() => {});
-                }
-              }}
-              className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
-            >
-              <Gift className="h-4 w-4" />
-              Review Us
-            </button>
-          )}
         </div>
 
-        <Dialog open={isReviewModalOpen} onOpenChange={setIsReviewModalOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="text-2xl flex items-center gap-2">
-                <Gift className="h-6 w-6 text-orange-500" />
-                Review Us & Get Rewarded!
-              </DialogTitle>
-              <DialogDescription>
-                Leave a review on our platform and upload a screenshot to claim your bonus reward!
-              </DialogDescription>
-            </DialogHeader>
 
-            <div className="space-y-6 mt-4">
-              {reviewSubmission ? (
-                <div className="bg-gray-50 border rounded-xl p-6 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center bg-green-100">
-                    <CheckCircle className="h-6 w-6 text-green-600" />
-                  </div>
-                  <h3 className="font-semibold text-gray-900">
-                    {reviewSubmission.status === 'approved' ? 'Reward Applied!' : 'Submission Pending'}
-                  </h3>
-                  <p className="text-sm text-gray-600">
-                    {reviewSubmission.status === 'approved' 
-                      ? 'Thank you! Your review was approved and the reward has been added to your balance.'
-                      : 'Your review screenshot is currently being reviewed by our team. We will notify you once approved.'}
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="bg-orange-50 border border-orange-100 rounded-xl p-4">
-                    <h4 className="font-semibold text-orange-800 mb-2">Step 1: Write a Review</h4>
-                    <p className="text-sm text-orange-700 mb-3">
-                      Click the button below to visit our review page and leave your honest feedback.
-                    </p>
-                    <Button onClick={() => window.open(reviewUrl, '_blank')} className="w-full bg-orange-500 hover:bg-orange-600">
-                      Go to Review Page <ArrowUpRight className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                    <h4 className="font-semibold text-blue-800 mb-2">Step 2: Upload Proof</h4>
-                    <p className="text-sm text-blue-700 mb-3">
-                      Take a screenshot of your submitted review and upload it here.
-                    </p>
-                    <div className="space-y-3">
-                      <div className="relative">
-                        <input 
-                          type="file" 
-                          accept="image/*" 
-                          onChange={handleFileSelect}
-                          disabled={uploadingProof}
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-                        />
-                        <Button variant="outline" className="w-full border-blue-200 text-blue-700 hover:bg-blue-100 disabled:opacity-50" disabled={uploadingProof}>
-                          <UploadCloud className="mr-2 h-4 w-4" /> 
-                          {selectedProofFile ? selectedProofFile.name : 'Choose Screenshot...'}
-                        </Button>
-                      </div>
-                      
-                      {selectedProofFile && (
-                        <Button 
-                          onClick={handleUploadProof} 
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                          disabled={uploadingProof}
-                        >
-                          {uploadingProof ? 'Uploading...' : 'Submit Proof for Review'}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
 
         {/* KPI Cards */}
         <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-4 mb-8">
@@ -423,6 +328,8 @@ const DashboardContent = () => {
             onClick={() => navigate('/settings?tab=credentials')}
           />
       </div>
+
+
 
         {/* Charts Section */}
         <div className="grid gap-5 lg:grid-cols-7 mb-8">

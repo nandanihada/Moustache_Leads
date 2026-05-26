@@ -21,6 +21,116 @@ extended_offer_model = OfferExtended()  # For schedule + smart rules operations
 admin_offer_model = offer_model  # Use the same model instance
 
 
+def run_expired_pin_cleanup(offers_col):
+    try:
+        from datetime import datetime
+        # Clean up new schema
+        offers_col.update_many(
+            {
+                'is_pinned': True,
+                'pinEndTime': {'$ne': None, '$lte': datetime.utcnow()}
+            },
+            {
+                '$set': {
+                    'is_pinned': False,
+                    'pinnedPosition': None,
+                    'pinStartTime': None,
+                    'pinEndTime': None,
+                    'pinDuration': None,
+                    'pinStatus': 'expired',
+                    'pinned_at': None,
+                    'pin_expires_at': None
+                }
+            }
+        )
+        # Clean up old schema
+        offers_col.update_many(
+            {
+                'is_pinned': True,
+                'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}
+            },
+            {
+                '$set': {
+                    'is_pinned': False,
+                    'pinnedPosition': None,
+                    'pinStartTime': None,
+                    'pinEndTime': None,
+                    'pinDuration': None,
+                    'pinStatus': 'expired',
+                    'pinned_at': None,
+                    'pin_expires_at': None
+                }
+            }
+        )
+    except Exception as e:
+        logging.error(f"Error running expired pin cleanup: {e}")
+
+
+def merge_pinned_and_organic_offers(pinned_offers, organic_query, skip_original, limit_original, sort_field, sort_dir, offers_col, projection=None):
+    """
+    Seamlessly merges pinned offers and organic offers using a cinema-seat style
+    fixed-position placement. Pinned offers are placed exactly at pinnedPosition (1-indexed).
+    Organic offers occupy the remaining vacant slots.
+    """
+    pinned_by_pos = {}
+    for po in pinned_offers:
+        pos = po.get('pinnedPosition')
+        if pos is not None:
+            try:
+                pinned_by_pos[int(pos)] = po
+            except (ValueError, TypeError):
+                pass
+
+    start_idx = skip_original
+    end_idx = skip_original + limit_original
+
+    organic_skip = 0
+    organic_limit = 0
+    
+    page_slots = []
+
+    v_idx = 0
+    while len(page_slots) < limit_original:
+        pos = v_idx + 1
+        if pos in pinned_by_pos:
+            if v_idx >= start_idx:
+                page_slots.append(pinned_by_pos[pos])
+        else:
+            if v_idx < start_idx:
+                organic_skip += 1
+            else:
+                organic_limit += 1
+                page_slots.append(None)
+        v_idx += 1
+
+    organic_query = dict(organic_query)
+    organic_query['is_pinned'] = {'$ne': True}
+
+    if projection:
+        if sort_field:
+            organic_docs = list(offers_col.find(organic_query, projection).sort([(sort_field, sort_dir)]).skip(organic_skip).limit(organic_limit))
+        else:
+            organic_docs = list(offers_col.find(organic_query, projection).skip(organic_skip).limit(organic_limit))
+    else:
+        if sort_field:
+            organic_docs = list(offers_col.find(organic_query).sort([(sort_field, sort_dir)]).skip(organic_skip).limit(organic_limit))
+        else:
+            organic_docs = list(offers_col.find(organic_query).skip(organic_skip).limit(organic_limit))
+
+    final_offers = []
+    organic_iter = iter(organic_docs)
+    for slot in page_slots:
+        if slot is not None:
+            final_offers.append(slot)
+        else:
+            try:
+                final_offers.append(next(organic_iter))
+            except StopIteration:
+                break
+
+    return final_offers
+
+
 def _cascade_cleanup_offer(offer_ids):
     """Remove all related data when offers are deleted.
     Cleans up: affiliate_requests, search_logs picks, notifications, etc.
@@ -1096,7 +1206,62 @@ def get_offers():
         skip = (page - 1) * per_page
         
         # Get offers
-        offers, total = offer_model.get_offers(filters, skip, per_page)
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Run expired pin cleanup first
+        run_expired_pin_cleanup(offers_col)
+
+        # Build mongo query matches from filters
+        query = {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+        if filters:
+            if filters.get('status'):
+                query['status'] = filters['status']
+            if filters.get('network'):
+                query['network'] = {'$regex': filters['network'], '$options': 'i'}
+            if filters.get('search'):
+                search_regex = {'$regex': filters['search'], '$options': 'i'}
+                query = {
+                    '$and': [
+                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        {'$or': [
+                            {'name': search_regex},
+                            {'campaign_id': search_regex},
+                            {'offer_id': search_regex},
+                            {'categories': search_regex}
+                        ]}
+                    ]
+                }
+                if filters.get('status'):
+                    query['$and'].append({'status': filters['status']})
+                if filters.get('network'):
+                    query['$and'].append({'network': {'$regex': filters['network'], '$options': 'i'}})
+
+        # Fetch active pinned offers that match filters
+        pinned_query = dict(query)
+        pinned_query['is_pinned'] = True
+        pinned_offers = list(offers_col.find(pinned_query))
+
+        # Merge them
+        offers = merge_pinned_and_organic_offers(
+            pinned_offers=pinned_offers,
+            organic_query=query,
+            skip_original=skip,
+            limit_original=per_page,
+            sort_field='created_at',
+            sort_dir=-1,
+            offers_col=offers_col
+        )
+
+        for offer in offers:
+            offer['_id'] = str(offer['_id'])
+
+        # Calculate accurate totals
+        organic_query = dict(query)
+        organic_query['is_pinned'] = {'$ne': True}
+        total_organic = offers_col.count_documents(organic_query)
+        total = total_organic + len(pinned_offers)
         
         # Attach health status to each offer
         try:
@@ -2317,6 +2482,307 @@ def bulk_pin_offers():
     except Exception as e:
         logging.error(f"Bulk pin offers error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to pin offers: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/pinned-positions', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_pinned_positions():
+    """Get active pinned positions and their occupied status (1 to 50)."""
+    try:
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Run cleanup first
+        run_expired_pin_cleanup(offers_col)
+
+        # Get all active pinned offers
+        pinned_offers = list(offers_col.find(
+            {'is_pinned': True, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
+        ))
+
+        pinned_by_pos = {}
+        for po in pinned_offers:
+            pos = po.get('pinnedPosition')
+            if pos is not None:
+                try:
+                    pinned_by_pos[int(pos)] = {
+                        'offer_id': po.get('offer_id'),
+                        'name': po.get('name'),
+                        'pinStartTime': po.get('pinStartTime'),
+                        'pinEndTime': po.get('pinEndTime'),
+                        'pinDuration': po.get('pinDuration'),
+                        'pinnedBy': po.get('pinnedBy'),
+                        'pinStatus': po.get('pinStatus')
+                    }
+                except (ValueError, TypeError):
+                    pass
+
+        positions = []
+        # Return 1 to 50 positions
+        for pos in range(1, 51):
+            occupied = pos in pinned_by_pos
+            positions.append({
+                'position': pos,
+                'isOccupied': occupied,
+                'offer': pinned_by_pos[pos] if occupied else None
+            })
+
+        return jsonify({
+            'success': True,
+            'positions': positions
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Get pinned positions error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to get pinned positions: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/<offer_id>/pin', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def pin_single_offer(offer_id):
+    """Pin a single offer at a specific position with duration control."""
+    try:
+        data = request.get_json() or {}
+        position = data.get('position')
+        duration = data.get('duration') # "6h", "10h", "3d", "10d", "custom", "permanent"
+        custom_hours = data.get('custom_hours') # float hours if duration == "custom"
+
+        if position is None:
+            return jsonify({'error': 'Position is required'}), 400
+        try:
+            position = int(position)
+            if position < 1:
+                return jsonify({'error': 'Position must be 1 or greater'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Position must be an integer'}), 400
+
+        if not duration:
+            return jsonify({'error': 'Duration is required'}), 400
+
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Run cleanup first
+        run_expired_pin_cleanup(offers_col)
+
+        # Check if the offer exists
+        offer = offers_col.find_one({'offer_id': offer_id, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]})
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        # Self-Healing Slot Clean Up: Automatically unpin any inactive or deleted offers
+        # to prevent them from blocking valid positions.
+        offers_col.update_many(
+            {
+                'is_pinned': True,
+                '$or': [
+                    {'deleted': True},
+                    {'status': {'$nin': ['active', 'running', 'rotating']}}
+                ]
+            },
+            {
+                '$set': {
+                    'is_pinned': False,
+                    'pinnedPosition': None,
+                    'pinStartTime': None,
+                    'pinEndTime': None,
+                    'pinDuration': None,
+                    'pinStatus': 'expired',
+                    'pinned_at': None,
+                    'pin_expires_at': None
+                }
+            }
+        )
+
+        # Clean up any inconsistent flags (is_pinned: False, but has pinnedPosition)
+        # to ensure position conflict checks are perfectly clean and duplicate-free.
+        offers_col.update_many(
+            {
+                'is_pinned': {'$ne': True},
+                'pinnedPosition': {'$ne': None}
+            },
+            {
+                '$set': {'pinnedPosition': None}
+            }
+        )
+
+        # Cascading conflict resolution: Shift all active occupying offers down by 1 slot.
+        active_pinned = list(offers_col.find({
+            'is_pinned': True,
+            'pinnedPosition': {'$exists': True, '$ne': None},
+            'offer_id': {'$ne': offer_id},
+            'status': {'$in': ['active', 'running', 'rotating']},
+            '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+        }))
+
+        # Map of position -> offer_id
+        pos_map = {}
+        for po in active_pinned:
+            try:
+                pos_map[int(po['pinnedPosition'])] = po['offer_id']
+            except (ValueError, TypeError):
+                pass
+
+        # Shift colliding offers down cascadingly
+        curr_pos = position
+        shifted_updates = {}
+        while curr_pos in pos_map:
+            occupying_id = pos_map[curr_pos]
+            next_pos = curr_pos + 1
+            shifted_updates[occupying_id] = next_pos
+            curr_pos = next_pos
+
+        # Apply shifts to the database
+        for off_id, new_pos in shifted_updates.items():
+            offers_col.update_one(
+                {'offer_id': off_id},
+                {'$set': {'pinnedPosition': new_pos}}
+            )
+
+        # Calculate pinEndTime
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        pin_end_time = None
+        duration_desc = duration
+
+        if duration == '6h':
+            pin_end_time = now + timedelta(hours=6)
+            duration_desc = '6 Hours'
+        elif duration == '10h':
+            pin_end_time = now + timedelta(hours=10)
+            duration_desc = '10 Hours'
+        elif duration == '3d':
+            pin_end_time = now + timedelta(days=3)
+            duration_desc = '3 Days'
+        elif duration == '10d':
+            pin_end_time = now + timedelta(days=10)
+            duration_desc = '10 Days'
+        elif duration == 'custom':
+            if not custom_hours:
+                return jsonify({'error': 'Custom hours is required for custom duration'}), 400
+            try:
+                hours = float(custom_hours)
+                if hours <= 0:
+                    return jsonify({'error': 'Custom hours must be greater than 0'}), 400
+                pin_end_time = now + timedelta(hours=hours)
+                duration_desc = f'Custom ({hours} Hours)'
+            except (ValueError, TypeError):
+                return jsonify({'error': 'Custom hours must be a number'}), 400
+        elif duration == 'permanent':
+            pin_end_time = None
+            duration_desc = 'Permanent'
+        else:
+            return jsonify({'error': f"Invalid duration option '{duration}'"}), 400
+
+        # Determine admin user
+        admin_user = request.current_user
+        admin_name = admin_user.get('username') or admin_user.get('email') or 'Admin'
+
+        update_fields = {
+            'is_pinned': True,
+            'pinnedPosition': position,
+            'pinStartTime': now,
+            'pinEndTime': pin_end_time,
+            'pinDuration': duration_desc,
+            'pinnedBy': admin_name,
+            'pinStatus': 'active',
+            'pinned_at': now,
+            'pin_expires_at': pin_end_time,
+            'status': 'active',
+            'is_active': True,
+            'updated_at': now
+        }
+
+        offers_col.update_one({'offer_id': offer_id}, {'$set': update_fields})
+
+        log_admin_activity(
+            action='pin_offer',
+            category='offer',
+            admin_user=admin_user,
+            details={
+                'offer_id': offer_id,
+                'offer_name': offer.get('name'),
+                'position': position,
+                'duration': duration_desc,
+                'pin_end_time': pin_end_time.isoformat() if pin_end_time else None
+            },
+            affected_count=1,
+            request_obj=request
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f"Offer '{offer.get('name')}' successfully pinned at position {position} for {duration_desc}.",
+            'pin': {
+                'is_pinned': True,
+                'pinnedPosition': position,
+                'pinStartTime': now.isoformat(),
+                'pinEndTime': pin_end_time.isoformat() if pin_end_time else None,
+                'pinDuration': duration_desc,
+                'pinnedBy': admin_name,
+                'pinStatus': 'active'
+            }
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Pin single offer error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to pin offer: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/<offer_id>/unpin', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def unpin_single_offer(offer_id):
+    """Unpin a single offer and restore to organic position."""
+    try:
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Check if the offer exists
+        offer = offers_col.find_one({'offer_id': offer_id, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]})
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        update_fields = {
+            'is_pinned': False,
+            'pinnedPosition': None,
+            'pinStartTime': None,
+            'pinEndTime': None,
+            'pinDuration': None,
+            'pinnedBy': None,
+            'pinStatus': 'expired',
+            'pinned_at': None,
+            'pin_expires_at': None,
+            'updated_at': datetime.utcnow()
+        }
+
+        offers_col.update_one({'offer_id': offer_id}, {'$set': update_fields})
+
+        log_admin_activity(
+            action='unpin_offer',
+            category='offer',
+            admin_user=request.current_user,
+            details={
+                'offer_id': offer_id,
+                'offer_name': offer.get('name')
+            },
+            affected_count=1,
+            request_obj=request
+        )
+
+        return jsonify({
+            'success': True,
+            'message': f"Offer '{offer.get('name')}' successfully unpinned and restored to organic position."
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Unpin single offer error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to unpin offer: {str(e)}'}), 500
 
 
 @admin_offers_bp.route('/offers/bulk-percentage-payout', methods=['PUT'])

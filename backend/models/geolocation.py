@@ -26,12 +26,10 @@ class GeolocationService:
         Get comprehensive IP information
         Returns: country, region, city, postal_code, coordinates, isp, asn, organization
         """
-        # Handle empty, None, or local IPs
-        if not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1', '']:
-            return self._get_default_info()
-        
-        # Strip whitespace
-        ip_address = ip_address.strip()
+        # Normalize: take first IP and strip whitespace
+        if not ip_address:
+            ip_address = '127.0.0.1'
+        ip_address = ip_address.split(',')[0].strip()
         
         # Check cache first
         if ip_address in self.cache:
@@ -61,8 +59,9 @@ class GeolocationService:
     def _get_from_ip_api(self, ip_address: str) -> Optional[Dict]:
         """Get info from ip-api.com"""
         try:
+            query_ip = "" if (not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1', '']) else ip_address
             response = requests.get(
-                f'http://ip-api.com/json/{ip_address}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,isp,org,as,asname,proxy,vpn,tor,hosting',
+                f'http://ip-api.com/json/{query_ip}?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,isp,org,as,asname,proxy,vpn,tor,hosting',
                 timeout=3
             )
             
@@ -95,8 +94,13 @@ class GeolocationService:
     def _get_from_ipapi_co(self, ip_address: str) -> Optional[Dict]:
         """Get info from ipapi.co"""
         try:
+            query_ip = "" if (not ip_address or ip_address in ['127.0.0.1', 'localhost', '::1', '']) else ip_address
+            if query_ip:
+                url = f'https://ipapi.co/{query_ip}/json/'
+            else:
+                url = 'https://ipapi.co/json/'
             response = requests.get(
-                f'https://ipapi.co/{ip_address}/json/',
+                url,
                 timeout=3
             )
             

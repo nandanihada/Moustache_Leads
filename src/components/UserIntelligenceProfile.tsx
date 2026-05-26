@@ -154,30 +154,43 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
   const toggleTrigger = (id: string) => {
       setTriggers(prev => prev.map(t => t.id === id ? { ...t, active: !t.active } : t));
   };
+  
   React.useEffect(() => {
     if (!offerTargeting) return;
     
-    // PRIORITY: If we have an automation queue item for this user, use its 'next_offers'
+    const categoryOffers: Record<string, any[]> = {
+        queue: [],
+        recommended_offers: [],
+        most_approved: [],
+        highly_clicked: [],
+        requested_offers: [],
+        newly_added: []
+    };
+    
+    // 1. Add active automation queue offers first
     if (automationQueueItem && automationQueueItem.next_offers && automationQueueItem.next_offers.length > 0) {
-        const queueOffers = automationQueueItem.next_offers.map((o: any) => ({
-            ...o,
-            source: 'Automation Queue',
-            type: 'Primary',
-            matchScore: 100
-        }));
-        setQueueOffers(queueOffers.slice(0, 6));
-        return;
+        automationQueueItem.next_offers.forEach((o: any) => {
+            const id = o.offer_id || o._id || o.id;
+            if (id) {
+                categoryOffers.queue.push({
+                    ...o,
+                    id: id,
+                    offer_id: id,
+                    source: 'Automation Queue',
+                    type: 'Primary',
+                    matchScore: 100,
+                    categoryKey: 'queue'
+                });
+            }
+        });
     }
 
-    const allOffers: any[] = [];
-    const seenIds = new Set();
-    
     const addSection = (sectionName: string, sourceLabel: string, baseScore: number, typeLabel: string) => {
         if (offerTargeting[sectionName] && Array.isArray(offerTargeting[sectionName])) {
-            offerTargeting[sectionName].forEach((o: any, idx: number) => {
-                const id = o.offer_id || o._id;
-                if (!seenIds.has(id)) {
-                    seenIds.add(id);
+            for (let idx = 0; idx < offerTargeting[sectionName].length; idx++) {
+                const o = offerTargeting[sectionName][idx];
+                const id = o.offer_id || o._id || o.id;
+                if (id) {
                     let matchScore = Math.max(50, baseScore - (idx * 4));
                     if (verticalData && verticalData.length > 0 && verticalData[0].name !== 'Unknown') {
                         const topCats = verticalData.slice(0, 2).map((v:any) => v.name.toLowerCase());
@@ -188,27 +201,58 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                             matchScore = Math.min(99, matchScore + 5);
                         }
                     }
-                    allOffers.push({
+                    categoryOffers[sectionName].push({
                         ...o,
+                        id: id,
+                        offer_id: id,
                         source: sourceLabel,
                         type: typeLabel,
-                        matchScore: matchScore
+                        matchScore: matchScore,
+                        categoryKey: sectionName
                     });
                 }
-            });
+            }
         }
     };
-    
+
+    addSection('recommended_offers', 'Recommended', 99, 'Discount');
     addSection('most_approved', 'Most Approved', 98, 'Cashback');
+    addSection('highly_clicked', 'Most Clicked', 87, 'Cashback');
+    addSection('requested_offers', 'Requested', 85, 'Discount');
     addSection('newly_added', 'Newly Added', 91, 'Cashback');
-    addSection('highly_clicked', 'Highly Clicked', 87, 'Cashback');
-    addSection('recently_edited', 'Recently Edited', 79, 'Discount');
-    addSection('recently_deleted', 'Clearance', 74, 'Discount');
     
-    allOffers.sort((a, b) => b.matchScore - a.matchScore);
+    // Select unique offers round-robin
+    const finalOffers: any[] = [];
+    const seenIds = new Set();
+    const orderOfCategories = ['queue', 'recommended_offers', 'most_approved', 'highly_clicked', 'requested_offers', 'newly_added'];
+
+    // Round 1: Try to pick the first unused offer from each category
+    orderOfCategories.forEach((catKey) => {
+        const list = categoryOffers[catKey];
+        const unusedOffer = list.find(o => !seenIds.has(o.id));
+        if (unusedOffer) {
+            seenIds.add(unusedOffer.id);
+            finalOffers.push(unusedOffer);
+        }
+    });
+
+    // Round 2: Fill up to 6 unique offers from any category
+    if (finalOffers.length < 6) {
+        for (const catKey of orderOfCategories) {
+            const list = categoryOffers[catKey];
+            for (const o of list) {
+                if (!seenIds.has(o.id)) {
+                    seenIds.add(o.id);
+                    finalOffers.push(o);
+                    if (finalOffers.length >= 6) break;
+                }
+            }
+            if (finalOffers.length >= 6) break;
+        }
+    }
     
-    setQueueOffers(allOffers.slice(0, 6));
-  }, [offerTargeting, automationQueueItem]);
+    setQueueOffers(finalOffers.slice(0, 6));
+  }, [offerTargeting, automationQueueItem, verticalData]);
 
   const historyData = React.useMemo(() => {
     // Show actual scheduled activity / mail history instead of offer views
@@ -386,70 +430,95 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                 Pulled from Offer Reco - Sorted by match score + preference weight - {verticalData && verticalData.length > 0 ? verticalData.slice(0,2).map((v: any) => `${v.name} ${v.value}%`).join(', ') : 'No preferences found'}
              </div>
 
-             {/* List of Offers */}
+             {/* List of Offers Flat List */}
              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {queueOffers.length > 0 ? queueOffers.map((offer, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid #F4F3EF', borderRadius: '8px', background: '#fff' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-                            <div style={{ width: '24px', height: '24px', borderRadius: '4px', background: '#F4F3EF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', flexShrink: 0 }}>
-                                {offer.category === 'E-commerce' ? '🛍️' : offer.category === 'Travel' ? '✈️' : offer.category === 'Games' ? '🎮' : offer.category === 'Finance' ? '🏦' : '🎯'}
-                            </div>
-                            <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                                <div style={{ fontSize: '12px', fontWeight: '500', color: '#1a1a18', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{offer.name || offer.offer_name || 'Offer'}</div>
-                                <div style={{ fontSize: '10px', color: '#9c9a92', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {offer.category || 'General'} <span className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0"></span> 
-                                    {offer.country || 'Global'} <span className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0"></span> 
-                                    {offer.type || 'Offer'} <span className="w-1 h-1 rounded-full bg-gray-300 flex-shrink-0"></span> 
-                                    {offer.source || 'Targeting'}
-                                </div>
-                            </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0, paddingLeft: '10px' }}>
-                            <span style={{ fontSize: '11px', fontWeight: '600', color: '#1D9E75', background: '#E1F5EE', padding: '2px 6px', borderRadius: '4px' }}>{offer.matchScore}% match</span>
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                                <button onClick={async () => {
-                                    if (onSendOffers) {
-                                        const success = await onSendOffers([offer.offer_id || offer._id]);
-                                        if (success) {
-                                            const sentEvent = {
-                                                _id: Math.random().toString(),
-                                                type: 'email',
-                                                subject: `Sent: ${offer.name || offer.offer_name || 'Offer'}`,
-                                                status: 'Sent',
-                                                sent_at: new Date().toISOString(),
-                                                offer_names: [offer.name || offer.offer_name || 'Offer']
-                                            };
-                                            setLocalHistory(prev => [sentEvent, ...prev]);
-                                            setQueueOffers(prev => prev.filter((_, i) => i !== idx));
-                                            try {
-                                                const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
-                                                // We rely on local state first to avoid DB delay, but we merge if freshData comes back
-                                            } catch (e) {}
-                                        }
-                                    }
-                                }} disabled={sendingOffers} className="actn-btn primary" style={{ padding: '4px 10px', fontSize: '10px', background: '#185FA5', borderRadius: '4px', opacity: sendingOffers ? 0.5 : 1, color: '#fff', border: 'none' }}>Send now</button>
-                                <button onClick={async () => {
-                                    if (onSendOffers) {
-                                        const success = await onSendOffers([offer.offer_id || offer._id], 'skip');
-                                        if (success) {
-                                            const skipEvent = {
-                                                _id: Math.random().toString(),
-                                                type: 'email',
-                                                subject: `Skipped: ${offer.name || offer.offer_name || 'Offer'}`,
-                                                status: 'Skipped',
-                                                sent_at: new Date().toISOString(),
-                                                offer_names: [offer.name || offer.offer_name || 'Offer']
-                                            };
-                                            setLocalHistory(prev => [skipEvent, ...prev]);
-                                            setQueueOffers(prev => prev.filter((_, i) => i !== idx));
-                                        }
-                                    }
-                                }} disabled={sendingOffers} className="actn-btn" style={{ padding: '4px 10px', fontSize: '10px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2' }}>Skip</button>
-                            </div>
-                        </div>
-                    </div>
-                )) : (
-                    <div style={{ padding: '20px', textAlign: 'center', color: '#9c9a92', fontSize: '11px', background: '#fff', borderRadius: '8px', border: '1px solid #F4F3EF' }}>No offers currently queued.</div>
+                {queueOffers.length === 0 ? (
+                  <div style={{ padding: '16px', border: '1px dashed #dddbd2', borderRadius: '8px', background: '#fafafa', color: '#9c9a92', fontSize: '11px', textAlign: 'center', fontStyle: 'italic' }}>
+                     No offers in queue.
+                  </div>
+                ) : (
+                  queueOffers.map((offer) => {
+                     const getStyles = (k: string) => {
+                       switch(k) {
+                         case 'queue': return { label: 'Active Queue', color: '#7F2FBE', bg: '#F4F0FA', border: '#DEDAF4', icon: '⚡' };
+                         case 'recommended_offers': return { label: 'Recommended', color: '#534AB7', bg: '#F4F0FA', border: '#DEDAF4', icon: '🛍️' };
+                         case 'most_approved': return { label: 'Most Approved', color: '#1D9E75', bg: '#E1F5EE', border: '#CBEFE3', icon: '✅' };
+                         case 'highly_clicked': return { label: 'Most Clicked', color: '#BA7517', bg: '#F9F1E6', border: '#F2E2CD', icon: '🔥' };
+                         case 'requested_offers': return { label: 'Requested', color: '#A32D2D', bg: '#FDF0F0', border: '#F9DCDD', icon: '🙋' };
+                         case 'newly_added': return { label: 'Newly Added', color: '#185FA5', bg: '#EBF2FB', border: '#D0E1F4', icon: '🆕' };
+                         default: return { label: 'Recommended', color: '#534AB7', bg: '#F4F0FA', border: '#DEDAF4', icon: '🎯' };
+                       }
+                     };
+
+                     const catKey = offer.categoryKey || 'recommended_offers';
+                     const styles = getStyles(catKey);
+
+                     const category = (offer.category || 'General').toUpperCase();
+                     const country = offer.country || (offer.countries && offer.countries.length > 0 ? offer.countries[0] : 'Global');
+                     const type = offer.type || 'Cashback';
+                     const source = styles.label;
+
+                     return (
+                       <div key={offer.offer_id || offer._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', border: '1px solid #F4F3EF', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                             <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: styles.bg, color: styles.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', flexShrink: 0, fontWeight: 'bold' }}>
+                                 {offer.category === 'E-commerce' ? '🛍️' : offer.category === 'Travel' ? '✈️' : offer.category === 'Games' ? '🎮' : offer.category === 'Finance' ? '🏦' : '🎯'}
+                             </div>
+                             <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                                 <div style={{ fontSize: '11px', fontWeight: '600', color: '#1a1a18', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{offer.name || offer.offer_name || 'Offer'}</div>
+                                 <div style={{ fontSize: '9px', color: '#9c9a92', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                     {category} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
+                                     {country} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
+                                     {type} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
+                                     {source}
+                                 </div>
+                             </div>
+                         </div>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, paddingLeft: '6px' }}>
+                             <span style={{ fontSize: '9px', fontWeight: '600', color: '#1D9E75', background: '#E1F5EE', padding: '1px 4px', borderRadius: '3px' }}>{offer.matchScore}% match</span>
+                             <div style={{ display: 'flex', gap: '4px' }}>
+                                 <button onClick={async () => {
+                                     if (onSendOffers) {
+                                         const success = await onSendOffers([offer.offer_id || offer._id]);
+                                         if (success) {
+                                             const sentEvent = {
+                                                 _id: Math.random().toString(),
+                                                 type: 'email',
+                                                 subject: `Sent: ${offer.name || offer.offer_name || 'Offer'}`,
+                                                 status: 'Sent',
+                                                 sent_at: new Date().toISOString(),
+                                                 offer_names: [offer.name || offer.offer_name || 'Offer']
+                                             };
+                                             setLocalHistory(prev => [sentEvent, ...prev]);
+                                             setQueueOffers(prev => prev.filter(q => (q.offer_id || q._id) !== (offer.offer_id || offer._id)));
+                                             try {
+                                                 await loginLogsService.getScheduledActivity(log.user_id || log._id);
+                                             } catch (e) {}
+                                         }
+                                     }
+                                 }} disabled={sendingOffers} className="actn-btn primary" style={{ padding: '3px 8px', fontSize: '9px', background: '#185FA5', borderRadius: '4px', opacity: sendingOffers ? 0.5 : 1, color: '#fff', border: 'none', cursor: 'pointer' }}>Send now</button>
+                                 <button onClick={async () => {
+                                     if (onSendOffers) {
+                                         const success = await onSendOffers([offer.offer_id || offer._id], 'skip');
+                                         if (success) {
+                                             const skipEvent = {
+                                                 _id: Math.random().toString(),
+                                                 type: 'email',
+                                                 subject: `Skipped: ${offer.name || offer.offer_name || 'Offer'}`,
+                                                 status: 'Skipped',
+                                                 sent_at: new Date().toISOString(),
+                                                 offer_names: [offer.name || offer.offer_name || 'Offer']
+                                             };
+                                             setLocalHistory(prev => [skipEvent, ...prev]);
+                                             setQueueOffers(prev => prev.filter(q => (q.offer_id || q._id) !== (offer.offer_id || offer._id)));
+                                         }
+                                     }
+                                 }} disabled={sendingOffers} className="actn-btn" style={{ padding: '3px 8px', fontSize: '9px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2', cursor: 'pointer' }}>Skip</button>
+                             </div>
+                         </div>
+                       </div>
+                     );
+                  })
                 )}
              </div>
 
@@ -678,7 +747,7 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
       </div>
       
       <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>Schedule Offers for {log.username}</DialogTitle>
           </DialogHeader>
@@ -686,20 +755,67 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
             {historyData.some(h => h.isPending) && (
               <div className="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                This person has offers in queue to send
+                This person already has scheduled offers
               </div>
             )}
-            <div className="text-sm text-gray-500 mb-4">
+            <div className="text-sm text-gray-500 mb-2">
               You are about to schedule <strong>{queueOffers.length} offers</strong> for this user.
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Schedule Time</label>
+              <label className="text-sm font-medium">Base Schedule Time</label>
               <input type="datetime-local" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" />
             </div>
+
             {scheduleDate && (
-              <div className="text-sm font-medium text-emerald-700 bg-emerald-50 px-3 py-2 rounded border border-emerald-100">
-                Offers will be sent exactly on: <br/>
-                <strong>{new Date(scheduleDate).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}</strong>
+              <div className="space-y-3 mt-4 border-t pt-4">
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Delivery Schedule Preview ({sendMode === 'combined' ? 'Combined Email' : 'Staggered 1-by-1'})
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-1 border rounded-lg p-2 bg-slate-50">
+                  {sendMode === 'combined' ? (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-2 rounded border border-emerald-100 flex items-center justify-between">
+                        <span>Combined delivery time:</span>
+                        <strong>{new Date(scheduleDate).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+                      </div>
+                      {queueOffers.map((o, idx) => (
+                        <div key={o.offer_id || o._id} className="flex items-center justify-between p-2 bg-white rounded border shadow-sm text-xs">
+                          <span className="font-medium text-gray-800 truncate max-w-[280px]">
+                            {idx + 1}. {o.name || o.offer_name || 'Offer'}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-semibold shrink-0 bg-slate-100 px-2 py-0.5 rounded">
+                            {o.category || 'General'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    queueOffers.map((o, idx) => {
+                      let minutes = parseInt(intervalValue) || 15;
+                      if (intervalUnit === 'hours') minutes *= 60;
+                      if (intervalUnit === 'days') minutes *= 1440;
+                      const offerTime = new Date(new Date(scheduleDate).getTime() + (idx * minutes * 60000));
+                      return (
+                        <div key={o.offer_id || o._id} className="flex flex-col p-2 bg-white rounded border shadow-sm space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-gray-800 truncate max-w-[260px]">
+                              {idx + 1}. {o.name || o.offer_name || 'Offer'}
+                            </span>
+                            <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-semibold shrink-0">
+                              {o.matchScore}% Match
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-gray-500 font-medium">
+                            <span className="text-[10px] text-slate-400 uppercase tracking-wider">{o.category || 'General'}</span>
+                            <span className="text-emerald-600 font-bold">
+                              {offerTime.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -716,35 +832,41 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                    if (intervalUnit === 'days') minutes *= 1440;
                    
                    const startTime = new Date(scheduleDate).getTime();
+                   let successCount = 0;
                    
                    if (sendMode === 'combined') {
                       const offerIds = queueOffers.map(o => o.offer_id || o._id).filter(Boolean);
                       if (offerIds.length > 0) {
-                         offerQueueService.addItems([{
-                            userId: log.user_id || log._id,
-                            username: log.username || 'User',
-                            offerIds: offerIds,
-                            offerName: `${offerIds.length} offers combined`,
-                            scheduledTime: startTime,
-                            sendMode: 'combined'
-                         }]);
+                         const isoTime = new Date(startTime).toISOString();
+                         const ok = await onSendOffers(offerIds, 'email', `${offerIds.length} offers combined`, isoTime);
+                         if (ok) successCount = offerIds.length;
                       }
                    } else {
                       // 1 by 1
-                      const items = queueOffers.map((o, idx) => ({
-                            userId: log.user_id || log._id,
-                            username: log.username || 'User',
-                            offerId: o.offer_id || o._id,
-                            offerName: o.name || o.offer_name || 'Offer',
-                            scheduledTime: startTime + (idx * minutes * 60000),
-                            sendMode: 'single' as const
-                      }));
-                      offerQueueService.addItems(items);
+                      for (let idx = 0; idx < queueOffers.length; idx++) {
+                         const o = queueOffers[idx];
+                         const offerId = o.offer_id || o._id;
+                         if (offerId) {
+                            const itemTime = new Date(startTime + (idx * minutes * 60000)).toISOString();
+                            const ok = await onSendOffers([offerId], 'email', o.name || o.offer_name || 'Offer', itemTime);
+                            if (ok) successCount++;
+                         }
+                      }
                    }
                    
-                   toast({ title: 'Scheduled', description: `Added ${queueOffers.length} offers to the live queue.` });
+                   if (successCount > 0) {
+                      toast({ title: 'Scheduled', description: `Successfully scheduled ${successCount} offer(s) on the backend.` });
+                      try {
+                        const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
+                        setLocalHistory(freshData?.scheduled_activity || freshData?.activities || (Array.isArray(freshData) ? freshData : []));
+                      } catch (e) {
+                        console.error("Failed to refresh scheduled history", e);
+                      }
+                      setQueueOffers([]);
+                   } else {
+                      toast({ title: 'Scheduling Failed', description: 'Could not schedule offers.', variant: 'destructive' });
+                   }
                    
-                   setQueueOffers([]);
                    setIsScheduleDialogOpen(false);
             }}>Confirm Schedule</Button>
           </DialogFooter>
@@ -978,6 +1100,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
     return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
   });
 
+  const isDataLoading = 
+    (activeTab === 'login' && userSignals === null) ||
+    (activeTab === 'activity' && (searchLogs === null || offerViews === null)) ||
+    (activeTab === 'browsing' && offerViews === null) ||
+    (activeTab === 'reco' && offerTargeting === null) ||
+    (activeTab === 'automation' && (offerTargeting === null || scheduledActivity === null)) ||
+    (activeTab === 'messaging' && offerViews === null);
+
   return (
     <div className="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col font-sans mt-2 ml-4">
       {/* Header */}
@@ -1038,7 +1168,17 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
       {/* Content Area */}
       <div className="p-6 bg-slate-50/50 min-h-[400px]">
-        {activeTab === 'messaging' && (
+        {isDataLoading ? (
+          <div className="space-y-6 animate-pulse p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="h-28 bg-slate-200/60 rounded-xl border border-slate-100"></div>
+              <div className="h-28 bg-slate-200/60 rounded-xl border border-slate-100 col-span-2"></div>
+            </div>
+            <div className="h-64 bg-slate-200/60 rounded-xl border border-slate-100"></div>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'messaging' && (
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-3xl mx-auto">
              <SmartMessagePanel 
                 user={{
@@ -1426,26 +1566,28 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
           {/* 5 buckets */}
           <div className="grid-5">
 
-            <div className="bucket-card" style={{ borderTop: '2px solid #185FA5' }}>
-              <div style={{ fontSize: '11px', fontWeight: '500', color: '#185FA5', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#185FA5" /><path d="M5 2v3M5 5h3" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
-                Newly added
+            {/* 1. Recommended Offers */}
+            <div className="bucket-card" style={{ borderTop: '2px solid #534AB7' }}>
+              <div style={{ fontSize: '11px', fontWeight: '500', color: '#534AB7', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#534AB7" /><path d="M3 6.5l1-1 2.5-2.5-1-1L3 4.5V6.5h2" stroke="#fff" strokeWidth="1" strokeLinecap="round" fill="none" /></svg>
+                Recommended Offers
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {safeTargeting.newly_added && safeTargeting.newly_added.length > 0 ? safeTargeting.newly_added.slice(0,3).map((o: any, i: number) => (
-                  <div key={i} className="offer-chip"><span className="dot" style={{ background: '#185FA5' }}></span><span className="truncate">{o.name || o.offer_name}</span></div>
-                )) : <div className="text-xs text-gray-500 italic py-1">No recent additions.</div>}
+                {(safeTargeting.recommended_offers || safeTargeting.recently_edited) && (safeTargeting.recommended_offers || safeTargeting.recently_edited).length > 0 ? (safeTargeting.recommended_offers || safeTargeting.recently_edited).slice(0,3).map((o: any, i: number) => (
+                  <div key={i} className="offer-chip"><span className="dot" style={{ background: '#534AB7' }}></span><span className="truncate">{o.name || o.offer_name}</span></div>
+                )) : <div className="text-xs text-gray-500 italic py-1">No recommendations.</div>}
               </div>
               {recoMode === '1-by-1' && (
                 <button 
                   className="send-btn" 
-                  style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.newly_added?.length || sendingOffers) ? 0.5 : 1 }}
-                  disabled={!safeTargeting.newly_added?.length || sendingOffers}
+                  style={{ marginTop: '8px', width: '100%', opacity: (!(safeTargeting.recommended_offers || safeTargeting.recently_edited)?.length || sendingOffers) ? 0.5 : 1 }}
+                  disabled={!(safeTargeting.recommended_offers || safeTargeting.recently_edited)?.length || sendingOffers}
                   onClick={() => {
-                    const idx = recoSendIdx['newly_added'] || 0;
-                    const o = safeTargeting.newly_added[idx % safeTargeting.newly_added.length];
+                    const list = safeTargeting.recommended_offers || safeTargeting.recently_edited;
+                    const idx = recoSendIdx['recommended_offers'] || recoSendIdx['recently_edited'] || 0;
+                    const o = list[idx % list.length];
                     handleSendOffers([o.offer_id || o._id]);
-                    setRecoSendIdx(prev => ({ ...prev, newly_added: idx + 1 }));
+                    setRecoSendIdx(prev => ({ ...prev, recommended_offers: idx + 1 }));
                   }}
                 >
                   Send next offer ↗
@@ -1453,10 +1595,11 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               )}
             </div>
 
+            {/* 2. Most Approved Offers */}
             <div className="bucket-card" style={{ borderTop: '2px solid #1D9E75' }}>
               <div style={{ fontSize: '11px', fontWeight: '500', color: '#1D9E75', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
                 <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#1D9E75" /><path d="M3 5l1.5 1.5L7 3.5" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
-                Most approved
+                Most Approved Offers
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 {safeTargeting.most_approved && safeTargeting.most_approved.length > 0 ? safeTargeting.most_approved.slice(0,3).map((o: any, i: number) => (
@@ -1480,10 +1623,11 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               )}
             </div>
 
+            {/* 3. Most Clicked Offers */}
             <div className="bucket-card" style={{ borderTop: '2px solid #BA7517' }}>
               <div style={{ fontSize: '11px', fontWeight: '500', color: '#BA7517', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
                 <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#BA7517" /><path d="M5 2v3l2 1" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
-                Highly clicked
+                Most Clicked Offers
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                 {safeTargeting.highly_clicked && safeTargeting.highly_clicked.length > 0 ? safeTargeting.highly_clicked.slice(0,3).map((o: any, i: number) => (
@@ -1507,53 +1651,56 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               )}
             </div>
 
+            {/* 4. Requested Offers */}
             <div className="bucket-card" style={{ borderTop: '2px solid #A32D2D' }}>
               <div style={{ fontSize: '11px', fontWeight: '500', color: '#A32D2D', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#A32D2D" /><path d="M3 3l4 4M7 3l-4 4" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
-                Recently deleted
+                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#A32D2D" /><path d="M3 5l1.5 1.5L7 3.5" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
+                Requested Offers
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', opacity: '.7' }}>
-                {safeTargeting.recently_deleted && safeTargeting.recently_deleted.length > 0 ? safeTargeting.recently_deleted.slice(0,3).map((o: any, i: number) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {(safeTargeting.requested_offers || safeTargeting.recently_deleted) && (safeTargeting.requested_offers || safeTargeting.recently_deleted).length > 0 ? (safeTargeting.requested_offers || safeTargeting.recently_deleted).slice(0,3).map((o: any, i: number) => (
                   <div key={i} className="offer-chip"><span className="dot" style={{ background: '#A32D2D' }}></span><span className="truncate">{o.name || o.offer_name}</span></div>
-                )) : <div className="text-xs text-gray-500 italic py-1">No recent deletions.</div>}
+                )) : <div className="text-xs text-gray-500 italic py-1">No requested offers.</div>}
               </div>
               {recoMode === '1-by-1' && (
                 <button 
                   className="send-btn" 
-                  style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.recently_deleted?.length || sendingOffers) ? 0.5 : 1 }}
-                  disabled={!safeTargeting.recently_deleted?.length || sendingOffers}
+                  style={{ marginTop: '8px', width: '100%', opacity: (!(safeTargeting.requested_offers || safeTargeting.recently_deleted)?.length || sendingOffers) ? 0.5 : 1 }}
+                  disabled={!(safeTargeting.requested_offers || safeTargeting.recently_deleted)?.length || sendingOffers}
                   onClick={() => {
-                    const idx = recoSendIdx['recently_deleted'] || 0;
-                    const o = safeTargeting.recently_deleted[idx % safeTargeting.recently_deleted.length];
+                    const list = safeTargeting.requested_offers || safeTargeting.recently_deleted;
+                    const idx = recoSendIdx['requested_offers'] || recoSendIdx['recently_deleted'] || 0;
+                    const o = list[idx % list.length];
                     handleSendOffers([o.offer_id || o._id]);
-                    setRecoSendIdx(prev => ({ ...prev, recently_deleted: idx + 1 }));
+                    setRecoSendIdx(prev => ({ ...prev, requested_offers: idx + 1 }));
                   }}
                 >
-                  Send next replacement ↗
+                  Send next offer ↗
                 </button>
               )}
             </div>
 
-            <div className="bucket-card" style={{ borderTop: '2px solid #534AB7' }}>
-              <div style={{ fontSize: '11px', fontWeight: '500', color: '#534AB7', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#534AB7" /><path d="M3 6.5l1-1 2.5-2.5-1-1L3 4.5V6.5h2" stroke="#fff" strokeWidth="1" strokeLinecap="round" fill="none" /></svg>
-                Recently edited
+            {/* 5. Newly Added Offers */}
+            <div className="bucket-card" style={{ borderTop: '2px solid #185FA5' }}>
+              <div style={{ fontSize: '11px', fontWeight: '500', color: '#185FA5', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                <svg width="10" height="10" viewBox="0 0 10 10"><circle cx="5" cy="5" r="4" fill="#185FA5" /><path d="M5 2v3M5 5h3" stroke="#fff" strokeWidth="1.2" strokeLinecap="round" fill="none" /></svg>
+                Newly Added Offers
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {safeTargeting.recently_edited && safeTargeting.recently_edited.length > 0 ? safeTargeting.recently_edited.slice(0,3).map((o: any, i: number) => (
-                  <div key={i} className="offer-chip"><span className="dot" style={{ background: '#534AB7' }}></span><span className="truncate">{o.name || o.offer_name}</span></div>
-                )) : <div className="text-xs text-gray-500 italic py-1">No recent edits.</div>}
+                {safeTargeting.newly_added && safeTargeting.newly_added.length > 0 ? safeTargeting.newly_added.slice(0,3).map((o: any, i: number) => (
+                  <div key={i} className="offer-chip"><span className="dot" style={{ background: '#185FA5' }}></span><span className="truncate">{o.name || o.offer_name}</span></div>
+                )) : <div className="text-xs text-gray-500 italic py-1">No recent additions.</div>}
               </div>
               {recoMode === '1-by-1' && (
                 <button 
                   className="send-btn" 
-                  style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.recently_edited?.length || sendingOffers) ? 0.5 : 1 }}
-                  disabled={!safeTargeting.recently_edited?.length || sendingOffers}
+                  style={{ marginTop: '8px', width: '100%', opacity: (!safeTargeting.newly_added?.length || sendingOffers) ? 0.5 : 1 }}
+                  disabled={!safeTargeting.newly_added?.length || sendingOffers}
                   onClick={() => {
-                    const idx = recoSendIdx['recently_edited'] || 0;
-                    const o = safeTargeting.recently_edited[idx % safeTargeting.recently_edited.length];
+                    const idx = recoSendIdx['newly_added'] || 0;
+                    const o = safeTargeting.newly_added[idx % safeTargeting.newly_added.length];
                     handleSendOffers([o.offer_id || o._id]);
-                    setRecoSendIdx(prev => ({ ...prev, recently_edited: idx + 1 }));
+                    setRecoSendIdx(prev => ({ ...prev, newly_added: idx + 1 }));
                   }}
                 >
                   Send next offer ↗
@@ -1576,11 +1723,17 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
                 style={{ opacity: sendingOffers ? 0.5 : 1 }}
                 onClick={() => {
                   const combinedIds: string[] = [];
-                  if (safeTargeting.newly_added?.[0]) combinedIds.push(safeTargeting.newly_added[0].offer_id || safeTargeting.newly_added[0]._id);
+                  if (safeTargeting.recommended_offers?.[0] || safeTargeting.recently_edited?.[0]) {
+                    const o = safeTargeting.recommended_offers?.[0] || safeTargeting.recently_edited?.[0];
+                    combinedIds.push(o.offer_id || o._id);
+                  }
                   if (safeTargeting.most_approved?.[0]) combinedIds.push(safeTargeting.most_approved[0].offer_id || safeTargeting.most_approved[0]._id);
                   if (safeTargeting.highly_clicked?.[0]) combinedIds.push(safeTargeting.highly_clicked[0].offer_id || safeTargeting.highly_clicked[0]._id);
-                  if (safeTargeting.recently_deleted?.[0]) combinedIds.push(safeTargeting.recently_deleted[0].offer_id || safeTargeting.recently_deleted[0]._id);
-                  if (safeTargeting.recently_edited?.[0]) combinedIds.push(safeTargeting.recently_edited[0].offer_id || safeTargeting.recently_edited[0]._id);
+                  if (safeTargeting.requested_offers?.[0] || safeTargeting.recently_deleted?.[0]) {
+                    const o = safeTargeting.requested_offers?.[0] || safeTargeting.recently_deleted?.[0];
+                    combinedIds.push(o.offer_id || o._id);
+                  }
+                  if (safeTargeting.newly_added?.[0]) combinedIds.push(safeTargeting.newly_added[0].offer_id || safeTargeting.newly_added[0]._id);
                   
                   const uniqueIds = Array.from(new Set(combinedIds.filter(Boolean)));
                   handleSendOffers(uniqueIds);
@@ -1646,6 +1799,8 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
         <style>{`*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F3EF;color:#1a1a18;font-size:13px}

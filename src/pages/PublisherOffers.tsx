@@ -22,6 +22,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import PlacementRequired from "@/components/PlacementRequired";
 import { getOfferImage } from "@/utils/categoryImages";
 import { PlacementProofPopup } from "@/components/PlacementProofPopup";
+import { getAuthToken } from "@/utils/cookies";
 
 // Image-based flags via flagcdn (works on all systems unlike emoji)
 const getFlag = (code: string) => {
@@ -35,7 +36,7 @@ const PublisherOffersContent = () => {
   const { user } = useAuth();
 
   // View mode
-  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers">("available");
+  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers" | "top_20">("available");
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -48,6 +49,28 @@ const PublisherOffersContent = () => {
   const [offers, setOffers] = useState<PublisherOffer[]>([]);
   const [myRequests, setMyRequests] = useState<any[]>([]);
   const [myOffers, setMyOffers] = useState<PublisherOffer[]>([]);
+  const [topOffersList, setTopOffersList] = useState<any[]>([]);
+  const [topOffersLoading, setTopOffersLoading] = useState(false);
+
+  const fetchTopOffers = async () => {
+    setTopOffersLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/top-offers`, {
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`,
+        },
+      });
+      const data = await response.json();
+      if (data.success) {
+        setTopOffersList(data.top_offers || []);
+      }
+    } catch (err) {
+      console.error("Failed to load top offers:", err);
+    } finally {
+      setTopOffersLoading(false);
+    }
+  };
+
   const [loading, setLoading] = useState(true);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [myOffersLoading, setMyOffersLoading] = useState(false);
@@ -209,6 +232,7 @@ const PublisherOffersContent = () => {
     fetchOffers(1, perPage, "");
     fetchMyRequests();
     fetchMyOffers();
+    fetchTopOffers();
   }, []);
 
   // Re-fetch when page or perPage changes
@@ -222,6 +246,7 @@ const PublisherOffersContent = () => {
   useEffect(() => {
     if (viewMode === "requests") fetchMyRequests();
     if (viewMode === "my_offers") fetchMyOffers();
+    if (viewMode === "top_20") fetchTopOffers();
   }, [viewMode]);
 
   // Get unique countries and verticals for filter dropdowns
@@ -248,7 +273,20 @@ const PublisherOffersContent = () => {
 
   // Filtered + sorted offers
   const filteredOffers = useMemo(() => {
-    let list = viewMode === "my_offers" ? [...myOffers] : viewMode === "requests" ? [] : [...offers];
+    let list;
+    if (viewMode === "my_offers") {
+      list = [...myOffers];
+    } else if (viewMode === "requests") {
+      list = [];
+    } else if (viewMode === "top_20") {
+      const topIds = topOffersList.map((t) => String(t.offer_id || "").trim().toLowerCase());
+      list = offers.filter((o) => topIds.includes(String(o.offer_id || "").trim().toLowerCase()));
+      // Sort by the position in topIds to respect Admin curation ordering
+      list.sort((a, b) => topIds.indexOf(String(a.offer_id || "").trim().toLowerCase()) - topIds.indexOf(String(b.offer_id || "").trim().toLowerCase()));
+    } else {
+      list = [...offers];
+    }
+
     // In "available" mode, search is handled server-side, skip client-side search filter
     if (searchTerm && viewMode !== "available") {
       const q = searchTerm.toLowerCase();
@@ -278,19 +316,76 @@ const PublisherOffersContent = () => {
         return v.toLowerCase() === verticalFilter.toLowerCase();
       });
     }
-    // Sort - always keep pinned offers at top regardless of sort choice
-    if (sortBy === "newest") list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-    else if (sortBy === "payout_high") list.sort((a, b) => b.payout - a.payout);
-    else if (sortBy === "payout_low") list.sort((a, b) => a.payout - b.payout);
-    else if (sortBy === "name") list.sort((a, b) => a.name.localeCompare(b.name));
-    // Move pinned offers to top (stable sort preserves relative order within pinned/unpinned)
-    list.sort((a, b) => {
-      const aPinned = (a as any).is_pinned ? 1 : 0;
-      const bPinned = (b as any).is_pinned ? 1 : 0;
-      return bPinned - aPinned;
-    });
+    // Sort and merge - honor granular pinnedPosition slots and legacy pins
+    if (viewMode !== "top_20") {
+      const slotPinned: any[] = [];
+      const legacyPinned: any[] = [];
+      const organic: any[] = [];
+
+      list.forEach((o: any) => {
+        if (o.is_pinned) {
+          const pos = parseInt(o.pinnedPosition, 10);
+          if (!isNaN(pos) && pos > 0) {
+            slotPinned.push(o);
+          } else {
+            legacyPinned.push(o);
+          }
+        } else {
+          organic.push(o);
+        }
+      });
+
+      // Sort groups individually
+      const sortFn = (a: any, b: any) => {
+        if (sortBy === "newest") return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        if (sortBy === "payout_high") return b.payout - a.payout;
+        if (sortBy === "payout_low") return a.payout - b.payout;
+        if (sortBy === "name") return a.name.localeCompare(b.name);
+        return 0;
+      };
+
+      organic.sort(sortFn);
+      legacyPinned.sort(sortFn);
+      slotPinned.sort((a, b) => parseInt(a.pinnedPosition, 10) - parseInt(b.pinnedPosition, 10));
+
+      const isFiltered = !!(searchTerm || countryFilter !== "all" || verticalFilter !== "all");
+
+      if (isFiltered) {
+        // In search/filtered views, place all matching pinned offers at the top of results
+        list = [...slotPinned, ...legacyPinned, ...organic];
+      } else {
+        // Legacy pinned always sit at the very top of the default flow
+        const baseList = [...legacyPinned, ...organic];
+        const mergedList: any[] = [];
+        let baseIdx = 0;
+        const maxLen = baseList.length + slotPinned.length;
+
+        const slotPinnedByPos = new Map<number, any>();
+        slotPinned.forEach(o => {
+          slotPinnedByPos.set(parseInt(o.pinnedPosition, 10), o);
+        });
+
+        for (let pos = 1; pos <= maxLen; pos++) {
+          if (slotPinnedByPos.has(pos)) {
+            mergedList.push(slotPinnedByPos.get(pos));
+          } else {
+            if (baseIdx < baseList.length) {
+              mergedList.push(baseList[baseIdx]);
+              baseIdx++;
+            }
+          }
+        }
+
+        while (baseIdx < baseList.length) {
+          mergedList.push(baseList[baseIdx]);
+          baseIdx++;
+        }
+
+        list = mergedList;
+      }
+    }
     return list;
-  }, [offers, myOffers, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
+  }, [offers, myOffers, topOffersList, viewMode, searchTerm, countryFilter, verticalFilter, sortBy]);
 
   // (wizard replaces progressive mode — no progressive memos needed)
 
@@ -756,6 +851,7 @@ const PublisherOffersContent = () => {
               <SelectItem value="available">Available Offers</SelectItem>
               <SelectItem value="requests">My Requests</SelectItem>
               <SelectItem value="my_offers">My Offers</SelectItem>
+              <SelectItem value="top_20">Top 20 Offers</SelectItem>
             </SelectContent>
           </Select>
 

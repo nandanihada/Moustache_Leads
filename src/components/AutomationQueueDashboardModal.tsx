@@ -151,7 +151,7 @@ export const AutomationQueueDashboardModal: React.FC<{
         });
       }
 
-      const userIds = allUsers.map(u => String(u.user_id));
+      const userIds = allUsers.map(u => String(u.user_id)).filter(id => id && id !== 'undefined' && id !== 'null');
 
       const res = await fetch(`${apiUrl}/api/admin/automation/sync`, {
         method: 'POST',
@@ -161,7 +161,7 @@ export const AutomationQueueDashboardModal: React.FC<{
         },
         body: JSON.stringify({ 
           force_reset: forceReset,
-          user_ids: userIds // Pass only the users currently in the recent activity view
+          user_ids: userIds.length > 0 ? userIds : null
         })
       });
       const data = await res.json();
@@ -280,39 +280,28 @@ export const AutomationQueueDashboardModal: React.FC<{
 
   const mergedQueue = useMemo(() => {
     // START WITH A FILTERED VIEW: Only show users who are in the current dashboard view (Recent Activity)
-    // This ensures parity between the main dashboard and the engine.
-    const dashboardUserIds = new Set(allUsers.map(u => String(u.user_id)));
+    // This ensures perfect parity between the main dashboard and the engine.
+    const queueMap = new Map(queue.map(q => [String(q.user_id), q]));
     
-    // 1. Get users who are in BOTH the backend queue AND the current dashboard view
-    const activeInView = queue.filter(q => dashboardUserIds.has(String(q.user_id)));
-    
-    // 2. Find users who are in the dashboard view but NOT YET in the backend queue (New Discoveries)
-    const existingQueueIds = new Set(activeInView.map(q => String(q.user_id)));
-    const newDiscoveries: any[] = [];
-    
-    allUsers.forEach(u => {
-      // Filter out users who haven't completed signup / don't have an actual user account
-      if (u.status === 'signup_started' || u.activity_type === 'Signup Started' || u.login_method === 'signup') {
-        return;
+    return allUsers.map(u => {
+      const uId = String(u.user_id);
+      const existing = queueMap.get(uId);
+      if (existing) {
+        return existing;
       }
       
-      const uId = String(u.user_id);
-      if (!existingQueueIds.has(uId)) {
-        newDiscoveries.push({
-          user_id: uId,
-          username: u.username || 'Unknown',
-          queue_status: 'active',
-          current_step: 0,
-          next_mail_time: new Date().toISOString(),
-          cooldown_until: '',
-          delivery_status: 'pending',
-          is_new_discovery: true,
-          last_login: u.logs?.[0]?.login_time || new Date().toISOString()
-        });
-      }
+      return {
+        user_id: uId,
+        username: u.username || 'Unknown',
+        queue_status: 'active',
+        current_step: 0,
+        next_mail_time: new Date().toISOString(),
+        cooldown_until: '',
+        delivery_status: 'pending',
+        is_new_discovery: true,
+        last_login: u.logs?.[0]?.login_time || new Date().toISOString()
+      };
     });
-
-    return [...activeInView, ...newDiscoveries];
   }, [queue, allUsers]);
 
   const filteredQueue = useMemo(() => {
@@ -322,7 +311,7 @@ export const AutomationQueueDashboardModal: React.FC<{
       const userId = (item.user_id || '').toLowerCase();
 
       const matchesSearch = username.includes(searchLower) || userId.includes(searchLower);
-      const matchesFilter = filter === 'all' ? (item.queue_status !== 'removed' || (item as any).is_new_discovery) :
+      const matchesFilter = filter === 'all' ? true :
         (filter === 'active' && item.queue_status === 'active') ||
         (filter === 'paused' && item.queue_status === 'paused') ||
         (filter === 'completed' && item.queue_status === 'completed') ||
@@ -343,7 +332,7 @@ export const AutomationQueueDashboardModal: React.FC<{
       const timeB = new Date(b.last_login || 0).getTime();
       return timeB - timeA;
     });
-  }, [queue, search, filter, recentOnly]);
+  }, [mergedQueue, search, filter, recentOnly]);
 
   const getStepBadge = (step: number) => {
     if (step === 0) return <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">Delay Phase</Badge>;
@@ -632,7 +621,7 @@ export const AutomationQueueDashboardModal: React.FC<{
             </div>
             <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 overflow-x-auto custom-scrollbar">
               {(['all', 'active', 'paused', 'pending', 'sent', 'completed', 'removed', 'failed'] as const).map(f => {
-                const count = f === 'all' ? mergedQueue.filter(q => q.queue_status !== 'removed').length :
+                const count = f === 'all' ? mergedQueue.length :
                   f === 'active' ? mergedQueue.filter(q => q.queue_status === 'active').length :
                     f === 'paused' ? mergedQueue.filter(q => q.queue_status === 'paused').length :
                       f === 'pending' ? mergedQueue.filter(q => q.queue_status === 'active' && q.delivery_status === 'pending').length :
@@ -1021,38 +1010,69 @@ export const AutomationQueueDashboardModal: React.FC<{
                           })}
                         </div>
 
-                        <div className="space-y-1 mt-1">
-                          {item.queue_status === 'active' ? (
-                            <div className="bg-indigo-50/50 border border-indigo-100 p-1.5 rounded-lg">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <span className="text-[8px] font-black uppercase text-indigo-500">Next Outreach</span>
-                                <Zap size={8} className="text-indigo-500 fill-indigo-500" />
+                        <div className="space-y-1 mt-1.5 w-full min-w-[200px]">
+                          {[...Array(5)].map((_, idx) => {
+                            const isSent = idx < (item.current_step || 0);
+                            let offerName = 'Matching Best Offer...';
+                            let payoutText = '';
+                            
+                            if (isSent) {
+                              const sentOffer = item.sent_history?.[idx];
+                              if (sentOffer) {
+                                offerName = sentOffer.name;
+                                payoutText = sentOffer.payout_display || (sentOffer.payout ? `$${sentOffer.payout}` : '');
+                              } else {
+                                offerName = `Sent Offer #${idx + 1}`;
+                              }
+                            } else {
+                              const nextIdx = idx - (item.current_step || 0);
+                              const nextOffer = item.next_offers?.[nextIdx];
+                              if (nextOffer) {
+                                offerName = nextOffer.name;
+                                payoutText = nextOffer.payout_display || (nextOffer.payout ? `$${nextOffer.payout}` : '');
+                              }
+                            }
+
+                            const isActiveStep = idx === (item.current_step || 0);
+                            const isPaused = item.queue_status === 'paused';
+
+                            return (
+                              <div
+                                key={idx}
+                                className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${
+                                  isSent
+                                    ? 'bg-emerald-50/70 border-emerald-100 text-emerald-800'
+                                    : isActiveStep
+                                      ? isPaused
+                                        ? 'bg-amber-50 border-amber-100 text-amber-900 font-bold'
+                                        : 'bg-indigo-50 border-indigo-100 text-indigo-900 font-bold shadow-sm'
+                                      : 'bg-slate-50/50 border-slate-100 text-slate-500'
+                                }`}
+                              >
+                                <span className={`flex-shrink-0 flex items-center justify-center w-3.5 h-3.5 rounded text-[8px] font-black border ${
+                                  isSent
+                                    ? 'bg-emerald-100 border-emerald-200 text-emerald-700'
+                                    : isActiveStep
+                                      ? isPaused
+                                        ? 'bg-amber-100 border-amber-200 text-amber-700'
+                                        : 'bg-indigo-100 border-indigo-200 text-indigo-700'
+                                      : 'bg-slate-200 border-slate-300 text-slate-600'
+                                }`}>
+                                  {idx + 1}
+                                </span>
+                                <span className="flex-1 truncate max-w-[130px]" title={offerName}>
+                                  {offerName}
+                                </span>
+                                {payoutText && (
+                                  <span className={`flex-shrink-0 text-[8px] font-bold px-1 rounded ${
+                                    isSent ? 'bg-emerald-100/50 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {payoutText}
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-[10px] font-bold text-indigo-700 truncate">
-                                {item.next_offers?.[0]?.name || 'Matching Best Offer...'}
-                              </div>
-                            </div>
-                          ) : item.queue_status === 'paused' ? (
-                            <div className="bg-amber-50/50 border border-amber-100 p-1.5 rounded-lg">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <span className="text-[8px] font-black uppercase text-amber-500">Paused</span>
-                                <Pause size={8} className="text-amber-500 fill-amber-500" />
-                              </div>
-                              <div className="text-[10px] font-bold text-amber-700 truncate">
-                                Waiting for Resume
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-emerald-50/50 border border-emerald-100 p-1.5 rounded-lg">
-                              <div className="flex items-center justify-between mb-0.5">
-                                <span className="text-[8px] font-black uppercase text-emerald-500">Completed</span>
-                                <CheckCircle2 size={8} className="text-emerald-500" />
-                              </div>
-                              <div className="text-[10px] font-bold text-emerald-700 truncate">
-                                {item.sent_history?.[(item.sent_history?.length || 1) - 1]?.name || 'All Steps Delivered'}
-                              </div>
-                            </div>
-                          )}
+                            );
+                          })}
                         </div>
                       </div>
                     </TableCell>

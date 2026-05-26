@@ -27,33 +27,41 @@ def log_signup_attempt(data: dict, status: str, error_message: str = None):
             ip_address = request.headers.get('X-Real-IP')
         else:
             ip_address = request.remote_addr
-        
         # Get location from IP
-        location = {'city': 'Unknown', 'region': 'Unknown', 'country': 'Unknown', 'country_code': 'XX'}
+        location = {'city': 'Location Unavailable', 'region': 'Location Unavailable', 'country': 'Location Unavailable', 'country_code': 'XX', 'latitude': 0, 'longitude': 0, 'isp': 'Location Unavailable'}
         try:
             from services.ipinfo_service import get_ipinfo_service
             geo_service = get_ipinfo_service()
+            
             ip_data = geo_service.lookup_ip(ip_address)
             
             country_hint = request.headers.get('CF-IPCountry')
             
             if ip_data:
-                country = ip_data.get('country', 'Unknown')
-                country_code = ip_data.get('country_code', 'XX')
+                city = ip_data.get('city') or 'Location Unavailable'
+                region = ip_data.get('region') or 'Location Unavailable'
+                country = ip_data.get('country') or 'Location Unavailable'
+                country_code = ip_data.get('country_code') or 'XX'
+                if city == 'Unknown':
+                    city = 'Location Unavailable'
+                if region == 'Unknown':
+                    region = 'Location Unavailable'
+                if country == 'Unknown':
+                    country = 'Location Unavailable'
                 
                 # Apply hint if IP data is missing country
-                if (country == 'Unknown' or country_code == 'XX') and country_hint and country_hint != 'XX':
+                if (country == 'Location Unavailable' or country_code == 'XX') and country_hint and country_hint != 'XX':
                     country_code = country_hint
                     country = geo_service.country_names.get(country_code, country_code)
                 
                 location = {
-                    'city': ip_data.get('city', 'Unknown'),
-                    'region': ip_data.get('region', 'Unknown'),
+                    'city': city,
+                    'region': region,
                     'country': country,
                     'country_code': country_code,
                     'latitude': ip_data.get('latitude', 0),
                     'longitude': ip_data.get('longitude', 0),
-                    'isp': ip_data.get('isp', 'Unknown')
+                    'isp': ip_data.get('isp') or 'Location Unavailable'
                 }
             elif country_hint and country_hint != 'XX':
                 # Only hint available
@@ -614,6 +622,7 @@ def login():
         
         username = data.get('username', '').strip()
         password = data.get('password', '')
+        public_ip = data.get('public_ip')
         
         if not username:
             return jsonify({'error': 'Username is required'}), 400
@@ -626,18 +635,36 @@ def login():
         user_data = user_model.verify_password(username, password)
         
         if not user_data:
-            # Track failed login attempt
-            failed_user_data = {
-                '_id': username,  # Use username as placeholder
-                'email': username,
-                'username': username
-            }
+            # Track failed login attempt with case-insensitive check
+            import re
+            existing_user = None
+            if user_model.collection is not None:
+                existing_user = user_model.collection.find_one({
+                    '$or': [
+                        {'username': {'$regex': f'^{re.escape(username)}$', '$options': 'i'}},
+                        {'email': {'$regex': f'^{re.escape(username)}$', '$options': 'i'}}
+                    ]
+                })
+            
+            if existing_user:
+                failed_user_data = {
+                    '_id': str(existing_user['_id']),
+                    'email': existing_user.get('email', username),
+                    'username': existing_user.get('username', username)
+                }
+            else:
+                failed_user_data = {
+                    '_id': username,
+                    'email': username,
+                    'username': username
+                }
             activity_tracking_service.track_login_attempt(
                 failed_user_data,
                 request,
                 status='failed',
                 failure_reason='wrong_password',
-                login_method='password'
+                login_method='password',
+                ip_address=public_ip
             )
             return jsonify({'error': 'Invalid username or password'}), 401
         
@@ -649,7 +676,8 @@ def login():
                 request,
                 status='failed',
                 failure_reason='account_deactivated',
-                login_method='password'
+                login_method='password',
+                ip_address=public_ip
             )
             return jsonify({'error': 'Account is deactivated'}), 401
         
@@ -666,7 +694,8 @@ def login():
             user_data,
             request,
             status='success',
-            login_method='password'
+            login_method='password',
+            ip_address=public_ip
         )
 
         # Trigger Automation Engine
@@ -689,7 +718,6 @@ def login():
         # Ensure user has an API key (auto-generate for legacy users)
         api_key = user_data.get('api_key')
         if not api_key:
-            from models.user import User
             _, api_key = user_model.reset_api_key(str(user_data['_id']))
             user_data['api_key'] = api_key
 
@@ -1213,6 +1241,108 @@ def get_all_users():
         
         user_model = User()
         users = user_model.get_all_users_with_status(status_filter)
+        
+        # Enrich users with placements, clicks, and conversions counts
+        try:
+            placements_col = db_instance.get_collection('placements')
+            clicks_col = db_instance.get_collection('clicks')
+            conversions_col = db_instance.get_collection('forwarded_postbacks')
+            login_logs_col = db_instance.get_collection('login_logs')
+            
+            placements_map = {}
+            approved_placements_map = {}
+            if placements_col is not None:
+                pipeline = [
+                    {"$group": {
+                        "_id": { "$ifNull": [ "$publisherId", { "$ifNull": [ "$publisher_id", { "$ifNull": [ "$user_id", "$created_by" ] } ] } ] },
+                        "total": {"$sum": 1},
+                        "approved": {"$sum": {"$cond": [{"$eq": ["$approvalStatus", "APPROVED"]}, 1, 0]}}
+                    }}
+                ]
+                for doc in placements_col.aggregate(pipeline):
+                    pid = str(doc["_id"]) if doc["_id"] else ""
+                    placements_map[pid] = doc["total"]
+                    approved_placements_map[pid] = doc["approved"] > 0
+
+            clicks_map = {}
+            if clicks_col is not None:
+                pipeline = [
+                    {"$group": {
+                        "_id": { "$ifNull": [ "$affiliate_id", "$user_id" ] },
+                        "total": {"$sum": 1}
+                    }}
+                ]
+                for doc in clicks_col.aggregate(pipeline):
+                    pid = str(doc["_id"]) if doc["_id"] else ""
+                    clicks_map[pid] = doc["total"]
+
+            conversions_map = {}
+            if conversions_col is not None:
+                pipeline = [
+                    {"$group": {
+                        "_id": { "$ifNull": [ "$publisher_id", "$user_id" ] },
+                        "total": {"$sum": 1}
+                    }}
+                ]
+                for doc in conversions_col.aggregate(pipeline):
+                    pid = str(doc["_id"]) if doc["_id"] else ""
+                    conversions_map[pid] = doc["total"]
+
+            latest_login_map = {}
+            if login_logs_col is not None:
+                pipeline = [
+                    {"$sort": {"login_time": 1}},
+                    {"$group": {
+                        "_id": "$user_id",
+                        "latest": {"$last": "$login_time"}
+                    }}
+                ]
+                for doc in login_logs_col.aggregate(pipeline):
+                    pid = str(doc["_id"]) if doc["_id"] else ""
+                    latest_login_map[pid] = doc["latest"]
+
+            for u in users:
+                uid_str = str(u.get('_id', ''))
+                username_lower = str(u.get('username', '')).lower()
+                email_lower = str(u.get('email', '')).lower()
+                
+                # Fetch counts by checking ObjectId key, string key, username, and email
+                u['placements_count'] = 0
+                u['has_approved_placement'] = False
+                u['clicks_count'] = 0
+                u['conversions_count'] = 0
+                u['latest_activity'] = None
+                
+                # Placements
+                for key in (uid_str, u.get('username', ''), username_lower, email_lower):
+                    if key in placements_map:
+                        u['placements_count'] = max(u['placements_count'], placements_map[key])
+                    if key in approved_placements_map:
+                        u['has_approved_placement'] = u['has_approved_placement'] or approved_placements_map[key]
+                        
+                # Clicks
+                for key in (uid_str, u.get('username', ''), username_lower, email_lower):
+                    if key in clicks_map:
+                        u['clicks_count'] = max(u['clicks_count'], clicks_map[key])
+                        
+                # Conversions
+                for key in (uid_str, u.get('username', ''), username_lower, email_lower):
+                    if key in conversions_map:
+                        u['conversions_count'] = max(u['conversions_count'], conversions_map[key])
+                        
+                # Latest activity
+                latest_times = []
+                for key in (uid_str, u.get('username', ''), username_lower, email_lower):
+                    if key in latest_login_map and latest_login_map[key]:
+                        latest_times.append(latest_login_map[key])
+                if u.get('created_at'):
+                    latest_times.append(u.get('created_at'))
+                if latest_times:
+                    # Convert datetimes to iso strings for serialization if needed, or let mongdb_to_json handle it
+                    # Just keep it as datetime, Flask handles it or we've handled it elsewhere
+                    u['latest_activity'] = max(latest_times)
+        except Exception as enrich_err:
+            logging.error(f"Error enriching users with placement/click/conv stats: {enrich_err}", exc_info=True)
         
         # Also include advertisers so user pickers show all registered accounts
         try:
@@ -1933,3 +2063,78 @@ def download_agreement(filename):
     except Exception as e:
         logging.error(f"Download agreement error: {str(e)}")
         return jsonify({'error': str(e)}), 500
+
+@auth_bp.route('/admin/users/<user_id>/send-agreement', methods=['POST'])
+@token_required
+def admin_send_agreement(user_id):
+    """Send signed agreement PDF to user via email"""
+    try:
+        admin_user = request.current_user
+        if admin_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+            
+        user_model = User()
+        user = user_model.find_by_id(user_id)
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+            
+        pdf_filename = user.get('signed_agreement_pdf')
+        if not pdf_filename:
+            return jsonify({'error': 'User has not signed the agreement yet'}), 400
+            
+        filepath = os.path.join(os.getcwd(), 'uploads', 'agreements', pdf_filename)
+        if not os.path.exists(filepath):
+            return jsonify({'error': 'Agreement file not found on server'}), 404
+            
+        with open(filepath, 'rb') as f:
+            pdf_data = f.read()
+            
+        email_svc = get_email_verification_service()
+        if not email_svc.is_configured:
+            return jsonify({'error': 'Email service is not configured on server'}), 500
+            
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        
+        data = request.json or {}
+        subject = data.get('subject', 'Your MoustacheLeads Signed Agreement')
+        body_content = data.get('content', '')
+        
+        msg = MIMEMultipart()
+        msg['Subject'] = subject
+        msg['From'] = email_svc.from_email
+        msg['To'] = user.get('email')
+        
+        name = user.get('first_name') or user.get('username') or 'Partner'
+        if not body_content:
+            body_content = f"""
+            <p>Dear {name},</p>
+            <p>Please find attached your signed Publisher Agreement with MoustacheLeads.</p>
+            <p>Thank you for partnering with us!</p>
+            <br/>
+            <p>Best regards,<br/>The MoustacheLeads Team</p>
+            """
+        
+        # Wrap in basic HTML structure
+        body_html = f"<html><body>{body_content}</body></html>"
+        msg.attach(MIMEText(body_html, 'html'))
+        
+        from email.mime.base import MIMEBase
+        from email import encoders
+        
+        part = MIMEBase('application', 'pdf')
+        part.set_payload(pdf_data)
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="{pdf_filename}"')
+        msg.attach(part)
+        
+        success = email_svc._send_smtp(msg)
+        if success:
+            return jsonify({'message': f'Agreement sent successfully to {user.get("email")}'}), 200
+        else:
+            return jsonify({'error': 'Failed to send email'}), 500
+            
+    except Exception as e:
+        logging.error(f"Send agreement email error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+

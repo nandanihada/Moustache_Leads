@@ -30,6 +30,8 @@ export interface SupportMessage {
   read_by_user?: boolean;
   last_read_by_user_at?: string | null;
   last_read_by_admin_at?: string | null;
+  admin_draft?: string;
+  user_draft?: string;
   image_url?: string | null;
   is_broadcast?: boolean;
   is_admin_initiated?: boolean;
@@ -42,6 +44,7 @@ export interface SupportCounts {
   open: number;
   replied: number;
   closed: number;
+  draft?: number;
 }
 
 export const supportApi = {
@@ -176,6 +179,23 @@ export const supportApi = {
       method: 'POST',
       headers: { Authorization: `Bearer ${getAuthToken()}` },
       body: formData,
+    });
+    return res.json();
+  },
+
+  saveDraft: async (messageId: string, draft: string) => {
+    const res = await fetch(`${base()}/api/support/messages/${messageId}/draft`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ draft }),
+    });
+    return res.json();
+  },
+
+  deleteDraft: async (messageId: string) => {
+    const res = await fetch(`${base()}/api/support/messages/${messageId}/draft`, {
+      method: 'DELETE',
+      headers: headers(),
     });
     return res.json();
   },

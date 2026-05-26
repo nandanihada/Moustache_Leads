@@ -5,7 +5,6 @@ Publisher Offers API - Public offers endpoint for publishers
 
 from flask import Blueprint, request, jsonify
 from datetime import datetime, timedelta
-from bson import ObjectId
 from database import db_instance
 from utils.auth import token_required
 from services.access_control_service import AccessControlService
@@ -19,6 +18,116 @@ import re
 publisher_offers_bp = Blueprint('publisher_offers', __name__)
 logger = logging.getLogger(__name__)
 access_service = AccessControlService()
+
+def run_expired_pin_cleanup(offers_col):
+    try:
+        from datetime import datetime
+        # Clean up new schema
+        offers_col.update_many(
+            {
+                'is_pinned': True,
+                'pinEndTime': {'$ne': None, '$lte': datetime.utcnow()}
+            },
+            {
+                '$set': {
+                    'is_pinned': False,
+                    'pinnedPosition': None,
+                    'pinStartTime': None,
+                    'pinEndTime': None,
+                    'pinDuration': None,
+                    'pinStatus': 'expired',
+                    'pinned_at': None,
+                    'pin_expires_at': None
+                }
+            }
+        )
+        # Clean up old schema
+        offers_col.update_many(
+            {
+                'is_pinned': True,
+                'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}
+            },
+            {
+                '$set': {
+                    'is_pinned': False,
+                    'pinnedPosition': None,
+                    'pinStartTime': None,
+                    'pinEndTime': None,
+                    'pinDuration': None,
+                    'pinStatus': 'expired',
+                    'pinned_at': None,
+                    'pin_expires_at': None
+                }
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Error running expired pin cleanup: {e}")
+
+
+def merge_pinned_and_organic_offers(pinned_offers, organic_query, skip_original, limit_original, sort_field, sort_dir, offers_col, projection=None):
+    """
+    Seamlessly merges pinned offers and organic offers using a cinema-seat style
+    fixed-position placement. Pinned offers are placed exactly at pinnedPosition (1-indexed).
+    Organic offers occupy the remaining vacant slots.
+    """
+    pinned_by_pos = {}
+    for po in pinned_offers:
+        pos = po.get('pinnedPosition')
+        if pos is not None:
+            try:
+                pinned_by_pos[int(pos)] = po
+            except (ValueError, TypeError):
+                pass
+
+    start_idx = skip_original
+    end_idx = skip_original + limit_original
+
+    organic_skip = 0
+    organic_limit = 0
+    
+    page_slots = []
+
+    v_idx = 0
+    while len(page_slots) < limit_original:
+        pos = v_idx + 1
+        if pos in pinned_by_pos:
+            if v_idx >= start_idx:
+                page_slots.append(pinned_by_pos[pos])
+        else:
+            if v_idx < start_idx:
+                organic_skip += 1
+            else:
+                organic_limit += 1
+                page_slots.append(None)
+        v_idx += 1
+
+    organic_query = dict(organic_query)
+    organic_query['is_pinned'] = {'$ne': True}
+
+    if projection:
+        if sort_field:
+            organic_docs = list(offers_col.find(organic_query, projection).sort([(sort_field, sort_dir)]).skip(organic_skip).limit(organic_limit))
+        else:
+            organic_docs = list(offers_col.find(organic_query, projection).skip(organic_skip).limit(organic_limit))
+    else:
+        if sort_field:
+            organic_docs = list(offers_col.find(organic_query).sort([(sort_field, sort_dir)]).skip(organic_skip).limit(organic_limit))
+        else:
+            organic_docs = list(offers_col.find(organic_query).skip(organic_skip).limit(organic_limit))
+
+    final_offers = []
+    organic_iter = iter(organic_docs)
+    for slot in page_slots:
+        if slot is not None:
+            final_offers.append(slot)
+        else:
+            try:
+                final_offers.append(next(organic_iter))
+            except StopIteration:
+                break
+
+    return final_offers
+
 
 @publisher_offers_bp.route('/offers/available', methods=['GET', 'OPTIONS'])
 @token_required
@@ -57,28 +166,28 @@ def get_available_offers():
             grant_model = OfferGrant()
             granted_offer_ids = grant_model.get_granted_offer_ids(str(user_id))
         except Exception as grant_err:
-            logger.warning(f"Failed to fetch offer grants (skipping): {grant_err}")
+            logger.warning(f"Failed to fetch offer grants: {grant_err}")
         
-        # Use 'deleted: {$ne: true}' instead of '$or' on deleted field — much more index-friendly
+        query = {
+            '$or': [
+                # Normal: globally active/running/rotating offers
+                {
+                    'status': {'$in': visible_statuses},
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                },
+                # Granted: inactive offers specifically granted to this user
+                *([{
+                    'offer_id': {'$in': granted_offer_ids},
+                    '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
+                }] if granted_offer_ids else [])
+            ]
+        }
+        
+        # Simplify if no grants
         if not granted_offer_ids:
             query = {
                 'status': {'$in': visible_statuses},
-                'deleted': {'$ne': True}
-            }
-        else:
-            query = {
-                '$or': [
-                    # Normal: globally active/running/rotating offers
-                    {
-                        'status': {'$in': visible_statuses},
-                        'deleted': {'$ne': True}
-                    },
-                    # Granted: inactive offers specifically granted to this user
-                    {
-                        'offer_id': {'$in': granted_offer_ids},
-                        'deleted': {'$ne': True}
-                    }
-                ]
+                '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
             }
         
         # Add search if provided
@@ -94,7 +203,7 @@ def get_available_offers():
                 query = {
                     '$and': [
                         {'$or': search_conditions},
-                        {'deleted': {'$ne': True}},
+                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
                         {'$or': [
                             {'status': {'$in': visible_statuses}},
                             {'offer_id': {'$in': granted_offer_ids}},
@@ -104,20 +213,11 @@ def get_available_offers():
             else:
                 query = {
                     'status': {'$in': visible_statuses},
-                    'deleted': {'$ne': True},
-                    '$or': search_conditions
+                    '$and': [
+                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        {'$or': search_conditions}
+                    ]
                 }
-        
-        # Get total count (with timeout protection)
-        try:
-            total = offers_collection.count_documents(query, maxTimeMS=10000)
-        except Exception as count_err:
-            logger.warning(f"Count query timed out, using estimate: {count_err}")
-            # Fallback: estimate based on visible statuses only
-            try:
-                total = offers_collection.count_documents({'status': {'$in': visible_statuses}}, maxTimeMS=5000)
-            except:
-                total = 500  # Safe fallback
         
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
@@ -130,25 +230,37 @@ def get_available_offers():
             'promo_code': 1, 'promo_code_id': 1, 'bonus_amount': 1, 'bonus_type': 1,
             'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1,
             'device_targeting': 1, 'is_pinned': 1,
+            'pinnedPosition': 1, 'pinStartTime': 1, 'pinEndTime': 1, 'pinDuration': 1, 'pinnedBy': 1, 'pinStatus': 1
         }
         
         # Get paginated results with projection
         skip = (page - 1) * per_page
 
-        # Auto-expire pinned offers (run async, don't block the response)
-        # This is a maintenance task, not critical for the response
-        import threading
-        def _expire_pins():
-            try:
-                offers_collection.update_many(
-                    {'is_pinned': True, 'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}},
-                    {'$set': {'is_pinned': False, 'pinned_at': None, 'pin_expires_at': None}}
-                )
-            except Exception:
-                pass
-        threading.Thread(target=_expire_pins, daemon=True).start()
+        # Auto-expire pinned offers whose pinEndTime or pin_expires_at has passed
+        run_expired_pin_cleanup(offers_collection)
 
-        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]).max_time_ms(45000))
+        # Get active pinned offers matching query
+        pinned_query = dict(query)
+        pinned_query['is_pinned'] = True
+        pinned_offers = list(offers_collection.find(pinned_query, projection))
+
+        # Merge using advanced slot positioning
+        offers = merge_pinned_and_organic_offers(
+            pinned_offers=pinned_offers,
+            organic_query=query,
+            skip_original=skip,
+            limit_original=per_page,
+            sort_field='created_at',
+            sort_dir=-1,
+            offers_col=offers_collection,
+            projection=projection
+        )
+
+        # Update total count to be the organic matching count + pinned matching count
+        organic_query = dict(query)
+        organic_query['is_pinned'] = {'$ne': True}
+        total_organic = offers_collection.count_documents(organic_query)
+        total = total_organic + len(pinned_offers)
         
         if not offers:
             # Log search even if no results
@@ -170,27 +282,29 @@ def get_available_offers():
         # BATCH QUERY 1: Get all affiliate_requests for this user and these offers (single query)
         requests_collection = db_instance.get_collection('affiliate_requests')
         
+        # Build query to match both string and ObjectId formats for user_id
         user_id_str = str(user_id)
-        
-        # Simplified query - just check user_id and publisher_id as strings
+        user_query_conditions = [
+            {'user_id': user_id_str},
+            {'user_id': user_id},
+            {'publisher_id': user_id_str},
+            {'publisher_id': user_id}
+        ]
         try:
-            # Query with both ObjectId and string formats since affiliate_requests
-            # may store user_id in either format
-            user_id_queries = [user_id_str]
+            from bson import ObjectId
             if ObjectId.is_valid(user_id_str):
-                user_id_queries.append(ObjectId(user_id_str))
-            
-            user_requests = list(requests_collection.find({
-                'offer_id': {'$in': offer_ids},
-                '$or': [
-                    {'user_id': {'$in': user_id_queries}},
-                    {'publisher_id': {'$in': user_id_queries}}
-                ]
-            }).max_time_ms(10000))
-        except Exception as req_err:
-            logger.warning(f"Affiliate requests query failed: {req_err}")
-            user_requests = []
+                user_obj_id = ObjectId(user_id_str)
+                user_query_conditions.extend([
+                    {'user_id': user_obj_id},
+                    {'publisher_id': user_obj_id}
+                ])
+        except:
+            pass
         
+        user_requests = list(requests_collection.find({
+            'offer_id': {'$in': offer_ids},
+            '$or': user_query_conditions
+        }))
         # Create a lookup dict for O(1) access
         requests_by_offer = {req['offer_id']: req for req in user_requests}
         
@@ -198,10 +312,7 @@ def get_available_offers():
         
         # BATCH QUERY 2: Get user data once (already have it from token, but verify active status)
         users_collection = db_instance.get_collection('users')
-        try:
-            user_data = users_collection.find_one({'_id': user_id}, max_time_ms=5000)
-        except Exception:
-            user_data = None
+        user_data = users_collection.find_one({'_id': user_id})
         user_is_active = user_data.get('is_active', True) if user_data else True
         user_is_premium = (user_data.get('account_type') == 'premium' or user_data.get('is_premium', False)) if user_data else False
         
@@ -337,6 +448,12 @@ def get_available_offers():
                     'lock_reason': lock_reason,
                     'estimated_approval_time': estimated_approval_time,
                     'is_pinned': offer.get('is_pinned', False),
+                    'pinnedPosition': offer.get('pinnedPosition'),
+                    'pinStartTime': offer.get('pinStartTime'),
+                    'pinEndTime': offer.get('pinEndTime'),
+                    'pinDuration': offer.get('pinDuration'),
+                    'pinnedBy': offer.get('pinnedBy'),
+                    'pinStatus': offer.get('pinStatus'),
                 }
                 
                 # Add request status if exists

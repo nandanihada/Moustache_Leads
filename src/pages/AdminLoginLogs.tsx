@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { RefreshCw, CheckCircle, XCircle, ChevronDown, ChevronUp, ExternalLink, Shield, AlertTriangle, Mail } from 'lucide-react';
-import loginLogsService, { LoginLog, PageVisit } from '@/services/loginLogsService';
+import loginLogsService, { LoginLog, PageVisit, convertPlainTextToHtml } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
 import { FraudIndicators } from '@/components/FraudIndicators';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
@@ -65,7 +65,7 @@ const AdminLoginLogs: React.FC = () => {
             await loginLogsService.sendCustomMail(
                 toList,
                 mailConfig.subject,
-                finalBody.replace(/\n/g, '<br/>'),
+                convertPlainTextToHtml(finalBody),
                 mailConfig.isScheduled && mailConfig.scheduledTime ? new Date(mailConfig.scheduledTime).toISOString() : undefined
             );
             toast({ title: 'Success', description: 'Mail executed successfully!' });

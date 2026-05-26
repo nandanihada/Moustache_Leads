@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -50,8 +50,10 @@ const getDisplayLocation = (user: any) => {
   const city = user.city || user.location?.city;
   const country = user.country || user.location?.country || user.country_code || user.location?.country_code;
 
-  if (city && country && city !== 'Unknown' && country !== 'Unknown') return `${city}, ${country}`;
-  if (country && country !== 'Unknown') {
+  const isValidVal = (val: any) => val && val !== 'Unknown' && val !== 'Tracking...' && val !== 'Location Tracking...' && val !== 'Location Unavailable' && val !== 'XX';
+
+  if (isValidVal(city) && isValidVal(country)) return `${city}, ${country}`;
+  if (isValidVal(country)) {
     if (country.length === 2) {
       try {
         const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -60,12 +62,12 @@ const getDisplayLocation = (user: any) => {
     }
     return country;
   }
-  if (city && city !== 'Unknown') return city;
+  if (isValidVal(city)) return city;
 
   // 2. Intelligence Geos (Top detected geos)
   if (user.intelligence_geos && user.intelligence_geos.length > 0) {
     const topGeo = user.intelligence_geos[0];
-    if (topGeo && topGeo !== 'Unknown' && topGeo !== 'XX') {
+    if (isValidVal(topGeo)) {
       if (topGeo.length === 2) {
         try {
           const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -84,7 +86,7 @@ const getDisplayLocation = (user: any) => {
     if (ip.startsWith('106.') || ip.startsWith('115.') || ip.startsWith('122.')) return 'India';
   }
 
-  return "Unknown";
+  return "Location Unavailable";
 };
 
 const getVerticalsArray = (user: any): string[] => {
@@ -96,24 +98,29 @@ const getVerticalsArray = (user: any): string[] => {
   return Array.isArray(raw) ? raw : [raw];
 };
 
+// Global session memory cache for sub-millisecond instant loads in Support Hub Outreach modal
+const globalSupportOffersCache: Record<string, { matchedOffers: any[], automationQueueItem: any }> = {};
+
 export const SupportHubContent: React.FC<{
   onClose?: () => void;
   initialUsers?: any[];
   initialSelectedIds?: Set<string>;
+  onSelectionChange?: (selectedIds: Set<string>) => void;
   apiUrl?: string;
   className?: string;
-}> = ({ onClose, initialUsers, initialSelectedIds, apiUrl, className }) => {
+}> = ({ onClose, initialUsers, initialSelectedIds, onSelectionChange, apiUrl, className }) => {
   const BASE_API_URL = apiUrl || import.meta.env.VITE_API_URL || 'http://localhost:5000';
   const [activeTab, setActiveTab] = useState('explorer');
   const [inboxFilter, setInboxFilter] = useState<'all' | 'replies'>('replies');
   const [loading, setLoading] = useState(true);
   const { user: currentUser } = useAuth();
   const [allSupportUsers, setAllSupportUsers] = useState<any[]>(initialUsers || []);
-  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(() => initialSelectedIds ? new Set(initialSelectedIds) : new Set());
   const [templates, setTemplates] = useState<SupportTemplate[]>([]);
   const [conversations, setConversations] = useState<SupportConversation[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [initialFilterActive, setInitialFilterActive] = useState(!!initialUsers);
+  const [initialSelectionSynced, setInitialSelectionSynced] = useState(false);
   const [channelConnections, setChannelConnections] = useState<Record<string, boolean>>({
     'Telegram': false,
     'Teams': false,
@@ -123,7 +130,7 @@ export const SupportHubContent: React.FC<{
 
   const toggleSelectAll = () => {
     // Check if ALL currently filtered users are already selected
-    const allFilteredSelected = filteredUsers.length > 0 && 
+    const allFilteredSelected = filteredUsers.length > 0 &&
       filteredUsers.every(u => selectedUsers.has(String(u.user_id || u._id)));
 
     if (allFilteredSelected) {
@@ -141,7 +148,12 @@ export const SupportHubContent: React.FC<{
         return next;
       });
     }
-  };
+  };  // Notify parent of selection changes to prevent layout re-renders from clearing state
+  useEffect(() => {
+    if (onSelectionChange) {
+      onSelectionChange(selectedUsers);
+    }
+  }, [selectedUsers, onSelectionChange]);
 
   useEffect(() => {
     if (initialUsers) {
@@ -176,7 +188,12 @@ export const SupportHubContent: React.FC<{
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [previewSamples, setPreviewSamples] = useState<any[]>([]);
   const [userQueueItems, setUserQueueItems] = useState<OfferQueueItem[]>([]);
-  const [selectedQueueOfferIds, setSelectedQueueOfferIds] = useState<Set<string>>(new Set());
+  const [previewIdx, setPreviewIdx] = useState(0);
+  const [userSelectedOfferIds, setUserSelectedOfferIds] = useState<Record<string, Set<string>>>({});
+  const currentUserId = Array.from(selectedUsers)[previewIdx] || '';
+  const currentSelectedOfferIds = useMemo(() => {
+    return userSelectedOfferIds[currentUserId] || new Set<string>();
+  }, [userSelectedOfferIds, currentUserId]);
   const [visibleFields, setVisibleFields] = useState({
     payout: true,
     vertical: true,
@@ -184,7 +201,6 @@ export const SupportHubContent: React.FC<{
     description: false
   });
 
-  const [previewIdx, setPreviewIdx] = useState(0);
   const [personalOverrides, setPersonalOverrides] = useState<Record<string, { subject: string; body: string }>>({});
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set());
   const [emailSubject, setEmailSubject] = useState('Recommended Offers');
@@ -194,87 +210,113 @@ export const SupportHubContent: React.FC<{
   const [matchedOffers, setMatchedOffers] = useState<any[]>([]);
   const [isLoadingMatched, setIsLoadingMatched] = useState(false);
   const lastUserRef = useRef<string | null>(null);
-
+  const [sendingOffersMap, setSendingOffersMap] = useState<Record<string, boolean>>({});
   const combinedOffers = useMemo(() => {
     const selectedIdsArr = Array.from(selectedUsers);
     const currentUserId = selectedIdsArr[previewIdx];
-    
-    // Combine queue items, intelligence matched offers, and BACKEND automation offers for ALL SELECTED USERS
+    if (!currentUserId) return [];
+   
+    // Combine queue items, intelligence matched offers, and BACKEND automation offers for the CURRENT PREVIEW USER ONLY
     const offers: any[] = [];
     const seenOfferUserKeys = new Set<string>();
 
-    // 1. Add Frontend Queue Items for all selected users
+    // 1. Add Frontend Queue Items for the CURRENT user
     userQueueItems.forEach(q => {
-      if (selectedUsers.has(String(q.userId)) && q.status === 'queued') {
+      if (String(q.userId) === String(currentUserId) && q.status === 'queued') {
         const offerId = q.offerId || q.id;
         if (offerId && !seenOfferUserKeys.has(String(offerId))) {
           seenOfferUserKeys.add(String(offerId));
           offers.push({
             ...q,
-            id: String(offerId)
+            id: String(offerId),
+            categoryKey: 'queue'
           });
         }
       }
     });
 
-    // 2. Add Backend Automation Offers for all selected users
-    selectedIdsArr.forEach(uId => {
-      const autoItem = automationQueue.find(q => String(q.user_id) === uId);
-      const userProfile = allSupportUsers.find(u => String(u.user_id || u._id) === uId);
-      
-      if (autoItem?.next_offers && Array.isArray(autoItem.next_offers)) {
-        autoItem.next_offers.forEach((o: any) => {
-          const offerId = o.id || o.offer_id;
-          if (offerId && !seenOfferUserKeys.has(String(offerId))) {
-            seenOfferUserKeys.add(String(offerId));
-            offers.push({
-              ...o,
-              id: String(offerId),
-              userId: uId,
-              username: userProfile?.username || 'User',
-              offerId: String(offerId),
-              offerName: o.name || o.offer_name || 'Automation Offer',
-              payout: o.payout,
-              vertical: o.vertical || o.category || 'Global',
-              status: 'queued',
-              isBackendAuto: true,
-              sendMode: 'combined',
-              addedAt: Date.now(),
-              scheduledTime: Date.now(),
-              matchScore: 100 // Priority
-            });
-          }
-        });
-      }
-    });
-
-    // 3. Add Intelligence Matches for the CURRENT preview user (for precision)
-    matchedOffers.forEach(mo => {
-      const offerId = mo.id || mo.offer_id;
-      if (offerId && !seenOfferUserKeys.has(String(offerId))) {
-        seenOfferUserKeys.add(String(offerId));
-        offers.push({
-          ...mo,
-          id: String(offerId),
-          userId: String(currentUserId),
-          username: allSupportUsers.find(u => String(u.user_id || u._id) === String(currentUserId))?.username || 'User',
-          offerId: String(offerId),
-          offerName: mo.offerName || mo.name || mo.offer_name || 'Matched Offer',
-          payout: mo.payout,
-          vertical: mo.category || mo.vertical || 'Global',
-          status: 'queued',
-          isIntelligence: true,
-          sendMode: 'combined',
-          addedAt: Date.now(),
-          scheduledTime: Date.now()
-        });
-      }
-    });
-
-    // Final sorting to ensure Backend/Priority is at top
+    // 2. Add Backend Automation Offers for the CURRENT user
+    const autoItem = automationQueue.find(q => String(q.user_id) === String(currentUserId));
+    const userProfile = allSupportUsers.find(u => String(u.user_id || u._id) === String(currentUserId));
+    
+    if (autoItem?.next_offers && Array.isArray(autoItem.next_offers)) {
+      autoItem.next_offers.forEach((o: any) => {
+        const offerId = o.id || o.offer_id;
+        if (offerId && !seenOfferUserKeys.has(String(offerId))) {
+          seenOfferUserKeys.add(String(offerId));
+          offers.push({
+            ...o,
+            id: String(offerId),
+            userId: String(currentUserId),
+            username: userProfile?.username || 'User',
+            offerId: String(offerId),
+            offerName: o.name || o.offer_name || 'Automation Offer',
+            payout: o.payout,
+            vertical: o.vertical || o.category || 'Global',
+            status: 'queued',
+            isBackendAuto: true,
+            sendMode: 'combined',
+            addedAt: Date.now(),
+            scheduledTime: Date.now(),
+            matchScore: 100, // Priority
+            categoryKey: 'queue'
+          });
+        }
+      });
+    }    // Final sorting to ensure Backend/Priority is at top
     offers.sort((a, b) => ((b as any).matchScore || 0) - ((a as any).matchScore || 0));
     return offers;
-  }, [userQueueItems, automationQueue, matchedOffers, selectedUsers, previewIdx, allSupportUsers]);
+  }, [userQueueItems, automationQueue, selectedUsers, previewIdx, allSupportUsers, currentAutomationItem]);
+
+  const getQueueOffersForUser = useCallback((userId: string) => {
+    const offers: any[] = [];
+    const seen = new Set<string>();
+
+    userQueueItems.forEach(q => {
+      if (String(q.userId) === String(userId) && q.status === 'queued') {
+        const offerId = q.offerId || q.id;
+        if (offerId && !seen.has(String(offerId))) {
+          seen.add(String(offerId));
+          offers.push({
+            ...q,
+            id: String(offerId),
+            categoryKey: 'queue'
+          });
+        }
+      }
+    });
+
+    const autoItem = automationQueue.find(q => String(q.user_id) === String(userId));
+    const userProfile = allSupportUsers.find(u => String(u.user_id || u._id) === String(userId));
+    if (autoItem?.next_offers && Array.isArray(autoItem.next_offers)) {
+      autoItem.next_offers.forEach((o: any) => {
+        const offerId = o.id || o.offer_id;
+        if (offerId && !seen.has(String(offerId))) {
+          seen.add(String(offerId));
+          offers.push({
+            ...o,
+            id: String(offerId),
+            userId: String(userId),
+            username: userProfile?.username || 'User',
+            offerId: String(offerId),
+            offerName: o.name || o.offer_name || 'Automation Offer',
+            payout: o.payout,
+            vertical: o.vertical || o.category || 'Global',
+            status: 'queued',
+            isBackendAuto: true,
+            sendMode: 'combined',
+            addedAt: Date.now(),
+            scheduledTime: Date.now(),
+            matchScore: 100,
+            categoryKey: 'queue'
+          });
+        }
+      });
+    }
+
+    offers.sort((a, b) => ((b as any).matchScore || 0) - ((a as any).matchScore || 0));
+    return offers;
+  }, [userQueueItems, automationQueue, allSupportUsers]);
 
   // Load queue items, intelligence-matched offers, and backend automation state for selected users
   useEffect(() => {
@@ -296,12 +338,30 @@ export const SupportHubContent: React.FC<{
         setUserQueueItems(q);
 
         const token = localStorage.getItem('token');
-        
+       
         // Prepare initial selection for NEW users only
         const userOffers = q.filter(item => String(item.userId) === String(currentUserId) && item.status === 'queued');
         const initialSelected = new Set(userOffers.map(o => String(o.id || o.offerId)));
 
         const currentUserProfile = allSupportUsers.find(u => String(u.user_id || u._id) === String(currentUserId));
+
+        // Check global session cache first for instant sub-millisecond loads!
+        if (globalSupportOffersCache[currentUserId]) {
+          const cached = globalSupportOffersCache[currentUserId];
+          setMatchedOffers(cached.matchedOffers);
+          setCurrentAutomationItem(cached.automationQueueItem);
+          setIsLoadingMatched(false);
+          if (isNewUser) {
+            setUserSelectedOfferIds(prev => {
+              if (prev[currentUserId]) return prev;
+              const initial = new Set(initialSelected);
+              const backendOffers = cached.automationQueueItem?.next_offers || [];
+              backendOffers.forEach((o: any) => initial.add(String(o.id || o.offer_id)));
+              return { ...prev, [currentUserId]: initial };
+            });
+          }
+          return;
+        }
 
           // Fetch intelligence matched offers, Backend Automation state, and User Signals in parallel
           setIsLoadingMatched(true);
@@ -312,17 +372,15 @@ export const SupportHubContent: React.FC<{
               setCurrentAutomationItem(globalAutoItem);
             }
 
-            const [intelRes, autoRes, signalsRes, viewsRes, fallbackRes] = await Promise.all([
+            const [intelRes, autoRes, viewsRes] = await Promise.all([
               loginLogsService.getInventoryMatchedOffers(currentUserId).catch(() => ({})),
               fetch(`${BASE_API_URL}/api/admin/automation/queue/${currentUserId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
               }).then(r => r.json()).catch(() => ({ item: null })),
-              loginLogsService.getUserSignals(currentUserId, currentUserProfile?.username || '', currentUserProfile?.email || '').catch(() => null),
-              loginLogsService.getOfferViews(currentUserId).catch(() => ({ logs: [] })),
-              adminOfferApi.getOffers({ status: 'active', per_page: 6 }).catch(() => ({ offers: [] }))
+              loginLogsService.getOfferViews(currentUserId).catch(() => ({ logs: [] }))
             ]);
 
-            if (!active) return; 
+            if (!active) return;
 
             let currentSessionVerticals = null;
             if (viewsRes?.logs && viewsRes.logs.length > 0) {
@@ -341,14 +399,14 @@ export const SupportHubContent: React.FC<{
             }
 
             // Extract vertical preferences for boosting - Use a Set for O(1) lookups
-            const verticalData = currentSessionVerticals || (signalsRes?.top_verticals?.length > 0 ? signalsRes.top_verticals : [{name: currentUserProfile?.verticals?.[0] || 'Unknown', value: 100}]);
+            const verticalData = currentSessionVerticals || [{name: currentUserProfile?.verticals?.[0] || 'Unknown', value: 100}];
             const topCats = new Set(verticalData.slice(0, 2).map((v: any) => (v.name || '').toLowerCase()));
             const allKnownCats = new Set(verticalData.map((v: any) => (v.name || '').toLowerCase()));
 
             // Handle Intelligence Matches (Normalized like UserIntelligenceProfile)
             const matched: any[] = [];
             const seenIds = new Set();
-            
+           
             // PRIORITY: Use backend automation queue (Next steps in the cycle)
             const queueItems = (autoRes.item?.next_offers || globalAutoItem?.next_offers || []);
             if (Array.isArray(queueItems)) {
@@ -356,22 +414,24 @@ export const SupportHubContent: React.FC<{
                 const id = o.offer_id || o._id || o.id;
                 if (id && !seenIds.has(id)) {
                   seenIds.add(id);
-                  matched.push({ 
-                    ...o, 
+                  matched.push({
+                    ...o,
                     id: id,
                     offer_id: id,
                     offerName: o.name || o.offer_name || 'Automation Offer',
-                    source: 'Automation Queue', 
+                    source: 'Automation Queue',
                     matchScore: 100, // Top priority
-                    isBackend: true 
+                    isBackend: true,
+                    categoryKey: 'queue'
                   });
                 }
               });
             }
-
             const addSection = (sectionName: string, sourceLabel: string, baseScore: number) => {
               if (intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
-                intelRes[sectionName].forEach((o: any, idx: number) => {
+                let addedCount = 0;
+                for (let idx = 0; idx < intelRes[sectionName].length; idx++) {
+                  const o = intelRes[sectionName][idx];
                   const id = o.offer_id || o._id || o.id;
                   if (!seenIds.has(id)) {
                     seenIds.add(id);
@@ -394,19 +454,23 @@ export const SupportHubContent: React.FC<{
                       offerName: o.name || o.offer_name || 'Matched Offer',
                       matchScore: matchScore,
                       source: sourceLabel,
-                      isIntelligenceMatch: true
+                      isIntelligenceMatch: true,
+                      categoryKey: sectionName
                     });
+                    addedCount++;
                   }
-                });
+                }
               }
             };
 
             // Standard sections from loginLogsService.getInventoryMatchedOffers
-            addSection('most_approved', 'Most Approved', 98);
-            addSection('newly_added', 'Newly Added', 91);
-            addSection('highly_clicked', 'Highly Clicked', 87);
-            addSection('recently_edited', 'Recently Edited', 79);
-            addSection('recently_deleted', 'Clearance', 74);
+            addSection('recommended_offers', 'Recommended Offers', 99);
+            addSection('recently_edited', 'Recommended Offers', 99);
+            addSection('most_approved', 'Most Approved Offers', 98);
+            addSection('highly_clicked', 'Most Clicked Offers', 87);
+            addSection('requested_offers', 'Requested Offers', 85);
+            addSection('recently_deleted', 'Requested Offers', 85);
+            addSection('newly_added', 'Newly Added Offers', 91);
 
             // Fallback for generic 'offers' or 'matched_offers' keys
             const genericOffers = intelRes.matched_offers || intelRes.offers || [];
@@ -422,26 +486,8 @@ export const SupportHubContent: React.FC<{
                     offerName: o.name || o.offer_name || 'Matched Offer',
                     matchScore: o.matchScore || 85,
                     source: 'AI Recommendation',
-                    isIntelligenceMatch: true
-                  });
-                }
-              });
-            }
-
-            // Fallback to pre-fetched global offers if nothing was matched
-            if (matched.length === 0 && fallbackRes?.offers) {
-              fallbackRes.offers.forEach((o: any) => {
-                const id = o._id || o.id;
-                if (!seenIds.has(id)) {
-                  seenIds.add(id);
-                  matched.push({
-                    ...o,
-                    id: id,
-                    offer_id: id,
-                    offerName: o.name || o.offer_name || 'Global Offer',
-                    matchScore: 50,
-                    source: 'Global Match',
-                    isIntelligenceMatch: true
+                    isIntelligenceMatch: true,
+                    categoryKey: 'ai_recommendation'
                   });
                 }
               });
@@ -449,13 +495,32 @@ export const SupportHubContent: React.FC<{
 
             if (!active) return;
 
-            // Sort by match score and limit to top 6
+            // Sort by match score
             matched.sort((a, b) => b.matchScore - a.matchScore);
-            setMatchedOffers(matched.slice(0, 6));
+            setMatchedOffers(matched);
 
             // Handle Backend Automation Item
             const autoItem = autoRes.item || globalAutoItem;
             setCurrentAutomationItem(autoItem);
+
+            if (autoRes.item) {
+              setAutomationQueue(prev => {
+                const index = prev.findIndex(q => String(q.user_id) === String(currentUserId));
+                if (index !== -1) {
+                  const updated = [...prev];
+                  updated[index] = { ...updated[index], ...autoRes.item };
+                  return updated;
+                } else {
+                  return [...prev, autoRes.item];
+                }
+              });
+            }
+
+            // Store in global session cache for instant sub-millisecond loads next time!
+            globalSupportOffersCache[currentUserId] = {
+              matchedOffers: matched,
+              automationQueueItem: autoItem
+            };
 
             // If backend has assigned offers, add them to selected by default if they are the primary target
             if (autoItem && autoItem.next_offers && autoItem.next_offers.length > 0) {
@@ -474,7 +539,10 @@ export const SupportHubContent: React.FC<{
               setIsLoadingMatched(false);
               // ONLY reset selection if it's a new user switch
               if (isNewUser) {
-                setSelectedQueueOfferIds(initialSelected);
+                setUserSelectedOfferIds(prev => {
+                  if (prev[currentUserId]) return prev;
+                  return { ...prev, [currentUserId]: initialSelected };
+                });
               }
             }
           }
@@ -526,18 +594,21 @@ export const SupportHubContent: React.FC<{
     // Robust Placeholder Replacement (handles {user}, {{user}}, [user], [USER], etc.)
     body = body.replace(/{user}|{{user}}|\[user\]/gi, u.username || "User");
     body = body.replace(/{location}|{{location}}|\[location\]/gi, u.city || u.country || "your area");
-    
+   
     const v = Array.isArray(u.verticals) ? u.verticals[0] : (u.verticals || u.vertical || "");
     body = body.replace(/{vertical}|{{vertical}}|\[vertical\]/gi, v || "exclusive");
 
     // Strategy based hooks are now handled by the caller or passed in templateBody
-    
+   
     // Color-coded categorization logic:
     // 1. Purple (Intelligence Matches) -> Show directly in mail
     // 2. Yellow (Automation/Queued) -> Show under "See More"
-    
-    const primaryOffers = intelOffers.filter(mo => 
-      selectedQueueOfferIds.has(String(mo.id || mo.offer_id))
+   
+    const uId = String(u.user_id || u._id || '');
+    const currentSelected = userSelectedOfferIds[uId] || new Set();
+
+    const primaryOffers = intelOffers.filter(mo =>
+      currentSelected.has(String(mo.id || mo.offer_id))
     ).map(mo => {
       let text = `[${mo.offerName || mo.name || mo.offer_name}]`;
       if (visibleFields.payout) text += ` - $${mo.payout || 'Premium'}`;
@@ -545,8 +616,8 @@ export const SupportHubContent: React.FC<{
       return text;
     });
 
-    const secondaryOffers = autoOffers.filter((o: any) => 
-      selectedQueueOfferIds.has(String(o.id || o.offer_id))
+    const secondaryOffers = autoOffers.filter((o: any) =>
+      currentSelected.has(String(o.id || o.offer_id))
     ).map((o: any) => {
       let text = `[${o.name || o.offer_name}]`;
       if (visibleFields.payout) text += ` - $${o.payout || 'Premium'}`;
@@ -558,7 +629,7 @@ export const SupportHubContent: React.FC<{
     if (primaryOffers.length > 0) {
       offerText = primaryOffers.join(', ');
     }
-    
+   
     if (secondaryOffers.length > 0) {
       const secondaryDisplay = secondaryOffers.join(', ');
       if (offerText) {
@@ -618,7 +689,7 @@ export const SupportHubContent: React.FC<{
     try {
       const token = localStorage.getItem('token');
       const userIds = allSelected ? Array.from(selectedUsers) : [Array.from(selectedUsers)[previewIdx]];
-      
+     
       const promises = userIds.map(uId => {
         const personal = personalOverrides[uId] || { subject: emailSubject, body: editingTemplateBody };
         return fetch(`${BASE_API_URL}/api/admin/automation/override`, {
@@ -632,11 +703,11 @@ export const SupportHubContent: React.FC<{
           }),
         });
       });
-      
+     
       await Promise.all(promises);
-      toast({ 
-        title: 'Content Saved', 
-        description: `Subject and message persisted for ${userIds.length} user(s) into their automation flow.` 
+      toast({
+        title: 'Content Saved',
+        description: `Subject and message persisted for ${userIds.length} user(s) into their automation flow.`
       });
     } catch (e) {
       toast({ title: 'Error', description: 'Failed to save to automation queue', variant: 'destructive' });
@@ -715,9 +786,9 @@ export const SupportHubContent: React.FC<{
           const userAuto = automationQueue.find(q => String(q.user_id) === String(uId));
           const hookText = activeStrategyHook || supportSettings.strategy_hooks?.[selectedMessageType] || '';
           const personalizedBody = getPreview(
-            `${hookText} ${bodyText}`, 
-            user, 
-            user?.inventory_matched_offers || [], 
+            `${hookText} ${bodyText}`,
+            user,
+            user?.inventory_matched_offers || [],
             userAuto?.next_offers || []
           );
 
@@ -844,7 +915,7 @@ export const SupportHubContent: React.FC<{
       const templatesRes = await supportHubService.getTemplates().catch(() => []);
       const templatesList = Array.isArray(templatesRes) ? templatesRes : [];
       setTemplates(templatesList);
-      
+     
       // Auto-select first template if none selected
       if (templatesList.length > 0 && !selectedTemplateId) {
         setSelectedTemplateId(templatesList[0]._id);
@@ -896,10 +967,10 @@ export const SupportHubContent: React.FC<{
       }
 
       // If initialUsers were provided (e.g. from dashboard), set the correct selection state
-      if (initialUsers && initialFilterActive) {
+      if (initialUsers && initialFilterActive && !initialSelectionSynced) {
         console.log(`Support Hub: Syncing with dashboard state (${initialUsers.length} users)`);
-        
-        // If specific selected IDs were passed, use those. 
+       
+        // If specific selected IDs were passed, use those.
         if (initialSelectedIds && initialSelectedIds.size > 0) {
           setSelectedUsers(new Set(initialSelectedIds));
         } else if (initialUsers.length === 1) {
@@ -909,9 +980,13 @@ export const SupportHubContent: React.FC<{
         } else {
           // If we came from the dashboard with multiple users but NO explicit selection,
           // default to NO selection instead of selecting all (prevents user surprise)
-          setSelectedUsers(new Set());
+          // Do not overwrite runtime selection on refresh.
+          if (selectedUsers.size === 0) {
+            setSelectedUsers(new Set());
+          }
         }
         setInitialFilterActive(true);
+        setInitialSelectionSynced(true);
       }
 
       setAllSupportUsers(finalUsers);
@@ -955,12 +1030,12 @@ export const SupportHubContent: React.FC<{
 
         const userAuto = automationQueue.find(q => String(q.user_id) === uId);
         const hookText = activeStrategyHook || supportSettings.strategy_hooks?.[selectedMessageType] || '';
-        
+       
         const override = personalOverrides[uId];
         const personalized = override ? override.body : getPreview(
-          `${hookText} ${activeTemplate?.body || ''}`, 
-          user, 
-          user?.inventory_matched_offers || [], 
+          `${hookText} ${activeTemplate?.body || ''}`,
+          user,
+          user?.inventory_matched_offers || [],
           userAuto?.next_offers || []
         );
         const subject = override ? override.subject : (activeTemplate?.subject || 'Recommended Offers');
@@ -970,7 +1045,8 @@ export const SupportHubContent: React.FC<{
           email: user.email || 'No email',
           channel: Array.from(selectedUsers).length > 1 ? 'Bulk' : 'Single',
           personalized,
-          subject
+          subject,
+          userId: uId
         });
       }
 
@@ -1004,6 +1080,204 @@ export const SupportHubContent: React.FC<{
     });
   };
 
+  const refreshMatchedOffersForUser = async (userId: string) => {
+    const token = localStorage.getItem('token');
+    const currentUserProfile = allSupportUsers.find(u => String(u.user_id || u._id) === String(userId));
+    if (!currentUserProfile) return;
+    
+    setIsLoadingMatched(true);
+    try {
+      const globalAutoItem = automationQueue.find(q => String(q.user_id) === String(userId));
+       const [intelRes, autoRes, viewsRes] = await Promise.all([
+        loginLogsService.getInventoryMatchedOffers(userId).catch(() => ({})),
+        fetch(`${BASE_API_URL}/api/admin/automation/queue/${userId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json()).catch(() => ({ item: null })),
+        loginLogsService.getOfferViews(userId).catch(() => ({ logs: [] }))
+      ]);
+
+      let currentSessionVerticals = null;
+      if (viewsRes?.logs && viewsRes.logs.length > 0) {
+        const verticalCounts: Record<string, number> = {};
+        viewsRes.logs.forEach((log: any) => {
+          const vertical = (log.vertical || 'Unknown').toLowerCase();
+          verticalCounts[vertical] = (verticalCounts[vertical] || 0) + 1;
+        });
+        const sessionVerts = Object.keys(verticalCounts).map(name => ({
+          name: name.charAt(0).toUpperCase() + name.slice(1),
+          value: verticalCounts[name]
+        })).sort((a, b) => b.value - a.value);
+        if (sessionVerts.length > 0) {
+          currentSessionVerticals = sessionVerts.slice(0, 5);
+        }
+      }
+
+      const verticalData = currentSessionVerticals || [{name: currentUserProfile?.verticals?.[0] || 'Unknown', value: 100}];
+      const topCats = new Set(verticalData.slice(0, 2).map((v: any) => (v.name || '').toLowerCase()));
+      const allKnownCats = new Set(verticalData.map((v: any) => (v.name || '').toLowerCase()));
+
+      const matched: any[] = [];
+      const seenIds = new Set();
+      
+      const queueItems = (autoRes.item?.next_offers || globalAutoItem?.next_offers || []);
+      if (Array.isArray(queueItems)) {
+        queueItems.forEach((o: any) => {
+          const id = o.offer_id || o._id || o.id;
+          if (id && !seenIds.has(id)) {
+            seenIds.add(id);
+            matched.push({
+              ...o,
+              id: id,
+              offer_id: id,
+              offerName: o.name || o.offer_name || 'Automation Offer',
+              source: 'Automation Queue',
+              matchScore: 100,
+              isBackend: true,
+              categoryKey: 'queue'
+            });
+          }
+        });
+      }
+
+      const addSection = (sectionName: string, sourceLabel: string, baseScore: number) => {
+        if (intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
+          let addedCount = 0;
+          for (let idx = 0; idx < intelRes[sectionName].length; idx++) {
+            const o = intelRes[sectionName][idx];
+            const id = o.offer_id || o._id || o.id;
+            if (!seenIds.has(id)) {
+              seenIds.add(id);
+              
+              let matchScore = Math.max(50, baseScore - (idx * 4));
+              if (allKnownCats.size > 0) {
+                const offerCat = (o.category || o.vertical || '').toLowerCase();
+                if (offerCat && topCats.has(offerCat)) {
+                  matchScore = Math.min(99, matchScore + 15);
+                } else if (offerCat && allKnownCats.has(offerCat)) {
+                  matchScore = Math.min(99, matchScore + 5);
+                }
+              }
+
+              matched.push({
+                ...o,
+                id: id,
+                offer_id: id,
+                offerName: o.name || o.offer_name || 'Matched Offer',
+                matchScore: matchScore,
+                source: sourceLabel,
+                isIntelligenceMatch: true,
+                categoryKey: sectionName
+              });
+              addedCount++;
+            }
+          }
+        }
+      };
+
+      addSection('recommended_offers', 'Recommended Offers', 99);
+      addSection('recently_edited', 'Recommended Offers', 99);
+      addSection('most_approved', 'Most Approved Offers', 98);
+      addSection('highly_clicked', 'Most Clicked Offers', 87);
+      addSection('requested_offers', 'Requested Offers', 85);
+      addSection('recently_deleted', 'Requested Offers', 85);
+      addSection('newly_added', 'Newly Added Offers', 91);
+
+      const genericOffers = intelRes.matched_offers || intelRes.offers || [];
+      if (Array.isArray(genericOffers)) {
+        genericOffers.forEach((o: any) => {
+          const id = o.offer_id || o._id || o.id;
+          if (!seenIds.has(id)) {
+            seenIds.add(id);
+            matched.push({
+              ...o,
+              id: id,
+              offer_id: id,
+              offerName: o.name || o.offer_name || 'Matched Offer',
+              matchScore: o.matchScore || 85,
+              source: 'AI Recommendation',
+              isIntelligenceMatch: true,
+              categoryKey: 'ai_recommendation'
+            });
+          }
+        });
+      }
+
+      matched.sort((a, b) => b.matchScore - a.matchScore);
+      setMatchedOffers(matched);
+
+      const autoItem = autoRes.item || globalAutoItem;
+      if (autoItem) {
+        setCurrentAutomationItem(autoItem);
+      }
+
+      // Update global session cache with refreshed data
+      globalSupportOffersCache[userId] = {
+        matchedOffers: matched,
+        automationQueueItem: autoItem
+      };
+
+      // Re-initialize selections to match the fresh queue status
+      setUserSelectedOfferIds(prev => {
+        const initial = new Set<string>();
+        const freshQ = offerQueueService.getQueue();
+        const userOffers = freshQ.filter(item => String(item.userId) === String(userId) && item.status === 'queued');
+        userOffers.forEach(o => initial.add(String(o.offerId || o.id)));
+        const backendOffers = autoItem?.next_offers || [];
+        backendOffers.forEach((o: any) => initial.add(String(o.id || o.offer_id)));
+        return { ...prev, [userId]: initial };
+      });
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoadingMatched(false);
+    }
+  };
+
+  const handleSendOffersFlow = async (userId: string, offerIds: string[], sendVia: string = 'email', offerName?: string): Promise<boolean> => {
+    if (!offerIds || offerIds.length === 0) {
+      toast({ title: 'Error', description: 'No offers to process', variant: 'destructive' });
+      return false;
+    }
+    
+    setSendingOffersMap(prev => ({ ...prev, [userId]: true }));
+    try {
+      const token = localStorage.getItem('token');
+      const payload = {
+        user_ids: [userId],
+        offer_ids: offerIds,
+        send_via: sendVia,
+        offer_name: offerName
+      };
+      
+      const response = await fetch(`${BASE_API_URL}/api/admin/send-offers-flow`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to send offers flow');
+      }
+      
+      toast({ 
+        title: sendVia === 'skip' ? 'Offer Skipped' : 'Offer Sent', 
+        description: `Successfully processed offer for user.`
+      });
+      
+      await refreshMatchedOffersForUser(userId);
+      return true;
+    } catch (e) {
+      console.error(e);
+      toast({ title: 'Error', description: 'Failed to process offer action', variant: 'destructive' });
+      return false;
+    } finally {
+      setSendingOffersMap(prev => ({ ...prev, [userId]: false }));
+    }
+  };
+
   const handleBulkSend = async () => {
     if (selectedUsers.size === 0) return;
     setIsSending(true);
@@ -1013,6 +1287,7 @@ export const SupportHubContent: React.FC<{
       // Send individual personalized messages
       for (const uId of userIds) {
         const override = personalOverrides[uId];
+        const userOffers = Array.from(userSelectedOfferIds[uId] || []);
         if (override) {
           await supportHubService.sendOutreach(
             uId,
@@ -1021,7 +1296,7 @@ export const SupportHubContent: React.FC<{
             selectedChannel,
             scheduledTime || undefined,
             supportSettings.email_settings,
-            Array.from(selectedQueueOfferIds)
+            userOffers
           );
         } else {
           // Fallback to bulk if no override (shouldn't happen with our effect)
@@ -1032,7 +1307,7 @@ export const SupportHubContent: React.FC<{
             scheduledTime,
             supportSettings.email_settings,
             activeStrategyHook,
-            Array.from(selectedQueueOfferIds)
+            userOffers
           );
         }
       }
@@ -1451,9 +1726,15 @@ export const SupportHubContent: React.FC<{
                           <tr
                             key={`${userId}-${idx}`}
                             className={`transition-colors cursor-pointer ${isSelected ? 'bg-indigo-50/40' : theme.row}`}
-                            onClick={() => toggleUserSelection(userId)}
+                            onClick={(e) => {
+                              const target = e.target as HTMLElement;
+                              if (target.closest('[role="checkbox"]')) {
+                                return;
+                              }
+                              toggleUserSelection(userId);
+                            }}
                           >
-                            <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <td className="p-3 text-center">
                               <Checkbox checked={isSelected} onCheckedChange={() => toggleUserSelection(userId)} className="h-4 w-4 rounded-md" />
                             </td>
                             <td className="p-3">
@@ -1674,8 +1955,8 @@ export const SupportHubContent: React.FC<{
                <Badge variant="outline" className="h-6 border-indigo-100 text-indigo-600 bg-indigo-50 font-bold">
                  {offerQueueService.getQueue().filter(q => q.status === 'queued').length} Items Queued
                </Badge>
-               <Button 
-                size="sm" 
+               <Button
+                size="sm"
                 variant={offerQueueService.getIsProcessing() ? "destructive" : "default"}
                 onClick={() => {
                   if (offerQueueService.getIsProcessing()) offerQueueService.pauseQueue();
@@ -1743,9 +2024,9 @@ export const SupportHubContent: React.FC<{
                             <div className="flex justify-end gap-2">
                                {item.status === 'queued' && (
                                  <>
-                                   <Button 
-                                    size="sm" 
-                                    variant="ghost" 
+                                   <Button
+                                    size="sm"
+                                    variant="ghost"
                                     className="h-7 w-7 p-0 text-amber-600"
                                     onClick={() => {
                                       if (item.isPaused) offerQueueService.resumeItem(item.id);
@@ -1755,9 +2036,9 @@ export const SupportHubContent: React.FC<{
                                    >
                                      {item.isPaused ? <Play size={12} /> : <Pause size={12} />}
                                    </Button>
-                                   <Button 
-                                    size="sm" 
-                                    variant="ghost" 
+                                   <Button
+                                    size="sm"
+                                    variant="ghost"
                                     className="h-7 w-7 p-0 text-red-600"
                                     onClick={() => {
                                       offerQueueService.removeItem(item.id);
@@ -2139,17 +2420,6 @@ export const SupportHubContent: React.FC<{
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => loadData()}
-                  className="text-white/80 hover:text-white hover:bg-white/10 rounded-2xl gap-2 h-10 px-4 transition-all"
-                  disabled={loading}
-                >
-                  {loading ? <Loader2 size={16} className="animate-spin" /> : <Clock size={16} />}
-                  <span className="text-xs font-black uppercase tracking-widest">Refresh Sync</span>
-                </Button>
-                <div className="w-px h-8 bg-white/20 mx-1" />
                 <Button variant="ghost" size="icon" className="h-10 w-10 text-white/70 hover:text-white hover:bg-red-500/20 hover:scale-110 transition-all rounded-xl" onClick={() => setBulkModalOpen(false)}>
                   <X size={24} />
                 </Button>
@@ -2241,12 +2511,20 @@ export const SupportHubContent: React.FC<{
                           <p className="text-[9px] font-bold text-slate-400">Select queued or AI-matched offers</p>
                         </div>
                       </div>
-                      
+                     
 
                     </div>
 
                     <div className="space-y-2">
                       {(() => {
+                        if (isLoadingMatched) {
+                          return (
+                            <div className="flex flex-col items-center justify-center py-10 text-center bg-white/50 rounded-2xl border border-dashed border-slate-200">
+                              <Loader2 className="h-6 w-6 animate-spin text-indigo-600 mb-2" />
+                              <p className="text-xs text-slate-500 font-bold">Analyzing user activity and matching offers...</p>
+                            </div>
+                          );
+                        }
                         if (combinedOffers.length === 0) {
                           return (
                             <div className="flex flex-col items-center justify-center py-6 text-slate-400 bg-white/50 rounded-2xl border border-dashed border-slate-200">
@@ -2256,22 +2534,20 @@ export const SupportHubContent: React.FC<{
                           );
                         }
 
-                        const allSelected = combinedOffers.every(o => selectedQueueOfferIds.has(o.id));
+                        const currentUserId = Array.from(selectedUsers)[previewIdx];
+                        const currentSelectedOfferIds = new Set(userSelectedOfferIds[currentUserId] || []);
+                        const allSelected = combinedOffers.length > 0 && combinedOffers.every(o => currentSelectedOfferIds.has(o.id));
 
                         const toggleSelectAllOffers = () => {
-                          if (allSelected) {
-                            setSelectedQueueOfferIds(prev => {
-                              const next = new Set(prev);
-                              combinedOffers.forEach(o => next.delete(o.id));
-                              return next;
-                            });
-                          } else {
-                            setSelectedQueueOfferIds(prev => {
-                              const next = new Set(prev);
-                              combinedOffers.forEach(o => next.add(o.id));
-                              return next;
-                            });
-                          }
+                          setUserSelectedOfferIds(prev => {
+                            const nextSet = new Set(prev[currentUserId] || []);
+                            if (allSelected) {
+                              combinedOffers.forEach(o => nextSet.delete(o.id));
+                            } else {
+                              combinedOffers.forEach(o => nextSet.add(o.id));
+                            }
+                            return { ...prev, [currentUserId]: nextSet };
+                          });
                         };
 
                         return (
@@ -2283,58 +2559,67 @@ export const SupportHubContent: React.FC<{
                               </div>
                               {isLoadingMatched && <Loader2 size={12} className="animate-spin text-indigo-400" />}
                             </div>
-                             <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar">
-                               {combinedOffers.map(offer => {
-                                 const isIntel = offer.isIntelligence;
-                                 const isPrimary = !isIntel;
-                                 const isSelected = selectedQueueOfferIds.has(offer.id);
+                            <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                               {(() => {
+                                 const currentUserId = Array.from(selectedUsers)[previewIdx];
                                  
-                                 return (
-                                  <div key={offer.id} onClick={() => {
-                                    setSelectedQueueOfferIds(prev => {
-                                      const next = new Set(prev);
-                                      if (next.has(offer.id)) next.delete(offer.id);
-                                      else next.add(offer.id);
-                                      return next;
-                                    });
-                                  }}
-                                    className={`flex items-center gap-3 p-2 rounded-xl cursor-pointer transition-all border ${isSelected ? (isPrimary ? 'bg-amber-50/50 border-amber-200 shadow-sm' : 'bg-purple-50/50 border-purple-200 shadow-sm') : 'bg-white border-slate-100 hover:border-slate-300'} group relative`}>
-                                    
-                                    <div className="flex items-center justify-center pl-2">
-                                      <Checkbox checked={isSelected} className={isSelected ? (isPrimary ? 'data-[state=checked]:bg-amber-500 data-[state=checked]:border-amber-500' : 'data-[state=checked]:bg-purple-600 data-[state=checked]:border-purple-600') : ''} />
-                                    </div>
+                                 const getStyles = (k: string) => {
+                                   switch(k) {
+                                     case 'queue': return { label: 'Active Queue Offers', color: '#7F2FBE', bgHex: '#F4F0FA', borderHex: '#DEDAF4', bg: 'bg-purple-50/50', border: 'border-purple-200', text: 'text-purple-700', icon: '⚡' };
+                                     case 'recommended_offers': return { label: 'Recommended Offers', color: '#534AB7', bgHex: '#F4F0FA', borderHex: '#DEDAF4', bg: 'bg-indigo-50/50', border: 'border-indigo-200', text: 'text-indigo-700', icon: '🛍️' };
+                                     case 'most_approved': return { label: 'Most Approved Offers', color: '#1D9E75', bgHex: '#E1F5EE', borderHex: '#CBEFE3', bg: 'bg-emerald-50/50', border: 'border-emerald-200', text: 'text-emerald-700', icon: '✅' };
+                                     case 'highly_clicked': return { label: 'Most Clicked Offers', color: '#BA7517', bgHex: '#F9F1E6', borderHex: '#F2E2CD', bg: 'bg-amber-50/50', border: 'border-amber-200', text: 'text-amber-700', icon: '🔥' };
+                                     case 'requested_offers': return { label: 'Requested Offers', color: '#A32D2D', bgHex: '#FDF0F0', borderHex: '#F9DCDD', bg: 'bg-red-50/50', border: 'border-red-200', text: 'text-red-700', icon: '🙋' };
+                                     case 'newly_added': return { label: 'Newly Added Offers', color: '#185FA5', bgHex: '#EBF2FB', borderHex: '#D0E1F4', bg: 'bg-blue-50/50', border: 'border-blue-200', text: 'text-blue-700', icon: '🆕' };
+                                     default: return { label: 'Other Offers', color: '#64748B', bgHex: '#F1F5F9', borderHex: '#E2E8F0', bg: 'bg-slate-50/50', border: 'border-slate-200', text: 'text-slate-700', icon: '🎯' };
+                                   }
+                                 };
 
-                                    {/* Image Placeholder */}
-                                    <div className="w-10 h-10 bg-white rounded border border-slate-200 p-1 flex items-center justify-center shrink-0 shadow-sm">
-                                      <img src={offer.image_url || offer.thumbnail_url || 'https://pub-2035987158934571.r2.dev/placeholder.png'} className="w-full h-full object-contain" alt="" />
-                                    </div>
+                                 return combinedOffers.map(offer => {
+                                   const isSelected = currentSelectedOfferIds.has(offer.id);
+                                   const isProcessing = sendingOffersMap[currentUserId] || false;
+                                   const catKey = offer.categoryKey || 'recommended_offers';
+                                   const styles = getStyles(catKey);
 
-                                    <div className="flex-1 min-w-0 pr-2">
-                                      <div className="flex items-center justify-between mb-0.5">
-                                        <h4 className="text-xs font-bold text-slate-800 truncate pr-2 group-hover:text-indigo-600 transition-colors">{offer.offerName || offer.name || 'Automation Offer'}</h4>
-                                        <Badge variant="outline" className={`text-[8px] border-slate-200 font-bold uppercase tracking-widest shrink-0 ${isPrimary ? 'text-amber-600 bg-amber-50' : 'text-purple-600 bg-purple-50'}`}>
-                                          {isPrimary ? 'Automation Queue' : 'AI Matched'}
-                                        </Badge>
-                                      </div>
-                                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[9px] font-black uppercase text-slate-400">Payout</span>
-                                          <span className="text-[11px] font-black text-emerald-600">${offer.payout || 0}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[9px] font-black uppercase text-slate-400">Vertical</span>
-                                          <span className="text-[10px] font-bold text-indigo-500">{offer.vertical || offer.category || 'Global'}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <span className="text-[9px] font-black uppercase text-slate-400">Timing</span>
-                                          <span className="text-[10px] font-bold text-slate-500">less than a minute ago</span>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                 );
-                               })}
-                             </div>
+                                   return (
+                                     <div key={offer.id} className="flex items-center justify-between p-2.5 border border-slate-100 rounded-xl bg-white shadow-sm hover:border-indigo-150 transition-colors">
+                                       <div className="flex items-center gap-2.5 min-w-0">
+                                         <div className="flex items-center justify-center shrink-0" onClick={(e) => e.stopPropagation()}>
+                                           <Checkbox 
+                                             checked={isSelected} 
+                                             onCheckedChange={() => {
+                                               setUserSelectedOfferIds(prev => {
+                                                 const nextSet = new Set(prev[currentUserId] || []);
+                                                 if (nextSet.has(offer.id)) nextSet.delete(offer.id);
+                                                 else nextSet.add(offer.id);
+                                                 return { ...prev, [currentUserId]: nextSet };
+                                               });
+                                             }} 
+                                           />
+                                         </div>
+                                         <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs flex-shrink-0 font-bold overflow-hidden border border-slate-100 p-0.5 bg-slate-50">
+                                           {offer.image_url || offer.thumbnail_url ? (
+                                             <img src={offer.image_url || offer.thumbnail_url} className="max-w-full max-h-full object-contain" alt="" />
+                                           ) : (
+                                             <span className="text-lg">{styles.icon}</span>
+                                           )}
+                                         </div>
+                                         <div className="min-w-0">
+                                           <div className="text-xs font-black text-slate-800 truncate max-w-[200px]">{offer.offerName || offer.name || 'Offer'}</div>
+                                           <div className="text-[9px] text-slate-400 font-bold mt-0.5 flex items-center gap-1.5">
+                                             <span className="uppercase">{offer.vertical || offer.category || 'General'}</span>
+                                             <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                                             <span>{offer.country || 'Global'}</span>
+                                             <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                                             <span>Payout: <strong style={{ color: '#1D9E75' }}>${offer.payout || 0}</strong></span>
+                                           </div>
+                                         </div>
+                                       </div>
+                                     </div>
+                                   );
+                                 });
+                               })()}
+                            </div>
                           </div>
                         );
                       })()}
@@ -2610,7 +2895,7 @@ export const SupportHubContent: React.FC<{
             <div className="flex gap-3">
               <Button variant="ghost" size="sm" onClick={() => setBulkModalOpen(false)}>Cancel</Button>
               <div className="flex gap-2 mr-2">
-                <Button 
+                <Button
                   variant="outline"
                   size="sm"
                   className="h-11 rounded-xl font-bold text-[10px] uppercase border-indigo-200 text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100"
@@ -2619,7 +2904,7 @@ export const SupportHubContent: React.FC<{
                 >
                   <Save size={14} className="mr-2" /> Save for This User
                 </Button>
-                <Button 
+                <Button
                   variant="outline"
                   size="sm"
                   className="h-11 rounded-xl font-bold text-[10px] uppercase border-emerald-200 text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100"
@@ -2725,7 +3010,7 @@ export const SupportHubContent: React.FC<{
                                 </div>
                               </div>
                             </div>
-                            
+                           
                             <div className="p-8 space-y-6">
                               {/* Message Body */}
                               <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap font-medium">
@@ -2734,208 +3019,210 @@ export const SupportHubContent: React.FC<{
 
                               <Separator className="bg-slate-100" />
 
-                              {/* Dynamic Offers Simulation */}
-                              {selectedQueueOfferIds.size > 0 && (
-                                <div className="space-y-4">
-                                  <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Featured Opportunities</p>
-                                  <div className="border border-slate-200 rounded-xl overflow-hidden">
-                                    <table className="w-full text-left text-xs">
-                                      <thead className="bg-slate-50 border-b border-slate-200">
-                                        <tr>
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('image') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Icon</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('offer_id') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer ID</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('name') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payout') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Payout</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('countries') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">GEO</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('network') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Network</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 1</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url_2') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 2</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('clicks') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Clicks</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payment_terms') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Terms</th>}
-                                          {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('description') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Desc</th>}
-                                          <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter text-right">Action</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {combinedOffers.filter(o => selectedQueueOfferIds.has(o.id || o._id || o.offer_id)).map((o, i) => {
-                                          const oId = String(o.id || o._id || o.offer_id);
-                                          const isExpanded = expandedOffers.has(oId);
-                                          return (
-                                            <React.Fragment key={`preview-table-${oId}`}>
-                                              <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors">
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('image') && (
-                                                  <td className="p-3">
-                                                    <div className="w-10 h-10 bg-white rounded border border-slate-200 p-1 flex items-center justify-center">
-                                                      <img src={o.image_url || o.thumbnail_url || supportSettings.email_settings?.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'} className="w-full h-full object-contain" alt="" />
-                                                    </div>
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('offer_id') && (
-                                                  <td className="p-3">
-                                                    <span className="font-mono text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{oId}</span>
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('name') && (
-                                                  <td className="p-3 font-bold text-slate-900">
-                                                    {o.name || o.offerName || o.offer_name}
-                                                    {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('category') && <span className="block text-[9px] text-slate-400 font-medium uppercase mt-0.5">{o.category || o.vertical || 'General'}</span>}
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payout') && (
-                                                  <td className="p-3">
-                                                    <div className="text-sm font-black text-emerald-600">
+                              {(() => {
+                                const sampleSelected = userSelectedOfferIds[sample.userId] || new Set();
+                                const sampleOffers = getQueueOffersForUser(sample.userId);
+                                const displayedOffers = sampleOffers.filter(o => sampleSelected.has(o.id || o._id || o.offer_id));
+                                if (displayedOffers.length === 0) return null;
+                                return (
+                                  <div className="space-y-4">
+                                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Featured Opportunities</p>
+                                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                                      <table className="w-full text-left text-xs">
+                                        <thead className="bg-slate-50 border-b border-slate-200">
+                                          <tr>
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('image') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Icon</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('offer_id') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer ID</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('name') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Offer</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payout') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Payout</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('countries') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">GEO</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('network') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Network</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 1</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url_2') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Link 2</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('clicks') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Clicks</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payment_terms') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Terms</th>}
+                                            {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('description') && <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter">Desc</th>}
+                                            <th className="p-3 font-bold text-slate-500 uppercase tracking-tighter text-right">Action</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {displayedOffers.map((o, i) => {
+                                            const oId = String(o.id || o._id || o.offer_id);
+                                            const isExpanded = expandedOffers.has(oId);
+                                            return (
+                                              <React.Fragment key={`preview-table-${oId}`}>
+                                                <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors">
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('image') && (
+                                                    <td className="p-3">
+                                                      <div className="w-10 h-10 bg-white rounded border border-slate-200 p-1 flex items-center justify-center">
+                                                        <img src={o.image_url || o.thumbnail_url || supportSettings.email_settings?.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'} className="w-full h-full object-contain" alt="" />
+                                                      </div>
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('offer_id') && (
+                                                    <td className="p-3">
+                                                      <span className="font-mono text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">{oId}</span>
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('name') && (
+                                                    <td className="p-3 font-bold text-slate-900">
+                                                      {o.offerName || o.name}
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payout') && (
+                                                    <td className="p-3 font-bold text-emerald-600">
                                                       {supportSettings.email_settings?.payoutType === 'publisher' ? (o.payout_display || `$${o.payout || 0}`) : `$${o.payout || 0}`}
-                                                    </div>
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('countries') && (
-                                                  <td className="p-3 text-slate-500 font-medium">
-                                                    {o.countries?.slice(0, 3).join(', ') || 'Global'}
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('network') && (
-                                                  <td className="p-3 text-slate-500 font-medium text-[10px]">
-                                                    {(o as any).network || 'N/A'}
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url') && (
-                                                  <td className="p-3">
-                                                    <a href={(o as any).preview_url || '#'} className="text-[10px] text-indigo-500 truncate max-w-[80px] block underline">Link</a>
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url_2') && (
-                                                  <td className="p-3">
-                                                    <a href={(o as any).preview_url_2 || '#'} className="text-[10px] text-violet-500 truncate max-w-[80px] block underline">Link</a>
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('clicks') && (
-                                                  <td className="p-3 text-slate-600 font-medium text-[10px]">
-                                                    {(o as any).clicks || o.hits || 0}
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payment_terms') && (
-                                                  <td className="p-3 font-black text-blue-600 uppercase text-[9px]">
-                                                    {supportSettings.email_settings?.paymentTerms || 'Standard'}
-                                                  </td>
-                                                )}
-                                                {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('description') && (
-                                                  <td className="p-3 text-slate-500 text-[9px] italic max-w-[120px] truncate" title={o.description}>
-                                                    {o.description || 'Exclusive offer details available.'}
-                                                  </td>
-                                                )}
-                                                <td className="p-3 text-right">
-                                                  <Button
-                                                    size="sm"
-                                                    className={`h-7 px-4 font-bold text-[10px] transition-all shadow-sm ${isExpanded ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
-                                                    onClick={() => {
-                                                      setExpandedOffers(prev => {
-                                                        const n = new Set(prev);
-                                                        n.has(oId) ? n.delete(oId) : n.add(oId);
-                                                        return n;
-                                                      });
-                                                    }}
-                                                  >
-                                                    {isExpanded ? 'Hide' : 'Open'}
-                                                  </Button>
-                                                </td>
-                                              </tr>
-                                              {(isExpanded && (supportSettings.email_settings?.seeMoreFields || []).length > 0) && (
-                                                <tr className="bg-slate-50/50 animate-in fade-in slide-in-from-top-1 duration-200">
-                                                  <td colSpan={12} className="p-4 pt-2">
-                                                    <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-slate-100 shadow-inner">
-                                                      <div className="flex items-center gap-2 text-[10px] font-black text-amber-500 uppercase tracking-widest border-b border-slate-50 pb-2">
-                                                        <Plus size={10} /> Secondary Offer Details
-                                                      </div>
-                                                      <div className="grid grid-cols-2 gap-4">
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('name') && (
-                                                          <div className="space-y-0.5 col-span-2">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Offer Name</span>
-                                                            <p className="text-[10px] font-black text-slate-700">{o.name || o.campaign_name || o.offerName}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('payout') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Payout Amount</span>
-                                                            <p className="text-[10px] font-black text-emerald-600">
-                                                              {supportSettings.email_settings?.payoutType === 'publisher' ? (o.payout_display || `$${o.payout || 0}`) : `$${o.payout || 0}`}
-                                                            </p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('countries') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Geographic Targeting</span>
-                                                            <p className="text-[10px] font-medium text-slate-600">{o.countries?.join(', ') || 'Global'}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('category') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Vertical / Category</span>
-                                                            <p className="text-[10px] font-medium text-slate-600">{o.category || o.vertical || 'General'}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('image') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Offer Creative</span>
-                                                            <div className="h-10 w-10 rounded border border-slate-100 overflow-hidden bg-slate-50">
-                                                              <img src={o.image_url || supportSettings.email_settings?.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'} alt="creative" className="w-full h-full object-contain" />
-                                                            </div>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('offer_id') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Offer ID</span>
-                                                            <p className="text-[10px] font-mono text-slate-600">{oId}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('network') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Network</span>
-                                                            <p className="text-[10px] font-medium text-slate-600">{(o as any).network || 'N/A'}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('preview_url') && (
-                                                          <div className="space-y-0.5 col-span-2">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Tracking Link</span>
-                                                            <p className="text-[10px] font-medium text-indigo-500 truncate underline cursor-pointer">{(o as any).preview_url || 'https://ml.link/v1'}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('preview_url_2') && (
-                                                          <div className="space-y-0.5 col-span-2">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Secondary Preview</span>
-                                                            <p className="text-[10px] font-medium text-violet-500 truncate underline cursor-pointer">{(o as any).preview_url_2 || 'https://ml.link/v2'}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('clicks') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Clicks</span>
-                                                            <p className="text-[10px] font-medium text-slate-600">{(o as any).clicks || o.hits || 0}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('payment_terms') && (
-                                                          <div className="space-y-0.5">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Payment Terms</span>
-                                                            <p className="text-[10px] font-black text-blue-600 uppercase">{supportSettings.email_settings?.paymentTerms || 'Standard'}</p>
-                                                          </div>
-                                                        )}
-                                                        {(supportSettings.email_settings?.seeMoreFields || []).includes('description') && (
-                                                          <div className="space-y-0.5 col-span-2">
-                                                            <span className="text-[8px] font-bold text-slate-400 uppercase">Description</span>
-                                                            <p className="text-[10px] text-slate-500 leading-relaxed italic">{o.description || 'Exclusive offer details available on the publisher dashboard.'}</p>
-                                                          </div>
-                                                        )}
-                                                      </div>
-                                                    </div>
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('countries') && (
+                                                    <td className="p-3">
+                                                      <span className="bg-slate-100 text-slate-600 font-bold px-1.5 py-0.5 rounded text-[10px] tracking-tight">{o.countries?.join(', ') || 'Global'}</span>
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('network') && (
+                                                    <td className="p-3 text-slate-500 font-medium text-[10px]">
+                                                      {(o as any).network || 'N/A'}
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url') && (
+                                                    <td className="p-3">
+                                                      <a href={(o as any).preview_url || '#'} className="text-[10px] text-indigo-500 truncate max-w-[80px] block underline">Link</a>
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('preview_url_2') && (
+                                                    <td className="p-3">
+                                                      <a href={(o as any).preview_url_2 || '#'} className="text-[10px] text-violet-500 truncate max-w-[80px] block underline">Link</a>
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('clicks') && (
+                                                    <td className="p-3 text-slate-600 font-medium text-[10px]">
+                                                      {(o as any).clicks || o.hits || 0}
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('payment_terms') && (
+                                                    <td className="p-3 font-black text-blue-600 uppercase text-[9px]">
+                                                      {supportSettings.email_settings?.paymentTerms || 'Standard'}
+                                                    </td>
+                                                  )}
+                                                  {(supportSettings.email_settings?.visibleFields || ['image', 'name', 'payout', 'countries']).includes('description') && (
+                                                    <td className="p-3 text-slate-500 text-[9px] italic max-w-[120px] truncate" title={o.description}>
+                                                      {o.description || 'Exclusive offer details available.'}
+                                                    </td>
+                                                  )}
+                                                  <td className="p-3 text-right">
+                                                    <Button
+                                                      size="sm"
+                                                      className={`h-7 px-4 font-bold text-[10px] transition-all shadow-sm ${isExpanded ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                                                      onClick={() => {
+                                                        setExpandedOffers(prev => {
+                                                          const n = new Set(prev);
+                                                          n.has(oId) ? n.delete(oId) : n.add(oId);
+                                                          return n;
+                                                        });
+                                                      }}
+                                                    >
+                                                      {isExpanded ? 'Hide' : 'Open'}
+                                                    </Button>
                                                   </td>
                                                 </tr>
-                                              )}
-                                            </React.Fragment>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
+                                                {(isExpanded && (supportSettings.email_settings?.seeMoreFields || []).length > 0) && (
+                                                  <tr className="bg-slate-50/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                                                    <td colSpan={12} className="p-4 pt-2">
+                                                      <div className="flex flex-col gap-3 bg-white p-4 rounded-xl border border-slate-100 shadow-inner">
+                                                        <div className="flex items-center gap-2 text-[10px] font-black text-amber-500 uppercase tracking-widest border-b border-slate-50 pb-2">
+                                                          <Plus size={10} /> Secondary Offer Details
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-4">
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('name') && (
+                                                            <div className="space-y-0.5 col-span-2">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Offer Name</span>
+                                                              <p className="text-[10px] font-black text-slate-700">{o.name || o.campaign_name || o.offerName}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('payout') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Payout Amount</span>
+                                                              <p className="text-[10px] font-black text-emerald-600">
+                                                                {supportSettings.email_settings?.payoutType === 'publisher' ? (o.payout_display || `$${o.payout || 0}`) : `$${o.payout || 0}`}
+                                                              </p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('countries') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Geographic Targeting</span>
+                                                              <p className="text-[10px] font-medium text-slate-600">{o.countries?.join(', ') || 'Global'}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('category') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Vertical / Category</span>
+                                                              <p className="text-[10px] font-medium text-slate-600">{o.category || o.vertical || 'General'}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('image') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Offer Creative</span>
+                                                              <div className="h-10 w-10 rounded border border-slate-100 overflow-hidden bg-slate-50">
+                                                                <img src={o.image_url || supportSettings.email_settings?.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'} alt="creative" className="w-full h-full object-contain" />
+                                                              </div>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('offer_id') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Offer ID</span>
+                                                              <p className="text-[10px] font-mono text-slate-600">{oId}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('network') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Network</span>
+                                                              <p className="text-[10px] font-medium text-slate-600">{(o as any).network || 'N/A'}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('preview_url') && (
+                                                            <div className="space-y-0.5 col-span-2">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Tracking Link</span>
+                                                              <p className="text-[10px] font-medium text-indigo-500 truncate underline cursor-pointer">{(o as any).preview_url || 'https://ml.link/v1'}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('preview_url_2') && (
+                                                            <div className="space-y-0.5 col-span-2">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Secondary Preview</span>
+                                                              <p className="text-[10px] font-medium text-violet-500 truncate underline cursor-pointer">{(o as any).preview_url_2 || 'https://ml.link/v2'}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('clicks') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Clicks</span>
+                                                              <p className="text-[10px] font-medium text-slate-600">{(o as any).clicks || o.hits || 0}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('payment_terms') && (
+                                                            <div className="space-y-0.5">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Payment Terms</span>
+                                                              <p className="text-[10px] font-black text-blue-600 uppercase">{supportSettings.email_settings?.paymentTerms || 'Standard'}</p>
+                                                            </div>
+                                                          )}
+                                                          {(supportSettings.email_settings?.seeMoreFields || []).includes('description') && (
+                                                            <div className="space-y-0.5 col-span-2">
+                                                              <span className="text-[8px] font-bold text-slate-400 uppercase">Description</span>
+                                                              <p className="text-[10px] text-slate-500 leading-relaxed italic">{o.description || 'Exclusive offer details available on the publisher dashboard.'}</p>
+                                                            </div>
+                                                          )}
+                                                        </div>
+                                                      </div>
+                                                    </td>
+                                                  </tr>
+                                                )}
+                                              </React.Fragment>
+                                            );
+                                          })}
+                                        </tbody>
+                                      </table>
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                );
+                              })()}
 
                               <Separator className="bg-slate-100" />
 
