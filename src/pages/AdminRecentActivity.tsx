@@ -9,7 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { BulkMailScheduler, QueueItem } from '@/components/BulkMailScheduler';
 import { RefreshCw, Search, Clock, Mail, ChevronDown, ChevronRight, Activity, MapPin, Globe, FileText, Send, MoreVertical, AlertTriangle, User, PauseCircle, ShieldAlert, XCircle, CheckCircle, BarChart3, Users, CalendarClock, Filter, Plus, Minus, Zap, ExternalLink, Settings, LogIn, ShieldCheck, MessageSquare } from 'lucide-react';
-import loginLogsService, { LoginLog } from '@/services/loginLogsService';
+import loginLogsService, { LoginLog, convertPlainTextToHtml } from '@/services/loginLogsService';
 import { useToast } from '@/hooks/use-toast';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import { ComposableMap, Geographies, Geography, Marker, ZoomableGroup } from 'react-simple-maps';
@@ -296,6 +296,9 @@ interface AggregatedUser {
   isPaused?: boolean;
   welcomeMailSentAt?: string;
   referralMailSentAt?: string;
+  noPlacementMailSentAt?: string;
+  noConversionMailSentAt?: string;
+  offerMatchMailSentAt?: string;
   totalMails: number;
   sharedAccount?: boolean;
   hasNewDevice?: boolean;
@@ -318,14 +321,14 @@ const ExpandedUserDetails: React.FC<{
   onMailSent?: () => void;
   onAutomateOffers?: (userId: string) => void;
 }> = ({ user, automationQueueItem, onMailSent, onAutomateOffers }) => {
-  const [pageVisits, setPageVisits] = useState<any[]>([]);
-  const [offerViews, setOfferViews] = useState<any[]>([]);
-  const [searchLogs, setSearchLogs] = useState<any[]>([]);
-  const [signals, setSignals] = useState<any>(null);
-  const [offerTargeting, setOfferTargeting] = useState<any>({});
-  const [scheduledActivity, setScheduledActivity] = useState<any[]>([]);
-  const [automation, setAutomation] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [pageVisits, setPageVisits] = useState<any[] | null>(null);
+  const [offerViews, setOfferViews] = useState<any[] | null>(null);
+  const [searchLogs, setSearchLogs] = useState<any[] | null>(null);
+  const [signals, setSignals] = useState<any | null>(null);
+  const [offerTargeting, setOfferTargeting] = useState<any | null>(null);
+  const [scheduledActivity, setScheduledActivity] = useState<any[] | null>(null);
+  const [automation, setAutomation] = useState<any | null>(null);
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('login');
   const handleQuickAction = (tab: string) => {
     setActiveTab(tab);
@@ -346,20 +349,76 @@ const ExpandedUserDetails: React.FC<{
     let body = '';
     if (type === 'welcome') {
       subject = 'Welcome to Moustache Leads! 🚀';
-      body = `Hey there! Welcome ${user.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+      body = `Hey there! Welcome ${user.username} 😊
+
+Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+You can also ask questions anytime — we’re happy to help.
+By the way, what traffic sources are you currently working with?
+
+Please set up your placement and postback here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need help, reach us on Teams or Telegram: @mlaffil
+Support is also available here:
+https://www.moustacheleads.com/dashboard/support
+
+Looking forward to working with you! 🚀
+
+Best regards,
+Team Moustache Leads`;
     } else if (type === 'referral') {
       subject = 'Have you seen our Referral Program?';
-      body = `Hey ${user.username}<br/><br/>Hope you're doing well 😊<br/><br/>Just wanted to check — have you had a chance to look at our referral program?<br/><br/>If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to your response!<br/><br/>Best regards,<br/>Team Moustache Leads`;
+      body = `Hey ${user.username}
+
+Hope you're doing well 😊
+
+Just wanted to check — have you had a chance to look at our referral program?
+
+If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.
+
+Looking forward to your response!
+
+Best regards,
+Team Moustache Leads`;
     } else if (type === 'warning') {
       subject = 'Important Notice Regarding Your Account Activity';
-      body = `Hey ${user.username},<br/><br/>We have detected some unusual activity on your account recently.<br/>Please review your account security and ensure your postbacks are set up correctly.<br/>If you have any questions or believe this is an error, please reach out to support immediately.<br/><br/>Best regards,<br/>Team Moustache Leads`;
+      body = `Hey ${user.username},
+
+We have detected some unusual activity on your account recently.
+Please review your account security and ensure your postbacks are set up correctly.
+If you have any questions or believe this is an error, please reach out to support immediately.
+
+Best regards,
+Team Moustache Leads`;
     } else if (type === 'welcome_referral') {
       subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
-      body = `Hey there! Welcome ${user.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+      body = `Hey there! Welcome ${user.username} 😊
+
+Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+You can also ask questions anytime — we’re happy to help.
+By the way, what traffic sources are you currently working with?
+
+Please set up your placement and postback here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need help, reach us on Teams or Telegram: @mlaffil
+Support is also available here:
+https://www.moustacheleads.com/dashboard/support
+
+Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.
+
+Looking forward to working with you! 🚀
+
+Best regards,
+Team Moustache Leads`;
     }
 
     try {
-      await loginLogsService.sendCustomMail([user.email], subject, body, time ? new Date(time).toISOString() : undefined);
+      await loginLogsService.sendCustomMail([user.email], subject, convertPlainTextToHtml(body), time ? new Date(time).toISOString() : undefined);
       toast({
         title: time ? 'Mail Scheduled' : 'Mail Sent',
         description: `Successfully ${time ? 'scheduled' : 'sent'} ${type} mail to ${user.username}.`
@@ -375,46 +434,52 @@ const ExpandedUserDetails: React.FC<{
   };
 
   const fetchData = async () => {
-    setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const [offRes, searchRes, signalsRes, offerTargetingRes, scheduledRes, automationRes] = await Promise.all([
-        loginLogsService.getOfferViews(user.user_id, 20, user.username, user.email).catch(() => ({ views: [] })),
-        fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&username=${user.username}&email=${user.email}&per_page=10`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).then(res => res.json()).catch(() => ({ logs: [] })),
-        loginLogsService.getUserSignals(user.user_id, user.username, user.email).catch(() => null),
-        loginLogsService.getInventoryMatchedOffers(user.user_id).catch(() => ({})),
-        loginLogsService.getScheduledActivity(user.user_id).catch(() => ([])),
-        loginLogsService.getUserAutomations(user.user_id).catch(() => null)
-      ]);
+      
+      loginLogsService.getOfferViews(user.user_id, 20, user.username, user.email)
+        .then(res => setOfferViews(res?.views || []))
+        .catch(() => setOfferViews([]));
 
-      setOfferViews(offRes?.views || []);
-      setSearchLogs(searchRes?.logs || []);
-      setSignals(signalsRes);
-      setOfferTargeting(offerTargetingRes);
-      setScheduledActivity(scheduledRes?.scheduled_activity || scheduledRes?.activities || (Array.isArray(scheduledRes) ? scheduledRes : []));
-      setAutomation(automationRes);
+      fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/search-logs?user=${user.user_id}&username=${user.username}&email=${user.email}&per_page=10`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(res => setSearchLogs(res?.logs || []))
+        .catch(() => setSearchLogs([]));
+
+      loginLogsService.getUserSignals(user.user_id, user.username, user.email)
+        .then(res => setSignals(res))
+        .catch(() => setSignals({}));
+
+      loginLogsService.getInventoryMatchedOffers(user.user_id)
+        .then(res => setOfferTargeting(res))
+        .catch(() => setOfferTargeting({}));
+
+      loginLogsService.getScheduledActivity(user.user_id)
+        .then(res => setScheduledActivity(res?.scheduled_activity || res?.activities || (Array.isArray(res) ? res : [])))
+        .catch(() => setScheduledActivity([]));
+
+      loginLogsService.getUserAutomations(user.user_id)
+        .then(res => setAutomation(res))
+        .catch(() => setAutomation({}));
 
       const latestSessionId = user.logs.find(l => l.session_id)?.session_id;
       if (latestSessionId) {
-        const pvRes = await loginLogsService.getPageVisits(latestSessionId, 10).catch(() => ({ visits: [] }));
-        setPageVisits(pvRes?.visits || []);
+        loginLogsService.getPageVisits(latestSessionId, 10)
+          .then(res => setPageVisits(res?.visits || []))
+          .catch(() => setPageVisits([]));
+      } else {
+        setPageVisits([]);
       }
     } catch (e) {
-      console.error("Error fetching detailed user data", e);
-    } finally {
-      setLoading(false);
+      console.error("Error setting up fetches", e);
     }
   };
 
   useEffect(() => {
     fetchData();
   }, [user.user_id]);
-
-  if (loading) {
-    return <div className="p-8 text-center text-muted-foreground animate-pulse">Loading real user data...</div>;
-  }
 
   const mockLog = user.logs.length > 0 ? user.logs[0] : {
     _id: user.user_id,
@@ -535,7 +600,7 @@ const ExpandedUserDetails: React.FC<{
                 city: user.city,
                 verticals: user.verticals,
                 geoPreferences: user.geoPreferences,
-                recentOffers: offerViews.slice(0, 5).map(o => o.offer_name || o.name)
+                recentOffers: (offerViews || []).slice(0, 5).map(o => o.offer_name || o.name)
               }}
               onMessageSent={() => {
                 if (onMailSent) onMailSent();
@@ -651,6 +716,10 @@ const AdminRecentActivity: React.FC = () => {
   const [customDateRange, setCustomDateRange] = useState({ start: '', end: '' });
   const [searchTerm, setSearchTerm] = useState('');
   const [allUsers, setAllUsers] = useState<AggregatedUser[]>([]);
+  const allUsersRef = React.useRef<AggregatedUser[]>([]);
+  React.useEffect(() => {
+    allUsersRef.current = allUsers;
+  }, [allUsers]);
   const [advancedFilters, setAdvancedFilters] = useState({
     geos: [] as string[],
     cities: [] as string[],
@@ -668,6 +737,14 @@ const AdminRecentActivity: React.FC = () => {
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set());
   const [bulkMailSending, setBulkMailSending] = useState(false);
   const [scheduleMailOpen, setScheduleMailOpen] = useState(false);
+  const [customEmailDialog, setCustomEmailDialog] = useState({
+    isOpen: false,
+    mode: 'single' as 'single' | 'bulk',
+    targetUserId: null as string | null,
+    subject: 'Important Update from MoustacheLeads',
+    body: 'Hello,\n\nBest regards,\nTeam Moustache Leads'
+  });
+  const [emailTab, setEmailTab] = useState<'edit' | 'preview'>('edit');
   const [bulkAutomationOpen, setBulkAutomationOpen] = useState(false);
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduleType, setScheduleType] = useState<'welcome' | 'referral' | 'warning' | 'welcome_referral' | string>('welcome');
@@ -675,6 +752,74 @@ const AdminRecentActivity: React.FC = () => {
   const [mapZoom, setMapZoom] = useState(1);
   const [highlightedRowId, setHighlightedRowId] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number, y: number, text: string } | null>(null);
+
+  const suggestedSubjects = useMemo(() => {
+    if (!customEmailDialog.isOpen) return [];
+
+    const targetUsers = customEmailDialog.mode === 'single'
+      ? allUsers.filter(u => u.user_id === customEmailDialog.targetUserId)
+      : allUsers.filter(u => selectedUserIds.has(u.user_id));
+
+    if (targetUsers.length === 0) return [];
+
+    const verticals = Array.from(new Set(targetUsers.flatMap(u => u.verticals || [])))
+      .filter(v => v && v !== 'Unknown')
+      .map(v => String(v).trim());
+
+    const geos = Array.from(new Set(
+      targetUsers.flatMap(u => u.geoPreferences || [])
+        .concat(targetUsers.map(u => u.country).filter(Boolean))
+    ))
+      .filter(g => g && g !== 'Unknown' && g !== 'XX' && g !== 'Tracking...')
+      .map(g => String(g).trim());
+
+    const suggestions: string[] = [];
+
+    if (verticals.length > 0 && geos.length > 0) {
+      const topVerticals = verticals.slice(0, 2);
+      const topGeos = geos.slice(0, 2);
+
+      topVerticals.forEach(v => {
+        topGeos.forEach(g => {
+          suggestions.push(`Top ${v} Offers for ${g} Traffic! 🚀`);
+          suggestions.push(`Boost Your ${v} Revenue in ${g} 🎯`);
+        });
+      });
+    }
+
+    verticals.slice(0, 2).forEach(v => {
+      suggestions.push(`High Payout ${v} Offers inside! 💸`);
+      suggestions.push(`New Trending ${v} Offers Available 🚀`);
+    });
+
+    geos.slice(0, 2).forEach(g => {
+      suggestions.push(`Top Performing Offers for ${g} 🚀`);
+      suggestions.push(`Boost Your Revenue in ${g} 💰`);
+    });
+
+    if (suggestions.length < 4) {
+      suggestions.push("Exclusive High-Payout Offers for You! 🚀");
+      suggestions.push("Boost Your Revenue with Moustache Leads 💸");
+      suggestions.push("Top Performing Finance & Sweepstakes Offers 🎯");
+      suggestions.push("Maximize Your Traffic Monetization Today 📈");
+    }
+
+    return Array.from(new Set(suggestions)).slice(0, 5);
+  }, [customEmailDialog.isOpen, customEmailDialog.mode, customEmailDialog.targetUserId, selectedUserIds, allUsers]);
+
+  const getPreviewBody = () => {
+    let text = customEmailDialog.body;
+    if (customEmailDialog.mode === 'single' && customEmailDialog.targetUserId) {
+      const u = allUsers.find(user => user.user_id === customEmailDialog.targetUserId);
+      if (u) {
+        text = text.replace(/{username}/g, u.username);
+      }
+    } else {
+      text = text.replace(/{username}/g, 'there');
+    }
+    return convertPlainTextToHtml(text);
+  };
+
   const [globalMailMetrics, setGlobalMailMetrics] = useState({ total: 0, today: 0 });
   const [queueDashboardOpen, setQueueDashboardOpen] = useState(false);
   const [automationQueueOpen, setAutomationQueueOpen] = useState(false);
@@ -690,7 +835,138 @@ const AdminRecentActivity: React.FC = () => {
     cooldown_days: 7
   });
 
+  const [delayValue, setDelayValue] = useState<number>(5);
+  const [delayUnit, setDelayUnit] = useState<'hours' | 'minutes' | 'days'>('hours');
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  useEffect(() => {
+    if (automationSettingsOpen && automationSettings) {
+      const hours = automationSettings.initial_delay_hours ?? 5;
+      if (hours >= 24 && hours % 24 === 0) {
+        setDelayValue(hours / 24);
+        setDelayUnit('days');
+      } else if (hours % 1 !== 0) {
+        setDelayValue(Math.round(hours * 60));
+        setDelayUnit('minutes');
+      } else {
+        setDelayValue(hours);
+        setDelayUnit('hours');
+      }
+    }
+  }, [automationSettingsOpen, automationSettings]);
+
   const { toast } = useToast();
+  const [quickOutreachLoadingId, setQuickOutreachLoadingId] = useState<string | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('custom');
+
+  const [previewRecipientId, setPreviewRecipientId] = useState<string | null>(null);
+  const [previewSubject, setPreviewSubject] = useState<string>('');
+  const [previewBody, setPreviewBody] = useState<string>('');
+  const [previewLoading, setPreviewLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!customEmailDialog.isOpen) return;
+
+    let activeUserId = customEmailDialog.targetUserId;
+    if (customEmailDialog.mode === 'bulk') {
+      activeUserId = previewRecipientId || Array.from(selectedUserIds)[0] || null;
+    }
+
+    if (!activeUserId) {
+      setPreviewSubject(customEmailDialog.subject);
+      setPreviewBody(customEmailDialog.body);
+      return;
+    }
+
+    const u = allUsers.find(user => user.user_id === activeUserId);
+    if (!u) return;
+
+    const loadPreview = async () => {
+      setPreviewLoading(true);
+      try {
+        let subject = customEmailDialog.subject;
+        let body = customEmailDialog.body;
+
+        if (selectedTemplate !== 'custom') {
+          const temp = getQuickOutreachTemplate(selectedTemplate as any, u);
+          subject = temp.subject;
+          body = temp.body;
+
+          if (selectedTemplate === 'offer_match') {
+            const intelRes = await loginLogsService.getInventoryMatchedOffers(u.user_id);
+            const matched: any[] = [];
+            const seenIds = new Set<string>();
+            
+            const addSection = (sectionName: string) => {
+              if (intelRes && intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
+                intelRes[sectionName].forEach((o: any) => {
+                  const id = o.offer_id || o._id || o.id;
+                  if (id && !seenIds.has(String(id))) {
+                    seenIds.add(String(id));
+                    matched.push(o);
+                  }
+                });
+              }
+            };
+
+            addSection('recommended_offers');
+            addSection('most_approved');
+            addSection('highly_clicked');
+            addSection('newly_added');
+
+            if (matched.length > 0) {
+              const matchedOffers = matched.slice(0, 4);
+              const name = u.username || 'there';
+              
+              let geoStr = 'global';
+              if (u.country && u.country !== 'Unknown') {
+                geoStr = u.country;
+              } else if (u.geoPreferences && u.geoPreferences.length > 0) {
+                geoStr = u.geoPreferences.join(', ');
+              } else if (u.intelligence_geos && u.intelligence_geos.length > 0) {
+                geoStr = u.intelligence_geos.join(', ');
+              }
+
+              const userVerts = u.verticals && u.verticals.length > 0 
+                ? u.verticals 
+                : ['Sweeps', 'Finance', 'Games'];
+              const vertList = userVerts.join('/');
+
+              subject = `Top ${vertList} Offers Matched for Your Traffic! 🎯`;
+              body = `Hey ${name},
+
+Based on your profile interested verticals and traffic in ${geoStr}, we have automatically matched the following high-performing offers that will maximize your revenue:
+
+${matchedOffers.map((o, idx) => {
+  const payoutStr = o.payout ? ` (Payout: $${o.payout})` : '';
+  const geoText = o.countries && o.countries.length > 0 ? ` [${o.countries.join('/')}]` : '';
+  return `${idx + 1}. ${o.category || o.vertical || 'CPA'} - ${o.name || o.offer_name || 'Matched Offer'}${geoText}${payoutStr}`;
+}).join('\n')}
+
+We recommend integration of these tracking links immediately to capitalize on current high EPC rates. 
+
+You can find these and grab your tracking links in the Offers section:
+https://www.moustacheleads.com/dashboard/offers
+
+Best regards,
+Team Moustache Leads`;
+            }
+          }
+        } else {
+          body = body.replace(/{username}/g, u.username || 'there');
+        }
+
+        setPreviewSubject(subject);
+        setPreviewBody(body);
+      } catch (err) {
+        console.error("Error generating live preview:", err);
+      } finally {
+        setPreviewLoading(false);
+      }
+    };
+
+    loadPreview();
+  }, [previewRecipientId, selectedTemplate, customEmailDialog.subject, customEmailDialog.body, customEmailDialog.isOpen, customEmailDialog.mode, customEmailDialog.targetUserId, selectedUserIds]);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
@@ -709,6 +985,367 @@ const AdminRecentActivity: React.FC = () => {
   const handleMapWheel = (e: React.WheelEvent) => {
     const newZoom = Math.min(Math.max(mapZoom - e.deltaY / 200, 1), 8);
     setMapZoom(newZoom);
+  };
+
+  const sendCustomEmail = async () => {
+    try {
+      setBulkMailSending(true);
+      
+      const userIds = customEmailDialog.mode === 'single' 
+        ? [customEmailDialog.targetUserId] 
+        : Array.from(selectedUserIds);
+        
+      if (!userIds.length || !userIds[0]) {
+        toast({ title: 'Error', description: 'No users selected for emailing.', variant: 'destructive' });
+        return;
+      }
+      
+      const targetUsers = allUsers.filter(u => userIds.includes(u.user_id) && u.email);
+
+      if (targetUsers.length === 0) {
+        toast({ title: 'Error', description: 'No valid users with emails found.', variant: 'destructive' });
+        return;
+      }
+
+      if (customEmailDialog.mode === 'single') {
+        const u = targetUsers[0];
+        let finalBody = customEmailDialog.body.replace(/{username}/g, u.username || 'there');
+        
+        await loginLogsService.sendCustomMail(
+          [u.email], 
+          customEmailDialog.subject, 
+          convertPlainTextToHtml(finalBody)
+        );
+        toast({ title: 'Success', description: `Successfully sent email to ${u.username}.` });
+      } else {
+        // Bulk Personalized CRM dispatch loop
+        toast({ 
+          title: 'Bulk Dispatch Initiated', 
+          description: `Preparing to send personalized ${selectedTemplate} emails to ${targetUsers.length} users...` 
+        });
+
+        let successCount = 0;
+
+        for (let i = 0; i < targetUsers.length; i++) {
+          const u = targetUsers[i];
+          let subject = customEmailDialog.subject;
+          let body = customEmailDialog.body;
+
+          // 1. If it's a specific system template, generate user-custom content on the fly
+          if (selectedTemplate !== 'custom') {
+            const temp = getQuickOutreachTemplate(selectedTemplate as any, u);
+            subject = temp.subject;
+            body = temp.body;
+
+            // 2. Fetch matched offers in real-time if it's the Offer Match template
+            if (selectedTemplate === 'offer_match') {
+              try {
+                const intelRes = await loginLogsService.getInventoryMatchedOffers(u.user_id);
+                const matched: any[] = [];
+                const seenIds = new Set<string>();
+                
+                const addSection = (sectionName: string) => {
+                  if (intelRes && intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
+                    intelRes[sectionName].forEach((o: any) => {
+                      const id = o.offer_id || o._id || o.id;
+                      if (id && !seenIds.has(String(id))) {
+                        seenIds.add(String(id));
+                        matched.push(o);
+                      }
+                    });
+                  }
+                };
+
+                addSection('recommended_offers');
+                addSection('most_approved');
+                addSection('highly_clicked');
+                addSection('newly_added');
+
+                if (matched.length > 0) {
+                  const matchedOffers = matched.slice(0, 4);
+                  const name = u.username || 'there';
+                  
+                  // Format GEO
+                  let geoStr = 'global';
+                  if (u.country && u.country !== 'Unknown') {
+                    geoStr = u.country;
+                  } else if (u.geoPreferences && u.geoPreferences.length > 0) {
+                    geoStr = u.geoPreferences.join(', ');
+                  } else if (u.intelligence_geos && u.intelligence_geos.length > 0) {
+                    geoStr = u.intelligence_geos.join(', ');
+                  }
+
+                  const userVerts = u.verticals && u.verticals.length > 0 
+                    ? u.verticals 
+                    : ['Sweeps', 'Finance', 'Games'];
+                  const vertList = userVerts.join('/');
+
+                  subject = `Top ${vertList} Offers Matched for Your Traffic! 🎯`;
+                  body = `Hey ${name},
+
+Based on your profile interested verticals and traffic in ${geoStr}, we have automatically matched the following high-performing offers that will maximize your revenue:
+
+${matchedOffers.map((o, idx) => {
+  const payoutStr = o.payout ? ` (Payout: $${o.payout})` : '';
+  const geoText = o.countries && o.countries.length > 0 ? ` [${o.countries.join('/')}]` : '';
+  return `${idx + 1}. ${o.category || o.vertical || 'CPA'} - ${o.name || o.offer_name || 'Matched Offer'}${geoText}${payoutStr}`;
+}).join('\n')}
+
+We recommend integration of these tracking links immediately to capitalize on current high EPC rates. 
+
+You can find these and grab your tracking links in the Offers section:
+https://www.moustacheleads.com/dashboard/offers
+
+Best regards,
+Team Moustache Leads`;
+                }
+              } catch (apiErr) {
+                console.error(`Error fetching dynamic matches for bulk user ${u.username}:`, apiErr);
+              }
+            }
+          } else {
+            // General fallback replacement
+            body = body.replace(/{username}/g, u.username || 'there');
+          }
+
+          try {
+            await loginLogsService.sendCustomMail(
+              [u.email],
+              subject,
+              convertPlainTextToHtml(body)
+            );
+            successCount++;
+          } catch (mailErr) {
+            console.error(`Failed to send bulk email to ${u.email}:`, mailErr);
+          }
+
+          // Safe SMTP pacing delay
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        toast({ 
+          title: 'Bulk Dispatch Completed', 
+          description: `Successfully sent personalized emails to ${successCount} of ${targetUsers.length} user(s).` 
+        });
+      }
+
+      setCustomEmailDialog(prev => ({ ...prev, isOpen: false }));
+    } catch (error) {
+      toast({ title: 'Error', description: 'Failed to send custom email', variant: 'destructive' });
+    } finally {
+      setBulkMailSending(false);
+    }
+  };
+
+  const getQuickOutreachTemplate = (
+    type: 'no_placement' | 'no_conversion' | 'offer_match' | 'cold_welcome' | 'custom' | string,
+    targetUser?: any
+  ) => {
+    const name = targetUser ? (targetUser.username || 'there') : '{username}';
+    
+    // Format GEO
+    let geoStr = 'global';
+    if (targetUser) {
+      if (targetUser.country && targetUser.country !== 'Unknown') {
+        geoStr = targetUser.country;
+      } else if (targetUser.geoPreferences && targetUser.geoPreferences.length > 0) {
+        geoStr = targetUser.geoPreferences.join(', ');
+      }
+    } else {
+      geoStr = 'your target';
+    }
+
+    // Format Vertical
+    let vertStr = 'CPA';
+    if (targetUser && targetUser.verticals && targetUser.verticals.length > 0) {
+      vertStr = targetUser.verticals.join(' & ');
+    }
+
+    let subject = '';
+    let body = '';
+
+    if (type === 'cold_welcome') {
+      subject = `Welcome aboard! Let's get started on Moustache Leads 🚀`;
+      body = `Hey ${name},
+
+Welcome aboard! We noticed you haven't had any activity since signing up. We would love to learn more about your traffic sources, favorite verticals, and goals so we can get your account set up for success.
+
+Tell us about your traffic and goals. What kind of traffic do you currently run?
+
+If you have a quick minute, feel free to join our Teams workspace to chat with your dedicated account manager:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+Looking forward to working together!
+
+Best regards,
+Team Moustache Leads`;
+    } else if (type === 'no_placement') {
+      subject = `Setup Your Placement for ${geoStr} ${vertStr} Traffic! 🚀`;
+      body = `Hi ${name},
+
+We noticed you haven't created placements for ${geoStr} ${vertStr} traffic on Moustache Leads yet. Creating a placement is the first step to starting your traffic campaigns and earning payouts.
+
+You can set up your placement here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need any setup assistance, feel free to join our Teams or connect with our support team.
+
+Best regards,
+Team Moustache Leads`;
+    } else if (type === 'no_conversion') {
+      const clickCount = targetUser ? (targetUser.clicks_count || 0) : 0;
+      subject = `Optimize Your ${vertStr} Conversions on Moustache Leads! 🎯`;
+      body = `Hey ${name},
+
+We noticed you have set up your placements and generated some clicks${clickCount > 0 ? ` (${clickCount} clicks)` : ''} for ${geoStr} ${vertStr} traffic, but haven't received any conversions yet.
+
+Let's get this optimized! Often, this can be resolved with a quick adjustment to postback tracking or offer targeting. Let us know what geo and vertical you are currently running so we can recommend the best-converting links for you.
+
+Connect with our team to start earning:
+https://www.moustacheleads.com/dashboard/support
+
+Best regards,
+Team Moustache Leads`;
+    } else if (type === 'offer_match') {
+      const matchDict: Record<string, string[]> = {
+        'Games': ['Garena Free Fire Rewards (Global)', 'RAID: Shadow Legends (US/CA)', 'PlayStation Gift Card Matcher'],
+        'Finance': ['Credit Karma Auto Loan Matcher (US)', 'Amex Blue Cash Everyday (US)', 'Crypto Trading Signals Pro'],
+        'Sweeps': ['iPhone 15 Pro Max Sweepstakes (US/UK)', 'Walmart $500 Gift Card Sweepstakes (US)', 'Dyson Airwrap Giveaway (FR/DE)'],
+        'Dating': ['Casual Matchmaker Dating (Global)', 'Meet Local Singles (US/UK/FR)'],
+        'Crypto': ['Binance Account Activation Bonus', 'Bitcoin Profit Arbitrage Tool'],
+        'Nutra': ['Keto Burn Max Weight Loss (US/CA)', 'Collagen Youth Glow Serum (UK)'],
+        'E-commerce': ['Amazon Mystery Box Promo', 'Temu $100 Coupon Bundle (US)'],
+      };
+      
+      const suggested: string[] = [];
+      const userVerts = targetUser && targetUser.verticals && targetUser.verticals.length > 0 
+        ? targetUser.verticals 
+        : ['Sweeps', 'Finance', 'Games'];
+        
+      userVerts.forEach((v: string) => {
+        const matchedKey = Object.keys(matchDict).find(k => k.toLowerCase() === v.toLowerCase());
+        if (matchedKey && matchDict[matchedKey]) {
+          suggested.push(...matchDict[matchedKey].map(offerName => `${v} - ${offerName}`));
+        }
+      });
+
+      const matchedOffers = suggested.length > 0 ? suggested.slice(0, 4) : ['CPA - Smartlink High EPC Offer'];
+      
+      const vertList = targetUser && targetUser.verticals && targetUser.verticals.length > 0 
+        ? targetUser.verticals.join('/') 
+        : 'Top';
+      
+      subject = `Top ${vertList} Offers Matched for Your Traffic! 🎯`;
+      body = `Hey ${name},
+
+Based on your profile interested verticals and traffic in ${geoStr}, we have automatically matched the following high-performing offers that will maximize your revenue:
+
+${matchedOffers.map((o, idx) => `${idx + 1}. ${o}`).join('\n')}
+
+We recommend integration of these tracking links immediately to capitalize on current high EPC rates. 
+
+You can find these and grab your tracking links in the Offers section:
+https://www.moustacheleads.com/dashboard/offers
+
+Best regards,
+Team Moustache Leads`;
+    } else {
+      subject = 'Important Update from MoustacheLeads';
+      body = `Hello,\n\nBest regards,\nTeam Moustache Leads`;
+    }
+
+    return { subject, body };
+  };
+
+  const openQuickOutreach = async (userId: string, type: 'no_placement' | 'no_conversion' | 'offer_match' | 'cold_welcome') => {
+    const targetUser = allUsers.find(u => u.user_id === userId);
+    if (!targetUser) return;
+
+    const loadingId = `${userId}_${type}`;
+    setQuickOutreachLoadingId(loadingId);
+
+    try {
+      let { subject, body } = getQuickOutreachTemplate(type, targetUser);
+
+      if (type === 'offer_match') {
+        try {
+          const intelRes = await loginLogsService.getInventoryMatchedOffers(userId);
+          const matched: any[] = [];
+          const seenIds = new Set<string>();
+          
+          const addSection = (sectionName: string) => {
+            if (intelRes && intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
+              intelRes[sectionName].forEach((o: any) => {
+                const id = o.offer_id || o._id || o.id;
+                if (id && !seenIds.has(String(id))) {
+                  seenIds.add(String(id));
+                  matched.push(o);
+                }
+              });
+            }
+          };
+
+          addSection('recommended_offers');
+          addSection('most_approved');
+          addSection('highly_clicked');
+          addSection('newly_added');
+
+          if (matched.length > 0) {
+            const matchedOffers = matched.slice(0, 4);
+            const name = targetUser.username || 'there';
+            
+            // Format GEO
+            let geoStr = 'global';
+            if (targetUser.country && targetUser.country !== 'Unknown') {
+              geoStr = targetUser.country;
+            } else if (targetUser.geoPreferences && targetUser.geoPreferences.length > 0) {
+              geoStr = targetUser.geoPreferences.join(', ');
+            } else if (targetUser.intelligence_geos && targetUser.intelligence_geos.length > 0) {
+              geoStr = targetUser.intelligence_geos.join(', ');
+            }
+
+            const userVerts = targetUser.verticals && targetUser.verticals.length > 0 
+              ? targetUser.verticals 
+              : ['Sweeps', 'Finance', 'Games'];
+            const vertList = userVerts.join('/');
+
+            subject = `Top ${vertList} Offers Matched for Your Traffic! 🎯`;
+            body = `Hey ${name},
+
+Based on your profile interested verticals and traffic in ${geoStr}, we have automatically matched the following high-performing offers that will maximize your revenue:
+
+${matchedOffers.map((o, idx) => {
+  const payoutStr = o.payout ? ` (Payout: $${o.payout})` : '';
+  const geoText = o.countries && o.countries.length > 0 ? ` [${o.countries.join('/')}]` : '';
+  return `${idx + 1}. ${o.category || o.vertical || 'CPA'} - ${o.name || o.offer_name || 'Matched Offer'}${geoText}${payoutStr}`;
+}).join('\n')}
+
+We recommend integration of these tracking links immediately to capitalize on current high EPC rates. 
+
+You can find these and grab your tracking links in the Offers section:
+https://www.moustacheleads.com/dashboard/offers
+
+Best regards,
+Team Moustache Leads`;
+          }
+        } catch (apiErr) {
+          console.error("Error fetching dynamic matched offers:", apiErr);
+        }
+      }
+
+      setSelectedTemplate(type);
+      setCustomEmailDialog({
+        isOpen: true,
+        mode: 'single',
+        targetUserId: userId,
+        subject,
+        body
+      });
+    } catch (err) {
+      console.error("Error in openQuickOutreach:", err);
+    } finally {
+      setQuickOutreachLoadingId(null);
+    }
   };
 
   const users = useMemo(() => {
@@ -742,9 +1379,9 @@ const AdminRecentActivity: React.FC = () => {
       if (advancedFilters.status.length > 0) {
         let match = false;
         if (advancedFilters.status.includes('Suspicious') && u.isSuspicious) match = true;
-        if (advancedFilters.status.includes('Normal') && !u.isSuspicious && !u.logs.some(l => l.status === 'failed')) match = true;
+        if (advancedFilters.status.includes('Normal') && !u.isSuspicious && !u.logs.some(l => l.status !== 'success')) match = true;
         if (advancedFilters.status.includes('Failed Logins Only')) {
-          if (u.logs.some(l => l.status === 'failed')) match = true;
+          if (u.logs.some(l => l.status !== 'success')) match = true;
         }
         if (advancedFilters.status.includes('Searched Something') && u.hasSearchActivity) match = true;
         if (!match) return false;
@@ -857,13 +1494,16 @@ const AdminRecentActivity: React.FC = () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const [logsRes, mailRes, usersRes, searchRes, queueRes, settingsRes] = await Promise.all([
+      const [logsRes, failedLogsRes, mailRes, usersRes, searchRes, queueRes, settingsRes] = await Promise.all([
         loginLogsService.getLoginLogs(params).catch(() => ({ logs: [] })),
+        loginLogsService.getLoginLogs({ ...params, status: 'failed', limit: 150 }).catch(() => ({ logs: [] })),
         loginLogsService.getMailHistory(undefined, 500).catch(() => ({ history: [] })),
-        fetch(`${API_URL}/api/auth/admin/users`, {
-          headers: { 'Authorization': `Bearer ${token}` },
-          signal: controller.signal
-        }).then(r => r.ok ? r.json() : { users: [] }).catch(() => ({ users: [] })),
+        (!isSilent || allUsersRef.current.length === 0)
+          ? fetch(`${API_URL}/api/auth/admin/users`, {
+              headers: { 'Authorization': `Bearer ${token}` },
+              signal: controller.signal
+            }).then(r => r.ok ? r.json() : { users: [] }).catch(() => ({ users: [] }))
+          : Promise.resolve({ users: [] }),
         fetch(`${API_URL}/api/admin/search-logs?date_from=${params.start_date}&date_to=${params.end_date}&per_page=500`, {
           headers: { 'Authorization': `Bearer ${token}` },
           signal: controller.signal
@@ -879,14 +1519,14 @@ const AdminRecentActivity: React.FC = () => {
       ]);
       clearTimeout(timeoutId);
 
-      if (settingsRes.settings) setAutomationSettings(settingsRes.settings);
+      if (settingsRes.settings && !automationSettingsOpen) setAutomationSettings(settingsRes.settings);
       const automationQueueRawData = queueRes.queue || [];
       setAutomationQueue(automationQueueRawData);
       (window as any)._rawQueue = automationQueueRawData;
 
       const searchUserIds = new Set(searchRes.logs?.map((l: any) => l.user_id).filter(Boolean) || []);
 
-      const mailMap = new Map<string, { welcome: string | null, referral: string | null, total: number }>();
+      const mailMap = new Map<string, { welcome: string | null, referral: string | null, noPlacement: string | null, noConversion: string | null, offerMatch: string | null, total: number, lastContacted: string | null }>();
       let mailsToday = 0;
       const todayString = new Date().toDateString();
 
@@ -896,27 +1536,78 @@ const AdminRecentActivity: React.FC = () => {
         }
         h.to?.forEach((email: string) => {
           const e = email.toLowerCase();
-          if (!mailMap.has(e)) mailMap.set(e, { welcome: null, referral: null, total: 0 });
+          if (!mailMap.has(e)) mailMap.set(e, { welcome: null, referral: null, noPlacement: null, noConversion: null, offerMatch: null, total: 0, lastContacted: null });
           const m = mailMap.get(e)!;
           m.total += 1;
           const subject = h.subject?.toLowerCase() || '';
           if (subject.includes('welcome') && !m.welcome) m.welcome = h.sent_at;
           if (subject.includes('referral') && !m.referral) m.referral = h.sent_at;
+          if (subject.includes('placement') && !m.noPlacement) m.noPlacement = h.sent_at;
+          if (subject.includes('conversion') && !m.noConversion) m.noConversion = h.sent_at;
+          if ((subject.includes('offer') || subject.includes('matched')) && !m.offerMatch) m.offerMatch = h.sent_at;
+
+          if (h.sent_at) {
+            if (!m.lastContacted || new Date(h.sent_at) > new Date(m.lastContacted)) {
+              m.lastContacted = h.sent_at;
+            }
+          }
         });
       });
       setGlobalMailMetrics({ total: mailRes.total || 0, today: mailsToday });
 
       const profileMap = new Map<string, any>();
-      usersRes.users?.forEach((u: any) => {
-        profileMap.set(String(u._id), u);
-        if (u.email) profileMap.set(u.email.toLowerCase(), u);
-        if (u.username) profileMap.set(u.username.toLowerCase(), u);
+      if (usersRes.users && usersRes.users.length > 0) {
+        usersRes.users.forEach((u: any) => {
+          profileMap.set(String(u._id), u);
+          if (u.email) profileMap.set(u.email.toLowerCase(), u);
+          if (u.username) profileMap.set(u.username.toLowerCase(), u);
+        });
+      } else {
+        // Fallback or Silent poll: populate from current allUsersRef state to prevent any data resets
+        allUsersRef.current.forEach((u: any) => {
+          const id = u.user_id || u._id;
+          if (id) {
+            const profileData = {
+              _id: id,
+              user_id: id,
+              username: u.username,
+              email: u.email,
+              placements_count: u.placements_count,
+              has_approved_placement: u.has_approved_placement,
+              clicks_count: u.clicks_count,
+              conversions_count: u.conversions_count,
+              first_name: u.first_name,
+              last_name: u.last_name,
+              verticals: u.verticals,
+              geos: u.geoPreferences,
+              created_at: u.created_at,
+              welcomeMailSentAt: u.welcomeMailSentAt,
+              referralMailSentAt: u.referralMailSentAt,
+              noPlacementMailSentAt: u.noPlacementMailSentAt,
+              noConversionMailSentAt: u.noConversionMailSentAt,
+              offerMatchMailSentAt: u.offerMatchMailSentAt
+            };
+            profileMap.set(String(id), profileData);
+            if (u.email) profileMap.set(u.email.toLowerCase(), profileData);
+            if (u.username) profileMap.set(u.username.toLowerCase(), profileData);
+          }
+        });
+      }
+
+      const mergedLogs = [...(logsRes.logs || [])];
+      const existingLogIds = new Set(mergedLogs.map(l => String(l._id)));
+      
+      (failedLogsRes.logs || []).forEach((log: any) => {
+        if (!existingLogIds.has(String(log._id))) {
+          mergedLogs.push(log);
+          existingLogIds.add(String(log._id));
+        }
       });
 
       const userMap = new Map<string, AggregatedUser>();
       
-      // Iterate over logsRes.logs to attach login sessions to the user map
-      for (const log of (logsRes.logs || [])) {
+      // Iterate over mergedLogs to attach login sessions to the user map
+      for (const log of mergedLogs) {
         let key = String(log.user_id || log.email || log.username || log._id);
         if (!key || key === 'undefined' || key === 'null') continue;
 
@@ -933,28 +1624,32 @@ const AdminRecentActivity: React.FC = () => {
 
         if (!userMap.has(key)) {
           const userEmail = (log.email || profile.email || '').toLowerCase();
-          const mInfo = mailMap.get(userEmail) || { welcome: null, referral: null, total: 0 };
-          const { lat, lng } = getLatLng(log.location, log, profile);
-
-          const verticals = profile.verticals ||
-            (profile.signup_preferences && profile.signup_preferences.verticals) ||
-            profile.vertical || [];
-
-          const geos = profile.geos ||
-            (profile.signup_preferences && profile.signup_preferences.geos) ||
-            profile.geos_preference || [];
-
-          userMap.set(key, {
-            user_id: key,
-            username: log.username || profile.username || log.email?.split('@')[0] || 'Unknown',
-            email: log.email || profile.email || 'Unknown',
-            latest_login: log.login_time,
-            login_count: 0,
-            logs: [],
-            isSuspicious: false,
-            welcomeMailSentAt: mInfo.welcome || undefined,
-            referralMailSentAt: mInfo.referral || undefined,
-            totalMails: mInfo.total,
+           const mInfo = mailMap.get(userEmail) || { welcome: null, referral: null, noPlacement: null, noConversion: null, offerMatch: null, total: 0, lastContacted: null };
+           const { lat, lng } = getLatLng(log.location, log, profile);
+ 
+           const verticals = profile.verticals ||
+             (profile.signup_preferences && profile.signup_preferences.verticals) ||
+             profile.vertical || [];
+ 
+           const geos = profile.geos ||
+             (profile.signup_preferences && profile.signup_preferences.geos) ||
+             profile.geos_preference || [];
+ 
+           userMap.set(key, {
+             user_id: key,
+             username: log.username || profile.username || log.email?.split('@')[0] || 'Unknown',
+             email: log.email || profile.email || 'Unknown',
+             latest_login: log.login_time,
+             login_count: 0,
+             logs: [],
+             isSuspicious: false,
+             welcomeMailSentAt: mInfo.welcome || undefined,
+             referralMailSentAt: mInfo.referral || undefined,
+             noPlacementMailSentAt: mInfo.noPlacement || undefined,
+             noConversionMailSentAt: mInfo.noConversion || undefined,
+             offerMatchMailSentAt: mInfo.offerMatch || undefined,
+             lastContactedAt: mInfo.lastContacted || undefined,
+             totalMails: mInfo.total,
             lat,
             lng,
             country: getCountry(log, profile),
@@ -1083,6 +1778,7 @@ const AdminRecentActivity: React.FC = () => {
           userAgg.hasDifferentLocations = uniqueCountries.size > 1 || uniqueCities.size > 1;
           userAgg.sharedAccount = uniqueIps.size >= 3 || uniqueCountries.size >= 2;
         }
+        userAgg.failedLogin = userAgg.logs.some((l: any) => l.status !== 'success');
         return userAgg;
       }).sort((a, b) => new Date(b.latest_login).getTime() - new Date(a.latest_login).getTime());
 
@@ -1164,20 +1860,76 @@ const AdminRecentActivity: React.FC = () => {
       let body = '';
       if (type === 'welcome') {
         subject = 'Welcome to Moustache Leads! 🚀';
-        body = `Hey there! Welcome ${u.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+        body = `Hey there! Welcome ${u.username} 😊
+
+Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+You can also ask questions anytime — we’re happy to help.
+By the way, what traffic sources are you currently working with?
+
+Please set up your placement and postback here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need help, reach us on Teams or Telegram: @mlaffil
+Support is also available here:
+https://www.moustacheleads.com/dashboard/support
+
+Looking forward to working with you! 🚀
+
+Best regards,
+Team Moustache Leads`;
       } else if (type === 'referral') {
         subject = 'Have you seen our Referral Program?';
-        body = `Hey ${u.username}<br/><br/>Hope you're doing well 🙂<br/><br/>Just wanted to check — have you had a chance to look at our referral program?<br/><br/>If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to your response!<br/><br/>Best regards,<br/>Team Moustache Leads`;
+        body = `Hey ${u.username}
+
+Hope you're doing well 🙂
+
+Just wanted to check — have you had a chance to look at our referral program?
+
+If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.
+
+Looking forward to your response!
+
+Best regards,
+Team Moustache Leads`;
       } else if (type === 'warning') {
         subject = 'Important Notice Regarding Your Account Activity';
-        body = `Hey ${u.username},<br/><br/>We have detected some unusual activity on your account recently.<br/>Please review your account security and ensure your postbacks are set up correctly.<br/>If you have any questions or believe this is an error, please reach out to support immediately.<br/><br/>Best regards,<br/>Team Moustache Leads`;
+        body = `Hey ${u.username},
+
+We have detected some unusual activity on your account recently.
+Please review your account security and ensure your postbacks are set up correctly.
+If you have any questions or believe this is an error, please reach out to support immediately.
+
+Best regards,
+Team Moustache Leads`;
       } else if (type === 'welcome_referral') {
         subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
-        body = `Hey there! Welcome ${u.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+        body = `Hey there! Welcome ${u.username} 😊
+
+Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+You can also ask questions anytime — we’re happy to help.
+By the way, what traffic sources are you currently working with?
+
+Please set up your placement and postback here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need help, reach us on Teams or Telegram: @mlaffil
+Support is also available here:
+https://www.moustacheleads.com/dashboard/support
+
+Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.
+
+Looking forward to working with you! 🚀
+
+Best regards,
+Team Moustache Leads`;
       }
 
       try {
-        await loginLogsService.sendCustomMail([u.email], subject, body, scheduledTimeStr ? new Date(scheduledTimeStr).toISOString() : undefined);
+        await loginLogsService.sendCustomMail([u.email], subject, convertPlainTextToHtml(body), scheduledTimeStr ? new Date(scheduledTimeStr).toISOString() : undefined);
         successCount++;
       } catch (e) {
         console.error(`Failed to send mail to ${u.email}`, e);
@@ -1199,8 +1951,28 @@ const AdminRecentActivity: React.FC = () => {
     if (action === 'Send Welcome + Referral Mail' && userToActOn) {
       try {
         const subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
-        const body = `Hey there! Welcome ${userToActOn.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
-        await loginLogsService.sendCustomMail([userToActOn.email], subject, body);
+        const body = `Hey there! Welcome ${userToActOn.username} 😊
+
+Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+You can also ask questions anytime — we’re happy to help.
+By the way, what traffic sources are you currently working with?
+
+Please set up your placement and postback here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need help, reach us on Teams or Telegram: @mlaffil
+Support is also available here:
+https://www.moustacheleads.com/dashboard/support
+
+Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.
+
+Looking forward to working with you! 🚀
+
+Best regards,
+Team Moustache Leads`;
+        await loginLogsService.sendCustomMail([userToActOn.email], subject, convertPlainTextToHtml(body));
         toast({ title: 'Mails Sent', description: `Welcome and Referral mails sent to ${userToActOn.username}.` });
         setAllUsers(prevUsers => prevUsers.map(u => {
           if (u.user_id !== userId) return u;
@@ -1343,21 +2115,77 @@ const AdminRecentActivity: React.FC = () => {
                       let body = '';
                       if (q.type === 'welcome') {
                         subject = 'Welcome to Moustache Leads! 🚀';
-                        body = `Hey there! Welcome ${q.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                        body = `Hey there! Welcome ${q.username} 😊
+
+Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+You can also ask questions anytime — we’re happy to help.
+By the way, what traffic sources are you currently working with?
+
+Please set up your placement and postback here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need help, reach us on Teams or Telegram: @mlaffil
+Support is also available here:
+https://www.moustacheleads.com/dashboard/support
+
+Looking forward to working with you! 🚀
+
+Best regards,
+Team Moustache Leads`;
                       } else if (q.type === 'referral') {
                         subject = 'Have you seen our Referral Program?';
-                        body = `Hey ${q.username}<br/><br/>Hope you're doing well 🙂<br/><br/>Just wanted to check — have you had a chance to look at our referral program?<br/><br/>If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to your response!<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                        body = `Hey ${q.username}
+
+Hope you're doing well 🙂
+
+Just wanted to check — have you had a chance to look at our referral program?
+
+If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.
+
+Looking forward to your response!
+
+Best regards,
+Team Moustache Leads`;
                       } else if (q.type === 'warning') {
                         subject = 'Important Notice Regarding Your Account Activity';
-                        body = `Hey ${q.username},<br/><br/>We have detected some unusual activity on your account recently.<br/>Please review your account security and ensure your postbacks are set up correctly.<br/>If you have any questions or believe this is an error, please reach out to support immediately.<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                        body = `Hey ${q.username},
+
+We have detected some unusual activity on your account recently.
+Please review your account security and ensure your postbacks are set up correctly.
+If you have any questions or believe this is an error, please reach out to support immediately.
+
+Best regards,
+Team Moustache Leads`;
                       } else if (q.type === 'welcome_referral') {
                         subject = 'Welcome to Moustache Leads & Our Referral Program! 🚀';
-                        body = `Hey there! Welcome ${q.username} 😊<br/><br/>Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:<br/><a href="https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1">https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1</a><br/><br/>You can also ask questions anytime — we’re happy to help.<br/>By the way, what traffic sources are you currently working with?<br/><br/>Please set up your placement and postback here:<br/><a href="https://www.moustacheleads.com/dashboard/placements">https://www.moustacheleads.com/dashboard/placements</a><br/><br/>If you need help, reach us on Teams or Telegram: @mlaffil<br/>Support is also available here:<br/><a href="https://www.moustacheleads.com/dashboard/support">https://www.moustacheleads.com/dashboard/support</a><br/><br/>Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.<br/><br/>Looking forward to working with you! 🚀<br/><br/>Best regards,<br/>Team Moustache Leads`;
+                        body = `Hey there! Welcome ${q.username} 😊
+
+Here’s our Teams link — feel free to join anytime. We’re there to help you with offers, tracking, or anything you need:
+https://teams.live.com/l/invite/FEAkABBHjfqCMqxtR8?v=g1
+
+You can also ask questions anytime — we’re happy to help.
+By the way, what traffic sources are you currently working with?
+
+Please set up your placement and postback here:
+https://www.moustacheleads.com/dashboard/placements
+
+If you need help, reach us on Teams or Telegram: @mlaffil
+Support is also available here:
+https://www.moustacheleads.com/dashboard/support
+
+Also, have you had a chance to look at our referral program? If yes, we’d love to hear your thoughts. And if you have any doubts or need clarity on anything, feel free to share — we’re happy to help.
+
+Looking forward to working with you! 🚀
+
+Best regards,
+Team Moustache Leads`;
                       }
 
                       try {
                         const scheduleIso = new Date(q.scheduledTime).toISOString();
-                        await loginLogsService.sendCustomMail([q.email], subject, body, scheduleIso);
+                        await loginLogsService.sendCustomMail([q.email], subject, convertPlainTextToHtml(body), scheduleIso);
                         successCount++;
                       } catch (e) {
                         console.error(`Failed to send mail to ${q.email}`, e);
@@ -1670,16 +2498,23 @@ const AdminRecentActivity: React.FC = () => {
                       }}
                     >
                       {/* Animated Pulse (Enhanced visibility) */}
-                      <circle cx={0} cy={0} r={18} fill={(u as any).isJittered ? '#3b82f6' : (u.isSuspicious ? '#ef4444' : '#22c55e')} opacity="0.4">
-                        <animate attributeName="r" from="10" to="24" dur="2s" repeatCount="indefinite" />
-                        <animate attributeName="opacity" from="0.7" to="0" dur="2s" repeatCount="indefinite" />
-                      </circle>
+                      {(() => {
+                        const markerColor = u.logs.some((l: any) => l.status !== 'success') ? '#ef4444' : (u.isSuspicious ? '#f97316' : '#22c55e');
+                        return (
+                          <>
+                            <circle cx={0} cy={0} r={18} fill={markerColor} opacity="0.4">
+                              <animate attributeName="r" from="10" to="24" dur="2s" repeatCount="indefinite" />
+                              <animate attributeName="opacity" from="0.7" to="0" dur="2s" repeatCount="indefinite" />
+                            </circle>
 
-                      {/* Main Marker Shadow */}
-                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 18 : 14} fill="rgba(0,0,0,0.5)" transform="translate(1.5, 1.5)" />
+                            {/* Main Marker Shadow */}
+                            <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 18 : 14} fill="rgba(0,0,0,0.5)" transform="translate(1.5, 1.5)" />
 
-                      {/* Main Marker Circle (Larger) */}
-                      <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 15 : 12} fill={(u as any).isJittered ? '#3b82f6' : (u.isSuspicious ? '#ef4444' : '#22c55e')} stroke="#fff" strokeWidth={2} />
+                            {/* Main Marker Circle (Larger) */}
+                            <circle cx={0} cy={0} r={selectedUserIds.has(u.user_id) ? 15 : 12} fill={markerColor} stroke="#fff" strokeWidth={2} />
+                          </>
+                        );
+                      })()}
 
                       {/* Marker Label */}
                       <text textAnchor="middle" y={4} style={{ fontSize: '8px', fill: '#fff', fontWeight: 'bold', pointerEvents: 'none' }}>
@@ -1709,9 +2544,9 @@ const AdminRecentActivity: React.FC = () => {
 
             {/* Legend as requested */}
             <div className="absolute bottom-4 left-4 flex gap-4 text-[10px] text-white bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-sm border border-white/10">
-              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span> Online ({users.filter(u => !u.isSuspicious && !u.logs.some(l => l.status === 'failed')).length})</div>
+              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></span> Online ({users.filter(u => !u.isSuspicious && !u.logs.some(l => l.status !== 'success')).length})</div>
               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]"></span> Logged In ({users.length})</div>
-              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span> Failed ({users.filter(u => u.logs.some(l => l.status === 'failed')).length})</div>
+              <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span> Failed ({users.filter(u => u.logs.some(l => l.status !== 'success')).length})</div>
               <div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.8)]"></span> Suspicious ({users.filter(u => u.isSuspicious).length})</div>
             </div>
 
@@ -1766,6 +2601,14 @@ const AdminRecentActivity: React.FC = () => {
             <Checkbox checked={users.length > 0 && selectedUserIds.size === users.length} onCheckedChange={toggleAll} />
             <CardTitle className="text-sm font-semibold">User Activity Feed ({users.length} Users)</CardTitle>
           </div>
+          {selectedUserIds.size > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500">{selectedUserIds.size} Selected</span>
+              <Button size="sm" onClick={() => setCustomEmailDialog({ isOpen: true, mode: 'bulk', targetUserId: null, subject: 'Important Update from MoustacheLeads', body: 'Hello,\n\nBest regards,\nTeam Moustache Leads' })} className="bg-indigo-600 hover:bg-indigo-700 h-8 text-xs text-white">
+                <Mail className="w-3 h-3 mr-2" /> Bulk Email ({selectedUserIds.size})
+              </Button>
+            </div>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -1785,7 +2628,9 @@ const AdminRecentActivity: React.FC = () => {
                 const isExpanded = expandedId === user.user_id;
 
                 const getUserTheme = () => {
-                  const hasFailed = user.logs.some(l => l.status === 'failed');
+                  const hasFailed = user.logs.some(l => l.status !== 'success');
+                  const hasSignup = user.logs.some(l => l.status === 'signup_success' || l.status === 'signup_started');
+                  const onlySignup = hasSignup && !user.logs.some(l => l.status === 'success');
                   const isSuspicious = user.isSuspicious;
                   const isMulti = user.login_count >= 3;
                   const isNewDevice = user.logs.some(l => l.device_change_detected);
@@ -1799,6 +2644,7 @@ const AdminRecentActivity: React.FC = () => {
                   if (isNewDevice) badges.push({ text: 'New device', cls: 'bg-[#FAC775] text-[#633806]' });
                   if (isMulti) badges.push({ text: `${user.login_count}x logins`, cls: 'bg-[#CECBF6] text-[#3C3489]' });
                   if (user.hasSearchActivity) badges.push({ text: 'Searched', cls: 'bg-purple-100 text-purple-700 border border-purple-200' });
+                  if (onlySignup) badges.push({ text: 'New Signup', cls: 'bg-emerald-100 text-emerald-800 border border-emerald-200 font-medium' });
                   if (badges.length === 0) badges.push({ text: 'OK', cls: 'bg-[#C0DD97] text-[#27500A]' });
 
                   let theme = { row: 'bg-muted/10 border-transparent hover:border-border', bar: 'bg-border', avatar: 'bg-[#D3D1C7] text-[#2C2C2A]', loginBadge: 'bg-[#D3D1C7] text-[#2C2C2A]' };
@@ -1816,6 +2662,11 @@ const AdminRecentActivity: React.FC = () => {
                 const { theme, badges } = getUserTheme();
 
                 const isHighlighted = highlightedRowId === user.user_id;
+
+                const isColdWelcomeRec = !user.welcomeMailSentAt;
+                const isNoPlacementRec = !user.noPlacementMailSentAt && (user.placements_count === undefined || user.placements_count === 0) && !user.has_approved_placement;
+                const isNoConversionRec = !user.noConversionMailSentAt && ((user.placements_count !== undefined && user.placements_count > 0) || user.has_approved_placement) && (user.conversions_count === undefined || user.conversions_count === 0);
+                const isOfferMatchRec = !user.offerMatchMailSentAt && ((user.clicks_count !== undefined && user.clicks_count > 0) || user.hasSearchActivity || (user.conversions_count !== undefined && user.conversions_count > 0));
 
                 return (
                   <div key={user.user_id} id={`user-row-${user.user_id}`}>
@@ -1914,6 +2765,166 @@ const AdminRecentActivity: React.FC = () => {
                             </Badge>
                             <span className="text-[9px] text-muted-foreground whitespace-nowrap leading-none">{user.referralMailSentAt ? new Date(user.referralMailSentAt).toLocaleString([], { month: 'short', day: 'numeric' }) : 'Not Sent'}</span>
                           </div>
+
+                          {/* Last Contacted Column */}
+                          <div className="flex flex-col gap-0.5 items-center w-[90px] justify-center text-center">
+                            <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight">Last Contacted</span>
+                            {user.lastContactedAt ? (
+                              <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50/50 px-1.5 py-0.5 rounded border border-indigo-100/70 whitespace-nowrap leading-none">
+                                {new Date(user.lastContactedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-bold text-rose-500 bg-rose-50/30 px-1.5 py-0.5 rounded border border-rose-100/50 whitespace-nowrap leading-none">
+                                Never
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Divider */}
+                          <div className="w-[1px] h-6 bg-slate-200 dark:bg-slate-700 mx-2"></div>
+
+                          {/* Quick Outreach Buttons */}
+                          <div className="flex items-center gap-2">
+                            {/* Cold Welcome */}
+                            <div className="flex flex-col items-center gap-0.5 w-[75px]" title={user.welcomeMailSentAt ? `Sent: ${new Date(user.welcomeMailSentAt).toLocaleString()}` : "Welcome Mail Not Sent"}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  openQuickOutreach(user.user_id, 'cold_welcome');
+                                }}
+                                disabled={!!quickOutreachLoadingId}
+                                className={`text-[9px] w-full px-1 py-0.5 h-6 rounded-md font-semibold border transition-all truncate text-center flex items-center justify-center gap-1 ${
+                                  isColdWelcomeRec
+                                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.15)] dark:text-emerald-400'
+                                    : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200 hover:text-slate-500 dark:bg-slate-800/10 dark:text-slate-500 dark:border-slate-700/20 dark:hover:bg-slate-800/20 dark:hover:text-slate-400'
+                                } ${quickOutreachLoadingId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={isColdWelcomeRec ? "Recommended: User hasn't received welcome mail" : "Send Cold Welcome email"}
+                              >
+                                {quickOutreachLoadingId === `${user.user_id}_cold_welcome` ? (
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                ) : "Cold Welcome"}
+                              </button>
+                              <span className={`text-[8px] whitespace-nowrap leading-none font-semibold mt-0.5 ${
+                                user.welcomeMailSentAt 
+                                  ? 'text-indigo-600 dark:text-indigo-400' 
+                                  : 'text-rose-600 dark:text-rose-400'
+                              }`}>
+                                {user.welcomeMailSentAt 
+                                  ? new Date(user.welcomeMailSentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) 
+                                  : 'Not Sent'
+                                }
+                              </span>
+                            </div>
+ 
+                            {/* No Placement */}
+                            <div className="flex flex-col items-center gap-0.5 w-[75px]" title={user.noPlacementMailSentAt ? `Sent: ${new Date(user.noPlacementMailSentAt).toLocaleString()}` : `${user.placements_count || 0} placements set up`}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  openQuickOutreach(user.user_id, 'no_placement');
+                                }}
+                                disabled={!!quickOutreachLoadingId}
+                                className={`text-[9px] w-full px-1 py-0.5 h-6 rounded-md font-semibold border transition-all truncate text-center flex items-center justify-center gap-1 ${
+                                  isNoPlacementRec
+                                    ? 'bg-amber-500/10 text-amber-600 border-amber-500/30 hover:bg-amber-500/20 shadow-[0_0_8px_rgba(245,158,11,0.15)] dark:text-amber-400'
+                                    : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200 hover:text-slate-500 dark:bg-slate-800/10 dark:text-slate-500 dark:border-slate-700/20 dark:hover:bg-slate-800/20 dark:hover:text-slate-400'
+                                } ${quickOutreachLoadingId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={isNoPlacementRec ? "Recommended: User has no placements set up" : "Send Setup Placement email"}
+                              >
+                                {quickOutreachLoadingId === `${user.user_id}_no_placement` ? (
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                ) : "No Placement"}
+                              </button>
+                              <span className={`text-[8px] whitespace-nowrap leading-none font-semibold mt-0.5 ${
+                                user.noPlacementMailSentAt 
+                                  ? 'text-indigo-600 dark:text-indigo-400' 
+                                  : (user.placements_count > 0 || user.has_approved_placement)
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                              }`}>
+                                {user.noPlacementMailSentAt 
+                                  ? new Date(user.noPlacementMailSentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) 
+                                  : (user.placements_count > 0 || user.has_approved_placement)
+                                    ? 'Has Placement'
+                                    : 'No Placement'
+                                }
+                              </span>
+                            </div>
+ 
+                            {/* No Conversion */}
+                            <div className="flex flex-col items-center gap-0.5 w-[75px]" title={user.noConversionMailSentAt ? `Sent: ${new Date(user.noConversionMailSentAt).toLocaleString()}` : `${user.conversions_count || 0} conversions tracked`}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  openQuickOutreach(user.user_id, 'no_conversion');
+                                }}
+                                disabled={!!quickOutreachLoadingId}
+                                className={`text-[9px] w-full px-1 py-0.5 h-6 rounded-md font-semibold border transition-all truncate text-center flex items-center justify-center gap-1 ${
+                                  isNoConversionRec
+                                    ? 'bg-rose-500/10 text-rose-600 border-rose-500/30 hover:bg-rose-500/20 shadow-[0_0_8px_rgba(244,63,94,0.15)] dark:text-rose-400'
+                                    : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200 hover:text-slate-500 dark:bg-slate-800/10 dark:text-slate-500 dark:border-slate-700/20 dark:hover:bg-slate-800/20 dark:hover:text-slate-400'
+                                } ${quickOutreachLoadingId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={isNoConversionRec ? "Recommended: User has placements but 0 conversions" : "Send Boost Conversions email"}
+                              >
+                                {quickOutreachLoadingId === `${user.user_id}_no_conversion` ? (
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                ) : "No Conversion"}
+                              </button>
+                              <span className={`text-[8px] whitespace-nowrap leading-none font-semibold mt-0.5 ${
+                                user.noConversionMailSentAt 
+                                  ? 'text-indigo-600 dark:text-indigo-400' 
+                                  : (user.conversions_count > 0)
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                              }`}>
+                                {user.noConversionMailSentAt 
+                                  ? new Date(user.noConversionMailSentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) 
+                                  : (user.conversions_count > 0)
+                                    ? 'Has Conversion'
+                                    : 'No Conversion'
+                                }
+                              </span>
+                            </div>
+ 
+                            {/* Offer Match */}
+                            <div className="flex flex-col items-center gap-0.5 w-[75px]" title={user.offerMatchMailSentAt ? `Sent: ${new Date(user.offerMatchMailSentAt).toLocaleString()}` : `${user.clicks_count || 0} clicks tracked`}>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  openQuickOutreach(user.user_id, 'offer_match');
+                                }}
+                                disabled={!!quickOutreachLoadingId}
+                                className={`text-[9px] w-full px-1 py-0.5 h-6 rounded-md font-semibold border transition-all truncate text-center flex items-center justify-center gap-1 ${
+                                  isOfferMatchRec
+                                    ? 'bg-cyan-500/10 text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/20 shadow-[0_0_8px_rgba(6,182,212,0.15)] dark:text-cyan-400'
+                                    : 'bg-slate-100 text-slate-400 border-slate-200 hover:bg-slate-200 hover:text-slate-500 dark:bg-slate-800/10 dark:text-slate-500 dark:border-slate-700/20 dark:hover:bg-slate-800/20 dark:hover:text-slate-400'
+                                } ${quickOutreachLoadingId ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                title={isOfferMatchRec ? "Recommended: User has active clicks/search activity" : "Send Matched Offers email"}
+                              >
+                                {quickOutreachLoadingId === `${user.user_id}_offer_match` ? (
+                                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                                ) : "Offer Match"}
+                              </button>
+                              <span className={`text-[8px] whitespace-nowrap leading-none font-semibold mt-0.5 ${
+                                user.offerMatchMailSentAt 
+                                  ? 'text-indigo-600 dark:text-indigo-400' 
+                                  : (user.clicks_count > 0)
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-rose-600 dark:text-rose-400'
+                              }`}>
+                                {user.offerMatchMailSentAt 
+                                  ? new Date(user.offerMatchMailSentAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) 
+                                  : (user.clicks_count > 0)
+                                    ? 'Clicks'
+                                    : 'No Clicks'
+                                }
+                              </span>
+                            </div>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-3 shrink-0 justify-end ml-auto">
@@ -1921,6 +2932,17 @@ const AdminRecentActivity: React.FC = () => {
                           <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${theme.loginBadge}`}>
                             {user.login_count}x
                           </span>
+                          <Button 
+                            variant="outline" 
+                            size="sm" 
+                            className="h-6 text-[10px] px-2 py-0 border-indigo-200 text-indigo-700 hover:bg-indigo-50 shadow-none ml-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCustomEmailDialog({ isOpen: true, mode: 'single', targetUserId: user.user_id, subject: 'Important Update from MoustacheLeads', body: 'Hello,\n\nBest regards,\nTeam Moustache Leads' });
+                            }}
+                          >
+                            <Mail className="w-3 h-3 mr-1" /> Send Email
+                          </Button>
                           <div onClick={e => e.stopPropagation()}>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -1995,8 +3017,25 @@ const AdminRecentActivity: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] uppercase font-bold text-slate-500">Delay (Hours)</label>
-                  <Input type="number" value={automationSettings.initial_delay_hours} onChange={e => setAutomationSettings({ ...automationSettings, initial_delay_hours: parseInt(e.target.value) })} />
+                  <label className="text-[10px] uppercase font-bold text-slate-500">Delay</label>
+                  <div className="flex gap-2">
+                    <Input 
+                      type="number" 
+                      value={delayValue} 
+                      onChange={e => setDelayValue(Math.max(0, parseFloat(e.target.value) || 0))} 
+                      className="flex-1"
+                    />
+                    <Select value={delayUnit} onValueChange={(val: 'hours' | 'minutes' | 'days') => setDelayUnit(val)}>
+                      <SelectTrigger className="w-[110px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="minutes">Minutes</SelectItem>
+                        <SelectItem value="hours">Hours</SelectItem>
+                        <SelectItem value="days">Days</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-[10px] uppercase font-bold text-slate-500">Step Interval (Min)</label>
@@ -2006,36 +3045,60 @@ const AdminRecentActivity: React.FC = () => {
                   <label className="text-[10px] uppercase font-bold text-slate-500">Cooldown (Days)</label>
                   <Input type="number" value={automationSettings.cooldown_days} onChange={e => setAutomationSettings({ ...automationSettings, cooldown_days: parseInt(e.target.value) })} />
                 </div>
-                <Button className="w-full bg-slate-900" onClick={async () => {
-                  try {
-                    const token = localStorage.getItem('token');
-                    // Strip internal _id and other MongoDB metadata before sending
-                    const { _id, updated_at, ...cleanSettings } = automationSettings as any;
+                <Button 
+                  className="w-full bg-slate-900" 
+                  disabled={isSavingSettings}
+                  onClick={async () => {
+                    setIsSavingSettings(true);
+                    try {
+                      const token = localStorage.getItem('token');
+                      
+                      let computedHours = delayValue;
+                      if (delayUnit === 'minutes') {
+                        computedHours = parseFloat((delayValue / 60).toFixed(4));
+                      } else if (delayUnit === 'days') {
+                        computedHours = delayValue * 24;
+                      }
+                      
+                      const updatedSettings = {
+                        ...automationSettings,
+                        initial_delay_hours: computedHours
+                      };
 
-                    const res = await fetch(`${API_URL}/api/admin/automation/settings`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                      },
-                      body: JSON.stringify(cleanSettings)
-                    });
+                      // Strip internal _id and other MongoDB metadata before sending
+                      const { _id, updated_at, ...cleanSettings } = updatedSettings as any;
 
-                    if (!res.ok) {
-                      const errorData = await res.json().catch(() => ({}));
-                      throw new Error(errorData.error || `Update failed with status ${res.status}`);
+                      const res = await fetch(`${API_URL}/api/admin/automation/settings`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(cleanSettings)
+                      });
+
+                      if (!res.ok) {
+                        const errorData = await res.json().catch(() => ({}));
+                        throw new Error(errorData.error || `Update failed with status ${res.status}`);
+                      }
+
+                      toast({ title: 'Success', description: 'Automation settings updated and queue rescheduled successfully' });
+                      setAutomationSettingsOpen(false);
+                      await loadData();
+                    } catch (e: any) {
+                      console.error("Settings update error:", e);
+                      toast({
+                        title: 'Update Failed',
+                        description: e.message || 'Check network connection and try again',
+                        variant: 'destructive'
+                      });
+                    } finally {
+                      setIsSavingSettings(false);
                     }
-
-                    toast({ title: 'Success', description: 'Automation settings updated successfully' });
-                  } catch (e: any) {
-                    console.error("Settings update error:", e);
-                    toast({
-                      title: 'Update Failed',
-                      description: e.message || 'Check network connection and try again',
-                      variant: 'destructive'
-                    });
-                  }
-                }}>Save Settings</Button>
+                  }}
+                >
+                  {isSavingSettings ? 'Saving...' : 'Save Settings'}
+                </Button>
               </CardContent>
             </Card>
             <Card className="md:col-span-2 border-slate-200">
@@ -2118,6 +3181,276 @@ const AdminRecentActivity: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Custom Email Dialog for Bulk & Single Emails */}
+      <Dialog 
+        open={customEmailDialog.isOpen} 
+        onOpenChange={(open) => {
+          setCustomEmailDialog(prev => ({ ...prev, isOpen: open }));
+          if (open) setEmailTab('edit');
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl bg-white border-0 shadow-2xl">
+          <DialogHeader className="bg-indigo-50 p-6 rounded-t-lg -mx-6 -mt-6 mb-4">
+            <DialogTitle className="flex items-center gap-2 text-xl font-bold text-indigo-900">
+              <Mail className="w-5 h-5" /> 
+              {customEmailDialog.mode === 'bulk' ? `Send Bulk Email (${selectedUserIds.size} Users)` : `Send Email`}
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Email Tab Selector */}
+          <div className="flex border-b border-slate-200 mb-4">
+            <button
+              type="button"
+              className={`px-4 py-2 text-sm font-semibold border-b-2 transition-all ${
+                emailTab === 'edit'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+              onClick={() => setEmailTab('edit')}
+            >
+              Edit Template
+            </button>
+            <button
+              type="button"
+              className={`px-4 py-2 text-sm font-semibold border-b-2 transition-all ${
+                emailTab === 'preview'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+              onClick={() => setEmailTab('preview')}
+            >
+              Live Preview
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {customEmailDialog.mode === 'single' && customEmailDialog.targetUserId && (
+              <div className="text-sm bg-slate-50 p-3 rounded-lg border border-slate-200">
+                <span className="font-bold">To:</span> {allUsers.find(u => u.user_id === customEmailDialog.targetUserId)?.email || 'Unknown'}
+              </div>
+            )}
+
+            {emailTab === 'edit' ? (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {/* Outreach Template Selector */}
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-indigo-500" /> Outreach Template
+                  </label>
+                  <Select
+                    onValueChange={async (val) => {
+                      setSelectedTemplate(val);
+                      const targetUser = customEmailDialog.targetUserId 
+                        ? allUsers.find(u => u.user_id === customEmailDialog.targetUserId) 
+                        : null;
+                      
+                      let { subject, body } = getQuickOutreachTemplate(val, targetUser);
+                      
+                      if (val === 'offer_match' && customEmailDialog.targetUserId) {
+                        setCustomEmailDialog(prev => ({
+                          ...prev,
+                          subject: "Loading matching offers...",
+                          body: "Analyzing activity and fetching high EPC matched offers..."
+                        }));
+                        
+                        try {
+                          const intelRes = await loginLogsService.getInventoryMatchedOffers(customEmailDialog.targetUserId);
+                          const matched: any[] = [];
+                          const seenIds = new Set<string>();
+                          
+                          const addSection = (sectionName: string) => {
+                            if (intelRes && intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
+                              intelRes[sectionName].forEach((o: any) => {
+                                const id = o.offer_id || o._id || o.id;
+                                if (id && !seenIds.has(String(id))) {
+                                  seenIds.add(String(id));
+                                  matched.push(o);
+                                }
+                              });
+                            }
+                          };
+
+                          addSection('recommended_offers');
+                          addSection('most_approved');
+                          addSection('highly_clicked');
+                          addSection('newly_added');
+
+                          if (matched.length > 0) {
+                            const matchedOffers = matched.slice(0, 4);
+                            const name = targetUser ? (targetUser.username || 'there') : '{username}';
+                            
+                            // Format GEO
+                            let geoStr = 'global';
+                            if (targetUser) {
+                              if (targetUser.country && targetUser.country !== 'Unknown') {
+                                geoStr = targetUser.country;
+                              } else if (targetUser.geoPreferences && targetUser.geoPreferences.length > 0) {
+                                geoStr = targetUser.geoPreferences.join(', ');
+                              } else if (targetUser.intelligence_geos && targetUser.intelligence_geos.length > 0) {
+                                geoStr = targetUser.intelligence_geos.join(', ');
+                              }
+                            }
+
+                            const userVerts = targetUser && targetUser.verticals && targetUser.verticals.length > 0 
+                              ? targetUser.verticals 
+                              : ['Sweeps', 'Finance', 'Games'];
+                            const vertList = userVerts.join('/');
+
+                            subject = `Top ${vertList} Offers Matched for Your Traffic! 🎯`;
+                            body = `Hey ${name},
+
+Based on your profile interested verticals and traffic in ${geoStr}, we have automatically matched the following high-performing offers that will maximize your revenue:
+
+${matchedOffers.map((o, idx) => {
+  const payoutStr = o.payout ? ` (Payout: $${o.payout})` : '';
+  const geoText = o.countries && o.countries.length > 0 ? ` [${o.countries.join('/')}]` : '';
+  return `${idx + 1}. ${o.category || o.vertical || 'CPA'} - ${o.name || o.offer_name || 'Matched Offer'}${geoText}${payoutStr}`;
+}).join('\n')}
+
+We recommend integration of these tracking links immediately to capitalize on current high EPC rates. 
+
+You can find these and grab your tracking links in the Offers section:
+https://www.moustacheleads.com/dashboard/offers
+
+Best regards,
+Team Moustache Leads`;
+                          }
+                        } catch (err) {
+                          console.error("Failed to dynamically load offers in dropdown:", err);
+                        }
+                      }
+                      
+                      setCustomEmailDialog(prev => ({
+                        ...prev,
+                        subject,
+                        body
+                      }));
+                    }}
+                    defaultValue="custom"
+                  >
+                    <SelectTrigger className="w-full bg-slate-50 border-slate-200">
+                      <SelectValue placeholder="Select email outreach template" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="custom">Custom Email</SelectItem>
+                      <SelectItem value="cold_welcome">Cold Welcome Template</SelectItem>
+                      <SelectItem value="no_placement">No Placement Template</SelectItem>
+                      <SelectItem value="no_conversion">No Conversion Template</SelectItem>
+                      <SelectItem value="offer_match">Offer Match Template</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700">Subject</label>
+                  <Input 
+                    value={customEmailDialog.subject} 
+                    onChange={(e) => setCustomEmailDialog(prev => ({ ...prev, subject: e.target.value }))}
+                    placeholder="Enter email subject"
+                    className="font-medium border-slate-200"
+                  />
+                  {suggestedSubjects.length > 0 && (
+                    <div className="mt-2 space-y-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      <span className="text-[10px] font-bold text-slate-500 block uppercase tracking-wider">Smart Subject Suggestions:</span>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {suggestedSubjects.map((subj, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => setCustomEmailDialog(prev => ({ ...prev, subject: subj }))}
+                            className="text-[10px] bg-white hover:bg-indigo-50 hover:text-indigo-600 border border-slate-200 hover:border-indigo-200 text-slate-600 px-2 py-0.5 rounded-full transition-all text-left"
+                          >
+                            {subj}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-bold text-slate-700">Body</label>
+                  <textarea 
+                    value={customEmailDialog.body} 
+                    onChange={(e) => setCustomEmailDialog(prev => ({ ...prev, body: e.target.value }))}
+                    className="w-full min-h-[250px] p-3 rounded-md border border-slate-200 bg-transparent px-3 py-2 text-sm shadow-sm font-mono text-slate-600 resize-y focus:outline-none focus:ring-1 focus:ring-ring"
+                    placeholder="Type your message here... Use {username} as placeholder for recipient's username."
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 animate-in fade-in duration-200">
+                {customEmailDialog.mode === 'bulk' && (
+                  <div className="flex items-center justify-between bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100/50">
+                    <span className="text-xs font-bold text-indigo-700 flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 animate-bounce" /> Preview Recipient:
+                    </span>
+                    <Select
+                      value={previewRecipientId || Array.from(selectedUserIds)[0] || ''}
+                      onValueChange={(val) => setPreviewRecipientId(val)}
+                    >
+                      <SelectTrigger className="w-[200px] h-7 bg-white border-indigo-200 text-xs font-semibold text-slate-700">
+                        <SelectValue placeholder="Select user to preview" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allUsers
+                          .filter(u => selectedUserIds.has(u.user_id))
+                          .map(u => (
+                            <SelectItem key={u.user_id} value={u.user_id} className="text-xs font-medium">
+                              {u.username} ({u.email})
+                            </SelectItem>
+                          ))
+                        }
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
+                <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50 relative">
+                  {previewLoading && (
+                    <div className="absolute inset-0 bg-white/80 backdrop-blur-[1px] flex flex-col items-center justify-center z-10 transition-all">
+                      <RefreshCw className="w-6 h-6 text-indigo-600 animate-spin mb-2" />
+                      <span className="text-xs font-semibold text-slate-500">Generating personalized preview...</span>
+                    </div>
+                  )}
+                  {/* Email Header Mockup */}
+                  <div className="bg-white p-4 border-b border-slate-200 space-y-1">
+                    <div className="text-xs text-slate-500 flex items-center justify-between">
+                      <span>From: <strong>Team Moustache Leads</strong> &lt;noreply@moustacheleads.com&gt;</span>
+                      <span>Just now</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      To: <strong>
+                        {customEmailDialog.mode === 'bulk' 
+                          ? `${allUsers.find(u => u.user_id === (previewRecipientId || Array.from(selectedUserIds)[0]))?.email || 'Unknown'}` 
+                          : (allUsers.find(u => u.user_id === customEmailDialog.targetUserId)?.email || 'Unknown')
+                        }
+                      </strong>
+                    </div>
+                    <div className="text-sm font-bold text-slate-800 mt-2">
+                      Subject: {previewSubject || '(No Subject)'}
+                    </div>
+                  </div>
+                  
+                  {/* Email Content Sandbox */}
+                  <div className="p-6 bg-white min-h-[250px] overflow-y-auto max-h-[350px]">
+                    <div 
+                      className="prose prose-sm max-w-none text-slate-800 font-sans break-words"
+                      dangerouslySetInnerHTML={{ __html: convertPlainTextToHtml(previewBody) || '<p class="text-slate-400 italic">No content written yet.</p>' }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="mt-6 border-t pt-4">
+            <Button variant="outline" onClick={() => setCustomEmailDialog(prev => ({ ...prev, isOpen: false }))}>Cancel</Button>
+            <Button onClick={sendCustomEmail} disabled={bulkMailSending} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">
+              {bulkMailSending ? 'Sending...' : 'Confirm Send'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -28,7 +28,36 @@ def update_settings():
     data = request.get_json()
     model = AutomationState()
     model.update_settings(data)
-    return jsonify({'message': 'Settings updated successfully'})
+    
+    # Dynamic recalculation for all active users in the queue
+    from datetime import datetime, timedelta
+    now = datetime.utcnow()
+    
+    try:
+        initial_delay = float(data.get('initial_delay_hours', 5))
+        step_interval = int(data.get('step_interval_minutes', 200))
+        
+        active_users = list(model.collection.find({'queue_status': 'active'}))
+        for item in active_users:
+            current_step = item.get('current_step', 0)
+            
+            # Recalculate based on their original time references
+            if current_step == 0:
+                last_active = item.get('last_login') or item.get('updated_at') or now
+                new_time = last_active + timedelta(hours=initial_delay)
+            else:
+                last_active = item.get('updated_at') or now
+                new_time = last_active + timedelta(minutes=step_interval)
+                
+            model.collection.update_one(
+                {'_id': item['_id']},
+                {'$set': {'next_mail_time': new_time, 'updated_at': now}}
+            )
+    except Exception as e:
+        import logging
+        logging.error(f"Error rescheduling automation queues: {e}")
+        
+    return jsonify({'message': 'Settings updated and active queues rescheduled successfully'})
 
 @automation_admin_bp.route('/automation/queue', methods=['GET'])
 @token_required
@@ -41,16 +70,20 @@ def get_queue():
     limit = int(request.args.get('limit', 1000))
     
     model = AutomationState()
-    # Get states without heavy processing for the list view
     queue = list(model.collection.find().sort('next_mail_time', 1).limit(limit))
     
     for item in queue:
         item['_id'] = str(item['_id'])
-        # Only provide minimal data for the list
-        if 'next_offers' not in item: item['next_offers'] = []
-        if 'sent_history' not in item: item['sent_history'] = []
+        item['next_offers'] = []
+        item['sent_history'] = []
+        item['matched_verticals'] = [v.capitalize() for v in (item.get('matched_verticals') or [])][:3]
         
     return jsonify({'queue': queue})
+
+import time
+
+_queue_item_cache = {}
+_queue_item_cache_ttl = 60  # Cache for 1 minute
 
 @automation_admin_bp.route('/automation/queue/<user_id>', methods=['GET'])
 @token_required
@@ -58,6 +91,12 @@ def get_queue_item(user_id):
     user = request.current_user
     if user.get('role') != 'admin':
         return jsonify({'error': 'Unauthorized'}), 403
+        
+    now = time.time()
+    if user_id in _queue_item_cache:
+        val, expiry = _queue_item_cache[user_id]
+        if now < expiry:
+            return jsonify({'item': val}), 200
     
     model = AutomationState()
     item = model.get_user_state(user_id)
@@ -79,6 +118,7 @@ def get_queue_item(user_id):
         item['next_offers'] = []
         item['sent_history'] = []
     
+    _queue_item_cache[user_id] = (item, now + _queue_item_cache_ttl)
     return jsonify({'item': item})
 
 @automation_admin_bp.route('/automation/sync', methods=['POST'])
@@ -111,6 +151,9 @@ def override_state():
     if not user_id or not action:
         return jsonify({'error': 'User ID and action are required'}), 400
         
+    if user_id in _queue_item_cache:
+        del _queue_item_cache[user_id]
+        
     service = get_automation_service()
     success, message = service.override_user_state(user_id, action, step, data)
     
@@ -118,6 +161,7 @@ def override_state():
         return jsonify({'message': message})
     else:
         return jsonify({'error': message}), 400
+
 @automation_admin_bp.route('/automation/send-now', methods=['POST'])
 @token_required
 def send_now_manual():

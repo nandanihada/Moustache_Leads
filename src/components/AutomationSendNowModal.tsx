@@ -12,6 +12,7 @@ import { Loader2, Mail, Send, AlertTriangle, Zap, Search, Globe, Filter, Eye, Ed
 import EmailSettingsPanel, { DEFAULT_EMAIL_SETTINGS, type EmailSettings } from '@/components/EmailSettingsPanel';
 import OfferActionIcons from '@/components/OfferActionIcons';
 import { adminOfferApi } from '@/services/adminOfferApi';
+import { loginLogsService } from '@/services/loginLogsService';
 import { Separator } from '@/components/ui/separator';
 
 interface AutomationSendNowModalProps {
@@ -23,6 +24,9 @@ interface AutomationSendNowModalProps {
   apiUrl: string;
   startInPreview?: boolean;
 }
+
+// Session-level memory cache for sub-millisecond instant modal/recipient loading
+const globalOffersCache: Record<string, { offers: any[], selected: Set<string> }> = {};
 
 export default function AutomationSendNowModal({ open, onClose, queueItem, queueItems = [], onSent, apiUrl, startInPreview = false }: AutomationSendNowModalProps) {
   const isBulk = queueItems.length > 1;
@@ -45,7 +49,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
   const [previewMode, setPreviewMode] = useState(false);
   const [scheduledAt, setScheduledAt] = useState<string>(''); // ISO String
   const [payoutOverrides, setPayoutOverrides] = useState<Record<string, string>>({});
-  const [personalOverrides, setPersonalOverrides] = useState<Record<string, {subject: string, body: string}>>({});
+  const [personalOverrides, setPersonalOverrides] = useState<Record<string, { subject: string, body: string }>>({});
   const [previewIdx, setPreviewIdx] = useState(0);
   const [automationInterval, setAutomationInterval] = useState('3h 20m');
   const { toast } = useToast();
@@ -59,41 +63,180 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
 
   const getOfferId = (o: any) => o?.offer_id || o?._id || o?.id;
 
+  const [isLoadingMatched, setIsLoadingMatched] = useState(false);
+
   useEffect(() => {
-    if (activeItems.length === 0 || !open) return;
-    
-    if (!isBulk && mainItem.next_offers && mainItem.next_offers.length > 0) {
-      setOffers(mainItem.next_offers);
-      const allMatchedIds = mainItem.next_offers.map((o: any) => getOfferId(o)).filter(Boolean);
-      setSelected(new Set(allMatchedIds as string[]));
-    } else if (isBulk) {
-      // For bulk, let's collect all candidate offers from all users
-      const allOffers: any[] = [];
-      const seenIds = new Set();
-      activeItems.forEach(item => {
-        (item.next_offers || []).forEach((o: any) => {
-          const id = getOfferId(o);
-          if (!seenIds.has(id)) {
-            seenIds.add(id);
-            allOffers.push(o);
-          }
-        });
-      });
-      setOffers(allOffers);
-      
-      // Auto-select the first few offers for bulk as well
-      if (allOffers.length > 0) {
-        const firstIds = allOffers.slice(0, 3).map(o => getOfferId(o));
-        setSelected(new Set(firstIds));
+    let active = true;
+    const loadUserOffers = async () => {
+      const currentUser = activeItems[previewIdx];
+      if (!currentUser || !open) return;
+
+      const userId = currentUser.user_id || currentUser.userId || currentUser._id;
+      if (!userId) return;
+
+      // Check session cache for instant instant loading!
+      if (globalOffersCache[userId]) {
+        setOffers(globalOffersCache[userId].offers);
+        setSelected(globalOffersCache[userId].selected);
+        return;
       }
-    }
-    // Only run when modal opens or the primary item/bulk mode changes
-  }, [open, isBulk, mainItem?.user_id]);
+
+      setOffers([]);
+      setSelected(new Set());
+      setIsLoadingMatched(true);
+      try {
+        const token = localStorage.getItem('token');
+        const [intelRes, autoRes, viewsRes] = await Promise.all([
+          loginLogsService.getInventoryMatchedOffers(userId).catch(() => ({})),
+          fetch(`${apiUrl}/api/admin/automation/queue/${userId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          }).then(r => r.json()).catch(() => ({ item: null })),
+          loginLogsService.getOfferViews(userId).catch(() => ({ logs: [] }))
+        ]);
+
+        if (!active) return;
+
+        // Process verticals for booster score
+        let currentSessionVerticals = null;
+        if (viewsRes?.logs && viewsRes.logs.length > 0) {
+          const verticalCounts: Record<string, number> = {};
+          viewsRes.logs.forEach((log: any) => {
+            const vertical = (log.vertical || 'Unknown').toLowerCase();
+            verticalCounts[vertical] = (verticalCounts[vertical] || 0) + 1;
+          });
+          const sessionVerts = Object.keys(verticalCounts).map(name => ({
+            name: name.charAt(0).toUpperCase() + name.slice(1),
+            value: verticalCounts[name]
+          })).sort((a, b) => b.value - a.value);
+          if (sessionVerts.length > 0) {
+            currentSessionVerticals = sessionVerts.slice(0, 5);
+          }
+        }
+
+        const verticalData = currentSessionVerticals || (currentUser.verticals?.length > 0 ? currentUser.verticals.map((v: string) => ({ name: v, value: 100 })) : [{ name: 'Unknown', value: 100 }]);
+        const topCats = new Set(verticalData.slice(0, 2).map((v: any) => (v.name || '').toLowerCase()));
+        const allKnownCats = new Set(verticalData.map((v: any) => (v.name || '').toLowerCase()));
+
+        const categoryOffers: Record<string, any[]> = {
+          queue: [],
+          recommended_offers: [],
+          most_approved: [],
+          highly_clicked: [],
+          requested_offers: [],
+          newly_added: []
+        };
+
+        const queueItems = autoRes.item?.next_offers || currentUser.next_offers || [];
+        if (Array.isArray(queueItems)) {
+          queueItems.forEach((o: any) => {
+            const id = o.offer_id || o._id || o.id;
+            if (id) {
+              categoryOffers.queue.push({
+                ...o,
+                id: id,
+                offer_id: id,
+                source: 'Automation Queue',
+                matchScore: 100,
+                categoryKey: 'queue'
+              });
+            }
+          });
+        }
+
+        const addSection = (sectionName: string, sourceLabel: string, baseScore: number) => {
+          if (intelRes[sectionName] && Array.isArray(intelRes[sectionName])) {
+            for (let idx = 0; idx < intelRes[sectionName].length; idx++) {
+              const o = intelRes[sectionName][idx];
+              const id = o.offer_id || o._id || o.id;
+              if (id) {
+                let matchScore = Math.max(50, baseScore - (idx * 4));
+                if (allKnownCats.size > 0) {
+                  const offerCat = (o.category || o.vertical || '').toLowerCase();
+                  if (offerCat && topCats.has(offerCat)) {
+                    matchScore = Math.min(99, matchScore + 15);
+                  } else if (offerCat && allKnownCats.has(offerCat)) {
+                    matchScore = Math.min(99, matchScore + 5);
+                  }
+                }
+                categoryOffers[sectionName].push({
+                  ...o,
+                  id: id,
+                  offer_id: id,
+                  source: sourceLabel,
+                  matchScore: matchScore,
+                  categoryKey: sectionName
+                });
+              }
+            }
+          }
+        };
+
+        addSection('recommended_offers', 'Recommended', 99);
+        addSection('most_approved', 'Most Approved', 98);
+        addSection('highly_clicked', 'Most Clicked', 87);
+        addSection('requested_offers', 'Requested', 85);
+        addSection('newly_added', 'Newly Added', 91);
+
+        // Prioritize showing strictly the user's active offer queue
+        let finalOffers: any[] = [];
+        if (categoryOffers.queue && categoryOffers.queue.length > 0) {
+          finalOffers = [...categoryOffers.queue];
+        } else {
+          // Fallback if the user has no queue offers yet
+          const seenIds = new Set();
+          const orderOfCategories = ['recommended_offers', 'most_approved', 'highly_clicked', 'requested_offers', 'newly_added'];
+          
+          orderOfCategories.forEach((catKey) => {
+            const list = categoryOffers[catKey];
+            const unusedOffer = list.find(o => !seenIds.has(o.id));
+            if (unusedOffer) {
+              seenIds.add(unusedOffer.id);
+              finalOffers.push(unusedOffer);
+            }
+          });
+
+          if (finalOffers.length < 6) {
+            for (const catKey of orderOfCategories) {
+              const list = categoryOffers[catKey];
+              for (const o of list) {
+                if (!seenIds.has(o.id)) {
+                  seenIds.add(o.id);
+                  finalOffers.push(o);
+                  if (finalOffers.length >= 6) break;
+                }
+              }
+              if (finalOffers.length >= 6) break;
+            }
+          }
+        }
+
+        setOffers(finalOffers);
+
+        // Auto-select all matched offers by default
+        const allMatchedIds = finalOffers.map(o => getOfferId(o)).filter(Boolean);
+        const selSet = new Set(allMatchedIds as string[]);
+        setSelected(selSet);
+
+        // Store in global session cache for instant instant loading next time!
+        globalOffersCache[userId] = { offers: finalOffers, selected: selSet };
+
+      } catch (err) {
+        console.error("Failed to dynamically load offers in Automation modal", err);
+      } finally {
+        setIsLoadingMatched(false);
+      }
+    };
+
+    loadUserOffers();
+    return () => {
+      active = false;
+    };
+  }, [open, previewIdx, mainItem?.user_id]);
 
   // Initialize personal overrides for all selected users
   useEffect(() => {
     if (!open || activeItems.length === 0) return;
-    
+
     setPersonalOverrides(prev => {
       const next = { ...prev };
       let changed = false;
@@ -102,7 +245,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
         if (!next[item.user_id] || !next[item.user_id].body) {
           const name = item.username || 'Publisher';
           let note = customMsg || item.custom_message || 'We have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.';
-          
+
           // Prevent double greeting if the note already starts with "Hi" or "Hello"
           const hasGreeting = note.trim().toLowerCase().startsWith('hi') || note.trim().toLowerCase().startsWith('hello');
           const finalBody = hasGreeting ? note : `Hi ${name},\n\n${note}\n\nBest regards,\nPublisher Support Team\nMoustache Leads`;
@@ -122,7 +265,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
   useEffect(() => {
     if (open) {
       setPreviewIdx(0);
-      
+
       // If we have no offers, try to fetch some relevant ones automatically
       if (offers.length === 0 && (mainItem?.country || mainItem?.user_id)) {
         const fetchRelevant = async () => {
@@ -244,7 +387,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
     try {
       const token = localStorage.getItem('token');
       // If bulk, we save for all selected users
-      const promises = activeItems.map(item => 
+      const promises = activeItems.map(item =>
         fetch(`${apiUrl}/api/admin/automation/override`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -267,7 +410,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
 
   const handleSend = async () => {
     if (activeItems.length === 0 || selected.size === 0) return;
-    
+
     // If not in preview mode, switch to preview mode first as a "soft" confirmation
     if (!previewMode) {
       setPreviewMode(true);
@@ -281,9 +424,9 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
         const personal = personalOverrides[item.user_id] || { subject: emailSubject, body: messageBody };
         // We still allow dynamic placeholders if they want to use them in individual edits
         const finalBody = personal.body.replace(/{{username}}/g, item.username || 'Publisher')
-                                      .replace(/{{name}}/g, item.username || 'Publisher');
+          .replace(/{{name}}/g, item.username || 'Publisher');
         const finalSubject = personal.subject.replace(/{{username}}/g, item.username || 'Publisher')
-                                            .replace(/{{name}}/g, item.username || 'Publisher');
+          .replace(/{{name}}/g, item.username || 'Publisher');
 
         return fetch(`${apiUrl}/api/admin/automation/send-now`, {
           method: 'POST',
@@ -311,12 +454,12 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
           }),
         });
       });
-      
+
       const results = await Promise.all(promises);
       const allOk = results.every(r => r.ok);
-      
+
       if (!allOk) throw new Error('Some messages failed to send');
-      
+
       toast({ title: 'Success', description: `Successfully dispatched outreach to ${activeItems.length} user(s).` });
       if (onSent) onSent();
       onClose();
@@ -436,9 +579,9 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                 )}
                 {isBulk && (
                   <div className="flex items-center gap-2 bg-indigo-50 rounded-lg p-1 border border-indigo-100 shadow-sm ml-auto">
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       className="h-7 w-7 p-0 text-indigo-600 hover:bg-indigo-100"
                       onClick={() => setPreviewIdx(prev => (prev > 0 ? prev - 1 : activeItems.length - 1))}
                     >
@@ -450,9 +593,9 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                         {activeItems[previewIdx]?.username || 'User'} ({previewIdx + 1}/{activeItems.length})
                       </span>
                     </div>
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       className="h-7 w-7 p-0 text-indigo-600 hover:bg-indigo-100"
                       onClick={() => setPreviewIdx(prev => (prev < activeItems.length - 1 ? prev + 1 : 0))}
                     >
@@ -471,19 +614,19 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                   </div>
                 )}
               </div>
-              
+
               {/* CYCLE ROADMAP - TRACKING ALL 5 STEPS */}
               <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-4 mb-4">
-                 <div className="flex items-center justify-between mb-4">
-                    <div className="flex flex-col">
-                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Automation Progress</span>
-                      <span className="text-xs font-bold text-slate-700">{isBulk ? "Multiple Users" : `${(mainItem?.current_step || 0)} of 5 Outreaches Completed`}</span>
-                    </div>
-                    <Badge variant="outline" className="bg-white text-indigo-600 border-indigo-100 font-bold px-2 py-0.5">
-                      {isBulk ? "Bulk Dispatch" : `Step ${(mainItem?.current_step || 0) + 1} Ongoing`}
-                    </Badge>
-                 </div>
-                
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Automation Progress</span>
+                    <span className="text-xs font-bold text-slate-700">{isBulk ? "Multiple Users" : `${(mainItem?.current_step || 0)} of 5 Outreaches Completed`}</span>
+                  </div>
+                  <Badge variant="outline" className="bg-white text-indigo-600 border-indigo-100 font-bold px-2 py-0.5">
+                    {isBulk ? "Bulk Dispatch" : `Step ${(mainItem?.current_step || 0) + 1} Ongoing`}
+                  </Badge>
+                </div>
+
                 <div className="flex items-center gap-1">
                   {[1, 2, 3, 4, 5].map((stepNum) => {
                     const currentRecip = activeItems[previewIdx] || queueItem;
@@ -508,7 +651,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                   })}
                 </div>
               </div>
-              
+
               <div className="mt-4 space-y-6">
                 {!previewMode ? (
                   <div className="space-y-4">
@@ -528,130 +671,104 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                     {/* Offer selection */}
                     <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Candidate Offers (Ranked by AI)</Label>
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1 bg-slate-100/80 p-0.5 rounded-lg border border-slate-200">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 px-2 text-[9px] font-black text-indigo-600 hover:bg-white transition-all"
-                              onClick={() => {
-                                const allIds = offers.map(o => getOfferId(o)).filter(Boolean);
-                                setSelected(new Set(allIds as string[]));
-                              }}
-                            >
-                              SELECT ALL
-                            </Button>
-                            <Separator orientation="vertical" className="h-3 bg-slate-200" />
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="h-6 px-2 text-[9px] font-black text-slate-400 hover:bg-white transition-all"
-                              onClick={() => setSelected(new Set())}
-                            >
-                              CLEAR
-                            </Button>
-                          </div>
-                          <Separator orientation="vertical" className="h-5 mx-1" />
-                          <div className="relative group">
-                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
-                            <input
-                              type="text"
-                              placeholder="Search all offers..."
-                              value={offerSearch}
-                              onChange={e => setOfferSearch(e.target.value)}
-                              onKeyDown={e => e.key === 'Enter' && handleManualSearch()}
-                              className="h-7 pl-8 pr-3 text-[10px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none w-32 focus:w-48 transition-all bg-slate-50/50"
-                            />
-                          </div>
-                          <div className="relative">
-                            <Globe className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
-                            <input
-                              type="text"
-                              placeholder="Geo"
-                              value={searchCountry}
-                              onChange={e => setSearchCountry(e.target.value)}
-                              onKeyDown={e => e.key === 'Enter' && handleManualSearch()}
-                              className="h-7 pl-8 pr-3 text-[10px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none w-16 bg-slate-50/50"
-                            />
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
-                            onClick={handleManualSearch}
-                            disabled={searching}
-                          >
-                            {searching ? <Loader2 className="h-3 w-3 animate-spin" /> : <Filter className="h-3 w-3" />}
-                          </Button>
-                        </div>
+                        <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Offer Queue</Label>
                       </div>
 
-                      <div className="space-y-1.5 max-h-64 overflow-y-auto border rounded-xl p-2 bg-slate-50/50 custom-scrollbar">
-                        {offers.length === 0 && (
-                          <div className="flex flex-col items-center justify-center py-10 text-center px-4">
-                            <p className="text-sm text-muted-foreground italic mb-2">No matching offers found for this user's profile.</p>
-                            <p className="text-[10px] text-slate-400">Use the search bar above to manually find and add offers to this outreach.</p>
+                      <div className="space-y-2 max-h-64 overflow-y-auto border rounded-xl p-3 bg-slate-50/50 custom-scrollbar">
+                        {isLoadingMatched ? (
+                          <div className="flex flex-col items-center justify-center py-10 text-center">
+                            <Loader2 className="h-6 w-6 animate-spin text-indigo-600 mb-2" />
+                            <p className="text-xs text-muted-foreground">Analyzing user activity and matching offers...</p>
                           </div>
-                        )}
-                        {offers.map((o, idx) => {
-                          const oId = getOfferId(o) || `idx-${idx}`;
-                          const isSelected = selected.has(oId);
-                          return (
-                            <div
-                              key={`offer-row-${oId}`}
-                              className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer ${isSelected ? 'bg-white border-indigo-200 shadow-sm' : 'border-transparent hover:bg-white/50'}`}
-                              onClick={() => toggle(oId)}
-                            >
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={() => toggle(oId)}
-                                className="rounded-md border-slate-300"
-                              />
-                              <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center p-1 border border-slate-200">
-                                <img
-                                  src={o.image_url || o.thumbnail_url || emailSettings.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'}
-                                  className="max-w-full max-h-full object-contain"
-                                  alt=""
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSIjRjFGNUY5Ii8+PHBhdGggZD0iTTMyIDQwQzM2LjQxODMgNDAgNDAgMzYuNDE4MyA0MCAzMkM0MCAyNy41ODE3IDM2LjQxODMgMjQgMzIgMjRDMjcuNTgxNyAyNCAyNCAyNy41ODE3IDI0IDMyQzI0IDM2LjQxODMgMjcuNTgxNyA0MCAzMiA0MFoiIHN0cm9rZT0iIzk0QThCMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTMyIDMyTDM2IDM2TDI4IDI4IiBzdHJva2U9IiM5NEE4QjAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+';
-                                  }}
-                                />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="text-[11px] font-bold text-slate-700 truncate">{o.name || o.offer_name}</h4>
-                                  <Badge variant="outline" className="text-[8px] h-3.5 px-1 bg-slate-50 border-slate-200 text-slate-500 uppercase">{o.countries?.[0] || 'WW'}</Badge>
-                                </div>
-                                <div className="flex items-center gap-3 mt-0.5">
-                                  <div className="flex items-center gap-1 payout-input" onClick={e => e.stopPropagation()}>
-                                    <span className="text-[9px] font-black text-emerald-600">$</span>
-                                    <input
-                                      type="text"
-                                      value={payoutOverrides[oId] !== undefined ? payoutOverrides[oId] : (o.payout || '0')}
-                                      onChange={e => setPayoutOverrides(prev => ({ ...prev, [oId]: e.target.value }))}
-                                      className="w-12 h-4 text-[9px] font-bold border-b border-dashed border-emerald-300 focus:border-emerald-500 bg-transparent outline-none text-emerald-600 px-0.5"
-                                      placeholder="Payout"
+                        ) : offers.length === 0 ? (
+                          <div className="flex flex-col items-center justify-center py-10 text-center px-4">
+                            <p className="text-sm text-muted-foreground italic">No matching offers found for this user's profile.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {offers.map((o, idx) => {
+                              const oId = getOfferId(o) || `idx-${idx}`;
+                              const isSelected = selected.has(oId);
+                              
+                              const getStyles = (k: string) => {
+                                switch (k) {
+                                  case 'queue': return { label: 'Active Queue', color: '#7F2FBE', icon: '⚡' };
+                                  case 'recommended_offers': return { label: 'Recommended', color: '#534AB7', icon: '🛍️' };
+                                  case 'most_approved': return { label: 'Most Approved', color: '#1D9E75', icon: '✅' };
+                                  case 'highly_clicked': return { label: 'Most Clicked', color: '#BA7517', icon: '🔥' };
+                                  case 'requested_offers': return { label: 'Requested', color: '#A32D2D', icon: '🙋' };
+                                  case 'newly_added': return { label: 'Newly Added', color: '#185FA5', icon: '🆕' };
+                                  default: return { label: 'Recommended', color: '#64748B', icon: '🎯' };
+                                }
+                              };
+                              const catKey = o.categoryKey || 'recommended_offers';
+                              const styles = getStyles(catKey);
+
+                              const category = (o.category || 'General').toUpperCase();
+                              const country = o.countries?.[0] || 'WW';
+                              const type = o.type || 'Cashback';
+                              const source = styles.label;
+
+                              return (
+                                <div
+                                  key={`offer-row-${oId}`}
+                                  className={`flex items-center gap-3 p-2.5 rounded-xl border cursor-pointer transition-all ${isSelected ? 'bg-white border-indigo-200 shadow-sm' : 'border-transparent hover:bg-white/50 bg-white/20'}`}
+                                  onClick={() => toggle(oId)}
+                                >
+                                  <Checkbox
+                                    checked={isSelected}
+                                    onCheckedChange={() => toggle(oId)}
+                                    className="rounded-md border-slate-300"
+                                  />
+                                  <div className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center p-1 border border-slate-200 flex-shrink-0">
+                                    <img
+                                      src={o.image_url || o.thumbnail_url || emailSettings.defaultImage || 'https://pub-2035987158934571.r2.dev/placeholder.png'}
+                                      className="max-w-full max-h-full object-contain"
+                                      alt=""
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSI4IiBmaWxsPSIjRjFGNUY5Ii8+PHBhdGggZD0iTTMyIDQwQzM2LjQxODMgNDAgNDAgMzYuNDE4MyA0MCAzMkM0MCAyNy41ODE3IDM2LjQxODMgMjQgMzIgMjRDMjcuNTgxNyAyNCAyNCAyNy41ODE3IDI0IDMyQzI0IDM2LjQxODMgMjcuNTgxNyA0MCAzMiA0MFoiIHN0cm9rZT0iIzk0QThCMCIgc3Ryb2tlLXdpZHRoPSIyIi8+PHBhdGggZD0iTTMyIDMyTDM2IDM2TDI4IDI4IiBzdHJva2U9IiM5NEE4QjAiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PC9zdmc+';
+                                      }}
                                     />
                                   </div>
-                                  <span className="text-[9px] text-slate-400 font-medium uppercase tracking-tighter">{o.category || 'General'}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <h4 className="text-[11px] font-bold text-slate-700 truncate">{o.name || o.offer_name}</h4>
+                                      <Badge variant="outline" className="text-[8px] h-3.5 px-1 bg-slate-50 border-slate-200 text-slate-500 uppercase">{country}</Badge>
+                                    </div>
+                                    <div className="flex items-center gap-3 mt-0.5">
+                                      <div className="flex items-center gap-1 payout-input" onClick={e => e.stopPropagation()}>
+                                        <span className="text-[9px] font-black text-emerald-600">$</span>
+                                        <input
+                                          type="text"
+                                          value={payoutOverrides[oId] !== undefined ? payoutOverrides[oId] : (o.payout || '0')}
+                                          onChange={e => setPayoutOverrides(prev => ({ ...prev, [oId]: e.target.value }))}
+                                          className="w-12 h-4 text-[9px] font-bold border-b border-dashed border-emerald-300 focus:border-emerald-500 bg-transparent outline-none text-emerald-600 px-0.5"
+                                          placeholder="Payout"
+                                        />
+                                      </div>
+                                      <span className="text-[9px] text-slate-400 font-medium truncate flex-1 select-none">
+                                        {category} · {type} · {source}
+                                      </span>
+                                      <span className="text-[9px] text-slate-400 font-bold ml-auto" style={{ color: styles.color }}>{o.matchScore}% match</span>
+                                    </div>
+                                  </div>
+                                  <OfferActionIcons
+                                    offerId={oId}
+                                    offerName={o.name}
+                                    currentImageUrl={o.image_url || o.thumbnail_url || ''}
+                                    currentDescription={o.description || ''}
+                                    currentCategory={o.category || ''}
+                                    currentPreviewUrl2={(o as any).preview_url_2 || ''}
+                                    showApplyToAll={selected.size > 1}
+                                    onOfferUpdated={(id, field, value) => {
+                                      setOffers(prev => prev.map(x => getOfferId(x) === id ? { ...x, [field === 'image' ? 'image_url' : field]: value } : x));
+                                    }}
+                                  />
                                 </div>
-                              </div>
-                              <OfferActionIcons
-                                offerId={oId}
-                                offerName={o.name}
-                                currentImageUrl={o.image_url || o.thumbnail_url || ''}
-                                currentDescription={o.description || ''}
-                                currentCategory={o.category || ''}
-                                currentPreviewUrl2={(o as any).preview_url_2 || ''}
-                                showApplyToAll={selected.size > 1}
-                                onOfferUpdated={(id, field, value) => {
-                                  setOffers(prev => prev.map(x => getOfferId(x) === id ? { ...x, [field === 'image' ? 'image_url' : field]: value } : x));
-                                }}
-                              />
-                            </div>
-                          );
-                        })}
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -672,11 +789,11 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                     <div className="space-y-2">
                       <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Email Subject</Label>
                       <div className="relative">
-                        <Input 
-                          value={emailSubject} 
+                        <Input
+                          value={emailSubject}
                           onChange={e => handleInputChange('subject', e.target.value)}
                           placeholder="Enter email subject..."
-                          className="pl-9 h-11 text-sm font-bold border-slate-200 focus:ring-indigo-500 rounded-xl bg-slate-50/30" 
+                          className="pl-9 h-11 text-sm font-bold border-slate-200 focus:ring-indigo-500 rounded-xl bg-slate-50/30"
                         />
                         <Edit3 size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                       </div>
@@ -721,9 +838,9 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                           </div>
                           {isBulk && (
                             <div className="flex items-center gap-2 bg-black/20 rounded-lg p-1 border border-white/10">
-                              <Button 
-                                size="sm" 
-                                variant="ghost" 
+                              <Button
+                                size="sm"
+                                variant="ghost"
                                 className="h-6 w-6 p-0 text-white hover:bg-white/20"
                                 onClick={() => setPreviewIdx(prev => (prev > 0 ? prev - 1 : activeItems.length - 1))}
                               >
@@ -732,9 +849,9 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                               <span className="text-[10px] font-bold min-w-[60px] text-center">
                                 User {previewIdx + 1} of {activeItems.length}
                               </span>
-                              <Button 
-                                size="sm" 
-                                variant="ghost" 
+                              <Button
+                                size="sm"
+                                variant="ghost"
                                 className="h-6 w-6 p-0 text-white hover:bg-white/20"
                                 onClick={() => setPreviewIdx(prev => (prev < activeItems.length - 1 ? prev + 1 : 0))}
                               >
@@ -1063,7 +1180,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                       <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1">
                         <Zap size={10} /> Interval
                       </span>
-                      <Input 
+                      <Input
                         value={automationInterval}
                         onChange={e => setAutomationInterval(e.target.value)}
                         placeholder="3h 20m"
@@ -1072,28 +1189,28 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                     </div>
                     <div className="flex gap-3 items-end">
                       <Button variant="outline" onClick={onClose} className="h-10 px-6 rounded-xl font-bold border-slate-200 text-slate-600">Cancel</Button>
-                      <Button 
-                        variant="outline" 
-                        onClick={handleSaveToQueue} 
-                        disabled={savingToQueue || sending || !messageBody.trim()} 
+                      <Button
+                        variant="outline"
+                        onClick={handleSaveToQueue}
+                        disabled={savingToQueue || sending || !messageBody.trim()}
                         className="h-10 px-6 rounded-xl font-bold border-emerald-200 text-emerald-600 hover:bg-emerald-50 gap-2"
                         title="Save this subject/message to the queue for these users"
                       >
                         {savingToQueue ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {isBulk ? 'Save for All' : 'Save for this User'}
                       </Button>
                       {!isBulk && (
-                        <Button 
-                          variant="outline" 
-                          onClick={handleSaveAsTemplate} 
-                          disabled={sending || !messageBody.trim()} 
+                        <Button
+                          variant="outline"
+                          onClick={handleSaveAsTemplate}
+                          disabled={sending || !messageBody.trim()}
                           className="h-10 px-6 rounded-xl font-bold border-indigo-200 text-indigo-600 hover:bg-indigo-50 gap-2"
                         >
                           <Plus className="w-4 h-4" /> Save as Template
                         </Button>
                       )}
-                      <Button 
-                        onClick={handleSend} 
-                        disabled={sending || selected.size === 0} 
+                      <Button
+                        onClick={handleSend}
+                        disabled={sending || selected.size === 0}
                         className={`h-10 px-8 rounded-xl font-bold transition-all gap-2 ${!previewMode ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200'}`}
                       >
                         {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : (previewMode ? (!scheduledAt ? <Zap className="w-4 h-4" /> : <CalendarClock className="w-4 h-4" />) : <Eye className="w-4 h-4" />)}

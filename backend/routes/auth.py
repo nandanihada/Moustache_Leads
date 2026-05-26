@@ -635,12 +635,29 @@ def login():
         user_data = user_model.verify_password(username, password)
         
         if not user_data:
-            # Track failed login attempt
-            failed_user_data = {
-                '_id': username,  # Use username as placeholder
-                'email': username,
-                'username': username
-            }
+            # Track failed login attempt with case-insensitive check
+            import re
+            existing_user = None
+            if user_model.collection is not None:
+                existing_user = user_model.collection.find_one({
+                    '$or': [
+                        {'username': {'$regex': f'^{re.escape(username)}$', '$options': 'i'}},
+                        {'email': {'$regex': f'^{re.escape(username)}$', '$options': 'i'}}
+                    ]
+                })
+            
+            if existing_user:
+                failed_user_data = {
+                    '_id': str(existing_user['_id']),
+                    'email': existing_user.get('email', username),
+                    'username': existing_user.get('username', username)
+                }
+            else:
+                failed_user_data = {
+                    '_id': username,
+                    'email': username,
+                    'username': username
+                }
             activity_tracking_service.track_login_attempt(
                 failed_user_data,
                 request,
@@ -1237,7 +1254,7 @@ def get_all_users():
             if placements_col is not None:
                 pipeline = [
                     {"$group": {
-                        "_id": "$publisherId",
+                        "_id": { "$ifNull": [ "$publisherId", { "$ifNull": [ "$publisher_id", { "$ifNull": [ "$user_id", "$created_by" ] } ] } ] },
                         "total": {"$sum": 1},
                         "approved": {"$sum": {"$cond": [{"$eq": ["$approvalStatus", "APPROVED"]}, 1, 0]}}
                     }}
@@ -1251,7 +1268,7 @@ def get_all_users():
             if clicks_col is not None:
                 pipeline = [
                     {"$group": {
-                        "_id": "$affiliate_id",
+                        "_id": { "$ifNull": [ "$affiliate_id", "$user_id" ] },
                         "total": {"$sum": 1}
                     }}
                 ]
@@ -1263,7 +1280,7 @@ def get_all_users():
             if conversions_col is not None:
                 pipeline = [
                     {"$group": {
-                        "_id": "$publisher_id",
+                        "_id": { "$ifNull": [ "$publisher_id", "$user_id" ] },
                         "total": {"$sum": 1}
                     }}
                 ]
@@ -1297,7 +1314,7 @@ def get_all_users():
                 u['latest_activity'] = None
                 
                 # Placements
-                for key in (uid_str, u.get('username', ''), username_lower):
+                for key in (uid_str, u.get('username', ''), username_lower, email_lower):
                     if key in placements_map:
                         u['placements_count'] = max(u['placements_count'], placements_map[key])
                     if key in approved_placements_map:

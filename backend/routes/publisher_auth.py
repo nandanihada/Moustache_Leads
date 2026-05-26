@@ -218,9 +218,49 @@ def login_publisher():
         logging.info(f"🔍 verify_password result: {'found user' if user_data else 'None (no match)'}")
         
         if not user_data:
+            # Track failed login attempt for publishers with case-insensitive check
+            import re
+            existing_user = None
+            if db_instance.is_connected() and user_model.collection is not None:
+                existing_user = user_model.collection.find_one({
+                    '$or': [
+                        {'username': {'$regex': f'^{re.escape(username)}$', '$options': 'i'}},
+                        {'email': {'$regex': f'^{re.escape(username)}$', '$options': 'i'}}
+                    ]
+                })
+            
+            if existing_user:
+                failed_user_data = {
+                    '_id': str(existing_user['_id']),
+                    'email': existing_user.get('email', username),
+                    'username': existing_user.get('username', username)
+                }
+            else:
+                failed_user_data = {
+                    '_id': username,
+                    'email': username,
+                    'username': username
+                }
+            
+            activity_tracking_service.track_login_attempt(
+                failed_user_data,
+                request,
+                status='failed',
+                failure_reason='wrong_password',
+                login_method='password',
+                ip_address=public_ip
+            )
             return jsonify({'error': 'Invalid username or password'}), 401
         
         if not user_data.get('is_active', True):
+            activity_tracking_service.track_login_attempt(
+                user_data,
+                request,
+                status='failed',
+                failure_reason='account_deactivated',
+                login_method='password',
+                ip_address=public_ip
+            )
             return jsonify({'error': 'Account is deactivated'}), 401
         
         # Check email verification (skip for admins)

@@ -529,6 +529,29 @@ def start_background_services():
         # Clicks indexes
         db['clicks'].create_index([('ip_address', ASCENDING), ('timestamp', DESCENDING)], background=True)
         db['clicks'].create_index([('user_id', ASCENDING), ('offer_id', ASCENDING), ('timestamp', DESCENDING)], background=True)
+        db['clicks'].create_index([('publisher_id', ASCENDING)], background=True)
+        db['clicks'].create_index([('username', ASCENDING)], background=True)
+        
+        # Offer Views indexes
+        db['offer_views'].create_index([('user_id', ASCENDING)], background=True)
+        db['offer_views'].create_index([('username', ASCENDING)], background=True)
+        
+        # Send history indexes
+        db['offer_send_history'].create_index([('user_id', ASCENDING)], background=True)
+        db['offer_send_history'].create_index([('recipient_user_ids', ASCENDING)], background=True)
+        
+        # Affiliate requests indexes
+        db['affiliate_requests'].create_index([('user_id', ASCENDING)], background=True)
+        db['affiliate_requests'].create_index([('username', ASCENDING)], background=True)
+        
+        # Login logs indexes
+        db['login_logs'].create_index([('user_id', ASCENDING)], background=True)
+        db['login_logs'].create_index([('email', ASCENDING)], background=True)
+        db['login_logs'].create_index([('username', ASCENDING)], background=True)
+
+        # Tracking events indexes
+        db['tracking_events'].create_index([('user_id', ASCENDING)], background=True)
+        
         logging.info("✅ Critical indexes ensured")
     except Exception as idx_err:
         logging.warning(f"Index creation skipped: {idx_err}")

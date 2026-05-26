@@ -19,6 +19,116 @@ publisher_offers_bp = Blueprint('publisher_offers', __name__)
 logger = logging.getLogger(__name__)
 access_service = AccessControlService()
 
+def run_expired_pin_cleanup(offers_col):
+    try:
+        from datetime import datetime
+        # Clean up new schema
+        offers_col.update_many(
+            {
+                'is_pinned': True,
+                'pinEndTime': {'$ne': None, '$lte': datetime.utcnow()}
+            },
+            {
+                '$set': {
+                    'is_pinned': False,
+                    'pinnedPosition': None,
+                    'pinStartTime': None,
+                    'pinEndTime': None,
+                    'pinDuration': None,
+                    'pinStatus': 'expired',
+                    'pinned_at': None,
+                    'pin_expires_at': None
+                }
+            }
+        )
+        # Clean up old schema
+        offers_col.update_many(
+            {
+                'is_pinned': True,
+                'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}
+            },
+            {
+                '$set': {
+                    'is_pinned': False,
+                    'pinnedPosition': None,
+                    'pinStartTime': None,
+                    'pinEndTime': None,
+                    'pinDuration': None,
+                    'pinStatus': 'expired',
+                    'pinned_at': None,
+                    'pin_expires_at': None
+                }
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Error running expired pin cleanup: {e}")
+
+
+def merge_pinned_and_organic_offers(pinned_offers, organic_query, skip_original, limit_original, sort_field, sort_dir, offers_col, projection=None):
+    """
+    Seamlessly merges pinned offers and organic offers using a cinema-seat style
+    fixed-position placement. Pinned offers are placed exactly at pinnedPosition (1-indexed).
+    Organic offers occupy the remaining vacant slots.
+    """
+    pinned_by_pos = {}
+    for po in pinned_offers:
+        pos = po.get('pinnedPosition')
+        if pos is not None:
+            try:
+                pinned_by_pos[int(pos)] = po
+            except (ValueError, TypeError):
+                pass
+
+    start_idx = skip_original
+    end_idx = skip_original + limit_original
+
+    organic_skip = 0
+    organic_limit = 0
+    
+    page_slots = []
+
+    v_idx = 0
+    while len(page_slots) < limit_original:
+        pos = v_idx + 1
+        if pos in pinned_by_pos:
+            if v_idx >= start_idx:
+                page_slots.append(pinned_by_pos[pos])
+        else:
+            if v_idx < start_idx:
+                organic_skip += 1
+            else:
+                organic_limit += 1
+                page_slots.append(None)
+        v_idx += 1
+
+    organic_query = dict(organic_query)
+    organic_query['is_pinned'] = {'$ne': True}
+
+    if projection:
+        if sort_field:
+            organic_docs = list(offers_col.find(organic_query, projection).sort([(sort_field, sort_dir)]).skip(organic_skip).limit(organic_limit))
+        else:
+            organic_docs = list(offers_col.find(organic_query, projection).skip(organic_skip).limit(organic_limit))
+    else:
+        if sort_field:
+            organic_docs = list(offers_col.find(organic_query).sort([(sort_field, sort_dir)]).skip(organic_skip).limit(organic_limit))
+        else:
+            organic_docs = list(offers_col.find(organic_query).skip(organic_skip).limit(organic_limit))
+
+    final_offers = []
+    organic_iter = iter(organic_docs)
+    for slot in page_slots:
+        if slot is not None:
+            final_offers.append(slot)
+        else:
+            try:
+                final_offers.append(next(organic_iter))
+            except StopIteration:
+                break
+
+    return final_offers
+
+
 @publisher_offers_bp.route('/offers/available', methods=['GET', 'OPTIONS'])
 @token_required
 def get_available_offers():
@@ -109,9 +219,6 @@ def get_available_offers():
                     ]
                 }
         
-        # Get total count
-        total = offers_collection.count_documents(query)
-        
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
@@ -123,24 +230,37 @@ def get_available_offers():
             'promo_code': 1, 'promo_code_id': 1, 'bonus_amount': 1, 'bonus_type': 1,
             'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1,
             'device_targeting': 1, 'is_pinned': 1,
+            'pinnedPosition': 1, 'pinStartTime': 1, 'pinEndTime': 1, 'pinDuration': 1, 'pinnedBy': 1, 'pinStatus': 1
         }
         
         # Get paginated results with projection
         skip = (page - 1) * per_page
 
-        # Auto-expire pinned offers whose pin_expires_at has passed
-        try:
-            offers_collection.update_many(
-                {
-                    'is_pinned': True,
-                    'pin_expires_at': {'$ne': None, '$lte': datetime.utcnow()}
-                },
-                {'$set': {'is_pinned': False, 'pinned_at': None, 'pin_expires_at': None}}
-            )
-        except Exception as pin_err:
-            logger.warning(f"Pin expiry cleanup error: {pin_err}")
+        # Auto-expire pinned offers whose pinEndTime or pin_expires_at has passed
+        run_expired_pin_cleanup(offers_collection)
 
-        offers = list(offers_collection.find(query, projection).skip(skip).limit(per_page).sort([('is_pinned', -1), ('pinned_at', -1), ('created_at', -1)]))
+        # Get active pinned offers matching query
+        pinned_query = dict(query)
+        pinned_query['is_pinned'] = True
+        pinned_offers = list(offers_collection.find(pinned_query, projection))
+
+        # Merge using advanced slot positioning
+        offers = merge_pinned_and_organic_offers(
+            pinned_offers=pinned_offers,
+            organic_query=query,
+            skip_original=skip,
+            limit_original=per_page,
+            sort_field='created_at',
+            sort_dir=-1,
+            offers_col=offers_collection,
+            projection=projection
+        )
+
+        # Update total count to be the organic matching count + pinned matching count
+        organic_query = dict(query)
+        organic_query['is_pinned'] = {'$ne': True}
+        total_organic = offers_collection.count_documents(organic_query)
+        total = total_organic + len(pinned_offers)
         
         if not offers:
             # Log search even if no results
@@ -328,6 +448,12 @@ def get_available_offers():
                     'lock_reason': lock_reason,
                     'estimated_approval_time': estimated_approval_time,
                     'is_pinned': offer.get('is_pinned', False),
+                    'pinnedPosition': offer.get('pinnedPosition'),
+                    'pinStartTime': offer.get('pinStartTime'),
+                    'pinEndTime': offer.get('pinEndTime'),
+                    'pinDuration': offer.get('pinDuration'),
+                    'pinnedBy': offer.get('pinnedBy'),
+                    'pinStatus': offer.get('pinStatus'),
                 }
                 
                 # Add request status if exists

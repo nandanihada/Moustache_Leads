@@ -215,6 +215,13 @@ def approve_submission(sub_id):
                 'created_at': datetime.utcnow()
             })
 
+        # Clear dashboard cache so numbers refresh instantly on their dashboard
+        try:
+            from routes.user_dashboard import clear_dashboard_cache
+            clear_dashboard_cache(sub['user_id'])
+        except Exception as e:
+            logger.error(f"Failed to clear dashboard cache for approved user: {e}")
+
         return jsonify({'success': True, 'message': 'Approved and rewarded successfully', 'reward_amount': total_reward}), 200
     except Exception as e:
         logger.error(f"Error approving submission: {e}")
@@ -244,6 +251,208 @@ def reject_submission(sub_id):
         return jsonify({'success': True, 'message': 'Rejected successfully'}), 200
     except Exception as e:
         logger.error(f"Error rejecting submission: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@review_submissions_bp.route('/api/admin/review-submissions/<sub_id>/deduct', methods=['PUT'])
+@token_required
+@admin_required
+def deduct_submission(sub_id):
+    """Admin: Deduct reward from an already approved review submission (supports partial deduction)."""
+    try:
+        col = _get_submissions_col()
+        users_col = _get_users_col()
+        if None in [col, users_col]:
+            return jsonify({'error': 'Database unavailable'}), 500
+
+        sub = col.find_one({'_id': ObjectId(sub_id)})
+        if not sub:
+            return jsonify({'error': 'Submission not found'}), 404
+
+        if sub.get('status') not in ['approved', 'partially_deducted']:
+            return jsonify({'error': 'Only approved or partially deducted submissions can have their rewards deducted'}), 400
+
+        if sub.get('status') == 'deducted':
+            return jsonify({'error': 'This submission has already been fully deducted'}), 400
+
+        reward_amount = float(sub.get('reward_amount', 0.0))
+        already_deducted = float(sub.get('deducted_amount', 0.0))
+        max_allowed_deduct = reward_amount - already_deducted
+
+        if max_allowed_deduct <= 0:
+            return jsonify({'error': 'No remaining reward amount left to deduct'}), 400
+
+        # Get requested deduct amount
+        req_data = request.get_json(silent=True) or {}
+        deduct_amount = req_data.get('deduct_amount')
+
+        if deduct_amount is not None:
+            try:
+                deduct_amount = float(deduct_amount)
+            except ValueError:
+                return jsonify({'error': 'Invalid deduct_amount format'}), 400
+            
+            if deduct_amount <= 0:
+                return jsonify({'error': 'Deduct amount must be greater than zero'}), 400
+            if deduct_amount > max_allowed_deduct:
+                return jsonify({'error': f'Deduct amount cannot exceed remaining reward of ${max_allowed_deduct:.2f}'}), 400
+        else:
+            deduct_amount = max_allowed_deduct
+
+        # Get user balances
+        user = users_col.find_one({'_id': sub['user_id']})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        financial_info = user.get('financial_info', {})
+        current_balance = float(financial_info.get('balance', 0.0))
+        
+        # Deduct from balance
+        new_balance = current_balance - deduct_amount
+        
+        # Update user balance
+        users_col.update_one(
+            {'_id': sub['user_id']},
+            {'$set': {'financial_info.balance': new_balance}}
+        )
+
+        # Update submission state
+        total_new_deducted = already_deducted + deduct_amount
+        is_partial = total_new_deducted < reward_amount
+        status_value = 'partially_deducted' if is_partial else 'deducted'
+
+        col.update_one(
+            {'_id': ObjectId(sub_id)},
+            {'$set': {
+                'status': status_value,
+                'deducted': True,
+                'deducted_amount': total_new_deducted,
+                'deducted_at': datetime.utcnow()
+            }}
+        )
+
+        # Insert negative adjustment into balance_adjustments
+        adj_col = db_instance.get_collection('balance_adjustments')
+        if adj_col is not None:
+            adj_col.insert_one({
+                'user_id': ObjectId(sub['user_id']) if isinstance(sub['user_id'], str) else sub['user_id'],
+                'amount': -deduct_amount,
+                'reason': f'Review Us Reward Deduction (Reversed submission {sub_id})' if not is_partial else f'Review Us Reward Partial Deduction (Reversed submission {sub_id})',
+                'created_at': datetime.utcnow()
+            })
+
+        # Clear dashboard cache so numbers refresh instantly on their dashboard
+        try:
+            from routes.user_dashboard import clear_dashboard_cache
+            clear_dashboard_cache(sub['user_id'])
+        except Exception as e:
+            logger.error(f"Failed to clear dashboard cache for deducted user: {e}")
+
+        return jsonify({
+            'success': True, 
+            'message': 'Reward successfully deducted from user balance', 
+            'deducted_amount': deduct_amount,
+            'total_deducted': total_new_deducted,
+            'new_balance': new_balance,
+            'status': status_value
+        }), 200
+    except Exception as e:
+        logger.error(f"Error deducting submission reward: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@review_submissions_bp.route('/api/admin/review-submissions/<sub_id>/add-reward', methods=['PUT'])
+@token_required
+@admin_required
+def add_reward_submission(sub_id):
+    """Admin: Add reward back (re-credit) to a deducted or partially deducted submission."""
+    try:
+        col = _get_submissions_col()
+        users_col = _get_users_col()
+        if None in [col, users_col]:
+            return jsonify({'error': 'Database unavailable'}), 500
+
+        sub = col.find_one({'_id': ObjectId(sub_id)})
+        if not sub:
+            return jsonify({'error': 'Submission not found'}), 404
+
+        if not sub.get('deducted') or sub.get('status') not in ['deducted', 'partially_deducted']:
+            return jsonify({'error': 'Can only add reward to deducted or partially deducted submissions'}), 400
+
+        already_deducted = float(sub.get('deducted_amount', 0.0))
+
+        # Get requested add amount
+        req_data = request.get_json(silent=True) or {}
+        add_amount = req_data.get('add_amount')
+
+        if add_amount is None:
+            return jsonify({'error': 'Missing add_amount parameter'}), 400
+
+        try:
+            add_amount = float(add_amount)
+        except ValueError:
+            return jsonify({'error': 'Invalid add_amount format'}), 400
+        
+        if add_amount <= 0:
+            return jsonify({'error': 'Add amount must be greater than zero'}), 400
+
+        # Get user balances
+        user = users_col.find_one({'_id': sub['user_id']})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        financial_info = user.get('financial_info', {})
+        current_balance = float(financial_info.get('balance', 0.0))
+        
+        # Add to balance
+        new_balance = current_balance + add_amount
+        
+        # Update user balance
+        users_col.update_one(
+            {'_id': sub['user_id']},
+            {'$set': {'financial_info.balance': new_balance}}
+        )
+
+        # Update submission state
+        new_deducted_amount = max(0.0, already_deducted - add_amount)
+        is_still_deducted = new_deducted_amount > 0
+        status_value = 'partially_deducted' if is_still_deducted else 'approved'
+
+        col.update_one(
+            {'_id': ObjectId(sub_id)},
+            {'$set': {
+                'status': status_value,
+                'deducted': is_still_deducted,
+                'deducted_amount': new_deducted_amount,
+                'recredited_at': datetime.utcnow()
+            }}
+        )
+
+        # Insert positive adjustment into balance_adjustments
+        adj_col = db_instance.get_collection('balance_adjustments')
+        if adj_col is not None:
+            adj_col.insert_one({
+                'user_id': ObjectId(sub['user_id']) if isinstance(sub['user_id'], str) else sub['user_id'],
+                'amount': add_amount,
+                'reason': f'Review Us Reward Re-credited (Submission {sub_id})',
+                'created_at': datetime.utcnow()
+            })
+
+        # Clear dashboard cache so numbers refresh instantly on their dashboard
+        try:
+            from routes.user_dashboard import clear_dashboard_cache
+            clear_dashboard_cache(sub['user_id'])
+        except Exception as e:
+            logger.error(f"Failed to clear dashboard cache for recredited user: {e}")
+
+        return jsonify({
+            'success': True, 
+            'message': 'Reward successfully added back to user balance', 
+            'added_amount': add_amount,
+            'new_deducted_amount': new_deducted_amount,
+            'new_balance': new_balance,
+            'status': status_value
+        }), 200
+    except Exception as e:
+        logger.error(f"Error adding back reward to submission: {e}")
         return jsonify({'error': str(e)}), 500
 
 # ─── Review Us Button Click Tracking ───────────────────────────────────────────

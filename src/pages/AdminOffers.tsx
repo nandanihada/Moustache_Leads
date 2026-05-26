@@ -44,6 +44,8 @@ import {
   Rows3,
   Maximize2,
   Mail,
+  Pin,
+  X,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import {
@@ -174,9 +176,24 @@ const AdminOffers = () => {
   const [bulkDeleteRunningDetails, setBulkDeleteRunningDetails] = useState<Array<{ offer_id: string; name: string; total_clicks: number; days_remaining: number; sub_statuses: string[] }>>([]);
   const [bulkDeleteNonRunningIds, setBulkDeleteNonRunningIds] = useState<string[]>([]);
 
-  // Pin duration dialog state
   const [pinDialogOpen, setPinDialogOpen] = useState(false);
   const [pinDurationHours, setPinDurationHours] = useState('');
+
+  // Advanced single offer pinning states
+  const [pinSingleDialogOpen, setPinSingleDialogOpen] = useState(false);
+  const [pinningOffer, setPinningOffer] = useState<Offer | null>(null);
+  const [selectedSeatPosition, setSelectedSeatPosition] = useState<number | null>(null);
+  const [seatPositions, setSeatPositions] = useState<Array<{ position: number; isOccupied: boolean; offer: any | null }>>([]);
+  const [loadingSeats, setLoadingSeats] = useState(false);
+  const [pinSingleDuration, setPinSingleDuration] = useState<string>('6h');
+  const [pinSingleCustomHours, setPinSingleCustomHours] = useState<string>('');
+  
+  // Real-time ticking state for pinning count-downs
+  const [ticker, setTicker] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTicker(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Percentage payout dialog state
   const [percentagePayoutDialogOpen, setPercentagePayoutDialogOpen] = useState(false);
@@ -1042,6 +1059,125 @@ const AdminOffers = () => {
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to pin offers",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePinSingleOfferOpen = async (offer: Offer) => {
+    setPinningOffer(offer);
+    setSelectedSeatPosition((offer as any).pinnedPosition || null);
+    setPinSingleDuration(
+      (offer as any).pinDuration?.includes('6 Hours') ? '6h' :
+      (offer as any).pinDuration?.includes('10 Hours') ? '10h' :
+      (offer as any).pinDuration?.includes('3 Days') ? '3d' :
+      (offer as any).pinDuration?.includes('10 Days') ? '10d' :
+      (offer as any).pinDuration?.includes('Custom') ? 'custom' :
+      (offer as any).pinDuration === 'Permanent' ? 'permanent' : '6h'
+    );
+    if ((offer as any).pinDuration?.includes('Custom')) {
+      const match = (offer as any).pinDuration.match(/\d+(\.\d+)?/);
+      if (match) {
+        setPinSingleCustomHours(match[0]);
+      } else {
+        setPinSingleCustomHours('');
+      }
+    } else {
+      setPinSingleCustomHours('');
+    }
+
+    setPinSingleDialogOpen(true);
+    setLoadingSeats(true);
+    try {
+      const res = await adminOfferApi.getPinnedPositions();
+      if (res.success) {
+        setSeatPositions(res.positions);
+      }
+    } catch (err) {
+      console.error(err);
+      toast({
+        title: "Error",
+        description: "Failed to load occupied positions",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingSeats(false);
+    }
+  };
+
+  const executePinSingleOffer = async () => {
+    if (!pinningOffer) return;
+    if (selectedSeatPosition === null) {
+      toast({
+        title: "Validation Error",
+        description: "Please select a position from the Cinema Seat selector grid.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check conflict
+    const occupiedSeat = seatPositions.find(p => p.position === selectedSeatPosition);
+    if (occupiedSeat?.isOccupied && occupiedSeat.offer?.offer_id !== pinningOffer.offer_id) {
+      toast({
+        title: "Position Occupied",
+        description: `Position ${selectedSeatPosition} is occupied by offer "${occupiedSeat.offer?.name}". Please choose another position.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const parsedHours = pinSingleDuration === 'custom' ? parseFloat(pinSingleCustomHours) : undefined;
+      const res = await adminOfferApi.pinOffer(pinningOffer.offer_id, {
+        position: selectedSeatPosition,
+        duration: pinSingleDuration,
+        custom_hours: parsedHours
+      });
+
+      if (res.success) {
+        toast({
+          title: "Success",
+          description: res.message,
+        });
+        setPinSingleDialogOpen(false);
+        setPinningOffer(null);
+        setSelectedSeatPosition(null);
+        // Refresh appropriate view
+        if (offersSubView === 'rotating') fetchRotatingOffers();
+        else if (offersSubView === 'running') fetchRunningOffers();
+        else fetchOffers();
+      }
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to pin offer",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUnpinSingleOffer = async (offerId: string) => {
+    if (!confirm("Are you sure you want to unpin this offer and restore it to its organic position?")) {
+      return;
+    }
+
+    try {
+      const res = await adminOfferApi.unpinOffer(offerId);
+      if (res.success) {
+        toast({
+          title: "Success",
+          description: res.message,
+        });
+        // Refresh appropriate view
+        if (offersSubView === 'rotating') fetchRotatingOffers();
+        else if (offersSubView === 'running') fetchRunningOffers();
+        else fetchOffers();
+      }
+    } catch (err: any) {
+      toast({
+        title: "Error",
+        description: err.message || "Failed to unpin offer",
         variant: "destructive",
       });
     }
@@ -2928,6 +3064,36 @@ const AdminOffers = () => {
                             offer.affiliates === 'premium' ? 'Premium Only' : 
                             offer.affiliates === 'selected' ? 'Selected Users' : 'All Users'}
                         </div>
+                        {offer.is_pinned && (
+                          <div className="flex items-center gap-1 mt-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full w-max font-medium shadow-sm animate-pulse">
+                            <span>📌 Slot {offer.pinnedPosition || 'N/A'}</span>
+                            <span className="text-amber-400">•</span>
+                            <span>{offer.pinDuration || 'Permanent'}</span>
+                            {offer.pinEndTime && (
+                              <>
+                                <span className="text-amber-400">•</span>
+                                <span className="font-mono text-[10px] font-semibold text-amber-600">
+                                  {(() => {
+                                    const end = new Date(offer.pinEndTime);
+                                    const now = new Date();
+                                    const diff = end.getTime() - now.getTime();
+                                    if (diff <= 0) return 'Expiring...';
+                                    const h = Math.floor(diff / (1000 * 60 * 60));
+                                    const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                                    const s = Math.floor((diff % (1000 * 60)) / 1000);
+                                    return `${h}h ${m}m ${s}s`;
+                                  })()}
+                                </span>
+                              </>
+                            )}
+                            {offer.pinnedBy && (
+                              <>
+                                <span className="text-amber-400">•</span>
+                                <span className="text-[9px] text-amber-500">by {offer.pinnedBy}</span>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -3117,6 +3283,16 @@ const AdminOffers = () => {
                             <Copy className="h-4 w-4 mr-2" />
                             Clone
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handlePinSingleOfferOpen(offer)}>
+                            <Pin className="h-4 w-4 mr-2" />
+                            {offer.is_pinned ? '⚙️ Manage Pin' : '📌 Pin Offer'}
+                          </DropdownMenuItem>
+                          {offer.is_pinned && (
+                            <DropdownMenuItem className="text-red-600 animate-pulse font-medium" onClick={() => handleUnpinSingleOffer(offer.offer_id)}>
+                              <X className="h-4 w-4 mr-2" />
+                              Remove Pin
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => {
                             // Open tracking link
                             const hostname = window.location.hostname;
@@ -4509,6 +4685,176 @@ const AdminOffers = () => {
             <Button variant="outline" onClick={() => setPinDialogOpen(false)}>Cancel</Button>
             <Button onClick={executeBulkPin}>
               Pin {(offersSubView === 'running' ? selectedRunningOffers : selectedOffers).size} Offer(s)
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Visual Cinema Seat Pinning Dialog */}
+      <Dialog open={pinSingleDialogOpen} onOpenChange={setPinSingleDialogOpen}>
+        <DialogContent className="max-w-2xl bg-slate-900 border-slate-800 text-slate-100 shadow-2xl rounded-2xl overflow-hidden p-0">
+          <div className="p-6 space-y-6">
+            <DialogHeader className="space-y-1">
+              <div className="flex items-center justify-between">
+                <DialogTitle className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+                  <span className="animate-bounce">📌</span> Advanced Slot Pinning
+                </DialogTitle>
+                <Badge variant="outline" className="bg-emerald-950/50 text-emerald-400 border-emerald-800 px-3 py-1 font-mono text-xs">
+                  {pinningOffer?.offer_id}
+                </Badge>
+              </div>
+              <DialogDescription className="text-slate-400 text-sm">
+                Select a fixed position (1–50) in the offers list. Occupied slots are marked.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="bg-slate-950/60 rounded-xl p-4 border border-slate-800 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-850 pb-3">
+                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Offer to Pin</span>
+                <span className="text-sm font-bold text-white text-right max-w-[300px] truncate">{pinningOffer?.name}</span>
+              </div>
+
+              {/* Cinema Legend */}
+              <div className="flex justify-center gap-6 text-xs font-medium py-1">
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-md border border-slate-700 bg-slate-800" />
+                  <span className="text-slate-300 font-normal">Vacant</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-md bg-emerald-500 flex items-center justify-center text-[10px] text-white">✓</div>
+                  <span className="text-emerald-400 font-semibold">Selected / Current Pin</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-md bg-rose-600 flex items-center justify-center text-[10px] text-white">🛇</div>
+                  <span className="text-rose-400 font-semibold">Occupied</span>
+                </div>
+              </div>
+
+              {/* The "Screen" anchor */}
+              <div className="w-full flex flex-col items-center justify-center py-2">
+                <div className="h-1.5 w-4/5 bg-gradient-to-r from-blue-500/25 via-sky-450 to-blue-500/25 rounded-full shadow-[0_0_12px_rgba(56,189,248,0.4)]" />
+                <span className="text-[10px] tracking-widest text-sky-300 uppercase mt-1 font-bold">Offer Wall List - Top of Page</span>
+              </div>
+
+              {/* Cinema Seat Selector Grid */}
+              {loadingSeats ? (
+                <div className="h-48 flex flex-col items-center justify-center space-y-3">
+                  <Loader2 className="h-8 w-8 text-sky-400 animate-spin" />
+                  <span className="text-xs text-slate-400">Loading seat layout...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-10 gap-2 p-1 max-h-[260px] overflow-y-auto pr-2 custom-scrollbar">
+                  {Array.from({ length: 50 }).map((_, idx) => {
+                    const pos = idx + 1;
+                    const seat = seatPositions.find(p => p.position === pos);
+                    const isOccupied = seat?.isOccupied || false;
+                    const isOccupiedBySelf = isOccupied && seat?.offer?.offer_id === pinningOffer?.offer_id;
+                    const isSelected = selectedSeatPosition === pos;
+
+                    let seatBg = 'bg-slate-800 border border-slate-700 hover:bg-slate-700 hover:border-slate-500 text-slate-300';
+                    let isClickable = true;
+
+                    if (isOccupiedBySelf) {
+                      seatBg = 'bg-emerald-600 border border-emerald-400 text-white font-bold shadow-[0_0_8px_rgba(16,185,129,0.4)] hover:bg-emerald-500';
+                    } else if (isOccupied) {
+                      seatBg = 'bg-rose-950/80 border border-rose-900/60 text-rose-400/80 cursor-not-allowed';
+                      isClickable = false;
+                    } else if (isSelected) {
+                      seatBg = 'bg-sky-600 border border-sky-400 text-white font-bold shadow-[0_0_8px_rgba(14,165,233,0.4)] hover:bg-sky-500';
+                    }
+
+                    return (
+                      <button
+                        key={pos}
+                        type="button"
+                        disabled={!isClickable && !isOccupiedBySelf}
+                        onClick={() => setSelectedSeatPosition(pos)}
+                        className={`w-full aspect-square rounded-lg flex flex-col items-center justify-center text-xs font-semibold transition-all duration-200 relative group ${seatBg}`}
+                        title={isOccupiedBySelf ? "Currently occupied by this offer" : isOccupied ? `Occupied by: ${seat?.offer?.name}` : `Slot ${pos} (Available)`}
+                      >
+                        <span>{pos}</span>
+                        {isOccupied && !isOccupiedBySelf && (
+                          <span className="absolute bottom-0 text-[6px] text-rose-500 font-bold tracking-tight">OCCUPIED</span>
+                        )}
+                        {/* Hover Popover tooltip for occupied offers */}
+                        {isOccupied && !isOccupiedBySelf && (
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-48 bg-slate-955 border border-rose-900 text-rose-200 text-[10px] rounded-lg p-2 opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-205 z-50 shadow-xl text-center">
+                            <span className="font-bold text-white block border-b border-rose-950 pb-1 mb-1">Position {pos} Occupied</span>
+                            <span className="line-clamp-2">{seat?.offer?.name}</span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Duration Section */}
+            <div className="space-y-3">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-slate-400">Select Pin Duration</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: '6h', label: '6 Hours' },
+                  { value: '10h', label: '10 Hours' },
+                  { value: '3d', label: '3 Days' },
+                  { value: '10d', label: '10 Days' },
+                  { value: 'custom', label: 'Custom' },
+                  { value: 'permanent', label: 'Permanent' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setPinSingleDuration(opt.value)}
+                    className={`py-2 px-3 rounded-lg text-xs font-semibold border transition-all duration-150 ${
+                      pinSingleDuration === opt.value
+                        ? 'bg-sky-600 border-sky-400 text-white shadow-[0_0_8px_rgba(14,165,233,0.2)]'
+                        : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {pinSingleDuration === 'custom' && (
+                <div className="bg-slate-950/40 border border-slate-800 rounded-xl p-3 space-y-2 animate-fadeIn">
+                  <Label className="text-xs text-slate-400 font-medium">Custom Hours (e.g. 1.5, 24, 120)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      placeholder="Enter amount of hours"
+                      value={pinSingleCustomHours}
+                      onChange={e => setPinSingleCustomHours(e.target.value)}
+                      className="bg-slate-900 border-slate-700 text-white rounded-lg focus-visible:ring-sky-500 h-9 text-xs"
+                    />
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 flex items-center justify-center text-xs font-bold text-slate-400 whitespace-nowrap">
+                      Hours total
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="bg-slate-950/50 border-t border-slate-800/80 px-6 py-4 flex items-center justify-end gap-3">
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setPinSingleDialogOpen(false)}
+              className="text-slate-400 hover:text-white hover:bg-slate-800"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={executePinSingleOffer}
+              disabled={selectedSeatPosition === null}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 shadow-lg shadow-emerald-900/20"
+            >
+              Confirm Pin Position
             </Button>
           </DialogFooter>
         </DialogContent>

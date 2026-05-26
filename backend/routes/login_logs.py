@@ -703,12 +703,22 @@ def send_custom_mail(current_user):
         return jsonify({'error': f'Failed to send email: {str(e)}'}), 500
 
 
+_offerviews_cache = {}
+_offerviews_cache_ttl = 60  # Cache for 1 minute
+
 @login_logs_bp.route('/offer-views/<user_id>', methods=['GET'])
 @token_required_with_user
 @subadmin_or_admin_required('login-logs')
 def get_user_offer_views(current_user, user_id):
     """Get offers viewed/clicked by a user from offer_views collection (primary) + click collections"""
     try:
+        now = time.time()
+        # 0. Check cache
+        if user_id in _offerviews_cache:
+            val, expiry = _offerviews_cache[user_id]
+            if now < expiry:
+                return jsonify(val), 200
+
         limit = int(request.args.get('limit', 50))
         username = request.args.get('username', '')
         email = request.args.get('email', '')
@@ -719,48 +729,58 @@ def get_user_offer_views(current_user, user_id):
         seen_keys = set()
         
         # Fetch user early to get all possible identifiers (id, email, username)
-        user_identifiers = [user_id]
-        if 'users' in db_instance.get_db().list_collection_names():
-            db = db_instance.get_db()
+        user_id_str = str(user_id)
+        user_oid = None
+        if ObjectId.is_valid(user_id_str):
+            user_oid = ObjectId(user_id_str)
+            
+        db = db_instance.get_db()
+        user_obj = None
+        if 'users' in db.list_collection_names():
             try:
-                user_obj = db.users.find_one({'$or': [{'_id': ObjectId(user_id)}, {'email': user_id}, {'username': user_id}]})
+                user_obj = db.users.find_one({'$or': [{'_id': user_oid}, {'email': user_id}, {'username': user_id}]})
             except Exception:
-                user_obj = db.users.find_one({'$or': [{'_id': user_id}, {'email': user_id}, {'username': user_id}]})
+                try:
+                    user_obj = db.users.find_one({'$or': [{'_id': user_id}, {'email': user_id}, {'username': user_id}]})
+                except Exception:
+                    pass
             
-            if user_obj:
-                user_identifiers.append(str(user_obj.get('_id')))
-                if user_obj.get('email'): user_identifiers.append(user_obj.get('email'))
-                if user_obj.get('username'): user_identifiers.append(user_obj.get('username'))
+        username_str = username
+        email_str = email
+        if user_obj:
+            user_id_str = str(user_obj.get('_id', user_id))
+            username_str = user_obj.get('username') or username_str
+            email_str = user_obj.get('email') or email_str
         
-        if email: user_identifiers.append(email)
-        if username: user_identifiers.append(username)
-        
-        user_identifiers = list(set(user_identifiers))
-        
-        def build_user_query():
-            conditions = [{'user_id': {'$in': user_identifiers}}]
-            # Also try ObjectId versions
-            obj_ids = []
-            for uid in user_identifiers:
-                try: obj_ids.append(ObjectId(uid))
-                except: pass
-            if obj_ids:
-                conditions.append({'user_id': {'$in': obj_ids}})
-            
-            conditions.append({'username': {'$in': user_identifiers}})
-            conditions.append({'email': {'$in': user_identifiers}})
-            conditions.append({'user_email': {'$in': user_identifiers}})
-            return {'$or': conditions}
-        
-        user_query = build_user_query()
+        q_ids = [user_id_str]
+        if user_oid:
+            q_ids.append(user_oid)
+        if user_id_str != user_id:
+            q_ids.append(user_id)
+            if ObjectId.is_valid(user_id):
+                q_ids.append(ObjectId(user_id))
         
         # 1. Primary source: offer_views collection
         ov_col = db_instance.get_collection('offer_views')
         if ov_col is not None:
+            # Query by user_id list (index-friendly)
             views = list(ov_col.find(
-                user_query,
+                {'user_id': {'$in': q_ids}},
                 {'offer_id': 1, 'offer_name': 1, 'timestamp': 1, 'clicked': 1, 'source': 1, 'network': 1, 'ip_address': 1}
             ).sort('timestamp', -1).limit(limit))
+            
+            # Fallbacks if no views found
+            if not views and username_str:
+                views = list(ov_col.find(
+                    {'username': username_str},
+                    {'offer_id': 1, 'offer_name': 1, 'timestamp': 1, 'clicked': 1, 'source': 1, 'network': 1, 'ip_address': 1}
+                ).sort('timestamp', -1).limit(limit))
+            if not views and email_str:
+                views = list(ov_col.find(
+                    {'$or': [{'email': email_str}, {'user_email': email_str}]},
+                    {'offer_id': 1, 'offer_name': 1, 'timestamp': 1, 'clicked': 1, 'source': 1, 'network': 1, 'ip_address': 1}
+                ).sort('timestamp', -1).limit(limit))
+                
             for v in views:
                 v['_id'] = str(v['_id'])
                 v['view_type'] = 'clicked' if v.get('clicked') else 'viewed'
@@ -770,20 +790,22 @@ def get_user_offer_views(current_user, user_id):
                 offer_views.append(v)
         
         # 2. Also check click collections
-        click_user_query = {'$or': [{'user_id': user_id}]}
-        try:
-            click_user_query['$or'].append({'user_id': ObjectId(user_id)})
-        except Exception:
-            pass
-        
         for col_name in ('offerwall_clicks', 'offerwall_clicks_detailed', 'clicks'):
             col = db_instance.get_collection(col_name)
             if col is None:
                 continue
+            
             clicks = list(col.find(
-                click_user_query,
+                {'user_id': {'$in': q_ids}},
                 {'offer_id': 1, 'offer_name': 1, 'timestamp': 1, 'click_time': 1, 'click_id': 1, 'country': 1, 'payout': 1}
             ).sort('timestamp', -1).limit(limit))
+            
+            if not clicks and username_str:
+                clicks = list(col.find(
+                    {'username': username_str},
+                    {'offer_id': 1, 'offer_name': 1, 'timestamp': 1, 'click_time': 1, 'click_id': 1, 'country': 1, 'payout': 1}
+                ).sort('timestamp', -1).limit(limit))
+                
             for c in clicks:
                 ts = c.get('timestamp') or c.get('click_time')
                 key = f"{c.get('offer_id')}_{ts}"
@@ -821,12 +843,207 @@ def get_user_offer_views(current_user, user_id):
                         'thumbnail': offer.get('thumbnail', '')
                     }
         
-        return jsonify(mongodb_to_json({'views': offer_views, 'total': len(offer_views)})), 200
-        
-    except Exception as e:
-        logger.error(f"Error getting offer views: {str(e)}", exc_info=True)
-        return jsonify({'error': f'Failed to get offer views: {str(e)}'}), 500
+        res_payload = {'logs': offer_views}
+        _offerviews_cache[user_id] = (res_payload, now + _offerviews_cache_ttl)
+        return jsonify(res_payload), 200
 
+    except Exception as e:
+        logger.error(f"Error getting user offer views: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+# --- HIGH PERFORMANCE CACHING SYSTEM FOR MATRICES & OFFER RECOMMENDER ---
+import time
+from bson import ObjectId
+
+_global_reco_cache = {}
+_reco_cache_ttl = 300  # Cache for 5 minutes
+
+def get_cached_reco(key, compute_func):
+    now = time.time()
+    if key in _global_reco_cache:
+        val, expiry = _global_reco_cache[key]
+        if now < expiry:
+            return val
+    val = compute_func()
+    _global_reco_cache[key] = (val, now + _reco_cache_ttl)
+    return val
+
+def filter_offers_in_memory(offers_list, fav_categories, fav_countries, sent_offer_ids, limit):
+    filtered = []
+    # 1. Strict match: matches category and country
+    for o in offers_list:
+        oid = o.get('offer_id')
+        if oid in sent_offer_ids:
+            continue
+        
+        # Check category match
+        cat_match = True
+        if fav_categories:
+            cat_match = o.get('category') in fav_categories
+            
+        # Check country match
+        country_match = True
+        if fav_countries:
+            offer_countries = o.get('countries', [])
+            if isinstance(offer_countries, list):
+                country_match = any(c in fav_countries for c in offer_countries)
+            elif isinstance(offer_countries, str):
+                country_match = offer_countries in fav_countries
+                
+        if cat_match and country_match:
+            filtered.append(o)
+            if len(filtered) >= limit:
+                return filtered
+                
+    # 2. Relaxed match: matches category or country
+    for o in offers_list:
+        if o in filtered:
+            continue
+        oid = o.get('offer_id')
+        if oid in sent_offer_ids:
+            continue
+            
+        cat_match = False
+        if fav_categories:
+            cat_match = o.get('category') in fav_categories
+            
+        country_match = False
+        if fav_countries:
+            offer_countries = o.get('countries', [])
+            if isinstance(offer_countries, list):
+                country_match = any(c in fav_countries for c in offer_countries)
+            elif isinstance(offer_countries, str):
+                country_match = offer_countries in fav_countries
+                
+        if cat_match or country_match:
+            filtered.append(o)
+            if len(filtered) >= limit:
+                return filtered
+                
+    # 3. Fallback: any active offer from the list
+    for o in offers_list:
+        if o in filtered:
+            continue
+        oid = o.get('offer_id')
+        if oid in sent_offer_ids:
+            continue
+        filtered.append(o)
+        if len(filtered) >= limit:
+            return filtered
+            
+    return filtered
+
+def compute_top_approved_global():
+    from database import db_instance
+    reqs_col = db_instance.get_collection('affiliate_requests')
+    offers_col = db_instance.get_collection('offers')
+    if reqs_col is None or offers_col is None:
+        return []
+    try:
+        agg = list(reqs_col.aggregate([
+            {'$match': {'status': 'approved'}},
+            {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}},
+            {'$sort': {'count': -1}},
+            {'$limit': 150}
+        ]))
+        top_approved_ids = [item['_id'] for item in agg if item.get('_id')]
+        if top_approved_ids:
+            offers = list(offers_col.find(
+                {'offer_id': {'$in': top_approved_ids}, 'status': {'$in': ['active', 'running']}},
+                {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'image_url': 1, 'thumbnail_url': 1, 'type': 1, 'description': 1}
+            ))
+            order_map = {oid: idx for idx, oid in enumerate(top_approved_ids)}
+            offers.sort(key=lambda o: order_map.get(o.get('offer_id'), 999))
+            return offers
+    except Exception as e:
+        import logging
+        logging.getLogger('login_logs').warning(f"Error computing top approved: {e}")
+    return []
+
+def compute_top_clicked_global():
+    from database import db_instance
+    clicks_col = db_instance.get_collection('clicks')
+    offers_col = db_instance.get_collection('offers')
+    if clicks_col is None or offers_col is None:
+        return []
+    try:
+        click_agg = list(clicks_col.aggregate([
+            {'$group': {'_id': '$offer_id', 'click_count': {'$sum': 1}}},
+            {'$sort': {'click_count': -1}},
+            {'$limit': 150}
+        ]))
+        top_clicked_ids = [c['_id'] for c in click_agg if c.get('_id')]
+        if top_clicked_ids:
+            offers = list(offers_col.find(
+                {'offer_id': {'$in': top_clicked_ids}, 'status': {'$in': ['active', 'running']}},
+                {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'image_url': 1, 'thumbnail_url': 1, 'type': 1, 'description': 1}
+            ))
+            click_order = {oid: idx for idx, oid in enumerate(top_clicked_ids)}
+            offers.sort(key=lambda o: click_order.get(o.get('offer_id'), 999))
+            return offers
+    except Exception as e:
+        import logging
+        logging.getLogger('login_logs').warning(f"Error computing top clicked: {e}")
+    return []
+
+def compute_newly_added_global():
+    from database import db_instance
+    offers_col = db_instance.get_collection('offers')
+    if offers_col is None:
+        return []
+    try:
+        return list(offers_col.find(
+            {'status': {'$in': ['active', 'running']}},
+            {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'image_url': 1, 'thumbnail_url': 1, 'type': 1, 'description': 1}
+        ).sort('created_at', -1).limit(150))
+    except Exception as e:
+        import logging
+        logging.getLogger('login_logs').warning(f"Error computing newly added: {e}")
+    return []
+
+def compute_high_payout_global():
+    from database import db_instance
+    offers_col = db_instance.get_collection('offers')
+    if offers_col is None:
+        return []
+    try:
+        return list(offers_col.find(
+            {'status': {'$in': ['active', 'running']}},
+            {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'image_url': 1, 'thumbnail_url': 1, 'type': 1, 'description': 1}
+        ).sort('payout', -1).limit(150))
+    except Exception as e:
+        import logging
+        logging.getLogger('login_logs').warning(f"Error computing high payout: {e}")
+    return []
+
+def compute_top_requested_global():
+    from database import db_instance
+    offers_col = db_instance.get_collection('offers')
+    if offers_col is None:
+        return []
+    try:
+        pipeline = [
+            {'$match': {'status': {'$in': ['active', 'running']}}},
+            {'$lookup': {
+                'from': 'affiliate_requests',
+                'localField': 'offer_id',
+                'foreignField': 'offer_id',
+                'as': 'requests'
+            }},
+            {'$addFields': {'req_count': {'$size': '$requests'}}},
+            {'$sort': {'req_count': -1}},
+            {'$limit': 150},
+            {'$project': {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'image_url': 1, 'thumbnail_url': 1, 'type': 1, 'description': 1}}
+        ]
+        return list(offers_col.aggregate(pipeline, allowDiskUse=True))
+    except Exception as e:
+        import logging
+        logging.getLogger('login_logs').warning(f"Error computing top requested: {e}")
+    return []
+
+_inventory_matched_cache = {}
+_inventory_matched_cache_ttl = 60  # Cache for 1 minute
 
 @login_logs_bp.route('/inventory-matched-offers/<user_id>', methods=['GET'])
 @token_required_with_user
@@ -834,8 +1051,17 @@ def get_user_offer_views(current_user, user_id):
 def get_inventory_matched_offers(current_user, user_id):
     """Get 5 buckets of offers for the Offer Reco tab."""
     try:
+        now = time.time()
+        # 0. Check fast memory cache
+        if user_id in _inventory_matched_cache:
+            val, expiry = _inventory_matched_cache[user_id]
+            if now < expiry:
+                return jsonify(val), 200
+
         from database import db_instance
         from datetime import datetime, timedelta
+        import logging
+        logger = logging.getLogger('login_logs')
         
         limit = 6
         offers_col = db_instance.get_collection('offers')
@@ -865,186 +1091,151 @@ def get_inventory_matched_offers(current_user, user_id):
             except Exception:
                 user = users_col.find_one({'$or': [{'_id': user_id}, {'email': user_id}, {'username': user_id}]})
 
-        # Get categories the user interacts with most
-        views_col = db_instance.get_collection('offer_views')
+        # Get categories the user interacts with most from views, clicks and search logs
         fav_categories = set()
-        if views_col is not None and user:
-            views = list(views_col.find({'user_id': str(user.get('_id', user_id))}).limit(50))
-            offer_ids_viewed = [v.get('offer_id') for v in views if v.get('offer_id')]
-            if offer_ids_viewed:
-                viewed_offers = list(offers_col.find({'offer_id': {'$in': offer_ids_viewed}}, {'category': 1}))
-                for vo in viewed_offers:
-                    if vo.get('category'):
-                        fav_categories.add(vo.get('category'))
-        
-        # Add verticals from user profile
-        if user and user.get('verticals'):
-            for v in user.get('verticals', []):
-                fav_categories.add(v)
-                
-        # Get countries from user profile
         fav_countries = set()
-        if user and user.get('geoPreferences'):
-            for c in user.get('geoPreferences', []):
-                fav_countries.add(c)
-                
-        base_query = {'status': {'$in': ['active', 'running']}}
         
-        # Build personalization query filters
-        if fav_categories:
-            base_query['category'] = {'$in': list(fav_categories)}
+        if user:
+            user_id_str = str(user.get('_id', user_id))
+            username_str = user.get('username')
+            email_str = user.get('email')
             
-        if fav_countries:
-            base_query['countries'] = {'$in': list(fav_countries)}
-            
-        if sent_offer_ids:
-            base_query['offer_id'] = {'$nin': list(sent_offer_ids)}
-            
-        project_fields = {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1}
-            
-        # 1. Newly added
-        newly_added = list(offers_col.find(base_query, project_fields).sort('created_at', -1).limit(limit))
-
-        # 2. Most approved
-        pipeline = [
-            {'$match': base_query},
-            {'$lookup': {
-                'from': 'affiliate_requests',
-                'localField': 'offer_id',
-                'foreignField': 'offer_id',
-                'as': 'requests'
-            }},
-            {'$addFields': {
-                'approved_requests': {
-                    '$size': {
-                        '$filter': {
-                            'input': '$requests',
-                            'as': 'req',
-                            'cond': {'$eq': ['$$req.status', 'approved']}
-                        }
-                    }
-                }
-            }},
-            {'$sort': {'approved_requests': -1}},
-            {'$limit': limit},
-            {'$project': project_fields}
-        ]
-        most_approved = list(offers_col.aggregate(pipeline, allowDiskUse=True))
-
-        # 3. Highly clicked / Most Clicked
-        try:
-            candidate_offers = list(offers_col.find(base_query, {'offer_id': 1, '_id': 0}).limit(200))
-            candidate_offer_ids = [o['offer_id'] for o in candidate_offers if o.get('offer_id')]
-            
-            clicks_col = db_instance.get_collection('clicks')
-            click_pipeline = []
-            if clicks_col and candidate_offer_ids:
-                click_pipeline = [
-                    {'$match': {'offer_id': {'$in': candidate_offer_ids}}},
-                    {'$group': {'_id': '$offer_id', 'click_count': {'$sum': 1}}},
-                    {'$sort': {'click_count': -1}},
-                    {'$limit': limit}
-                ]
-                top_clicked = list(clicks_col.aggregate(click_pipeline))
-                top_clicked_ids = [c['_id'] for c in top_clicked]
+            # Robust ObjectId converter
+            from bson import ObjectId
+            user_oid = None
+            if ObjectId.is_valid(user_id_str):
+                user_oid = ObjectId(user_id_str)
                 
-                if top_clicked_ids:
-                    highly_clicked = list(offers_col.find(
-                        {'offer_id': {'$in': top_clicked_ids}},
-                        project_fields
-                    ))
-                    click_order = {oid: idx for idx, oid in enumerate(top_clicked_ids)}
-                    highly_clicked.sort(key=lambda o: click_order.get(o.get('offer_id'), 999))
-                else:
-                    highly_clicked = []
-            else:
-                highly_clicked = []
-        except Exception as click_err:
-            logger.warning(f"Highly clicked query failed: {click_err}")
-            highly_clicked = []
+            # 1. Fetch from offer_views (Index-friendly fast lookup)
+            views_col = db_instance.get_collection('offer_views')
+            if views_col is not None:
+                q_ids = [user_id_str]
+                if user_oid:
+                    q_ids.append(user_oid)
+                views = list(views_col.find({'user_id': {'$in': q_ids}}).limit(50))
+                if not views and username_str:
+                    views = list(views_col.find({'username': username_str}).limit(50))
+                
+                offer_ids_viewed = [v.get('offer_id') for v in views if v.get('offer_id')]
+                if offer_ids_viewed:
+                    viewed_offers = list(offers_col.find({'offer_id': {'$in': offer_ids_viewed}}, {'category': 1}))
+                    for vo in viewed_offers:
+                        if vo.get('category'):
+                            fav_categories.add(vo.get('category'))
+                            
+            # 2. Fetch from clicks (Index-friendly fast lookup)
+            clicks_col = db_instance.get_collection('clicks')
+            if clicks_col is not None:
+                q_ids = [user_id_str]
+                if user_oid:
+                    q_ids.append(user_oid)
+                clicks = list(clicks_col.find({'$or': [{'user_id': {'$in': q_ids}}, {'publisher_id': {'$in': q_ids}}]}).limit(50))
+                if not clicks and username_str:
+                    clicks = list(clicks_col.find({'username': username_str}).limit(50))
+                
+                offer_ids_clicked = [c.get('offer_id') for c in clicks if c.get('offer_id')]
+                if offer_ids_clicked:
+                    clicked_offers = list(offers_col.find({'offer_id': {'$in': offer_ids_clicked}}, {'category': 1}))
+                    for co in clicked_offers:
+                        if co.get('category'):
+                            fav_categories.add(co.get('category'))
+                            
+            # 3. Fetch from recent login logs for actual geo locations (Index-friendly fast lookup)
+            login_logs_col = db_instance.get_collection('login_logs')
+            if login_logs_col is not None:
+                q_ids = [user_id_str]
+                if user_oid:
+                    q_ids.append(user_oid)
+                login_records = list(login_logs_col.find({'user_id': {'$in': q_ids}}).sort('login_time', -1).limit(10))
+                if not login_records and email_str:
+                    login_records = list(login_logs_col.find({'email': email_str}).sort('login_time', -1).limit(10))
+                if not login_records and username_str:
+                    login_records = list(login_logs_col.find({'username': username_str}).sort('login_time', -1).limit(10))
+                
+                for log in login_records:
+                    if log.get('country') and log.get('country') != 'Unknown':
+                        fav_countries.add(log.get('country'))
+                    if log.get('country_code') and log.get('country_code') != 'Unknown':
+                        fav_countries.add(log.get('country_code'))
+                        
+            # 4. Add verticals from user profile
+            if user.get('verticals'):
+                if isinstance(user.get('verticals'), list):
+                    for v in user.get('verticals', []):
+                        fav_categories.add(v)
+                elif isinstance(user.get('verticals'), str):
+                    fav_categories.add(user.get('verticals'))
+                    
+            # 5. Add countries from user profile
+            if user.get('geoPreferences'):
+                if isinstance(user.get('geoPreferences'), list):
+                    for c in user.get('geoPreferences', []):
+                        fav_countries.add(c)
+                elif isinstance(user.get('geoPreferences'), str):
+                    fav_countries.add(user.get('geoPreferences'))
+            
+            # 6. Add country from profile if present
+            if user.get('country') and user.get('country') != 'Unknown':
+                fav_countries.add(user.get('country'))
 
-        # 4. Recommended Offers (Personalized AI/Vertical based matches)
-        recommended_offers = list(offers_col.find(base_query, project_fields).sort('payout', -1).limit(limit))
+        project_fields = {'offer_id': 1, 'name': 1, 'payout': 1, 'category': 1, 'network': 1, 'countries': 1, 'status': 1, 'image_url': 1, 'thumbnail_url': 1, 'type': 1, 'description': 1}
+        
+        # Get cached global collections
+        global_newly_added = get_cached_reco('newly_added', compute_newly_added_global)
+        global_approved = get_cached_reco('top_approved', compute_top_approved_global)
+        global_clicked = get_cached_reco('top_clicked', compute_top_clicked_global)
+        global_recommended = get_cached_reco('high_payout', compute_high_payout_global)
+        global_requested = get_cached_reco('top_requested', compute_top_requested_global)
 
-        # 5. Requested Offers (Offers the publisher has requested access for)
+        # 1. Newly added (personalized filtering)
+        newly_added = filter_offers_in_memory(global_newly_added, fav_categories, fav_countries, sent_offer_ids, limit)
+        
+        # 2. Most approved
+        most_approved = filter_offers_in_memory(global_approved, fav_categories, fav_countries, sent_offer_ids, limit)
+        
+        # 3. Highly clicked
+        highly_clicked = filter_offers_in_memory(global_clicked, fav_categories, fav_countries, sent_offer_ids, limit)
+        
+        # 4. Recommended Offers
+        recommended_offers = filter_offers_in_memory(global_recommended, fav_categories, fav_countries, sent_offer_ids, limit)
+        
+        # 5. Requested Offers
         requested_offers = []
         affiliate_requests_col = db_instance.get_collection('affiliate_requests')
         if affiliate_requests_col is not None and user:
             user_id_str = str(user.get('_id'))
-            username_str = user.get('username')
             user_reqs = list(affiliate_requests_col.find({
                 '$or': [
                     {'user_id': user_id_str},
-                    {'user_id': ObjectId(user_id_str) if ObjectId.is_valid(user_id_str) else None},
-                    {'username': username_str}
+                    {'user_id': ObjectId(user_id_str) if ObjectId.is_valid(user_id_str) else None}
                 ]
             }))
+            if not user_reqs and username_str:
+                user_reqs = list(affiliate_requests_col.find({'username': username_str}))
+            
             req_offer_ids = [r.get('offer_id') for r in user_reqs if r.get('offer_id')]
             if req_offer_ids:
                 requested_offers = list(offers_col.find(
                     {'offer_id': {'$in': list(set(req_offer_ids))}, 'status': {'$in': ['active', 'running']}},
                     project_fields
                 ).limit(limit))
-
-        # Fallback if too strict
-        base_query_fallback = {'status': {'$in': ['active', 'running']}}
-        if sent_offer_ids:
-            base_query_fallback['offer_id'] = {'$nin': list(sent_offer_ids)}
-
-        if len(newly_added) < limit:
-            newly_added.extend(list(offers_col.find(base_query_fallback, project_fields).sort('created_at', -1).limit(limit - len(newly_added))))
-            
-        if len(recommended_offers) < limit:
-            recommended_offers.extend(list(offers_col.find(base_query_fallback, project_fields).sort('payout', -1).limit(limit - len(recommended_offers))))
-
-        if len(most_approved) < limit:
-            pipeline[0]['$match'] = base_query_fallback
-            most_approved.extend(list(offers_col.aggregate(pipeline, allowDiskUse=True)))
-
-        if len(highly_clicked) < limit:
-            try:
-                candidate_offers_fallback = list(offers_col.find(base_query_fallback, {'offer_id': 1, '_id': 0}).limit(200))
-                candidate_offer_ids_fallback = [o['offer_id'] for o in candidate_offers_fallback if o.get('offer_id')]
-                if clicks_col and candidate_offer_ids_fallback:
-                    click_pipeline_fallback = [
-                        {'$match': {'offer_id': {'$in': candidate_offer_ids_fallback}}},
-                        {'$group': {'_id': '$offer_id', 'click_count': {'$sum': 1}}},
-                        {'$sort': {'click_count': -1}},
-                        {'$limit': limit}
-                    ]
-                    top_clicked_fallback = list(clicks_col.aggregate(click_pipeline_fallback))
-                    top_clicked_ids_fallback = [c['_id'] for c in top_clicked_fallback]
-                    if top_clicked_ids_fallback:
-                        fallback_clicked = list(offers_col.find(
-                            {'offer_id': {'$in': top_clicked_ids_fallback}},
-                            project_fields
-                        ))
-                        highly_clicked.extend(fallback_clicked)
-            except Exception as e_click_fallback:
-                logger.warning(f"Highly clicked fallback failed: {e_click_fallback}")
-
+                
         if not requested_offers:
-            # Get globally requested/approved offers as a fallback
-            try:
-                pipeline_req_fallback = [
-                    {'$match': base_query_fallback},
-                    {'$lookup': {
-                        'from': 'affiliate_requests',
-                        'localField': 'offer_id',
-                        'foreignField': 'offer_id',
-                        'as': 'requests'
-                    }},
-                    {'$addFields': {'req_count': {'$size': '$requests'}}},
-                    {'$sort': {'req_count': -1}},
-                    {'$limit': limit},
-                    {'$project': project_fields}
-                ]
-                requested_offers = list(offers_col.aggregate(pipeline_req_fallback, allowDiskUse=True))
-            except Exception as req_fallback_err:
-                logger.warning(f"Requested offers fallback failed: {req_fallback_err}")
-                requested_offers = newly_added[:limit]
+            requested_offers = filter_offers_in_memory(global_requested, fav_categories, fav_countries, sent_offer_ids, limit)
 
-        return jsonify(mongodb_to_json({
+        # Fallbacks for empty results
+        if len(newly_added) < limit:
+            newly_added.extend(filter_offers_in_memory(global_newly_added, None, None, sent_offer_ids, limit - len(newly_added)))
+        if len(most_approved) < limit:
+            most_approved.extend(filter_offers_in_memory(global_approved, None, None, sent_offer_ids, limit - len(most_approved)))
+        if len(highly_clicked) < limit:
+            highly_clicked.extend(filter_offers_in_memory(global_clicked, None, None, sent_offer_ids, limit - len(highly_clicked)))
+        if len(recommended_offers) < limit:
+            recommended_offers.extend(filter_offers_in_memory(global_recommended, None, None, sent_offer_ids, limit - len(recommended_offers)))
+        if len(requested_offers) < limit:
+            requested_offers.extend(filter_offers_in_memory(global_requested, None, None, sent_offer_ids, limit - len(requested_offers)))
+
+        res_payload = mongodb_to_json({
             'recommended_offers': recommended_offers[:limit],
             'most_approved': most_approved[:limit],
             'highly_clicked': highly_clicked[:limit],
@@ -1053,7 +1244,13 @@ def get_inventory_matched_offers(current_user, user_id):
             # Compatibility mappings
             'recently_edited': recommended_offers[:limit],
             'recently_deleted': requested_offers[:limit]
-        })), 200
+        })
+        _inventory_matched_cache[user_id] = (res_payload, now + _inventory_matched_cache_ttl)
+        return jsonify(res_payload), 200
+
+    except Exception as e:
+        logger.error(f"Error getting inventory matched offers: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
 
     except Exception as e:
         logger.error(f"Error getting inventory matched offers: {str(e)}", exc_info=True)
@@ -1177,3 +1374,23 @@ def collect_search_logs_for_mail(current_user):
     except Exception as e:
         logger.error(f"Error collecting search logs for mail: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed to collect search logs: {str(e)}'}), 500
+
+
+# Pre-warm recommendation caches in background
+def prewarm_reco_caches():
+    try:
+        import time
+        # wait for database connection and app startup to stabilize
+        time.sleep(3)
+        logger.info("Starting background pre-warming of recommendation caches...")
+        get_cached_reco('newly_added', compute_newly_added_global)
+        get_cached_reco('top_approved', compute_top_approved_global)
+        get_cached_reco('top_clicked', compute_top_clicked_global)
+        get_cached_reco('high_payout', compute_high_payout_global)
+        get_cached_reco('top_requested', compute_top_requested_global)
+        logger.info("Finished background pre-warming of recommendation caches successfully.")
+    except Exception as e:
+        logger.warning(f"Error in prewarm_reco_caches: {e}")
+
+import threading
+threading.Thread(target=prewarm_reco_caches, daemon=True).start()

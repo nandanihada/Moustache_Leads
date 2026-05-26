@@ -145,14 +145,17 @@ export const BulkOfferAutomationDialog: React.FC<BulkOfferAutomationDialogProps>
           
           const addSection = (sectionName: string) => {
               if (targeting[sectionName] && Array.isArray(targeting[sectionName])) {
-                  targeting[sectionName].forEach((o: any) => {
+                  let addedCount = 0;
+                  for (let idx = 0; idx < targeting[sectionName].length; idx++) {
+                      const o = targeting[sectionName][idx];
                       const id = o.offer_id || o._id;
                       if (!seenIds.has(id)) {
                           seenIds.add(id);
                           o.categoryKey = sectionName;
                           allOffers.push(o);
+                          addedCount++;
                       }
-                  });
+                  }
               }
           };
           addSection('most_approved');

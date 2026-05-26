@@ -154,19 +154,25 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
   const toggleTrigger = (id: string) => {
       setTriggers(prev => prev.map(t => t.id === id ? { ...t, active: !t.active } : t));
   };
+  
   React.useEffect(() => {
     if (!offerTargeting) return;
     
-    const allOffers: any[] = [];
-    const seenIds = new Set();
+    const categoryOffers: Record<string, any[]> = {
+        queue: [],
+        recommended_offers: [],
+        most_approved: [],
+        highly_clicked: [],
+        requested_offers: [],
+        newly_added: []
+    };
     
     // 1. Add active automation queue offers first
     if (automationQueueItem && automationQueueItem.next_offers && automationQueueItem.next_offers.length > 0) {
         automationQueueItem.next_offers.forEach((o: any) => {
             const id = o.offer_id || o._id || o.id;
-            if (id && !seenIds.has(id)) {
-                seenIds.add(id);
-                allOffers.push({
+            if (id) {
+                categoryOffers.queue.push({
                     ...o,
                     id: id,
                     offer_id: id,
@@ -181,10 +187,10 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
 
     const addSection = (sectionName: string, sourceLabel: string, baseScore: number, typeLabel: string) => {
         if (offerTargeting[sectionName] && Array.isArray(offerTargeting[sectionName])) {
-            offerTargeting[sectionName].forEach((o: any, idx: number) => {
+            for (let idx = 0; idx < offerTargeting[sectionName].length; idx++) {
+                const o = offerTargeting[sectionName][idx];
                 const id = o.offer_id || o._id || o.id;
-                if (id && !seenIds.has(id)) {
-                    seenIds.add(id);
+                if (id) {
                     let matchScore = Math.max(50, baseScore - (idx * 4));
                     if (verticalData && verticalData.length > 0 && verticalData[0].name !== 'Unknown') {
                         const topCats = verticalData.slice(0, 2).map((v:any) => v.name.toLowerCase());
@@ -195,7 +201,7 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                             matchScore = Math.min(99, matchScore + 5);
                         }
                     }
-                    allOffers.push({
+                    categoryOffers[sectionName].push({
                         ...o,
                         id: id,
                         offer_id: id,
@@ -205,17 +211,47 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                         categoryKey: sectionName
                     });
                 }
-            });
+            }
         }
     };
 
-    addSection('recommended_offers', 'Recommended Offers', 99, 'Discount');
-    addSection('most_approved', 'Most Approved Offers', 98, 'Cashback');
-    addSection('highly_clicked', 'Most Clicked Offers', 87, 'Cashback');
-    addSection('requested_offers', 'Requested Offers', 85, 'Discount');
-    addSection('newly_added', 'Newly Added Offers', 91, 'Cashback');
+    addSection('recommended_offers', 'Recommended', 99, 'Discount');
+    addSection('most_approved', 'Most Approved', 98, 'Cashback');
+    addSection('highly_clicked', 'Most Clicked', 87, 'Cashback');
+    addSection('requested_offers', 'Requested', 85, 'Discount');
+    addSection('newly_added', 'Newly Added', 91, 'Cashback');
     
-    setQueueOffers(allOffers);
+    // Select unique offers round-robin
+    const finalOffers: any[] = [];
+    const seenIds = new Set();
+    const orderOfCategories = ['queue', 'recommended_offers', 'most_approved', 'highly_clicked', 'requested_offers', 'newly_added'];
+
+    // Round 1: Try to pick the first unused offer from each category
+    orderOfCategories.forEach((catKey) => {
+        const list = categoryOffers[catKey];
+        const unusedOffer = list.find(o => !seenIds.has(o.id));
+        if (unusedOffer) {
+            seenIds.add(unusedOffer.id);
+            finalOffers.push(unusedOffer);
+        }
+    });
+
+    // Round 2: Fill up to 6 unique offers from any category
+    if (finalOffers.length < 6) {
+        for (const catKey of orderOfCategories) {
+            const list = categoryOffers[catKey];
+            for (const o of list) {
+                if (!seenIds.has(o.id)) {
+                    seenIds.add(o.id);
+                    finalOffers.push(o);
+                    if (finalOffers.length >= 6) break;
+                }
+            }
+            if (finalOffers.length >= 6) break;
+        }
+    }
+    
+    setQueueOffers(finalOffers.slice(0, 6));
   }, [offerTargeting, automationQueueItem, verticalData]);
 
   const historyData = React.useMemo(() => {
@@ -394,123 +430,96 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                 Pulled from Offer Reco - Sorted by match score + preference weight - {verticalData && verticalData.length > 0 ? verticalData.slice(0,2).map((v: any) => `${v.name} ${v.value}%`).join(', ') : 'No preferences found'}
              </div>
 
-             {/* List of Offers Grouped by Category */}
-             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {(() => {
-                   const grouped: Record<string, any[]> = {
-                     queue: [],
-                     recommended_offers: [],
-                     most_approved: [],
-                     highly_clicked: [],
-                     requested_offers: [],
-                     newly_added: []
-                   };
-                   
-                   queueOffers.forEach(o => {
-                     const key = o.categoryKey || 'recommended_offers';
-                     if (key === 'queue') grouped.queue.push(o);
-                     else if (key === 'recommended_offers' || key === 'recently_edited') grouped.recommended_offers.push(o);
-                     else if (key === 'most_approved') grouped.most_approved.push(o);
-                     else if (key === 'highly_clicked') grouped.highly_clicked.push(o);
-                     else if (key === 'requested_offers' || key === 'recently_deleted') grouped.requested_offers.push(o);
-                     else if (key === 'newly_added') grouped.newly_added.push(o);
-                     else grouped.recommended_offers.push(o);
-                   });
+             {/* List of Offers Flat List */}
+             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {queueOffers.length === 0 ? (
+                  <div style={{ padding: '16px', border: '1px dashed #dddbd2', borderRadius: '8px', background: '#fafafa', color: '#9c9a92', fontSize: '11px', textAlign: 'center', fontStyle: 'italic' }}>
+                     No offers in queue.
+                  </div>
+                ) : (
+                  queueOffers.map((offer) => {
+                     const getStyles = (k: string) => {
+                       switch(k) {
+                         case 'queue': return { label: 'Active Queue', color: '#7F2FBE', bg: '#F4F0FA', border: '#DEDAF4', icon: '⚡' };
+                         case 'recommended_offers': return { label: 'Recommended', color: '#534AB7', bg: '#F4F0FA', border: '#DEDAF4', icon: '🛍️' };
+                         case 'most_approved': return { label: 'Most Approved', color: '#1D9E75', bg: '#E1F5EE', border: '#CBEFE3', icon: '✅' };
+                         case 'highly_clicked': return { label: 'Most Clicked', color: '#BA7517', bg: '#F9F1E6', border: '#F2E2CD', icon: '🔥' };
+                         case 'requested_offers': return { label: 'Requested', color: '#A32D2D', bg: '#FDF0F0', border: '#F9DCDD', icon: '🙋' };
+                         case 'newly_added': return { label: 'Newly Added', color: '#185FA5', bg: '#EBF2FB', border: '#D0E1F4', icon: '🆕' };
+                         default: return { label: 'Recommended', color: '#534AB7', bg: '#F4F0FA', border: '#DEDAF4', icon: '🎯' };
+                       }
+                     };
 
-                   const getStyles = (k: string) => {
-                     switch(k) {
-                       case 'queue': return { label: 'Active Queue Offers', color: '#7F2FBE', bg: '#F4F0FA', border: '#DEDAF4', icon: '⚡' };
-                       case 'recommended_offers': return { label: 'Recommended Offers', color: '#534AB7', bg: '#F4F0FA', border: '#DEDAF4', icon: '🛍️' };
-                       case 'most_approved': return { label: 'Most Approved Offers', color: '#1D9E75', bg: '#E1F5EE', border: '#CBEFE3', icon: '✅' };
-                       case 'highly_clicked': return { label: 'Most Clicked Offers', color: '#BA7517', bg: '#F9F1E6', border: '#F2E2CD', icon: '🔥' };
-                       case 'requested_offers': return { label: 'Requested Offers', color: '#A32D2D', bg: '#FDF0F0', border: '#F9DCDD', icon: '🙋' };
-                       case 'newly_added': return { label: 'Newly Added Offers', color: '#185FA5', bg: '#EBF2FB', border: '#D0E1F4', icon: '🆕' };
-                       default: return { label: 'Other Offers', color: '#64748B', bg: '#F1F5F9', border: '#E2E8F0', icon: '🎯' };
-                     }
-                   };
-
-                   const hasData = Object.values(grouped).some(arr => arr.length > 0);
-                   if (!hasData) {
-                     return <div style={{ padding: '20px', textAlign: 'center', color: '#9c9a92', fontSize: '11px', background: '#fff', borderRadius: '8px', border: '1px solid #F4F3EF' }}>No offers currently queued.</div>;
-                   }
-
-                   return Object.entries(grouped).map(([catKey, catOffers]) => {
-                     if (catOffers.length === 0) return null;
+                     const catKey = offer.categoryKey || 'recommended_offers';
                      const styles = getStyles(catKey);
 
+                     const category = (offer.category || 'General').toUpperCase();
+                     const country = offer.country || (offer.countries && offer.countries.length > 0 ? offer.countries[0] : 'Global');
+                     const type = offer.type || 'Cashback';
+                     const source = styles.label;
+
                      return (
-                       <div key={catKey} style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderLeft: `3px solid ${styles.color}`, paddingLeft: '12px' }}>
-                         <div style={{ fontSize: '10px', fontWeight: '800', color: styles.color, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                           <span>{styles.icon}</span>
-                           <span>{styles.label} ({catOffers.length})</span>
+                       <div key={offer.offer_id || offer._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', border: '1px solid #F4F3EF', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+                             <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: styles.bg, color: styles.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', flexShrink: 0, fontWeight: 'bold' }}>
+                                 {offer.category === 'E-commerce' ? '🛍️' : offer.category === 'Travel' ? '✈️' : offer.category === 'Games' ? '🎮' : offer.category === 'Finance' ? '🏦' : '🎯'}
+                             </div>
+                             <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                                 <div style={{ fontSize: '11px', fontWeight: '600', color: '#1a1a18', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{offer.name || offer.offer_name || 'Offer'}</div>
+                                 <div style={{ fontSize: '9px', color: '#9c9a92', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                     {category} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
+                                     {country} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
+                                     {type} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
+                                     {source}
+                                 </div>
+                             </div>
                          </div>
-                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                           {catOffers.map((offer) => {
-                             return (
-                               <div key={offer.offer_id || offer._id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', border: '1px solid #F4F3EF', borderRadius: '8px', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' }}>
-                                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                                       <div style={{ width: '20px', height: '20px', borderRadius: '4px', background: styles.bg, color: styles.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', flexShrink: 0, fontWeight: 'bold' }}>
-                                           {offer.category === 'E-commerce' ? '🛍️' : offer.category === 'Travel' ? '✈️' : offer.category === 'Games' ? '🎮' : offer.category === 'Finance' ? '🏦' : '🎯'}
-                                       </div>
-                                       <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                                           <div style={{ fontSize: '11px', fontWeight: '600', color: '#1a1a18', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{offer.name || offer.offer_name || 'Offer'}</div>
-                                           <div style={{ fontSize: '9px', color: '#9c9a92', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                               {offer.category || 'General'} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
-                                               {offer.country || 'Global'} <span style={{ width: '2px', height: '2px', borderRadius: '50%', background: '#ccc' }}></span> 
-                                               Payout: <span style={{ color: '#1D9E75', fontWeight: 'bold' }}>${offer.payout || 0}</span>
-                                           </div>
-                                       </div>
-                                   </div>
-                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, paddingLeft: '6px' }}>
-                                       <span style={{ fontSize: '9px', fontWeight: '600', color: styles.color, background: styles.bg, padding: '1px 4px', borderRadius: '3px' }}>{offer.matchScore}% match</span>
-                                       <div style={{ display: 'flex', gap: '4px' }}>
-                                           <button onClick={async () => {
-                                               if (onSendOffers) {
-                                                   const success = await onSendOffers([offer.offer_id || offer._id]);
-                                                   if (success) {
-                                                       const sentEvent = {
-                                                           _id: Math.random().toString(),
-                                                           type: 'email',
-                                                           subject: `Sent: ${offer.name || offer.offer_name || 'Offer'}`,
-                                                           status: 'Sent',
-                                                           sent_at: new Date().toISOString(),
-                                                           offer_names: [offer.name || offer.offer_name || 'Offer']
-                                                       };
-                                                       setLocalHistory(prev => [sentEvent, ...prev]);
-                                                       setQueueOffers(prev => prev.filter(q => (q.offer_id || q._id) !== (offer.offer_id || offer._id)));
-                                                       try {
-                                                           await loginLogsService.getScheduledActivity(log.user_id || log._id);
-                                                       } catch (e) {}
-                                                   }
-                                               }
-                                           }} disabled={sendingOffers} className="actn-btn primary" style={{ padding: '3px 8px', fontSize: '9px', background: '#185FA5', borderRadius: '4px', opacity: sendingOffers ? 0.5 : 1, color: '#fff', border: 'none', cursor: 'pointer' }}>Send</button>
-                                           <button onClick={async () => {
-                                               if (onSendOffers) {
-                                                   const success = await onSendOffers([offer.offer_id || offer._id], 'skip');
-                                                   if (success) {
-                                                       const skipEvent = {
-                                                           _id: Math.random().toString(),
-                                                           type: 'email',
-                                                           subject: `Skipped: ${offer.name || offer.offer_name || 'Offer'}`,
-                                                           status: 'Skipped',
-                                                           sent_at: new Date().toISOString(),
-                                                           offer_names: [offer.name || offer.offer_name || 'Offer']
-                                                       };
-                                                       setLocalHistory(prev => [skipEvent, ...prev]);
-                                                       setQueueOffers(prev => prev.filter(q => (q.offer_id || q._id) !== (offer.offer_id || offer._id)));
-                                                   }
-                                               }
-                                           }} disabled={sendingOffers} className="actn-btn" style={{ padding: '3px 8px', fontSize: '9px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2', cursor: 'pointer' }}>Skip</button>
-                                       </div>
-                                   </div>
-                               </div>
-                             );
-                           })}
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, paddingLeft: '6px' }}>
+                             <span style={{ fontSize: '9px', fontWeight: '600', color: '#1D9E75', background: '#E1F5EE', padding: '1px 4px', borderRadius: '3px' }}>{offer.matchScore}% match</span>
+                             <div style={{ display: 'flex', gap: '4px' }}>
+                                 <button onClick={async () => {
+                                     if (onSendOffers) {
+                                         const success = await onSendOffers([offer.offer_id || offer._id]);
+                                         if (success) {
+                                             const sentEvent = {
+                                                 _id: Math.random().toString(),
+                                                 type: 'email',
+                                                 subject: `Sent: ${offer.name || offer.offer_name || 'Offer'}`,
+                                                 status: 'Sent',
+                                                 sent_at: new Date().toISOString(),
+                                                 offer_names: [offer.name || offer.offer_name || 'Offer']
+                                             };
+                                             setLocalHistory(prev => [sentEvent, ...prev]);
+                                             setQueueOffers(prev => prev.filter(q => (q.offer_id || q._id) !== (offer.offer_id || offer._id)));
+                                             try {
+                                                 await loginLogsService.getScheduledActivity(log.user_id || log._id);
+                                             } catch (e) {}
+                                         }
+                                     }
+                                 }} disabled={sendingOffers} className="actn-btn primary" style={{ padding: '3px 8px', fontSize: '9px', background: '#185FA5', borderRadius: '4px', opacity: sendingOffers ? 0.5 : 1, color: '#fff', border: 'none', cursor: 'pointer' }}>Send now</button>
+                                 <button onClick={async () => {
+                                     if (onSendOffers) {
+                                         const success = await onSendOffers([offer.offer_id || offer._id], 'skip');
+                                         if (success) {
+                                             const skipEvent = {
+                                                 _id: Math.random().toString(),
+                                                 type: 'email',
+                                                 subject: `Skipped: ${offer.name || offer.offer_name || 'Offer'}`,
+                                                 status: 'Skipped',
+                                                 sent_at: new Date().toISOString(),
+                                                 offer_names: [offer.name || offer.offer_name || 'Offer']
+                                             };
+                                             setLocalHistory(prev => [skipEvent, ...prev]);
+                                             setQueueOffers(prev => prev.filter(q => (q.offer_id || q._id) !== (offer.offer_id || offer._id)));
+                                         }
+                                     }
+                                 }} disabled={sendingOffers} className="actn-btn" style={{ padding: '3px 8px', fontSize: '9px', background: '#fff', borderRadius: '4px', border: '1px solid #dddbd2', cursor: 'pointer' }}>Skip</button>
+                             </div>
                          </div>
                        </div>
                      );
-                   });
-                })()}
+                  })
+                )}
              </div>
 
              {/* Footer Action Buttons */}
@@ -738,7 +747,7 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
       </div>
       
       <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle>Schedule Offers for {log.username}</DialogTitle>
           </DialogHeader>
@@ -746,20 +755,67 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
             {historyData.some(h => h.isPending) && (
               <div className="bg-amber-50 border border-amber-200 text-amber-800 px-3 py-2 rounded-md text-sm font-medium flex items-center gap-2">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                This person has offers in queue to send
+                This person already has scheduled offers
               </div>
             )}
-            <div className="text-sm text-gray-500 mb-4">
+            <div className="text-sm text-gray-500 mb-2">
               You are about to schedule <strong>{queueOffers.length} offers</strong> for this user.
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Schedule Time</label>
+              <label className="text-sm font-medium">Base Schedule Time</label>
               <input type="datetime-local" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50" />
             </div>
+
             {scheduleDate && (
-              <div className="text-sm font-medium text-emerald-700 bg-emerald-50 px-3 py-2 rounded border border-emerald-100">
-                Offers will be sent exactly on: <br/>
-                <strong>{new Date(scheduleDate).toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' })}</strong>
+              <div className="space-y-3 mt-4 border-t pt-4">
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  Delivery Schedule Preview ({sendMode === 'combined' ? 'Combined Email' : 'Staggered 1-by-1'})
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-2 pr-1 border rounded-lg p-2 bg-slate-50">
+                  {sendMode === 'combined' ? (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-emerald-700 bg-emerald-50 px-3 py-2 rounded border border-emerald-100 flex items-center justify-between">
+                        <span>Combined delivery time:</span>
+                        <strong>{new Date(scheduleDate).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</strong>
+                      </div>
+                      {queueOffers.map((o, idx) => (
+                        <div key={o.offer_id || o._id} className="flex items-center justify-between p-2 bg-white rounded border shadow-sm text-xs">
+                          <span className="font-medium text-gray-800 truncate max-w-[280px]">
+                            {idx + 1}. {o.name || o.offer_name || 'Offer'}
+                          </span>
+                          <span className="text-[10px] text-gray-400 font-semibold shrink-0 bg-slate-100 px-2 py-0.5 rounded">
+                            {o.category || 'General'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    queueOffers.map((o, idx) => {
+                      let minutes = parseInt(intervalValue) || 15;
+                      if (intervalUnit === 'hours') minutes *= 60;
+                      if (intervalUnit === 'days') minutes *= 1440;
+                      const offerTime = new Date(new Date(scheduleDate).getTime() + (idx * minutes * 60000));
+                      return (
+                        <div key={o.offer_id || o._id} className="flex flex-col p-2 bg-white rounded border shadow-sm space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-semibold text-gray-800 truncate max-w-[260px]">
+                              {idx + 1}. {o.name || o.offer_name || 'Offer'}
+                            </span>
+                            <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 font-semibold shrink-0">
+                              {o.matchScore}% Match
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-gray-500 font-medium">
+                            <span className="text-[10px] text-slate-400 uppercase tracking-wider">{o.category || 'General'}</span>
+                            <span className="text-emerald-600 font-bold">
+                              {offerTime.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -776,35 +832,41 @@ const UserAutomationTab = ({ verticalData, log, offerTargeting, automationQueueI
                    if (intervalUnit === 'days') minutes *= 1440;
                    
                    const startTime = new Date(scheduleDate).getTime();
+                   let successCount = 0;
                    
                    if (sendMode === 'combined') {
                       const offerIds = queueOffers.map(o => o.offer_id || o._id).filter(Boolean);
                       if (offerIds.length > 0) {
-                         offerQueueService.addItems([{
-                            userId: log.user_id || log._id,
-                            username: log.username || 'User',
-                            offerIds: offerIds,
-                            offerName: `${offerIds.length} offers combined`,
-                            scheduledTime: startTime,
-                            sendMode: 'combined'
-                         }]);
+                         const isoTime = new Date(startTime).toISOString();
+                         const ok = await onSendOffers(offerIds, 'email', `${offerIds.length} offers combined`, isoTime);
+                         if (ok) successCount = offerIds.length;
                       }
                    } else {
                       // 1 by 1
-                      const items = queueOffers.map((o, idx) => ({
-                            userId: log.user_id || log._id,
-                            username: log.username || 'User',
-                            offerId: o.offer_id || o._id,
-                            offerName: o.name || o.offer_name || 'Offer',
-                            scheduledTime: startTime + (idx * minutes * 60000),
-                            sendMode: 'single' as const
-                      }));
-                      offerQueueService.addItems(items);
+                      for (let idx = 0; idx < queueOffers.length; idx++) {
+                         const o = queueOffers[idx];
+                         const offerId = o.offer_id || o._id;
+                         if (offerId) {
+                            const itemTime = new Date(startTime + (idx * minutes * 60000)).toISOString();
+                            const ok = await onSendOffers([offerId], 'email', o.name || o.offer_name || 'Offer', itemTime);
+                            if (ok) successCount++;
+                         }
+                      }
                    }
                    
-                   toast({ title: 'Scheduled', description: `Added ${queueOffers.length} offers to the live queue.` });
+                   if (successCount > 0) {
+                      toast({ title: 'Scheduled', description: `Successfully scheduled ${successCount} offer(s) on the backend.` });
+                      try {
+                        const freshData = await loginLogsService.getScheduledActivity(log.user_id || log._id);
+                        setLocalHistory(freshData?.scheduled_activity || freshData?.activities || (Array.isArray(freshData) ? freshData : []));
+                      } catch (e) {
+                        console.error("Failed to refresh scheduled history", e);
+                      }
+                      setQueueOffers([]);
+                   } else {
+                      toast({ title: 'Scheduling Failed', description: 'Could not schedule offers.', variant: 'destructive' });
+                   }
                    
-                   setQueueOffers([]);
                    setIsScheduleDialogOpen(false);
             }}>Confirm Schedule</Button>
           </DialogFooter>
@@ -1038,6 +1100,14 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
     return (isNaN(timeB) ? 0 : timeB) - (isNaN(timeA) ? 0 : timeA);
   });
 
+  const isDataLoading = 
+    (activeTab === 'login' && userSignals === null) ||
+    (activeTab === 'activity' && (searchLogs === null || offerViews === null)) ||
+    (activeTab === 'browsing' && offerViews === null) ||
+    (activeTab === 'reco' && offerTargeting === null) ||
+    (activeTab === 'automation' && (offerTargeting === null || scheduledActivity === null)) ||
+    (activeTab === 'messaging' && offerViews === null);
+
   return (
     <div className="bg-white rounded-xl shadow-sm border overflow-hidden flex flex-col font-sans mt-2 ml-4">
       {/* Header */}
@@ -1098,7 +1168,17 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
 
       {/* Content Area */}
       <div className="p-6 bg-slate-50/50 min-h-[400px]">
-        {activeTab === 'messaging' && (
+        {isDataLoading ? (
+          <div className="space-y-6 animate-pulse p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="h-28 bg-slate-200/60 rounded-xl border border-slate-100"></div>
+              <div className="h-28 bg-slate-200/60 rounded-xl border border-slate-100 col-span-2"></div>
+            </div>
+            <div className="h-64 bg-slate-200/60 rounded-xl border border-slate-100"></div>
+          </div>
+        ) : (
+          <>
+            {activeTab === 'messaging' && (
           <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 max-w-3xl mx-auto">
              <SmartMessagePanel 
                 user={{
@@ -1719,6 +1799,8 @@ export const UserIntelligenceProfile: React.FC<UserIntelligenceProfileProps> = (
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
         <style>{`*{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#F4F3EF;color:#1a1a18;font-size:13px}

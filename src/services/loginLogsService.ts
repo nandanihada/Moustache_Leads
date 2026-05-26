@@ -909,3 +909,39 @@ class LoginLogsService {
 
 export const loginLogsService = new LoginLogsService();
 export default loginLogsService;
+
+export const convertPlainTextToHtml = (text: string): string => {
+  if (!text) return '';
+  // If the text already looks like HTML (has HTML tags), do not modify it
+  if (/<[a-z][\s\S]*>/i.test(text)) {
+    return text;
+  }
+  
+  // Escaping basic HTML entities
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Convert URLs to clickable anchor tags
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  html = html.replace(urlRegex, (url) => {
+    let cleanUrl = url;
+    let suffix = '';
+    const lastChar = url.slice(-1);
+    if (['.', ',', ')', '!', '?'].includes(lastChar)) {
+      cleanUrl = url.slice(0, -1);
+      suffix = lastChar;
+    }
+    return `<a href="${cleanUrl}" target="_blank" style="color: #4f46e5; text-decoration: underline; font-weight: 500;">${cleanUrl}</a>${suffix}`;
+  });
+
+  // Convert double newlines to paragraph tags, and single newlines to <br/>
+  const paragraphs = html.split(/\n\n+/);
+  const formattedParagraphs = paragraphs.map(p => {
+    const lines = p.split(/\n/);
+    return `<p style="margin-top: 0; margin-bottom: 1em; line-height: 1.5;">${lines.join('<br/>')}</p>`;
+  });
+
+  return formattedParagraphs.join('');
+};

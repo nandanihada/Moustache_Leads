@@ -647,10 +647,61 @@ def send_offers_to_publisher():
                 if scheduled_datetime.tzinfo is not None:
                     scheduled_datetime = scheduled_datetime.astimezone(timezone.utc).replace(tzinfo=None)
                 
+                # Fetch offers to generate email HTML
+                offers_collection = db_instance.get_collection('offers')
+                offers = list(offers_collection.find({'offer_id': {'$in': offer_ids}}))
+                
+                # Resolve user emails
+                users_collection = db_instance.get_collection('users')
+                resolved_emails = []
+                for uid in user_ids:
+                    try:
+                        u = users_collection.find_one({'_id': ObjectId(uid)})
+                        if u and u.get('email'):
+                            resolved_emails.append(u.get('email'))
+                    except Exception as e:
+                        logging.warning(f"Error fetching user email for scheduling: {e}")
+                
+                # Add custom emails
+                all_recipients = resolved_emails + [e.strip() for e in custom_emails if e.strip()]
+                
+                if not all_recipients:
+                    return jsonify({'error': 'No valid recipient email addresses found'}), 400
+                
+                def build_body(username):
+                    if message_body:
+                        return message_body
+                    return f"""Hi {username},
+
+{custom_message or 'We have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.'}
+
+Best regards,
+Moustache Leads Team
+Moustache Leads"""
+                
+                # Build HTML content
+                body = build_body('')
+                html_content = _build_email_html(
+                    body, 
+                    offers=offers, 
+                    payout_type=payout_type, 
+                    template_style=template_style, 
+                    visible_fields=visible_fields, 
+                    default_image=default_image, 
+                    see_more_fields=see_more_fields, 
+                    mask_preview_links=mask_preview_links, 
+                    payment_terms=payment_terms, 
+                    per_offer_payment_terms=per_offer_payment_terms, 
+                    custom_preview_urls=custom_preview_urls, 
+                    preview_in_email=preview_in_email, 
+                    custom_preview_in_email=custom_preview_in_email
+                )
+                
                 db = db_instance.get_db()
                 db.scheduled_emails.insert_one({
-                    'recipients': user_ids + custom_emails,
+                    'recipients': all_recipients,
                     'subject': subject or 'Recommended Offers for You',
+                    'body': html_content,
                     'offer_ids': offer_ids,
                     'template_type': template_type,
                     'scheduled_at': scheduled_datetime,
@@ -661,9 +712,10 @@ def send_offers_to_publisher():
                 return jsonify({
                     'success': True,
                     'scheduled': True,
-                    'message': f"Scheduled to {len(user_ids) + len(custom_emails)} recipient(s) at {scheduled_datetime.isoformat()}"
+                    'message': f"Scheduled to {len(all_recipients)} recipient(s) at {scheduled_datetime.isoformat()}"
                 })
             except Exception as e:
+                logging.error(f"Scheduling offers error: {str(e)}", exc_info=True)
                 return jsonify({'error': f'Invalid schedule time: {str(e)}'}), 400
 
         users_collection = db_instance.get_collection('users')
