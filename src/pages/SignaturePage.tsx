@@ -589,15 +589,8 @@ export const SignaturePage = () => {
 
             <div className="flex flex-col gap-3">
               <button
-                onClick={handleDownloadPDF}
-                disabled={!pdfFilename}
-                className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <Download size={20} className={!pdfFilename ? "animate-pulse" : ""} /> Download PDF
-              </button>
-              <button
                 onClick={() => navigate('/login')}
-                className="w-full border border-slate-200 text-slate-600 py-4 rounded-xl font-bold hover:bg-slate-50 transition-all"
+                className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold hover:bg-blue-700 transition-all"
               >
                 Finish & Go to Login
               </button>
