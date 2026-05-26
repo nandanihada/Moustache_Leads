@@ -218,9 +218,8 @@ const PublisherOffersContent = () => {
   const fetchMyOffers = async () => {
     setMyOffersLoading(true);
     try {
-      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 500 });
-      const approved = (res.offers || []).filter((o) => o.has_access);
-      setMyOffers(approved);
+      const res = await publisherOfferApi.getMyOffers();
+      setMyOffers(res.offers || []);
     } catch (err: any) {
       console.error("Failed to load my offers:", err);
     } finally {

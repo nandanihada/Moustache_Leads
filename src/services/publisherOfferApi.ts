@@ -204,10 +204,32 @@ export const markOfferClicked = async (offerId: string) => {
 };
 
 /**
+ * Get only offers the user has approved access to (fast dedicated endpoint)
+ */
+export const getMyOffers = async (): Promise<GetOffersResponse> => {
+  try {
+    const response = await api.get('/api/publisher/offers/my-offers');
+    return {
+      offers: response.data.offers || [],
+      pagination: {
+        page: 1,
+        per_page: response.data.total || 0,
+        total: response.data.total || 0,
+        pages: 1,
+      },
+    };
+  } catch (error) {
+    console.error('Failed to fetch my offers:', error);
+    throw error;
+  }
+};
+
+/**
  * Export all functions
  */
 export const publisherOfferApi = {
   getAvailableOffers,
+  getMyOffers,
   getOfferDetails,
   requestOfferAccess,
   getOfferAccessStatus,

@@ -1182,6 +1182,114 @@ def _update_legacy_search_log(user, data):
         logger.error(f"Failed to update legacy search log: {e}")
 
 
+@publisher_offers_bp.route('/offers/my-offers', methods=['GET'])
+@token_required
+def get_my_offers():
+    """
+    Get only offers the user has approved access to.
+    Fast query: looks up affiliate_requests for this user with status=approved,
+    then fetches only those specific offers by offer_id.
+    """
+    try:
+        user = request.current_user
+        user_id = user.get('_id')
+        user_id_str = str(user_id)
+
+        # Step 1: Get all approved offer_ids for this user from affiliate_requests
+        requests_collection = db_instance.get_collection('affiliate_requests')
+        if requests_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Match user by various ID formats
+        from bson import ObjectId
+        user_conditions = [
+            {'user_id': user_id_str},
+            {'user_id': user_id},
+            {'publisher_id': user_id_str},
+            {'publisher_id': user_id}
+        ]
+        if ObjectId.is_valid(user_id_str):
+            user_obj_id = ObjectId(user_id_str)
+            user_conditions.extend([
+                {'user_id': user_obj_id},
+                {'publisher_id': user_obj_id}
+            ])
+
+        approved_requests = list(requests_collection.find(
+            {'$or': user_conditions, 'status': 'approved'},
+            {'offer_id': 1, 'approved_at': 1, 'requested_at': 1}
+        ))
+
+        approved_offer_ids = list(set(r['offer_id'] for r in approved_requests if r.get('offer_id')))
+
+        if not approved_offer_ids:
+            return safe_json_response({
+                'success': True,
+                'offers': [],
+                'total': 0
+            })
+
+        # Step 2: Fetch those specific offers
+        offers_collection = db_instance.get_collection('offers')
+        if offers_collection is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        projection = {
+            'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
+            'payout': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
+            'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
+            'target_url': 1, 'masked_url': 1,
+            'allowed_traffic_sources': 1, 'device_targeting': 1,
+            'is_pinned': 1, 'pinnedPosition': 1
+        }
+
+        offers = list(offers_collection.find(
+            {'offer_id': {'$in': approved_offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+            projection
+        ))
+
+        # Step 3: Enrich with access info
+        request_map = {}
+        for r in approved_requests:
+            request_map[r['offer_id']] = r
+
+        result_offers = []
+        for offer in offers:
+            offer_data = serialize_for_json(offer)
+            offer_data['has_access'] = True
+            offer_data['request_status'] = 'approved'
+            req_info = request_map.get(offer.get('offer_id'))
+            if req_info:
+                offer_data['approved_at'] = serialize_for_json(req_info.get('approved_at'))
+                offer_data['requested_at'] = serialize_for_json(req_info.get('requested_at'))
+
+            # Build tracking URL if user has access
+            try:
+                from services.tracking_link_generator import TrackingLinkGenerator
+                generator = TrackingLinkGenerator()
+                tracking_url = generator.generate_tracking_link(
+                    offer_id=offer.get('offer_id'),
+                    user_id=user_id_str,
+                    username=user.get('username', '')
+                )
+                offer_data['tracking_url'] = tracking_url
+            except Exception:
+                offer_data['tracking_url'] = None
+
+            result_offers.append(offer_data)
+
+        return safe_json_response({
+            'success': True,
+            'offers': result_offers,
+            'total': len(result_offers)
+        })
+
+    except Exception as e:
+        logger.error(f"Error in get_my_offers: {e}", exc_info=True)
+        return jsonify({'error': f'Failed to fetch my offers: {str(e)}'}), 500
+
+
 @publisher_offers_bp.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
