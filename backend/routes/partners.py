@@ -352,12 +352,26 @@ def get_registered_users():
             user.pop('password_hash', None)
             
             # Add postback configuration if exists
+            postback_url = user.get('postback_url', '')
             if 'postback_url' not in user:
                 user['postback_url'] = ''
             if 'parameter_mapping' not in user:
                 user['parameter_mapping'] = {}
             if 'is_blocked' not in user:
                 user['is_blocked'] = False
+                
+            # Add validation and reminder tracking fields
+            user['postbackConfigured'] = bool(postback_url and postback_url.strip())
+            user['hasSub1'] = bool(postback_url and '{sub1}' in postback_url)
+            
+            last_reminder = user.get('lastReminderSent', None)
+            if last_reminder and isinstance(last_reminder, datetime):
+                user['lastReminderSent'] = last_reminder.isoformat() + 'Z'
+            else:
+                user['lastReminderSent'] = last_reminder
+                
+            user['reminderCount'] = user.get('reminderCount', 0)
+            user['notificationType'] = user.get('notificationType', 'chat')
         
         return jsonify({
             'users': users,
@@ -387,10 +401,16 @@ def update_user_postback(user_id):
             return jsonify({'error': 'User not found'}), 404
         
         # Update postback URL
+        postback_url = data['postback_url'].strip()
+        postback_configured = bool(postback_url)
+        has_sub1 = bool(postback_url and '{sub1}' in postback_url)
+        
         users_collection.update_one(
             {'_id': ObjectId(user_id)},
             {'$set': {
-                'postback_url': data['postback_url'].strip(),
+                'postback_url': postback_url,
+                'postbackConfigured': postback_configured,
+                'hasSub1': has_sub1,
                 'updated_at': datetime.utcnow()
             }}
         )

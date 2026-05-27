@@ -207,6 +207,48 @@ class PartnerApi {
       throw error.response?.data || error;
     }
   }
+
+  async sendReminder(userId: string, message: string, notificationType: 'chat' | 'email'): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/api/postback/send-reminder`,
+        { userId, message, notificationType },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error sending postback reminder:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async sendBulkReminder(userIds: string[], message: string, notificationType: 'chat' | 'email'): Promise<any> {
+    try {
+      const response = await axios.post(
+        `${BASE_URL}/api/postback/send-bulk-reminder`,
+        { userIds, message, notificationType },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error sending bulk postback reminder:', error);
+      throw error.response?.data || error;
+    }
+  }
+
+  async updateUserNotificationType(userId: string, notificationType: 'chat' | 'email'): Promise<any> {
+    try {
+      const response = await axios.put(
+        `${BASE_URL}/api/postback/users/${userId}/notification-type`,
+        { notificationType },
+        { headers: this.getAuthHeaders() }
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('Error updating user notification type:', error);
+      throw error.response?.data || error;
+    }
+  }
 }
 
 export const partnerApi = new PartnerApi();

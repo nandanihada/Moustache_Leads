@@ -119,6 +119,8 @@ survey_funnel_bp = safe_import_blueprint('routes.survey_funnel', 'survey_funnel_
 survey_router_bp = safe_import_blueprint('routes.survey_router', 'survey_router_bp')
 search_auto_activation_bp = safe_import_blueprint('routes.search_auto_activation', 'search_auto_activation_bp')
 top_offers_bp = safe_import_blueprint('routes.top_offers', 'top_offers_bp')
+postback_reminder_bp = safe_import_blueprint('routes.postback_reminder', 'postback_reminder_bp')
+
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -227,6 +229,7 @@ blueprints = [
     (survey_router_bp, ''),
     (search_auto_activation_bp, '/api/admin'),
     (top_offers_bp, '/api/admin'),
+    (postback_reminder_bp, '/api/postback'),
 ]
 
 def create_app():

@@ -31,7 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { partnerApi, Partner, CreatePartnerData } from '@/services/partnerApi';
-import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings, ArrowRight, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, TestTube, Copy, CheckCircle, XCircle, Loader2, Ban, CheckCheck, Settings, ArrowRight, Search, Bell, MessageSquare } from 'lucide-react';
 import { AdminPageGuard } from '@/components/AdminPageGuard';
 import {
   AlertDialog,
@@ -54,6 +54,11 @@ interface RegisteredUser {
   parameter_mapping?: Record<string, string>;
   is_blocked?: boolean;
   blocked_reason?: string;
+  postbackConfigured?: boolean;
+  hasSub1?: boolean;
+  lastReminderSent?: string | null;
+  reminderCount?: number;
+  notificationType?: 'chat' | 'email';
 }
 
 const Partners: React.FC = () => {
@@ -66,7 +71,7 @@ const Partners: React.FC = () => {
   const [downwardPageSize, setDownwardPageSize] = useState(10);
   const [upwardSearch, setUpwardSearch] = useState('');
   const [downwardSearch, setDownwardSearch] = useState('');
-  const [postbackFilter, setPostbackFilter] = useState<'all' | 'configured' | 'not_configured'>('all');
+  const [postbackFilter, setPostbackFilter] = useState<'all' | 'configured' | 'not_configured' | 'missing_sub1' | 'valid_postback'>('all');
 
   // Upward Partners state
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -84,6 +89,88 @@ const Partners: React.FC = () => {
   const [isUserEditModalOpen, setIsUserEditModalOpen] = useState(false);
   const [isBlockDialogOpen, setIsBlockDialogOpen] = useState(false);
   const [blockReason, setBlockReason] = useState('');
+
+  // Postback Reminder enhancements state
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<'single' | 'bulk'>('single');
+  const [drawerUser, setDrawerUser] = useState<RegisteredUser | null>(null);
+  const [drawerMessage, setDrawerMessage] = useState('');
+  const [drawerNotificationType, setDrawerNotificationType] = useState<'chat' | 'email'>('chat');
+  const [drawerSending, setDrawerSending] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [bulkPreviewIndex, setBulkPreviewIndex] = useState(0);
+
+  const getDynamicReminderMessage = (user: RegisteredUser | null) => {
+    if (user) {
+      const userSpecificMessage = localStorage.getItem(`postback_reminder_user_message_${user._id}`);
+      if (userSpecificMessage) {
+        return userSpecificMessage;
+      }
+    }
+
+    const savedTemplate = localStorage.getItem('postback_reminder_template_v2');
+    
+    if (user && (!user.postback_url || !user.postback_url.trim())) {
+      return `Hello ${user.username},
+
+We noticed that you have not configured a postback URL on our platform. Without a postback URL, we cannot track your conversions or credit payouts properly.
+
+Please go to your integration settings and configure a valid postback URL immediately.
+
+Thank you.`;
+    }
+
+    const defaultTemplate = `Hello {username},
+
+You entered this postback URL:
+{postback_url}
+
+But this is wrong/incomplete because it is missing the mandatory '{sub1}' parameter. Without '{sub1}', we cannot track conversions properly.
+
+Please update your postback URL immediately.
+
+Example:
+https://yourdomain.com/postback?your_id={sub1}
+
+Thank you.`;
+
+    const template = savedTemplate || defaultTemplate;
+
+    if (!user) return template;
+    
+    return template
+      .replace(/{username}/g, user.username)
+      .replace(/{postback_url}/g, user.postback_url || 'Not configured');
+  };
+
+  const handleSaveTemplate = () => {
+    localStorage.setItem('postback_reminder_template_v2', drawerMessage);
+    toast({
+      title: 'Template Saved',
+      description: 'Your template has been saved as the default for future reminders.',
+    });
+  };
+
+  const handleSaveForUser = () => {
+    if (!drawerUser) return;
+    localStorage.setItem(`postback_reminder_user_message_${drawerUser._id}`, drawerMessage);
+    toast({
+      title: 'Saved for User',
+      description: `Custom reminder saved specifically for ${drawerUser.username}.`,
+    });
+  };
+
+  const getPreviewMessageText = (selectedUsers: RegisteredUser[]) => {
+    if (drawerMode === 'single') {
+      return drawerMessage;
+    }
+    const previewUser = selectedUsers[bulkPreviewIndex];
+    if (!previewUser) return drawerMessage;
+    return drawerMessage
+      .replace(/{username}/g, previewUser.username)
+      .replace(/{postback_url}/g, previewUser.postback_url || 'Not configured');
+  };
 
   // Common state
   const [loading, setLoading] = useState(true);
@@ -483,6 +570,82 @@ const Partners: React.FC = () => {
     }
   };
 
+  const handleNotificationTypeChange = async (userId: string, type: 'chat' | 'email') => {
+    try {
+      await partnerApi.updateUserNotificationType(userId, type);
+      setUsers(prev => prev.map(u => u._id === userId ? { ...u, notificationType: type } : u));
+      toast({
+        title: 'Success',
+        description: `Notification preference updated to ${type}`
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Error',
+        description: err.error || 'Failed to update notification preference',
+        variant: 'destructive'
+      });
+    }
+  };
+
+  const handleOpenSingleDrawer = (user: RegisteredUser) => {
+    setDrawerMode('single');
+    setDrawerUser(user);
+    setDrawerNotificationType(user.notificationType || 'chat');
+    setDrawerMessage(getDynamicReminderMessage(user));
+    setIsPreviewMode(false);
+    setIsDrawerOpen(true);
+  };
+
+  const handleOpenBulkDrawer = () => {
+    if (selectedUserIds.length === 0) return;
+    setDrawerMode('bulk');
+    setDrawerUser(null);
+    setDrawerNotificationType('chat');
+    setDrawerMessage(getDynamicReminderMessage(null));
+    setIsPreviewMode(false);
+    setBulkPreviewIndex(0);
+    setIsDrawerOpen(true);
+  };
+
+  const handleSendReminder = async () => {
+    setDrawerSending(true);
+    try {
+      if (drawerMode === 'single') {
+        if (!drawerUser) return;
+        const result = await partnerApi.sendReminder(
+          drawerUser._id,
+          drawerMessage,
+          drawerNotificationType
+        );
+        toast({
+          title: 'Success',
+          description: result.message || 'Reminder sent successfully'
+        });
+      } else {
+        const result = await partnerApi.sendBulkReminder(
+          selectedUserIds,
+          drawerMessage,
+          drawerNotificationType
+        );
+        toast({
+          title: 'Success',
+          description: result.message || 'Bulk reminders processed successfully'
+        });
+        setSelectedUserIds([]);
+      }
+      setIsDrawerOpen(false);
+      fetchUsers();
+    } catch (err: any) {
+      toast({
+        title: 'Delivery Error',
+        description: err.error || 'Failed to send reminder. Please check configuration.',
+        variant: 'destructive'
+      });
+    } finally {
+      setDrawerSending(false);
+    }
+  };
+
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     toast({
@@ -649,36 +812,57 @@ const Partners: React.FC = () => {
 
         {/* Downward Partners Tab */}
         <TabsContent value="downward" className="space-y-4">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 max-w-xs">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search users..."
-                value={downwardSearch}
-                onChange={(e) => { setDownwardSearch(e.target.value); setDownwardPage(1); }}
-                className="pl-8"
-              />
-            </div>
-            <div className="flex items-center gap-1.5 text-sm text-gray-600">
-              <span>Show</span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3 flex-1">
+              <div className="relative flex-1 max-w-xs">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search users..."
+                  value={downwardSearch}
+                  onChange={(e) => { setDownwardSearch(e.target.value); setDownwardPage(1); }}
+                  className="pl-8"
+                />
+              </div>
+              <div className="flex items-center gap-1.5 text-sm text-gray-600">
+                <span>Show</span>
+                <select
+                  value={downwardPageSize}
+                  onChange={(e) => { setDownwardPageSize(Number(e.target.value)); setDownwardPage(1); }}
+                  className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"
+                >
+                  {[10, 30, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <span>per page</span>
+              </div>
               <select
-                value={downwardPageSize}
-                onChange={(e) => { setDownwardPageSize(Number(e.target.value)); setDownwardPage(1); }}
-                className="border border-gray-300 rounded px-2 py-1 text-sm"
+                value={postbackFilter}
+                onChange={(e) => { setPostbackFilter(e.target.value as any); setDownwardPage(1); }}
+                className="border border-gray-300 rounded px-3 py-1.5 text-sm bg-white font-medium"
               >
-                {[10, 30, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                <option value="all">All Users</option>
+                <option value="configured">Has Postback</option>
+                <option value="not_configured">No Postback</option>
+                <option value="missing_sub1">Missing sub1</option>
+                <option value="valid_postback">Valid Postback</option>
               </select>
-              <span>per page</span>
             </div>
-            <select
-              value={postbackFilter}
-              onChange={(e) => { setPostbackFilter(e.target.value as any); setDownwardPage(1); }}
-              className="border border-gray-300 rounded px-3 py-1.5 text-sm"
-            >
-              <option value="all">All Users</option>
-              <option value="configured">Has Postback</option>
-              <option value="not_configured">No Postback</option>
-            </select>
+
+            <div className="flex items-center gap-3">
+              {selectedUserIds.length > 0 && (
+                <span className="text-sm font-semibold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-200 animate-pulse">
+                  {selectedUserIds.length} user(s) selected
+                </span>
+              )}
+              <Button
+                variant="outline"
+                disabled={selectedUserIds.length === 0}
+                onClick={handleOpenBulkDrawer}
+                className="border-amber-500 text-amber-600 hover:bg-amber-50 hover:text-amber-700 font-semibold"
+              >
+                <Bell className="mr-2 h-4 w-4" />
+                Send Bulk Reminder
+              </Button>
+            </div>
           </div>
 
           {loading ? (
@@ -691,10 +875,54 @@ const Partners: React.FC = () => {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-12 text-center">
+                        <input
+                          type="checkbox"
+                          checked={(() => {
+                            const filtered = users.filter(u => {
+                              const matchesSearch = u.username.toLowerCase().includes(downwardSearch.toLowerCase()) ||
+                                u.email.toLowerCase().includes(downwardSearch.toLowerCase());
+                              const matchesPostback = postbackFilter === 'all' ? true :
+                                postbackFilter === 'configured' ? !!(u.postback_url && u.postback_url.trim()) :
+                                postbackFilter === 'not_configured' ? !(u.postback_url && u.postback_url.trim()) :
+                                postbackFilter === 'missing_sub1' ? (!!(u.postback_url && u.postback_url.trim()) && !u.postback_url.includes('{sub1}')) :
+                                postbackFilter === 'valid_postback' ? (!!(u.postback_url && u.postback_url.trim()) && u.postback_url.includes('{sub1}')) :
+                                true;
+                              return matchesSearch && matchesPostback;
+                            });
+                            const paged = filtered.slice((downwardPage - 1) * downwardPageSize, downwardPage * downwardPageSize);
+                            return paged.length > 0 && paged.every(u => selectedUserIds.includes(u._id));
+                          })()}
+                          onChange={(e) => {
+                            const filtered = users.filter(u => {
+                              const matchesSearch = u.username.toLowerCase().includes(downwardSearch.toLowerCase()) ||
+                                u.email.toLowerCase().includes(downwardSearch.toLowerCase());
+                              const matchesPostback = postbackFilter === 'all' ? true :
+                                postbackFilter === 'configured' ? !!(u.postback_url && u.postback_url.trim()) :
+                                postbackFilter === 'not_configured' ? !(u.postback_url && u.postback_url.trim()) :
+                                postbackFilter === 'missing_sub1' ? (!!(u.postback_url && u.postback_url.trim()) && !u.postback_url.includes('{sub1}')) :
+                                postbackFilter === 'valid_postback' ? (!!(u.postback_url && u.postback_url.trim()) && u.postback_url.includes('{sub1}')) :
+                                true;
+                              return matchesSearch && matchesPostback;
+                            });
+                            const paged = filtered.slice((downwardPage - 1) * downwardPageSize, downwardPage * downwardPageSize);
+                            if (e.target.checked) {
+                              const newSelections = paged.map(u => u._id);
+                              setSelectedUserIds(prev => Array.from(new Set([...prev, ...newSelections])));
+                            } else {
+                              const pagedIds = paged.map(u => u._id);
+                              setSelectedUserIds(prev => prev.filter(id => !pagedIds.includes(id)));
+                            }
+                          }}
+                          className="rounded border-gray-300 text-primary focus:ring-primary h-4 w-4"
+                        />
+                      </TableHead>
                       <TableHead>Username</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead>Role</TableHead>
                       <TableHead>Postback URL</TableHead>
+                      <TableHead>Postback Status</TableHead>
+                      <TableHead>Notification Type</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -706,15 +934,32 @@ const Partners: React.FC = () => {
                           u.email.toLowerCase().includes(downwardSearch.toLowerCase());
                         const matchesPostback = postbackFilter === 'all' ? true :
                           postbackFilter === 'configured' ? !!(u.postback_url && u.postback_url.trim()) :
-                          !(u.postback_url && u.postback_url.trim());
+                          postbackFilter === 'not_configured' ? !(u.postback_url && u.postback_url.trim()) :
+                          postbackFilter === 'missing_sub1' ? (!!(u.postback_url && u.postback_url.trim()) && !u.postback_url.includes('{sub1}')) :
+                          postbackFilter === 'valid_postback' ? (!!(u.postback_url && u.postback_url.trim()) && u.postback_url.includes('{sub1}')) :
+                          true;
                         return matchesSearch && matchesPostback;
                       });
                       const paged = filtered.slice((downwardPage - 1) * downwardPageSize, downwardPage * downwardPageSize);
                       if (filtered.length === 0) return (
-                        <TableRow><TableCell colSpan={6} className="text-center text-gray-500">No users found.</TableCell></TableRow>
+                        <TableRow><TableCell colSpan={9} className="text-center text-gray-500 py-8">No users found.</TableCell></TableRow>
                       );
                       return paged.map((user) => (
-                        <TableRow key={user._id}>
+                        <TableRow key={user._id} className={selectedUserIds.includes(user._id) ? 'bg-amber-50/30' : ''}>
+                          <TableCell className="text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedUserIds.includes(user._id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedUserIds(prev => [...prev, user._id]);
+                                } else {
+                                  setSelectedUserIds(prev => prev.filter(id => id !== user._id));
+                                }
+                              }}
+                              className="rounded border-gray-300 text-primary focus:ring-primary h-4 w-4"
+                            />
+                          </TableCell>
                           <TableCell className="font-medium">{user.username}</TableCell>
                           <TableCell>{user.email}</TableCell>
                           <TableCell>
@@ -728,6 +973,58 @@ const Partners: React.FC = () => {
                             ) : (
                               <span className="text-gray-400 text-sm">Not configured</span>
                             )}
+                          </TableCell>
+                          <TableCell>
+                            {!user.postback_url ? (
+                              <Badge className="bg-rose-500 hover:bg-rose-600 border-none text-white flex items-center w-max gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                No Postback
+                              </Badge>
+                            ) : !user.postback_url.includes('{sub1}') ? (
+                              <Badge className="bg-amber-500 hover:bg-amber-600 border-none text-white flex items-center w-max gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white"></span>
+                                Missing sub1
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none text-white flex items-center w-max gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
+                                Valid Postback
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                              <Button
+                                variant={user.notificationType === 'chat' || !user.notificationType ? 'default' : 'outline'}
+                                size="sm"
+                                onClick={() => {
+                                  setDrawerMode('single');
+                                  setDrawerUser(user);
+                                  setDrawerNotificationType('chat');
+                                  setDrawerMessage(getDynamicReminderMessage(user));
+                                  setIsPreviewMode(false);
+                                  setIsDrawerOpen(true);
+                                }}
+                                className="px-2.5 py-1 h-8 text-xs font-semibold flex items-center gap-1"
+                              >
+                                💬 Chat
+                              </Button>
+                              <Button
+                                variant={user.notificationType === 'email' ? 'default' : 'outline'}
+                                size="sm"
+                                onClick={() => {
+                                  setDrawerMode('single');
+                                  setDrawerUser(user);
+                                  setDrawerNotificationType('email');
+                                  setDrawerMessage(getDynamicReminderMessage(user));
+                                  setIsPreviewMode(false);
+                                  setIsDrawerOpen(true);
+                                }}
+                                className="px-2.5 py-1 h-8 text-xs font-semibold flex items-center gap-1"
+                              >
+                                📧 Email
+                              </Button>
+                            </div>
                           </TableCell>
                           <TableCell>
                             {user.is_blocked ? (
@@ -791,7 +1088,10 @@ const Partners: React.FC = () => {
                       u.email.toLowerCase().includes(downwardSearch.toLowerCase());
                     const matchesPostback = postbackFilter === 'all' ? true :
                       postbackFilter === 'configured' ? !!(u.postback_url && u.postback_url.trim()) :
-                      !(u.postback_url && u.postback_url.trim());
+                      postbackFilter === 'not_configured' ? !(u.postback_url && u.postback_url.trim()) :
+                      postbackFilter === 'missing_sub1' ? (!!(u.postback_url && u.postback_url.trim()) && !u.postback_url.includes('{sub1}')) :
+                      postbackFilter === 'valid_postback' ? (!!(u.postback_url && u.postback_url.trim()) && u.postback_url.includes('{sub1}')) :
+                      true;
                     return matchesSearch && matchesPostback;
                   });
                   if (filtered.length <= downwardPageSize) return null;
@@ -1343,6 +1643,220 @@ const Partners: React.FC = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Centered Reminder Modal */}
+      <Dialog open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+        <DialogContent className="max-w-2xl bg-white rounded-xl shadow-xl border">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold flex items-center gap-2 text-gray-900">
+              <Bell className="h-5 w-5 text-amber-500" />
+              {drawerMode === 'bulk' ? 'Bulk Postback Reminder' : 'Postback Configuration Reminder'}
+            </DialogTitle>
+            <DialogDescription className="text-gray-500 text-sm">
+              {drawerMode === 'bulk' 
+                ? `Send a postback reminder to ${selectedUserIds.length} selected partners.` 
+                : `Send a postback configuration reminder to ${drawerUser?.username}.`}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 my-2 text-left">
+            {drawerMode === 'single' && drawerUser && (
+              <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-150 text-sm">
+                <div>
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block">Username</span>
+                  <span className="font-bold text-gray-800">{drawerUser.username}</span>
+                </div>
+                <div>
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block">Email</span>
+                  <span className="text-gray-700 font-medium">{drawerUser.email}</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block">Current Postback URL</span>
+                  <code className="text-xs bg-white border px-2 py-1.5 rounded-lg block mt-1 font-mono break-all text-gray-600">
+                    {drawerUser.postback_url || 'Not configured'}
+                  </code>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider block">Validation Status</span>
+                  <div className="mt-1">
+                    {!drawerUser.postback_url ? (
+                      <Badge className="bg-rose-500 border-none text-white font-semibold">🔴 No Postback</Badge>
+                    ) : !drawerUser.postback_url.includes('{sub1}') ? (
+                      <Badge className="bg-amber-500 border-none text-white font-semibold">🟡 Missing sub1</Badge>
+                    ) : (
+                      <Badge className="bg-emerald-500 border-none text-white font-semibold">🟢 Valid Postback</Badge>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Delivery Channel selection */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-bold text-gray-600 uppercase tracking-wider">Delivery Channel</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDrawerNotificationType('chat')}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border font-semibold text-sm transition-all ${
+                    drawerNotificationType === 'chat'
+                      ? 'border-primary bg-primary/5 text-primary shadow-sm ring-1 ring-primary'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                  }`}
+                >
+                  <span>💬</span> Chat Inbox
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDrawerNotificationType('email')}
+                  className={`flex items-center justify-center gap-2 p-3 rounded-xl border font-semibold text-sm transition-all ${
+                    drawerNotificationType === 'email'
+                      ? 'border-primary bg-primary/5 text-primary shadow-sm ring-1 ring-primary'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-600'
+                  }`}
+                >
+                  <span>📧</span> SMTP Email
+                </button>
+              </div>
+            </div>
+
+            {/* Message Composer & Preview */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs font-bold text-gray-600 uppercase tracking-wider">Message Text</Label>
+                  {!isPreviewMode && (
+                    <button
+                      type="button"
+                      onClick={handleSaveTemplate}
+                      className="text-xs text-emerald-600 font-bold hover:underline flex items-center gap-0.5 ml-2"
+                      title="Save this text as the default template for future reminders"
+                    >
+                      💾 Save Template
+                    </button>
+                  )}
+                  {!isPreviewMode && drawerMode === 'single' && drawerUser && (
+                    <button
+                      type="button"
+                      onClick={handleSaveForUser}
+                      className="text-xs text-blue-600 font-bold hover:underline flex items-center gap-0.5 ml-2"
+                      title="Save this text specifically for this user"
+                    >
+                      💾 Save for this User
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsPreviewMode(!isPreviewMode)}
+                  className="text-xs text-primary font-bold hover:underline flex items-center gap-1"
+                >
+                  {isPreviewMode ? '✏️ Edit Message' : '👁️ Preview Message'}
+                </button>
+              </div>
+
+              {/* Bulk Mode User Preview Selector */}
+              {drawerMode === 'bulk' && isPreviewMode && (
+                <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3 text-xs">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[10px] uppercase font-bold text-amber-700 tracking-wider">
+                      Preview Partner ({bulkPreviewIndex + 1}/{users.filter(u => selectedUserIds.includes(u._id)).length})
+                    </span>
+                    <span className="font-bold text-gray-800">
+                      {users.filter(u => selectedUserIds.includes(u._id))[bulkPreviewIndex]?.username}
+                    </span>
+                    <span className="text-gray-500 font-mono truncate max-w-[280px]" title={users.filter(u => selectedUserIds.includes(u._id))[bulkPreviewIndex]?.postback_url}>
+                      URL: {users.filter(u => selectedUserIds.includes(u._id))[bulkPreviewIndex]?.postback_url || 'Not configured'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBulkPreviewIndex(p => Math.max(0, p - 1))}
+                      disabled={bulkPreviewIndex === 0}
+                      className="h-7 px-2 font-semibold"
+                    >
+                      ◀ Prev
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBulkPreviewIndex(p => Math.min(users.filter(u => selectedUserIds.includes(u._id)).length - 1, p + 1))}
+                      disabled={bulkPreviewIndex === users.filter(u => selectedUserIds.includes(u._id)).length - 1}
+                      className="h-7 px-2 font-semibold"
+                    >
+                      Next ▶
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {isPreviewMode ? (
+                <div className="bg-gray-50 border rounded-xl p-4 text-sm text-gray-800 min-h-[160px] max-h-[250px] overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                  {drawerNotificationType === 'email' ? (
+                    <div className="border bg-white rounded-lg shadow-sm">
+                      <div className="bg-gray-100 p-2.5 text-xs text-gray-500 font-mono border-b rounded-t-lg">
+                        <strong>Subject:</strong> Action Required: Complete Your Postback Configuration
+                      </div>
+                      <div className="p-4">
+                        {getPreviewMessageText(users.filter(u => selectedUserIds.includes(u._id)))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-2 max-w-full">
+                      <div className="bg-blue-500 text-white rounded-2xl rounded-tl-none p-3.5 shadow-sm text-sm break-words max-w-xs">
+                        <span className="text-[10px] font-bold block mb-1 opacity-75">ADMIN REMINDER</span>
+                        {getPreviewMessageText(users.filter(u => selectedUserIds.includes(u._id)))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <Textarea
+                    value={drawerMessage}
+                    onChange={(e) => setDrawerMessage(e.target.value)}
+                    placeholder="Write your reminder message here..."
+                    className="min-h-[160px] max-h-[250px] font-mono text-sm leading-relaxed rounded-xl"
+                  />
+                  <p className="text-[10.5px] text-gray-400 leading-normal">
+                    Supported placeholders: <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-600 font-mono">{`{username}`}</code> (partner name) and <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-600 font-mono">{`{postback_url}`}</code> (partner's current postback URL).
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDrawerOpen(false)}
+              className="font-semibold"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSendReminder}
+              disabled={drawerSending || !drawerMessage.trim()}
+              className="bg-primary text-white hover:bg-primary/95 font-semibold"
+            >
+              {drawerSending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                'Send Reminder'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
