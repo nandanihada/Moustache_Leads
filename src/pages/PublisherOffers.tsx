@@ -278,10 +278,29 @@ const PublisherOffersContent = () => {
     } else if (viewMode === "requests") {
       list = [];
     } else if (viewMode === "top_20") {
-      const topIds = topOffersList.map((t) => String(t.offer_id || "").trim().toLowerCase());
-      list = offers.filter((o) => topIds.includes(String(o.offer_id || "").trim().toLowerCase()));
-      // Sort by the position in topIds to respect Admin curation ordering
-      list.sort((a, b) => topIds.indexOf(String(a.offer_id || "").trim().toLowerCase()) - topIds.indexOf(String(b.offer_id || "").trim().toLowerCase()));
+      // Use topOffersList directly — these are the admin-pinned offers with full data
+      // Don't filter against main offers list (which may exclude inactive/unhealthy offers)
+      list = topOffersList.map((t: any) => {
+        // Try to find matching offer in main list for enriched data
+        const mainOffer = offers.find((o) => String(o.offer_id || "").trim().toLowerCase() === String(t.offer_id || "").trim().toLowerCase());
+        if (mainOffer) return mainOffer;
+        // Otherwise use the top offer data directly
+        return {
+          offer_id: t.offer_id,
+          name: t.name || t.offer_name || 'Unknown Offer',
+          offer_name: t.name || t.offer_name || 'Unknown Offer',
+          payout: t.payout || 0,
+          category: t.category || t.vertical || '',
+          vertical: t.vertical || t.category || '',
+          countries: t.countries || [],
+          status: t.status || 'active',
+          network: t.network || '',
+          image_url: t.image_url || '',
+          devices: t.devices || t.allowed_devices || 'All',
+          is_pinned: true,
+          ...t
+        };
+      });
     } else {
       list = [...offers];
     }

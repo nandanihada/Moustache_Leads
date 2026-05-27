@@ -1968,20 +1968,8 @@ def get_offers():
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
         
-        # === GEO DETECTION: Detect end user's country from IP ===
-        user_country_code = ''
-        try:
-            ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-            if ip_address:
-                ip_address = ip_address.split(',')[0].strip()
-            from services.ipinfo_service import get_ipinfo_service
-            ipinfo_svc = get_ipinfo_service()
-            ip_data = ipinfo_svc.lookup_ip(ip_address)
-            if ip_data:
-                user_country_code = (ip_data.get('country_code', '') or ip_data.get('country', '')).upper().strip()
-                logger.info(f"🌍 User country detected: {user_country_code} (IP: {ip_address})")
-        except Exception as geo_err:
-            logger.warning(f"⚠️ Geo detection failed for offerwall: {geo_err}")
+        # Country filter: use query param if provided (from frontend dropdown), skip ipinfo lookup to save memory
+        user_country_code = request.args.get('country', '').upper().strip()
         
         # Fetch placement exchange rate, currency name, and publisher ID
         placement_exchange_rate = 100  # Default: $1 = 100 points

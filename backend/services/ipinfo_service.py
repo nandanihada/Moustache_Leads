@@ -556,12 +556,25 @@ class IPinfoService:
         return None
     
     def _save_to_cache(self, ip_address, data):
-        """Save IP data to cache"""
+        """Save IP data to cache (max 1000 entries to prevent memory bloat)"""
+        # Evict if cache is too large
+        if len(self.cache) > 1000:
+            # Remove oldest 200 entries
+            now = datetime.utcnow()
+            expired = [k for k, v in self.cache.items() if now >= v['expires_at']]
+            for k in expired:
+                del self.cache[k]
+            # If still too large, clear half
+            if len(self.cache) > 1000:
+                keys_to_remove = list(self.cache.keys())[:500]
+                for k in keys_to_remove:
+                    del self.cache[k]
+        
         self.cache[ip_address] = {
             'data': data,
             'expires_at': datetime.utcnow() + timedelta(seconds=self.cache_ttl)
         }
-        logger.debug(f"💾 Cached IP data for {ip_address} (TTL: {self.cache_ttl}s)")
+        logger.debug(f"💾 Cached IP data for {ip_address} (TTL: {self.cache_ttl}s, cache size: {len(self.cache)})")
     
     def clear_cache(self):
         """Clear all cached data"""

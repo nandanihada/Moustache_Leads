@@ -4,14 +4,14 @@ import os
 # Bind to the port Render provides
 bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 
-# Workers — 6 sync workers (maximizes the 512MB RAM on Render $40 plan)
-# Each worker uses ~60-80MB, 6 workers = ~400-480MB (within 512MB limit)
+# Workers — 3 sync workers (safe for 512MB RAM on Render)
+# Each worker uses ~80-120MB with caches, 3 workers = ~300-360MB (safe within 512MB)
 # Background threading in simple_tracking.py ensures clicks don't block workers
-workers = 6
+workers = 3
 timeout = 180  # 3 minutes for bulk import operations
 
 # Prevent memory leaks — restart workers after N requests
-max_requests = 1000
+max_requests = 500
 max_requests_jitter = 50
 
 # IMPORTANT: preload_app = False to avoid fork-unsafe MongoDB connections

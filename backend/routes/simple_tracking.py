@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Avoids hitting MongoDB on every single click
 _offer_cache = {}
 _OFFER_CACHE_TTL = 300  # 5 minutes
+_OFFER_CACHE_MAX = 500  # Max 500 offers in cache (was 2000)
 
 def _get_offer_cached(offer_id):
     """Get offer from cache or DB. Caches for 5 minutes."""
@@ -47,11 +48,16 @@ def _get_offer_cached(offer_id):
     
     if offer:
         _offer_cache[offer_id] = {'data': offer, 'expires': now + _OFFER_CACHE_TTL}
-        # Evict old entries if cache grows too large (>2000 offers)
-        if len(_offer_cache) > 2000:
+        # Evict old entries if cache grows too large
+        if len(_offer_cache) > _OFFER_CACHE_MAX:
             expired = [k for k, v in _offer_cache.items() if v['expires'] < now]
             for k in expired:
                 del _offer_cache[k]
+            # If still too large after evicting expired, remove oldest
+            if len(_offer_cache) > _OFFER_CACHE_MAX:
+                oldest_keys = sorted(_offer_cache.keys(), key=lambda k: _offer_cache[k]['expires'])[:100]
+                for k in oldest_keys:
+                    del _offer_cache[k]
     
     return offer
 

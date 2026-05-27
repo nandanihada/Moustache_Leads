@@ -1014,11 +1014,10 @@ def get_top_offers():
             curated_docs = list(top_offers_col.find().sort('position', 1))
             curated_ids = [d['offer_id'] for d in curated_docs]
             if curated_ids:
-                # Fetch active offers only
+                # Fetch pinned offers regardless of status (admin pinned them intentionally)
                 active_manual_offers = {
                     o['offer_id']: o for o in offers_col.find({
                         'offer_id': {'$in': curated_ids},
-                        'status': 'active',
                         '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]
                     })
                 }
