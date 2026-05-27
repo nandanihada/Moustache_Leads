@@ -66,6 +66,7 @@ const Partners: React.FC = () => {
   const [downwardPageSize, setDownwardPageSize] = useState(10);
   const [upwardSearch, setUpwardSearch] = useState('');
   const [downwardSearch, setDownwardSearch] = useState('');
+  const [postbackFilter, setPostbackFilter] = useState<'all' | 'configured' | 'not_configured'>('all');
 
   // Upward Partners state
   const [partners, setPartners] = useState<Partner[]>([]);
@@ -669,6 +670,15 @@ const Partners: React.FC = () => {
               </select>
               <span>per page</span>
             </div>
+            <select
+              value={postbackFilter}
+              onChange={(e) => { setPostbackFilter(e.target.value as any); setDownwardPage(1); }}
+              className="border border-gray-300 rounded px-3 py-1.5 text-sm"
+            >
+              <option value="all">All Users</option>
+              <option value="configured">Has Postback</option>
+              <option value="not_configured">No Postback</option>
+            </select>
           </div>
 
           {loading ? (
@@ -691,10 +701,14 @@ const Partners: React.FC = () => {
                   </TableHeader>
                   <TableBody>
                     {(() => {
-                      const filtered = users.filter(u =>
-                        u.username.toLowerCase().includes(downwardSearch.toLowerCase()) ||
-                        u.email.toLowerCase().includes(downwardSearch.toLowerCase())
-                      );
+                      const filtered = users.filter(u => {
+                        const matchesSearch = u.username.toLowerCase().includes(downwardSearch.toLowerCase()) ||
+                          u.email.toLowerCase().includes(downwardSearch.toLowerCase());
+                        const matchesPostback = postbackFilter === 'all' ? true :
+                          postbackFilter === 'configured' ? !!(u.postback_url && u.postback_url.trim()) :
+                          !(u.postback_url && u.postback_url.trim());
+                        return matchesSearch && matchesPostback;
+                      });
                       const paged = filtered.slice((downwardPage - 1) * downwardPageSize, downwardPage * downwardPageSize);
                       if (filtered.length === 0) return (
                         <TableRow><TableCell colSpan={6} className="text-center text-gray-500">No users found.</TableCell></TableRow>
@@ -772,10 +786,14 @@ const Partners: React.FC = () => {
 
                 {/* Downward Partners Pagination */}
                 {(() => {
-                  const filtered = users.filter(u =>
-                    u.username.toLowerCase().includes(downwardSearch.toLowerCase()) ||
-                    u.email.toLowerCase().includes(downwardSearch.toLowerCase())
-                  );
+                  const filtered = users.filter(u => {
+                    const matchesSearch = u.username.toLowerCase().includes(downwardSearch.toLowerCase()) ||
+                      u.email.toLowerCase().includes(downwardSearch.toLowerCase());
+                    const matchesPostback = postbackFilter === 'all' ? true :
+                      postbackFilter === 'configured' ? !!(u.postback_url && u.postback_url.trim()) :
+                      !(u.postback_url && u.postback_url.trim());
+                    return matchesSearch && matchesPostback;
+                  });
                   if (filtered.length <= downwardPageSize) return null;
                   return (
                     <div className="flex items-center justify-between mt-4 pt-4 border-t">

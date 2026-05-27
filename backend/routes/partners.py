@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify
 from database import db_instance
+from bson import ObjectId
 from utils.auth import token_required, subadmin_or_admin_required
 import logging
 import uuid
@@ -381,13 +382,13 @@ def update_user_postback(user_id):
         users_collection = db_instance.get_collection('users')
         
         # Check if user exists
-        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        user = users_collection.find_one({'_id': ObjectId(user_id)})
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
         # Update postback URL
         users_collection.update_one(
-            {'_id': db_instance.to_object_id(user_id)},
+            {'_id': ObjectId(user_id)},
             {'$set': {
                 'postback_url': data['postback_url'].strip(),
                 'updated_at': datetime.utcnow()
@@ -416,13 +417,13 @@ def update_user_parameter_mapping(user_id):
         users_collection = db_instance.get_collection('users')
         
         # Check if user exists
-        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        user = users_collection.find_one({'_id': ObjectId(user_id)})
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
         # Update parameter mapping
         users_collection.update_one(
-            {'_id': db_instance.to_object_id(user_id)},
+            {'_id': ObjectId(user_id)},
             {'$set': {
                 'parameter_mapping': data['parameter_mapping'],
                 'updated_at': datetime.utcnow()
@@ -449,13 +450,13 @@ def block_user(user_id):
         users_collection = db_instance.get_collection('users')
         
         # Check if user exists
-        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        user = users_collection.find_one({'_id': ObjectId(user_id)})
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
         # Block user
         users_collection.update_one(
-            {'_id': db_instance.to_object_id(user_id)},
+            {'_id': ObjectId(user_id)},
             {'$set': {
                 'is_blocked': True,
                 'blocked_reason': reason,
@@ -481,13 +482,13 @@ def unblock_user(user_id):
         users_collection = db_instance.get_collection('users')
         
         # Check if user exists
-        user = users_collection.find_one({'_id': db_instance.to_object_id(user_id)})
+        user = users_collection.find_one({'_id': ObjectId(user_id)})
         if not user:
             return jsonify({'error': 'User not found'}), 404
         
         # Unblock user
         users_collection.update_one(
-            {'_id': db_instance.to_object_id(user_id)},
+            {'_id': ObjectId(user_id)},
             {'$set': {
                 'is_blocked': False,
                 'updated_at': datetime.utcnow()
