@@ -48,14 +48,15 @@ export const SignaturePage = () => {
       }
       const dataUrl = sigCanvas.current.toDataURL('image/png');
       setCapturedSig(dataUrl);
-      setShowPreview(true);
+      // Skip preview — submit directly
+      handleDirectSubmit(dataUrl);
     } catch (error: any) {
-      alert(`Preview Error: ${error.message}`);
+      alert(`Error: ${error.message}`);
     }
   };
 
-  const handleFinalSubmit = async () => {
-    if (!capturedSig || !token) {
+  const handleDirectSubmit = async (signatureData: string) => {
+    if (!signatureData || !token) {
       alert("Missing signature or authorization. Please try again.");
       return;
     }
@@ -63,7 +64,7 @@ export const SignaturePage = () => {
     try {
       const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
       const response = await axios.post(`${API_URL}/api/auth/sign-agreement`, {
-        signature_data: capturedSig
+        signature_data: signatureData
       }, {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -77,7 +78,6 @@ export const SignaturePage = () => {
       }
 
       setIsSuccess(true);
-      setShowPreview(false);
     } catch (error) {
       console.error("Failed to submit agreement:", error);
       alert("Failed to submit agreement. Please try again.");
@@ -160,8 +160,8 @@ export const SignaturePage = () => {
               <button onClick={() => navigate('/agreement')} className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-2">
                 <ChevronLeft size={20} /> Back
               </button>
-              <button onClick={handleOpenPreview} className="flex-[2] bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2">
-                <Eye size={20} /> Preview & Sign Agreement
+              <button onClick={handleOpenPreview} disabled={isSubmitting} className="flex-[2] bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center justify-center gap-2">
+                {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : <FileCheck size={20} />} {isSubmitting ? 'Submitting...' : 'Submit Signature'}
               </button>
             </div>
           </div>
@@ -550,7 +550,7 @@ export const SignaturePage = () => {
                 ) : (
                   <>
                     <button onClick={() => setShowPreview(false)} className="px-8 py-3 border border-slate-200 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-all">Edit Signature</button>
-                    <button onClick={handleFinalSubmit} disabled={isSubmitting} className="px-12 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2">
+                    <button onClick={() => capturedSig && handleDirectSubmit(capturedSig)} disabled={isSubmitting} className="px-12 py-3 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 flex items-center gap-2">
                       {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : <FileCheck size={20} />}
                       Finish & Submit
                     </button>
