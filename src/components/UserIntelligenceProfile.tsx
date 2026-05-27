@@ -1837,7 +1837,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* Grid helpers */
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
-.grid-5{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+.grid-5{display:grid;grid-template-columns:repeat(5,minmax(200px,1fr));gap:10px;overflow-x:auto;padding-bottom:4px}
 
 /* Stat boxes */
 .stat-row{display:flex;gap:10px}

@@ -1312,12 +1312,19 @@ def get_networks():
 def get_offer(offer_id):
     """Get a specific offer by ID (Admin only)"""
     try:
+        from bson import ObjectId as BsonObjId
         # Query DB directly to avoid model's is_active filter issues
         offers_collection = db_instance.get_collection('offers')
         if offers_collection is None:
             return jsonify({'error': 'Database not available'}), 503
         
         offer = offers_collection.find_one({'offer_id': offer_id})
+        if not offer:
+            # Fallback: try by MongoDB _id
+            try:
+                offer = offers_collection.find_one({'_id': BsonObjId(offer_id)})
+            except Exception:
+                pass
         if not offer:
             return jsonify({'error': f'Offer {offer_id} not found'}), 404
         
@@ -1338,6 +1345,23 @@ def update_offer(offer_id):
         
         if not data:
             return jsonify({'error': 'No data provided'}), 400
+        
+        # Support both offer_id and MongoDB _id lookups
+        from bson import ObjectId as BsonObjId
+        offers_collection = db_instance.get_collection('offers')
+        existing = offers_collection.find_one({'offer_id': offer_id})
+        if not existing:
+            # Try by MongoDB _id
+            try:
+                existing = offers_collection.find_one({'_id': BsonObjId(offer_id)})
+                if existing:
+                    # Use the actual offer_id for all subsequent operations
+                    offer_id = existing.get('offer_id', offer_id)
+            except Exception:
+                pass
+        
+        if not existing:
+            return jsonify({'error': f'Offer {offer_id} not found'}), 404
         
         # QA VERIFICATION: Log received data
         logging.info("📥 UPDATE OFFER - Schedule received: %s", data.get("schedule"))

@@ -123,21 +123,32 @@ class ScheduledEmail:
     def get_pending_to_send(cls) -> list:
         """
         Get all pending emails that are due to be sent.
+        Uses atomic find_and_modify to prevent duplicate sends.
         """
         collection = cls.get_collection()
         if collection is None:
             return []
         
         now = datetime.utcnow()
-        cursor = collection.find({
-            'status': {'$in': [cls.STATUS_PENDING, 'scheduled']},
-            'scheduled_at': {'$lte': now}
-        }).sort('scheduled_at', 1)
-        
         emails = []
-        for doc in cursor:
+        
+        # Atomically claim emails one by one to prevent race conditions
+        from pymongo import ReturnDocument
+        while True:
+            doc = collection.find_one_and_update(
+                {
+                    'status': {'$in': [cls.STATUS_PENDING, 'scheduled']},
+                    'scheduled_at': {'$lte': now}
+                },
+                {'$set': {'status': 'sending', 'updated_at': now}},
+                sort=[('scheduled_at', 1)],
+                return_document=ReturnDocument.AFTER
+            )
+            if not doc:
+                break
             doc['_id'] = str(doc['_id'])
             emails.append(doc)
+        
         return emails
     
     @classmethod
@@ -189,7 +200,7 @@ class ScheduledEmail:
             return False
         
         result = collection.update_one(
-            {'_id': ObjectId(email_id)},
+            {'_id': ObjectId(email_id), 'status': {'$in': ['sending', cls.STATUS_PENDING, 'scheduled']}},
             {'$set': {
                 'status': cls.STATUS_SENT,
                 'sent_at': datetime.utcnow(),
@@ -208,7 +219,7 @@ class ScheduledEmail:
             return False
         
         result = collection.update_one(
-            {'_id': ObjectId(email_id)},
+            {'_id': ObjectId(email_id), 'status': {'$in': ['sending', cls.STATUS_PENDING, 'scheduled']}},
             {
                 '$set': {
                     'status': cls.STATUS_FAILED,

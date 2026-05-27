@@ -153,6 +153,16 @@ class AutomationService:
                 # We skip sending, it stays in "Ready" status until admin clicks Start
                 continue
 
+            # GUARD: If delivery_status is already 'sent' and next_mail_time is in the future, skip
+            # This prevents double-sending when manual send_now already advanced the state
+            if item.get('delivery_status') == 'sent' and current_step > 0:
+                # Re-check from DB to avoid stale data race
+                fresh_state = self.model.get_user_state(user_id)
+                if fresh_state and fresh_state.get('delivery_status') == 'sent':
+                    fresh_next = fresh_state.get('next_mail_time')
+                    if fresh_next and now < fresh_next:
+                        continue
+
             # Time to send next mail
             user_id = item.get('user_id')
             current_step = item.get('current_step', 0) + 1
@@ -281,7 +291,7 @@ class AutomationService:
         return top_offers, interest_cats
 
     def _send_automation_mail(self, user_id, step, offers, state=None):
-        """Actually send the automation email with proper content"""
+        """Actually send the automation email using the shared _build_email_html template"""
         try:
             user = self.user_model.find_by_id(user_id)
             if not user or not user.get('email'): return False
@@ -293,73 +303,33 @@ class AutomationService:
             subject = state.get('custom_subject') if state and state.get('custom_subject') else f"🔥 Personalized Outreach: {primary_offer} (Top Pick for You)"
             custom_body = state.get('custom_message') if state and state.get('custom_message') else None
             
+            # Build message body
             if custom_body:
-                # Use custom body if provided by admin
-                body = custom_body
-                # We keep the overrides until the admin explicitly changes them or the cycle resets
+                message_body = custom_body
             else:
-                # Premium Email Template with Table
-                body = f"""
-                <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 800px; margin: 0 auto; color: #334155; line-height: 1.6;">
-                <div style="background: linear-gradient(135deg, #185FA5 0%, #2563EB 100%); padding: 30px; border-radius: 12px 12px 0 0; text-align: center;">
-                    <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Top Performing Offers</h1>
-                    <p style="color: #bfdbfe; margin: 10px 0 0 0; font-size: 14px;">Personalized for <strong>{user.get('username', 'User')}</strong> based on recent activity</p>
-                </div>
-                
-                <div style="padding: 25px; background: #ffffff; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 12px 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                    <p style="font-size: 16px; margin-bottom: 20px;">Hello {user.get('username', 'User')},</p>
-                    <p style="margin-bottom: 25px;">Our intelligence engine has identified several high-converting opportunities tailored to your traffic profile. Here are your top matches for today:</p>
-                    
-                    <div style="overflow-x: auto; margin-bottom: 30px;">
-                        <table style="width: 100%; border-collapse: collapse; min-width: 600px;">
-                            <thead>
-                                <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">
-                                    <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">ID</th>
-                                    <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Offer Name</th>
-                                    <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Payout</th>
-                                    <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Network</th>
-                                    <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Countries</th>
-                                    <th style="padding: 12px 8px; text-align: left; font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">Category</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-            """
+                message_body = f"Hi {user.get('username', 'User')},\n\nWe have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.\n\nBest regards,\nPublisher Support Team\nMoustache Leads"
+
+            # Use the shared _build_email_html for consistent template rendering
+            import os
+            from routes.admin_offer_requests import _build_email_html
+            frontend_url = os.environ.get('FRONTEND_URL', 'https://www.moustacheleads.com')
             
-            for o in offers:
-                payout = o.get('payout', 0)
-                payout_display = f"${payout:,.2f}" if payout else "RevShare"
-                countries = ", ".join(o.get('countries', ['WW']))
-                if len(countries) > 20: countries = countries[:17] + "..."
-                
-                body += f"""
-                                <tr style="border-bottom: 1px solid #f1f5f9;">
-                                    <td style="padding: 12px 8px; font-size: 11px; font-family: monospace; color: #94a3b8;">{str(o.get('_id'))[-6:].upper()}</td>
-                                    <td style="padding: 12px 8px; font-size: 13px; font-weight: 600; color: #1e293b;">{o.get('offer_name') or o.get('name')}</td>
-                                    <td style="padding: 12px 8px; font-size: 13px; font-weight: 700; color: #059669;">{payout_display}</td>
-                                    <td style="padding: 12px 8px; font-size: 12px; color: #64748b;">{o.get('network') or 'Direct'}</td>
-                                    <td style="padding: 12px 8px; font-size: 11px; color: #64748b;">{countries}</td>
-                                    <td style="padding: 12px 8px;">
-                                        <span style="display: inline-block; padding: 2px 8px; background: #eff6ff; color: #3b82f6; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase;">{o.get('category') or o.get('vertical')}</span>
-                                    </td>
-                                </tr>
-                """
-            
-            body += """
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <div style="text-align: center; margin: 30px 0;">
-                        <a href="https://www.moustacheleads.com/dashboard/offers" style="background: #2563EB; color: #ffffff; padding: 14px 35px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 16px; box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);">Grab Your Deals Now</a>
-                    </div>
-                    
-                    <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 40px; border-top: 1px solid #f1f5f9; padding-top: 20px;">
-                        You received this email because you are a registered partner with Moustache Leads.<br/>
-                        &copy; 2026 Moustache Leads - High Velocity Affiliate Network
-                    </p>
-                </div>
-            </div>
-            """
+            body = _build_email_html(
+                message_body,
+                frontend_url,
+                offers=offers,
+                payout_type='publisher',
+                template_style='table',
+                visible_fields=None,
+                default_image='',
+                see_more_fields=None,
+                mask_preview_links=False,
+                payment_terms='',
+                custom_preview_url='',
+                custom_preview_urls={},
+                preview_in_email='both',
+                custom_preview_in_email='both'
+            )
 
             # Create a record in 'scheduled_emails' with ALL fields the service expects
             scheduled_emails = db_instance.get_collection('scheduled_emails')
@@ -669,9 +639,21 @@ class AutomationService:
             if not offer_ids:
                 return False, "No offers selected"
 
-            # 1. Fetch offers
+            # 1. Fetch offers — try both offer_id field AND _id (MongoDB ObjectId)
+            from bson import ObjectId as BsonObjectId
             offers_col = db_instance.get_collection('offers')
             offers = list(offers_col.find({'offer_id': {'$in': offer_ids}}))
+            
+            # Fallback: if no offers found by offer_id, try by MongoDB _id
+            if not offers:
+                obj_ids = []
+                for oid in offer_ids:
+                    try:
+                        obj_ids.append(BsonObjectId(oid))
+                    except Exception:
+                        pass
+                if obj_ids:
+                    offers = list(offers_col.find({'_id': {'$in': obj_ids}}))
             if not offers:
                 return False, "Selected offers not found in database"
 
@@ -739,19 +721,59 @@ class AutomationService:
                 except Exception as e:
                     logger.error(f"Error parsing scheduled_at: {e}")
 
-            scheduled_emails.insert_one({
-                'user_id': str(user_id),
-                'recipients': [user.get('email')],
-                'subject': subject,
-                'body': html_body,
-                'type': f'automation_manual_{current_step}',
-                'step': current_step,
-                'related_offer_ids': offer_ids,
-                'status': 'pending',
-                'scheduled_at': scheduled_at,
-                'created_at': datetime.utcnow(),
-                'created_by': admin_username
-            })
+            # Send mode: all_in_one sends all offers in one email, one_by_one sends each offer separately using global step_interval
+            send_mode = data.get('send_mode', 'all_in_one')
+            settings = self.model.get_settings()
+            step_interval = settings.get('step_interval_minutes', 180)
+
+            if send_mode == 'one_by_one' and len(offers) > 1:
+                # Create separate scheduled emails for each offer with staggered times using global step_interval
+                for idx, offer in enumerate(offers):
+                    offer_html = _build_email_html(
+                        message_body, 
+                        frontend_url, 
+                        offers=[offer], 
+                        payout_type=payout_type, 
+                        template_style=template_style, 
+                        visible_fields=visible_fields, 
+                        default_image=default_image, 
+                        see_more_fields=see_more_fields, 
+                        mask_preview_links=mask_preview_links, 
+                        payment_terms=payment_terms, 
+                        custom_preview_url=custom_preview_url, 
+                        custom_preview_urls=custom_preview_urls, 
+                        preview_in_email=preview_in_email, 
+                        custom_preview_in_email=custom_preview_in_email
+                    )
+                    offset_time = scheduled_at + timedelta(minutes=step_interval * idx)
+                    scheduled_emails.insert_one({
+                        'user_id': str(user_id),
+                        'recipients': [user.get('email')],
+                        'subject': subject,
+                        'body': offer_html,
+                        'type': f'automation_manual_{current_step}_offer_{idx+1}',
+                        'step': current_step,
+                        'related_offer_ids': [offer.get('offer_id', str(offer.get('_id', '')))],
+                        'status': 'pending',
+                        'scheduled_at': offset_time,
+                        'created_at': datetime.utcnow(),
+                        'created_by': admin_username
+                    })
+            else:
+                # all_in_one: single email with all offers
+                scheduled_emails.insert_one({
+                    'user_id': str(user_id),
+                    'recipients': [user.get('email')],
+                    'subject': subject,
+                    'body': html_body,
+                    'type': f'automation_manual_{current_step}',
+                    'step': current_step,
+                    'related_offer_ids': offer_ids,
+                    'status': 'pending',
+                    'scheduled_at': scheduled_at,
+                    'created_at': datetime.utcnow(),
+                    'created_by': admin_username
+                })
 
             # 4. Advance State
             settings = self.model.get_settings()

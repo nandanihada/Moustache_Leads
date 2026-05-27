@@ -225,7 +225,7 @@ class ScheduledEmailService:
                 logger.warning("Email service not configured, skipping scheduled email processing")
                 return
             
-            # Get all pending emails that are due
+            # Get all pending emails that are due (atomically claimed with status='sending')
             due_emails = ScheduledEmail.get_due_emails()
             
             if not due_emails:
@@ -245,6 +245,9 @@ class ScheduledEmailService:
                     if not recipients:
                         ScheduledEmail.mark_sent(email_id)
                         continue
+                    
+                    # Deduplicate recipients to prevent sending to same email multiple times
+                    recipients = list(dict.fromkeys(r.strip().lower() for r in recipients if r and r.strip()))
                     
                     batch_size = 50
                     success_count = 0

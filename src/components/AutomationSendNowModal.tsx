@@ -36,6 +36,8 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
   const [offers, setOffers] = useState<any[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sendVia, setSendVia] = useState<'email'>('email');
+  const [sendMode, setSendMode] = useState<'all_in_one' | 'one_by_one'>('all_in_one');
+  const [globalStepInterval, setGlobalStepInterval] = useState<number>(180); // From automation settings
   const [customMsg, setCustomMsg] = useState('');
   const [emailSubject, setEmailSubject] = useState('Recommended Offers');
   const [messageBody, setMessageBody] = useState('');
@@ -54,6 +56,18 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
   const [automationInterval, setAutomationInterval] = useState('3h 20m');
   const { toast } = useToast();
   const token = localStorage.getItem('token');
+
+  // Fetch global automation settings to get step_interval_minutes
+  useEffect(() => {
+    if (!open) return;
+    fetch(`${apiUrl}/api/admin/automation/settings`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.json()).then(d => {
+      if (d.settings?.step_interval_minutes) {
+        setGlobalStepInterval(d.settings.step_interval_minutes);
+      }
+    }).catch(() => {});
+  }, [open, apiUrl, token]);
 
   useEffect(() => {
     if (open) {
@@ -420,6 +434,13 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
 
     setSending(true);
     try {
+      // Resolve offer_ids: prefer offer_id field, fallback to _id/id
+      const resolvedOfferIds = Array.from(selected).map(id => {
+        const offer = offers.find(o => getOfferId(o) === id);
+        // Prefer the offer_id field (string ID used in the offers collection)
+        return offer?.offer_id || id;
+      });
+
       const promises = activeItems.map(item => {
         const personal = personalOverrides[item.user_id] || { subject: emailSubject, body: messageBody };
         // We still allow dynamic placeholders if they want to use them in individual edits
@@ -433,10 +454,11 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             user_id: item.user_id,
-            offer_ids: Array.from(selected),
+            offer_ids: resolvedOfferIds,
             send_via: sendVia,
+            send_mode: sendMode,
             custom_message: customMsg,
-            email_subject: finalSubject,
+            subject: finalSubject,
             message_body: finalBody,
             template_style: emailSettings.templateStyle,
             visible_fields: emailSettings.visibleFields,
@@ -478,7 +500,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose(); }}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white shadow-2xl border-none">
+      <DialogContent className="max-w-[95vw] w-full max-h-[95vh] h-[95vh] overflow-y-auto bg-white shadow-2xl border-none">
         <DialogHeader className="border-b pb-4">
           <DialogTitle className="flex items-center gap-3 text-xl font-bold">
             <div className="p-2 bg-indigo-100 rounded-lg">
@@ -783,6 +805,37 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                           </Button>
                         ))}
                       </div>
+                    </div>
+
+                    {/* Send Mode */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Send Mode</Label>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant={sendMode === 'all_in_one' ? 'default' : 'outline'}
+                          onClick={() => setSendMode('all_in_one')}
+                          className={`flex-1 text-xs font-bold h-9 rounded-lg transition-all ${sendMode === 'all_in_one' ? 'bg-emerald-600 hover:bg-emerald-700 shadow-md text-white' : 'border-slate-200 text-slate-600'}`}
+                        >
+                          All Offers in One Email
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={sendMode === 'one_by_one' ? 'default' : 'outline'}
+                          onClick={() => setSendMode('one_by_one')}
+                          className={`flex-1 text-xs font-bold h-9 rounded-lg transition-all ${sendMode === 'one_by_one' ? 'bg-amber-600 hover:bg-amber-700 shadow-md text-white' : 'border-slate-200 text-slate-600'}`}
+                        >
+                          One by One (with Delay)
+                        </Button>
+                      </div>
+                      {sendMode === 'one_by_one' && (
+                        <div className="flex items-center gap-2 mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                          <span className="text-[10px] font-bold text-amber-700">
+                            Interval: <span className="text-amber-900 font-black">{globalStepInterval} min</span> (from Automation Engine Settings)
+                          </span>
+                          <span className="text-[10px] text-amber-600">— Each offer sent as a separate email with this delay</span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Email Subject */}

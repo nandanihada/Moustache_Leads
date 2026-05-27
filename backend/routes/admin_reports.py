@@ -1432,6 +1432,27 @@ def get_user_profile_stats(publisher_id):
                  {'n': 'Finance Lead Gen', 'pay': '$35.00', 'm': 82, 't': False, 'category': 'Finance', 'geo': 'US/UK'}
              ]
 
+        # Fetch placement / offerwall URL for this publisher
+        placements_col = db_instance.get_collection('placements')
+        offerwall_url = None
+        placement_info = None
+        if placements_col is not None:
+            placement = placements_col.find_one(
+                {'publisherId': ObjectId(publisher_id), 'status': {'$in': ['LIVE', 'APPROVED']}},
+                {'placementIdentifier': 1, 'apiKey': 1, 'offerwallTitle': 1, 'status': 1}
+            )
+            if placement:
+                pid = placement.get('placementIdentifier', '')
+                api_key = placement.get('apiKey', '')
+                offerwall_url = f"https://offerwall.moustacheleads.com/offerwall?placement_id={pid}&api_key={api_key}&user_id={{USER_ID}}"
+                placement_info = {
+                    'placement_identifier': pid,
+                    'api_key': api_key,
+                    'offerwall_title': placement.get('offerwallTitle', ''),
+                    'status': placement.get('status', ''),
+                    'offerwall_url': offerwall_url
+                }
+
         return jsonify({
             'success': True,
             'stats': {
@@ -1445,7 +1466,9 @@ def get_user_profile_stats(publisher_id):
                 'top_viewed_offers': top_viewed_offers,
                 'top_vertical': top_vertical,
                 'avg_time_spent': total_time_formatted,  # Now shows total time, not average
-                'total_time_spent_seconds': total_time_spent
+                'total_time_spent_seconds': total_time_spent,
+                'offerwall_url': offerwall_url,
+                'placement_info': placement_info
             }
         })
     except Exception as e:

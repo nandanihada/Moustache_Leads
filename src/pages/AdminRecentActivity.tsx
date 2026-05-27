@@ -3150,6 +3150,7 @@ Team Moustache Leads`;
         open={automationQueueOpen}
         onOpenChange={setAutomationQueueOpen}
         apiUrl={API_URL}
+        preSelectedUserIds={selectedUserIds}
         allUsers={users.map(u => ({
           user_id: u.user_id,
           username: u.username,

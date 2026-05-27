@@ -58,7 +58,8 @@ export const AutomationQueueDashboardModal: React.FC<{
   onOpenChange: (open: boolean) => void;
   apiUrl: string;
   allUsers?: any[];
-}> = ({ open, onOpenChange, apiUrl, allUsers = [] }) => {
+  preSelectedUserIds?: Set<string>;
+}> = ({ open, onOpenChange, apiUrl, allUsers = [], preSelectedUserIds }) => {
   const [queue, setQueue] = useState<AutomationQueueItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -279,11 +280,16 @@ export const AutomationQueueDashboardModal: React.FC<{
   };
 
   const mergedQueue = useMemo(() => {
+    // If admin pre-selected specific users from the main page, only show those
+    const effectiveUsers = (preSelectedUserIds && preSelectedUserIds.size > 0)
+      ? allUsers.filter(u => preSelectedUserIds.has(String(u.user_id)))
+      : allUsers;
+
     // START WITH A FILTERED VIEW: Only show users who are in the current dashboard view (Recent Activity)
     // This ensures perfect parity between the main dashboard and the engine.
     const queueMap = new Map(queue.map(q => [String(q.user_id), q]));
     
-    return allUsers.map(u => {
+    return effectiveUsers.map(u => {
       const uId = String(u.user_id);
       const existing = queueMap.get(uId);
       if (existing) {
@@ -302,7 +308,7 @@ export const AutomationQueueDashboardModal: React.FC<{
         last_login: u.logs?.[0]?.login_time || new Date().toISOString()
       };
     });
-  }, [queue, allUsers]);
+  }, [queue, allUsers, preSelectedUserIds]);
 
   const filteredQueue = useMemo(() => {
     return mergedQueue.filter(item => {
@@ -358,20 +364,25 @@ export const AutomationQueueDashboardModal: React.FC<{
     return queue.filter(item => selectedIds.has(item.user_id));
   }, [queue, selectedIds]);
 
+  if (!open) return null;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-auto max-h-[92vh] min-h-[500px] flex flex-col p-0 overflow-hidden border border-slate-200 shadow-2xl rounded-2xl">
-        <DialogHeader className="px-0 py-0 border-b bg-slate-50 shrink-0">
-          <div className="flex items-center justify-between px-6 py-4">
+    <div className="fixed inset-0 z-50 bg-black/80" onClick={() => onOpenChange(false)}>
+      <div 
+        className="fixed top-[10px] bottom-[10px] left-[10px] right-[10px] z-50 bg-background border border-slate-200 shadow-2xl rounded-2xl flex flex-col overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-0 py-0 border-b bg-slate-50 shrink-0">
+          <div className="flex items-center justify-between px-4 py-3 gap-2 overflow-x-auto">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-indigo-600 rounded-xl text-white shadow-lg">
                   <Zap size={20} className="fill-white" />
                 </div>
                 <div>
-                  <DialogTitle className="text-xl font-black text-slate-900 tracking-tight">
+                  <h2 className="text-xl font-black text-slate-900 tracking-tight">
                     {dashboardTab === 'automation' ? 'Automation Engine' : 'Offer Queue Control'}
-                  </DialogTitle>
+                  </h2>
                   <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest opacity-70">
                     {dashboardTab === 'automation' ? 'Live Outreach Cycles' : 'Scheduled Individual Offers'}
                   </p>
@@ -435,6 +446,9 @@ export const AutomationQueueDashboardModal: React.FC<{
                 <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Refresh Data
               </Button>
+              <button onClick={() => onOpenChange(false)} className="ml-2 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none">
+                <X className="h-5 w-5" />
+              </button>
               {selectedIds.size > 0 && (
                 <div className="flex items-center gap-2 animate-in zoom-in duration-200">
                   <Button
@@ -521,16 +535,17 @@ export const AutomationQueueDashboardModal: React.FC<{
                     }}
                   >
                     <Zap size={14} className="fill-white" />
-                    BULK START NOW ({selectedIds.size})
+                    BULK OUTREACH ({selectedIds.size})
                   </Button>
                 </div>
               )}
             </div>
           </div>
-        </DialogHeader>
-        <Tabs value={dashboardTab} onValueChange={(v: any) => setDashboardTab(v)} className="flex-1 flex flex-col min-h-0">
-          <TabsContent value="automation" className="flex-1 flex flex-col min-h-0 m-0 outline-none">
-            <div className="px-6 py-3 border-b bg-slate-50/30 grid grid-cols-6 gap-3">
+        </div>
+        <Tabs value={dashboardTab} onValueChange={(v: any) => setDashboardTab(v)} style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {dashboardTab === 'automation' && (
+          <div style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div className="px-4 py-2 border-b bg-slate-50/30 grid grid-cols-6 gap-2 shrink-0">
           <div
             className={`flex flex-col cursor-pointer p-2 rounded-lg transition-all ${filter === 'active' ? 'bg-blue-50 border border-blue-200 shadow-sm' : 'hover:bg-slate-100 border border-transparent'}`}
             onClick={() => setFilter('active')}
@@ -608,7 +623,7 @@ export const AutomationQueueDashboardModal: React.FC<{
           </div>
         </div>
 
-        <div className="p-4 border-b bg-white flex items-center justify-between gap-4">
+        <div className="p-3 border-b bg-white flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-4 flex-1">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -660,7 +675,7 @@ export const AutomationQueueDashboardModal: React.FC<{
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-0 bg-white">
+        <div className="flex-1 overflow-y-auto p-0 bg-white" style={{ flex: '1 1 0%', minHeight: 0, overflowY: 'auto' }}>
           <Table>
             <TableHeader className="bg-slate-50 sticky top-0 z-10 shadow-sm">
               <TableRow>
@@ -1188,8 +1203,10 @@ export const AutomationQueueDashboardModal: React.FC<{
             </TableBody>
           </Table>
         </div>
-      </TabsContent>
-      <TabsContent value="offers" className="flex-1 flex flex-col min-h-0 m-0 outline-none bg-slate-50/30">
+      </div>
+      )}
+      {dashboardTab === 'offers' && (
+      <div style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="bg-slate-50/30">
         <div className="flex items-center justify-between p-4 bg-white border-b shrink-0">
            <div className="flex items-center gap-4">
              <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-xl">
@@ -1307,7 +1324,8 @@ export const AutomationQueueDashboardModal: React.FC<{
             </TableBody>
           </Table>
         </div>
-      </TabsContent>
+      </div>
+      )}
     </Tabs>
         {/* Offer Selection Sub-Modal */}
         <Dialog open={offerModalOpen} onOpenChange={setOfferModalOpen}>
@@ -1474,7 +1492,7 @@ export const AutomationQueueDashboardModal: React.FC<{
             startInPreview={initialPreviewMode}
           />
         )}
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 };

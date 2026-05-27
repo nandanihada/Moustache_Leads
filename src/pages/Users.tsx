@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX, UserPlus, RefreshCw, Eye, EyeOff, ChevronDown, ChevronRight, Globe, Activity, BarChart2, PieChart, MessageSquare, Send, TrendingUp, ShieldAlert, Award, Filter, Users as UsersIcon, FileCheck, Download, X } from "lucide-react";
+import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX, UserPlus, RefreshCw, Eye, EyeOff, ChevronDown, ChevronRight, Globe, Activity, BarChart2, PieChart, MessageSquare, Send, TrendingUp, ShieldAlert, Award, Filter, Users as UsersIcon, FileCheck, Download, X, Copy, Link } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1017,6 +1017,42 @@ const Users = () => {
                               <TableCell colSpan={pendingInView.length > 0 ? 10 : 9} className="p-0 border-0">
                                 <div className="animate-in slide-in-from-top-2 fade-in duration-200 border-x-4 border-indigo-500 rounded-bl-lg rounded-br-lg">
                                   <div className="p-6 md:p-8 space-y-6">
+
+                                    {/* OFFERWALL URL */}
+                                    {profileStats[user._id]?.offerwall_url && (
+                                      <div className="bg-gradient-to-r from-indigo-50 to-blue-50 p-5 rounded-2xl border-2 border-indigo-200 shadow-md">
+                                        <h4 className="text-base font-bold text-indigo-800 mb-3 flex items-center gap-2">
+                                          <Link className="w-5 h-5 text-indigo-600" /> Offerwall URL
+                                          {profileStats[user._id]?.placement_info?.offerwall_title && (
+                                            <Badge variant="outline" className="ml-2 text-xs bg-indigo-100 text-indigo-700 border-indigo-300">
+                                              {profileStats[user._id].placement_info.offerwall_title}
+                                            </Badge>
+                                          )}
+                                          {profileStats[user._id]?.placement_info?.status && (
+                                            <Badge className={`ml-1 text-xs ${profileStats[user._id].placement_info.status === 'LIVE' ? 'bg-green-100 text-green-700 border-green-300' : 'bg-yellow-100 text-yellow-700 border-yellow-300'}`}>
+                                              {profileStats[user._id].placement_info.status}
+                                            </Badge>
+                                          )}
+                                        </h4>
+                                        <div className="flex items-center gap-2">
+                                          <code className="flex-1 text-xs bg-white px-4 py-2.5 rounded-lg border border-indigo-200 text-slate-700 font-mono overflow-x-auto whitespace-nowrap">
+                                            {profileStats[user._id].offerwall_url}
+                                          </code>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="flex-shrink-0 border-indigo-300 text-indigo-700 hover:bg-indigo-100"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              navigator.clipboard.writeText(profileStats[user._id].offerwall_url);
+                                              toast({ title: "Copied!", description: "Offerwall URL copied to clipboard" });
+                                            }}
+                                          >
+                                            <Copy className="w-4 h-4 mr-1" /> Copy
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    )}
 
                                     {/* APPROVED & REJECTED OFFERS */}
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
