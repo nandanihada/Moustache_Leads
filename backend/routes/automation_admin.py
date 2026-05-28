@@ -101,7 +101,23 @@ def get_queue_item(user_id):
     model = AutomationState()
     item = model.get_user_state(user_id)
     if not item:
-        return jsonify({'error': 'Not found'}), 404
+        # Auto-initialize state for users who don't have one yet
+        service = get_automation_service()
+        service.handle_user_activity(user_id, activity_type='AdminView', force_reset=True)
+        item = model.get_user_state(user_id)
+        if not item:
+            # Return a minimal placeholder instead of 404
+            return jsonify({'item': {
+                '_id': '',
+                'user_id': user_id,
+                'username': 'Unknown',
+                'queue_status': 'active',
+                'current_step': 0,
+                'delivery_status': 'pending',
+                'next_offers': [],
+                'sent_history': [],
+                'matched_verticals': []
+            }}), 200
         
     item['_id'] = str(item['_id'])
     service = get_automation_service()
@@ -192,3 +208,103 @@ def purge_queue():
     db = db_instance.get_db()
     db.automation_states.delete_many({})
     return jsonify({'message': 'All automation data has been permanently cleared'})
+
+
+@automation_admin_bp.route('/automation/email-history', methods=['GET'])
+@token_required
+def get_email_history():
+    """Get full email history for the automation flow with filtering"""
+    user = request.current_user
+    if user.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    page = int(request.args.get('page', 1))
+    per_page = int(request.args.get('per_page', 50))
+    user_id_filter = request.args.get('user_id', '')
+    status_filter = request.args.get('status', '')
+    username_filter = request.args.get('username', '')
+    
+    db = db_instance.get_db()
+    scheduled_col = db['scheduled_emails']
+    
+    # If username filter provided, resolve to user_id first
+    if username_filter and not user_id_filter:
+        users_col = db['users']
+        matched_user = users_col.find_one(
+            {'username': {'$regex': username_filter, '$options': 'i'}},
+            {'_id': 1}
+        )
+        if matched_user:
+            user_id_filter = str(matched_user['_id'])
+        else:
+            # No user found, return empty
+            return jsonify({
+                'success': True, 'emails': [], 'total': 0,
+                'page': page, 'per_page': per_page, 'pages': 0
+            })
+    
+    # Build query - only automation-related emails
+    query = {
+        '$or': [
+            {'type': {'$regex': '^automation_'}},
+            {'created_by': 'automation_engine'}
+        ]
+    }
+    
+    if user_id_filter:
+        query['user_id'] = user_id_filter
+    if status_filter:
+        query['status'] = status_filter
+    
+    total = scheduled_col.count_documents(query)
+    skip = (page - 1) * per_page
+    
+    emails = list(scheduled_col.find(query).sort('created_at', -1).skip(skip).limit(per_page))
+    
+    # Enrich with username lookup
+    user_ids = list(set(str(e.get('user_id', '')) for e in emails if e.get('user_id')))
+    users_col = db['users']
+    username_map = {}
+    if user_ids:
+        from bson import ObjectId
+        obj_ids = []
+        for uid in user_ids:
+            try:
+                obj_ids.append(ObjectId(uid))
+            except:
+                pass
+        if obj_ids:
+            users_data = list(users_col.find({'_id': {'$in': obj_ids}}, {'username': 1, 'email': 1}))
+            for u in users_data:
+                username_map[str(u['_id'])] = {'username': u.get('username', 'Unknown'), 'email': u.get('email', '')}
+    
+    result = []
+    for e in emails:
+        e['_id'] = str(e['_id'])
+        uid = str(e.get('user_id', ''))
+        user_info = username_map.get(uid, {})
+        result.append({
+            'id': e['_id'],
+            'user_id': uid,
+            'username': user_info.get('username', 'Unknown'),
+            'user_email': user_info.get('email', e.get('recipients', [''])[0] if e.get('recipients') else ''),
+            'subject': e.get('subject', ''),
+            'type': e.get('type', ''),
+            'step': e.get('step', 0),
+            'status': e.get('status', ''),
+            'scheduled_at': e.get('scheduled_at').isoformat() + 'Z' if e.get('scheduled_at') else None,
+            'created_at': e.get('created_at').isoformat() + 'Z' if e.get('created_at') else None,
+            'sent_at': e.get('sent_at').isoformat() + 'Z' if e.get('sent_at') else None,
+            'created_by': e.get('created_by', ''),
+            'related_offer_ids': e.get('related_offer_ids', []),
+            'error_message': e.get('error_message', '')
+        })
+    
+    return jsonify({
+        'success': True,
+        'emails': result,
+        'total': total,
+        'page': page,
+        'per_page': per_page,
+        'pages': (total + per_page - 1) // per_page
+    })

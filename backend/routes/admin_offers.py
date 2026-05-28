@@ -2813,7 +2813,7 @@ def unpin_single_offer(offer_id):
 @token_required
 @subadmin_or_admin_required('offers')
 def bulk_percentage_payout():
-    """Apply percentage increase/decrease to selected offers' payouts"""
+    """Apply percentage increase/decrease to publisher-facing payouts (admin/network price stays fixed)"""
     try:
         data = request.get_json()
         if not data or 'percentage' not in data:
@@ -2833,17 +2833,50 @@ def bulk_percentage_payout():
             return jsonify({'error': 'Database connection failed'}), 500
 
         query = {'offer_id': {'$in': offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
-        offers = list(offers_collection.find(query, {'offer_id': 1, 'payout': 1}))
+        offers = list(offers_collection.find(query, {'offer_id': 1, 'payout': 1, 'publisher_payout_override': 1, 'payout_history': 1}))
 
         updated = 0
         for offer in offers:
-            old_payout = float(offer.get('payout', 0) or 0)
-            new_payout = round(old_payout * (1 + percentage / 100), 2)
-            if new_payout < 0:
-                new_payout = 0
+            admin_payout = float(offer.get('payout', 0) or 0)
+            # Calculate current publisher payout (use override if exists, else 80% of admin)
+            current_publisher_payout = float(offer.get('publisher_payout_override', 0) or 0)
+            if current_publisher_payout <= 0:
+                current_publisher_payout = round(admin_payout * 0.8, 2)
+            
+            # Apply percentage to publisher payout only
+            new_publisher_payout = round(current_publisher_payout * (1 + percentage / 100), 2)
+            if new_publisher_payout < 0:
+                new_publisher_payout = 0
+            
+            # Cap: publisher payout cannot exceed admin payout (would mean negative margin)
+            if new_publisher_payout > admin_payout:
+                new_publisher_payout = admin_payout
+            
+            # Build payout history entry
+            history_entry = {
+                'date': datetime.utcnow(),
+                'old_publisher_payout': current_publisher_payout,
+                'new_publisher_payout': new_publisher_payout,
+                'admin_payout': admin_payout,
+                'change_type': 'percentage',
+                'percentage': percentage,
+                'changed_by': request.current_user.get('username', 'admin')
+            }
+            
             offers_collection.update_one(
                 {'offer_id': offer['offer_id']},
-                {'$set': {'payout': new_payout, 'updated_at': datetime.utcnow()}}
+                {
+                    '$set': {
+                        'publisher_payout_override': new_publisher_payout,
+                        'updated_at': datetime.utcnow()
+                    },
+                    '$push': {
+                        'payout_history': {
+                            '$each': [history_entry],
+                            '$slice': -50  # Keep last 50 entries
+                        }
+                    }
+                }
             )
             updated += 1
 
@@ -2851,14 +2884,14 @@ def bulk_percentage_payout():
             action='bulk_percentage_payout',
             category='offer',
             admin_user=request.current_user,
-            details={'percentage': percentage, 'updated_count': updated, 'requested_count': len(offer_ids)},
+            details={'percentage': percentage, 'updated_count': updated, 'requested_count': len(offer_ids), 'target': 'publisher_payout'},
             affected_count=updated,
             request_obj=request
         )
 
         direction = "increased" if percentage > 0 else "decreased"
         return jsonify({
-            'message': f'Payout {direction} by {abs(percentage)}% for {updated} offer(s)',
+            'message': f'Publisher payout {direction} by {abs(percentage)}% for {updated} offer(s). Admin/network price unchanged.',
             'updated_count': updated
         }), 200
 

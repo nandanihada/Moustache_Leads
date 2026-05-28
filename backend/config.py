@@ -18,6 +18,9 @@ class Config:
     # Tracking URL base - uses offers subdomain in production
     TRACKING_BASE_URL = os.getenv('TRACKING_BASE_URL', 'https://offers.moustacheleads.com')
     
+    # Admin impersonation secret (must match to allow login-as-user)
+    ADMIN_IMPERSONATE_SECRET = os.getenv('ADMIN_IMPERSONATE_SECRET', '')
+
     # IPQualityScore API key for referral fraud detection
     IPQUALITYSCORE_API_KEY = os.getenv('IPQUALITYSCORE_API_KEY', '')
 

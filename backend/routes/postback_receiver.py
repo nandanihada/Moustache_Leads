@@ -212,29 +212,37 @@ def calculate_downward_payout(upward_payout, offer):
                 'calculation_method': f'{percent}% of {upward_payout}'
             }
         else:
-            # Fixed payout: publisher gets 80% of offer's payout (20% platform margin)
+            # Fixed payout: use publisher_payout_override if set, else 80% of offer's payout
             offer_payout = float(offer.get('payout', 0))
-            publisher_payout = round(offer_payout * 0.8, 2)
-            
-            logger.info(f"💰 Publisher payout: {offer_payout} × 80% = {publisher_payout} (upward was {upward_payout})")
+            pub_override = offer.get('publisher_payout_override')
+            if pub_override and float(pub_override) > 0:
+                publisher_payout = round(float(pub_override), 2)
+                logger.info(f"💰 Publisher payout (override): {publisher_payout} (admin payout: {offer_payout}, upward: {upward_payout})")
+            else:
+                publisher_payout = round(offer_payout * 0.8, 2)
+                logger.info(f"💰 Publisher payout: {offer_payout} × 80% = {publisher_payout} (upward was {upward_payout})")
             
             return {
                 'downward_payout': publisher_payout,
                 'is_percentage': False,
                 'revenue_share_percent': 0,
-                'calculation_method': f'80% of {offer_payout} = {publisher_payout}'
+                'calculation_method': f'publisher_payout={publisher_payout} (admin={offer_payout})'
             }
             
     except Exception as e:
         logger.error(f"❌ Error calculating downward payout: {e}")
-        # Fallback to 80% of offer's payout
+        # Fallback: use override if available, else 80% of offer's payout
         offer_payout = float(offer.get('payout', 0))
-        publisher_payout = round(offer_payout * 0.8, 2)
+        pub_override = offer.get('publisher_payout_override')
+        if pub_override and float(pub_override) > 0:
+            publisher_payout = round(float(pub_override), 2)
+        else:
+            publisher_payout = round(offer_payout * 0.8, 2)
         return {
             'downward_payout': publisher_payout,
             'is_percentage': False,
             'revenue_share_percent': 0,
-            'calculation_method': 'Fallback: 80% of offer payout'
+            'calculation_method': 'Fallback: publisher payout'
         }
 
 def get_username_from_user_id(user_id):

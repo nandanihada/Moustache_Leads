@@ -828,11 +828,12 @@ const AdminRecentActivity: React.FC = () => {
   const [automationStats, setAutomationStats] = useState({ active: 0, completed: 0, failed: 0, inCooldown: 0 });
   const [globalAutomationStats, setGlobalAutomationStats] = useState({ active: 0, completed: 0, failed: 0, inCooldown: 0 });
   const [automationQueue, setAutomationQueue] = useState<any[]>([]);
-  const [automationSettings, setAutomationSettings] = useState({
+  const [automationSettings, setAutomationSettings] = useState<any>({
     enabled: true,
     initial_delay_hours: 5,
     step_interval_minutes: 200,
-    cooldown_days: 7
+    cooldown_days: 7,
+    dry_run: false
   });
 
   const [delayValue, setDelayValue] = useState<number>(5);
@@ -853,7 +854,9 @@ const AdminRecentActivity: React.FC = () => {
         setDelayUnit('hours');
       }
     }
-  }, [automationSettingsOpen, automationSettings]);
+    // Only recalculate when modal opens, not on every settings change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [automationSettingsOpen]);
 
   const { toast } = useToast();
   const [quickOutreachLoadingId, setQuickOutreachLoadingId] = useState<string | null>(null);
@@ -1519,7 +1522,11 @@ Team Moustache Leads`;
       ]);
       clearTimeout(timeoutId);
 
-      if (settingsRes.settings && !automationSettingsOpen) setAutomationSettings(settingsRes.settings);
+      if (settingsRes.settings && !automationSettingsOpen) setAutomationSettings(prev => ({
+        ...prev,
+        ...settingsRes.settings,
+        dry_run: settingsRes.settings.dry_run ?? prev.dry_run ?? false
+      }));
       const automationQueueRawData = queueRes.queue || [];
       setAutomationQueue(automationQueueRawData);
       (window as any)._rawQueue = automationQueueRawData;
@@ -3014,6 +3021,18 @@ Team Moustache Leads`;
                     checked={automationSettings.enabled}
                     onChange={e => setAutomationSettings({ ...automationSettings, enabled: e.target.checked })}
                     className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex items-center justify-between p-2 bg-purple-50 rounded-lg border border-purple-100">
+                  <div className="flex flex-col">
+                    <span className="text-xs font-medium text-purple-700">🧪 Test Mode (Dry Run)</span>
+                    <span className="text-[9px] text-purple-500">Emails logged but NOT sent</span>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!automationSettings.dry_run}
+                    onChange={e => setAutomationSettings({ ...automationSettings, dry_run: e.target.checked })}
+                    className="h-4 w-4 rounded border-purple-300 text-purple-600 focus:ring-purple-500"
                   />
                 </div>
                 <div className="space-y-1">

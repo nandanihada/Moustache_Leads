@@ -222,7 +222,7 @@ def get_available_offers():
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
-            'payout': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'payout': 1, 'publisher_payout_override': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
             'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
             'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
             'affiliates': 1, 'selected_users': 1, 'is_active': 1,
@@ -325,12 +325,16 @@ def get_available_offers():
                 if '_id' in offer:
                     offer['_id'] = str(offer['_id'])
                 
-                # Calculate publisher payout (80% of original - 20% platform cut)
+                # Calculate publisher payout: use override if set, else 80% of admin payout
                 try:
                     original_payout = float(offer.get('payout', 0) or 0)
                 except (ValueError, TypeError):
                     original_payout = 0.0
-                publisher_payout = round(original_payout * 0.8, 2)
+                publisher_override = offer.get('publisher_payout_override')
+                if publisher_override and float(publisher_override) > 0:
+                    publisher_payout = round(float(publisher_override), 2)
+                else:
+                    publisher_payout = round(original_payout * 0.8, 2)
                 
                 # Calculate publisher revenue share (90% of admin percentage)
                 try:
@@ -596,9 +600,13 @@ def get_offer_details(offer_id):
         if '_id' in offer:
             offer['_id'] = str(offer['_id'])
         
-        # Calculate publisher payout (80% of original - 20% platform cut)
+        # Calculate publisher payout: use override if set, else 80% of admin payout
         original_payout = float(offer.get('payout', 0))
-        offer['payout'] = round(original_payout * 0.8, 2)
+        publisher_override = offer.get('publisher_payout_override')
+        if publisher_override and float(publisher_override) > 0:
+            offer['payout'] = round(float(publisher_override), 2)
+        else:
+            offer['payout'] = round(original_payout * 0.8, 2)
         
         logger.info(f"✅ Returning offer details: {offer.get('name')}")
         
@@ -905,7 +913,7 @@ def autocomplete_offers():
         projection = {
             'offer_id': 1, 'name': 1, 'countries': 1,
             'category': 1, 'vertical': 1, 'categories': 1,
-            'payout': 1, 'currency': 1, 'status': 1,
+            'payout': 1, 'publisher_payout_override': 1, 'currency': 1, 'status': 1,
         }
 
         # Fetch up to 30 candidates, then rank and return top 10
@@ -959,7 +967,11 @@ def autocomplete_offers():
             vertical = cats[0] if cats else (offer.get('vertical') or offer.get('category') or 'OTHER')
 
             try:
-                payout = round(float(offer.get('payout', 0) or 0) * 0.8, 2)
+                _override = offer.get('publisher_payout_override')
+                if _override and float(_override) > 0:
+                    payout = round(float(_override), 2)
+                else:
+                    payout = round(float(offer.get('payout', 0) or 0) * 0.8, 2)
             except (ValueError, TypeError):
                 payout = 0
 
@@ -1236,7 +1248,7 @@ def get_my_offers():
 
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
-            'payout': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'payout': 1, 'publisher_payout_override': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
             'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
             'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
             'target_url': 1, 'masked_url': 1,

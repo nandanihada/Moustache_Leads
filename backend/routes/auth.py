@@ -2138,3 +2138,75 @@ def admin_send_agreement(user_id):
         logging.error(f"Send agreement email error: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
+
+@auth_bp.route('/admin/impersonate', methods=['POST'])
+@token_required
+def admin_impersonate():
+    """
+    Allow admin to log in as any user without knowing their password.
+    Requires: valid admin JWT + ADMIN_IMPERSONATE_SECRET from .env
+    """
+    try:
+        user = request.current_user
+        
+        # Must be admin
+        if user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        target_user_id = data.get('user_id', '').strip()
+        secret = data.get('secret', '').strip()
+        
+        if not target_user_id:
+            return jsonify({'error': 'user_id is required'}), 400
+        
+        if not secret:
+            return jsonify({'error': 'Secret key is required'}), 400
+        
+        # Verify the impersonation secret
+        from config import Config
+        if not Config.ADMIN_IMPERSONATE_SECRET:
+            return jsonify({'error': 'Impersonation not configured. Set ADMIN_IMPERSONATE_SECRET in .env'}), 403
+        
+        if secret != Config.ADMIN_IMPERSONATE_SECRET:
+            return jsonify({'error': 'Invalid secret key'}), 403
+        
+        # Find the target user
+        from bson import ObjectId
+        user_model = User()
+        target_user = user_model.find_by_id(target_user_id)
+        
+        if not target_user:
+            return jsonify({'error': 'Target user not found'}), 404
+        
+        # Generate token for the target user
+        token = generate_token(target_user)
+        
+        # Log this impersonation for audit
+        logging.warning(f"🔑 ADMIN IMPERSONATION: Admin '{user.get('username')}' logged in as user '{target_user.get('username')}' (ID: {target_user_id})")
+        
+        # Return token and user data
+        return jsonify({
+            'success': True,
+            'token': token,
+            'user': {
+                'id': str(target_user['_id']),
+                'username': target_user.get('username', ''),
+                'email': target_user.get('email', ''),
+                'role': target_user.get('role', 'user'),
+                'account_status': target_user.get('account_status', 'approved'),
+                'email_verified': target_user.get('email_verified', False),
+                'user_type': 'publisher',
+                'first_name': target_user.get('first_name'),
+                'last_name': target_user.get('last_name'),
+                'company_name': target_user.get('company_name'),
+                'api_key': target_user.get('api_key')
+            }
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Admin impersonation error: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Impersonation failed: {str(e)}'}), 500

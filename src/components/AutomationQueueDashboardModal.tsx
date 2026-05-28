@@ -76,9 +76,18 @@ export const AutomationQueueDashboardModal: React.FC<{
   const { user: currentUser } = useAuth();
 
   const [fetchingItem, setFetchingItem] = useState<string | null>(null);
-  const [dashboardTab, setDashboardTab] = useState<'automation' | 'offers'>('automation');
+  const [dashboardTab, setDashboardTab] = useState<'automation' | 'offers' | 'history'>('automation');
   const [liveOfferQueue, setLiveOfferQueue] = useState<OfferQueueItem[]>([]);
   const [isProcessingOffers, setIsProcessingOffers] = useState(false);
+
+  // Email History state
+  const [emailHistory, setEmailHistory] = useState<any[]>([]);
+  const [emailHistoryLoading, setEmailHistoryLoading] = useState(false);
+  const [emailHistoryPage, setEmailHistoryPage] = useState(1);
+  const [emailHistoryTotal, setEmailHistoryTotal] = useState(0);
+  const [emailHistoryFilter, setEmailHistoryFilter] = useState<'all' | 'pending' | 'sent' | 'failed' | 'dry_run'>('all');
+  const [emailHistorySearch, setEmailHistorySearch] = useState('');
+  const [emailHistoryUserFilter, setEmailHistoryUserFilter] = useState('');
 
   // Subscribe to Live Offer Queue
   useEffect(() => {
@@ -136,6 +145,32 @@ export const AutomationQueueDashboardModal: React.FC<{
     } finally {
       clearTimeout(timeoutId);
       setLoading(false);
+    }
+  };
+
+  const loadEmailHistory = async (page = 1) => {
+    setEmailHistoryLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const params = new URLSearchParams({
+        page: String(page),
+        per_page: '50',
+        ...(emailHistoryFilter !== 'all' ? { status: emailHistoryFilter } : {}),
+        ...(emailHistoryUserFilter ? { user_id: emailHistoryUserFilter } : {})
+      });
+      const res = await fetch(`${apiUrl}/api/admin/automation/email-history?${params}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEmailHistory(data.emails || []);
+        setEmailHistoryTotal(data.total || 0);
+        setEmailHistoryPage(page);
+      }
+    } catch (e) {
+      toast({ title: 'Error', description: 'Failed to load email history', variant: 'destructive' });
+    } finally {
+      setEmailHistoryLoading(false);
     }
   };
 
@@ -260,6 +295,12 @@ export const AutomationQueueDashboardModal: React.FC<{
     }
   }, [open]);
 
+  useEffect(() => {
+    if (open && dashboardTab === 'history') {
+      loadEmailHistory(1);
+    }
+  }, [open, dashboardTab, emailHistoryFilter, emailHistoryUserFilter]);
+
   const getCountdown = (target: string) => {
     if (!target) return '---';
     const diff = new Date(target).getTime() - new Date().getTime();
@@ -361,8 +402,10 @@ export const AutomationQueueDashboardModal: React.FC<{
   }, [mergedQueue]);
 
   const bulkItems = useMemo(() => {
-    return queue.filter(item => selectedIds.has(item.user_id));
-  }, [queue, selectedIds]);
+    // Use mergedQueue (which includes placeholder items for users without backend state)
+    // instead of raw queue, so ALL selected users are included in bulk outreach
+    return mergedQueue.filter(item => selectedIds.has(item.user_id));
+  }, [mergedQueue, selectedIds]);
 
   if (!open) return null;
 
@@ -381,10 +424,10 @@ export const AutomationQueueDashboardModal: React.FC<{
                 </div>
                 <div>
                   <h2 className="text-xl font-black text-slate-900 tracking-tight">
-                    {dashboardTab === 'automation' ? 'Automation Engine' : 'Offer Queue Control'}
+                    {dashboardTab === 'automation' ? 'Automation Engine' : dashboardTab === 'history' ? 'Email History' : 'Offer Queue Control'}
                   </h2>
                   <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest opacity-70">
-                    {dashboardTab === 'automation' ? 'Live Outreach Cycles' : 'Scheduled Individual Offers'}
+                    {dashboardTab === 'automation' ? 'Live Outreach Cycles' : dashboardTab === 'history' ? 'All Emails Sent From Automation' : 'Scheduled Individual Offers'}
                   </p>
                 </div>
               </div>
@@ -408,6 +451,13 @@ export const AutomationQueueDashboardModal: React.FC<{
                       {liveOfferQueue.filter(q => q.status === 'queued').length}
                     </span>
                   )}
+                </button>
+                <button
+                  className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-black transition-all ${dashboardTab === 'history' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  onClick={() => setDashboardTab('history')}
+                >
+                  <Mail size={14} />
+                  EMAIL HISTORY
                 </button>
               </div>
             </div>
@@ -526,7 +576,7 @@ export const AutomationQueueDashboardModal: React.FC<{
                     size="sm"
                     className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg font-black text-[10px] h-8 gap-2 animate-in zoom-in duration-300"
                     onClick={() => {
-                      const selectedItems = queue.filter(item => selectedIds.has(item.user_id));
+                      const selectedItems = mergedQueue.filter(item => selectedIds.has(item.user_id));
                       if (selectedItems.length > 0) {
                         setSelectedQueueItem(selectedItems[0]);
                         setSendNowOpen(true);
@@ -1324,6 +1374,174 @@ export const AutomationQueueDashboardModal: React.FC<{
             </TableBody>
           </Table>
         </div>
+      </div>
+      )}
+      {dashboardTab === 'history' && (
+      <div style={{ flex: '1 1 0%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} className="bg-white">
+        {/* Email History Header */}
+        <div className="flex items-center justify-between p-4 border-b bg-slate-50/50 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
+              {(['all', 'pending', 'sent', 'failed', 'dry_run'] as const).map(f => (
+                <button
+                  key={f}
+                  className={`px-3 py-1 rounded text-[10px] font-black uppercase transition-all ${emailHistoryFilter === f ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  onClick={() => setEmailHistoryFilter(f)}
+                >
+                  {f === 'all' ? 'All' : f === 'dry_run' ? '🧪 Test' : f}
+                </button>
+              ))}
+            </div>
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Filter by username..."
+                value={emailHistorySearch}
+                onChange={(e) => setEmailHistorySearch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    // Find user_id by username from allUsers
+                    const matchedUser = allUsers.find(u => 
+                      (u.username || '').toLowerCase().includes(emailHistorySearch.toLowerCase())
+                    );
+                    setEmailHistoryUserFilter(matchedUser ? String(matchedUser.user_id) : emailHistorySearch);
+                  }
+                }}
+                className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg w-[200px] focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              />
+              {emailHistoryUserFilter && (
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  onClick={() => { setEmailHistoryUserFilter(''); setEmailHistorySearch(''); }}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            {emailHistoryUserFilter && (
+              <Badge variant="secondary" className="bg-indigo-50 text-indigo-600 text-[10px]">
+                Filtered: {emailHistorySearch || emailHistoryUserFilter}
+              </Badge>
+            )}
+            <span className="text-xs text-slate-500 font-medium">{emailHistoryTotal} total emails</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => loadEmailHistory(emailHistoryPage)} disabled={emailHistoryLoading}>
+              <RefreshCw className={`w-3 h-3 mr-2 ${emailHistoryLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        {/* Email History Table */}
+        <div className="flex-1 overflow-y-auto">
+          {emailHistoryLoading ? (
+            <div className="flex items-center justify-center h-40">
+              <RefreshCw className="w-6 h-6 animate-spin text-slate-400" />
+            </div>
+          ) : emailHistory.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-40 text-slate-400">
+              <Mail size={32} className="mb-2 opacity-50" />
+              <p className="text-sm font-medium">No automation emails found</p>
+              <p className="text-xs">Emails sent from the automation flow will appear here</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50/50">
+                  <TableHead className="text-[10px] font-black uppercase w-[50px]">#</TableHead>
+                  <TableHead className="text-[10px] font-black uppercase">User</TableHead>
+                  <TableHead className="text-[10px] font-black uppercase">Subject</TableHead>
+                  <TableHead className="text-[10px] font-black uppercase w-[80px]">Step</TableHead>
+                  <TableHead className="text-[10px] font-black uppercase w-[100px]">Status</TableHead>
+                  <TableHead className="text-[10px] font-black uppercase w-[120px]">Scheduled</TableHead>
+                  <TableHead className="text-[10px] font-black uppercase w-[120px]">Sent At</TableHead>
+                  <TableHead className="text-[10px] font-black uppercase w-[100px]">Created By</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {emailHistory.map((email, idx) => (
+                  <TableRow key={email.id} className="hover:bg-slate-50/50">
+                    <TableCell className="text-xs text-slate-400 font-mono">
+                      {(emailHistoryPage - 1) * 50 + idx + 1}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col">
+                        <span 
+                          className="text-xs font-bold text-indigo-600 cursor-pointer hover:underline"
+                          onClick={() => {
+                            setEmailHistorySearch(email.username);
+                            setEmailHistoryUserFilter(email.user_id);
+                          }}
+                          title="Click to filter by this user"
+                        >
+                          {email.username}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{email.user_email}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-xs text-slate-600 truncate block max-w-[250px]" title={email.subject}>
+                        {email.subject}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[9px] bg-indigo-50 text-indigo-600 border-indigo-100">
+                        Step {email.step || '?'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={`text-[9px] ${
+                        email.status === 'sent' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                        email.status === 'pending' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        email.status === 'sending' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                        email.status === 'failed' ? 'bg-red-50 text-red-700 border-red-200' :
+                        email.status === 'dry_run' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                        'bg-slate-50 text-slate-600 border-slate-200'
+                      }`}>
+                        {email.status === 'dry_run' ? '🧪 Test' : email.status}
+                      </Badge>
+                      {email.error_message && (
+                        <span className="text-[9px] text-red-500 block mt-0.5 truncate max-w-[100px]" title={email.error_message}>
+                          {email.error_message}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-[10px] text-slate-500">
+                      {email.scheduled_at ? new Date(email.scheduled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
+                    </TableCell>
+                    <TableCell className="text-[10px] text-slate-500">
+                      {email.sent_at ? new Date(email.sent_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-[10px] font-bold ${email.created_by === 'automation_engine' ? 'text-indigo-600' : 'text-slate-600'}`}>
+                        {email.created_by === 'automation_engine' ? '⚡ Auto' : email.created_by || 'admin'}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+
+        {/* Pagination */}
+        {emailHistoryTotal > 50 && (
+          <div className="flex items-center justify-between p-3 border-t bg-slate-50/50 shrink-0">
+            <span className="text-xs text-slate-500">
+              Page {emailHistoryPage} of {Math.ceil(emailHistoryTotal / 50)}
+            </span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={emailHistoryPage <= 1} onClick={() => loadEmailHistory(emailHistoryPage - 1)}>
+                Previous
+              </Button>
+              <Button size="sm" variant="outline" disabled={emailHistoryPage >= Math.ceil(emailHistoryTotal / 50)} onClick={() => loadEmailHistory(emailHistoryPage + 1)}>
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
       )}
     </Tabs>

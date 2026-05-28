@@ -2967,6 +2967,7 @@ const AdminOffers = () => {
                   <TableHead className="w-20">Status</TableHead>
                   <TableHead className="w-24">Countries</TableHead>
                   <TableHead className="w-28">Payout/Revenue</TableHead>
+                  <TableHead className="w-28">Pub. Price</TableHead>
                   <TableHead className="w-20">Incentive</TableHead>
                   <TableHead className="w-24">Network</TableHead>
                   <TableHead className="w-28">Date Added</TableHead>
@@ -3175,6 +3176,37 @@ const AdminOffers = () => {
                         } else {
                           return `${symbol}${offer.payout.toFixed(2)}`;
                         }
+                      })()}
+                    </TableCell>
+                    <TableCell className="font-medium text-blue-600">
+                      {(() => {
+                        const pubOverride = (offer as any).publisher_payout_override;
+                        const payoutHistory = (offer as any).payout_history || [];
+                        const currency = offer.currency || 'USD';
+                        const currencySymbols: Record<string, string> = { 'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹' };
+                        const symbol = currencySymbols[currency] || '$';
+                        const pubPrice = pubOverride && pubOverride > 0 ? pubOverride : offer.payout * 0.8;
+                        return (
+                          <div className="relative group cursor-pointer">
+                            <span>{symbol}{pubPrice.toFixed(2)}</span>
+                            {payoutHistory.length > 0 && (
+                              <>
+                                <span className="ml-1 text-[10px] text-orange-500">({payoutHistory.length})</span>
+                                <div className="absolute z-50 hidden group-hover:block left-0 top-full mt-1 bg-popover border rounded-md shadow-lg p-2 min-w-[220px] text-xs">
+                                  <div className="font-semibold mb-1 text-foreground">Price History</div>
+                                  {payoutHistory.slice(-5).reverse().map((h: any, i: number) => (
+                                    <div key={i} className="flex justify-between gap-2 py-0.5 border-b border-border/50 last:border-0">
+                                      <span className="text-muted-foreground">{h.date ? new Date(h.date).toLocaleDateString() : '—'}</span>
+                                      <span className="text-red-500">{symbol}{(h.old_publisher_payout || 0).toFixed(2)}</span>
+                                      <span>→</span>
+                                      <span className="text-green-600">{symbol}{(h.new_publisher_payout || 0).toFixed(2)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
                       })()}
                     </TableCell>
                     <TableCell>

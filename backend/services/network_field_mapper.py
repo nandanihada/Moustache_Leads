@@ -452,7 +452,20 @@ class NetworkFieldMapper:
     def _map_everflow_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
         """Map Everflow offer to database format — based on real Everflow API response structure"""
         try:
-            network_name = network_id if network_id else 'Everflow'
+            # network_id for Everflow is the API URL - extract a clean network name from it
+            if network_id and ('http://' in network_id or 'https://' in network_id):
+                # Extract domain from URL and use as network name (e.g. "api.eflow.team" -> "eflow")
+                try:
+                    from urllib.parse import urlparse
+                    parsed = urlparse(network_id)
+                    domain = parsed.hostname or ''
+                    # Try to get a clean name: "api.eflow.team" -> "eflow", "api.everflow.io" -> "everflow"
+                    parts = domain.replace('api.', '').replace('www.', '').split('.')
+                    network_name = parts[0].capitalize() if parts else 'Everflow'
+                except:
+                    network_name = 'Everflow'
+            else:
+                network_name = network_id if network_id else 'Everflow'
             
             # Extract offer ID
             offer_id = str(offer_data.get('network_offer_id') or offer_data.get('offer_id') or offer_data.get('id') or '')

@@ -92,12 +92,19 @@ class AutomationService:
                     self.model.update_user_state(user_id, {'queue_status': 'completed'})
                 return
 
+            # If user is already in an active cycle (any step), just update login time
             if state.get('queue_status') == 'active':
                 self.model.update_user_state(user_id, {
                     'last_login': now, 
                     'activity_type': activity_type,
                     'username': username or state.get('username')
                 })
+                return
+            
+            # If user completed their cycle or was removed, do NOT restart automatically
+            # Only force_reset=True (admin action) should restart a completed/removed user
+            if state.get('queue_status') in ('completed', 'removed', 'paused'):
+                logger.info(f"Automation SKIPPED for user {user_id}: Status is {state.get('queue_status')}, not restarting without force_reset")
                 return
 
         # 4. INITIALIZE / RESTART CYCLE
@@ -162,10 +169,22 @@ class AutomationService:
                     fresh_next = fresh_state.get('next_mail_time')
                     if fresh_next and now < fresh_next:
                         continue
+                    # Also check if step was already advanced by manual send
+                    if fresh_state.get('current_step', 0) > current_step:
+                        continue
 
             # Time to send next mail
             user_id = item.get('user_id')
             current_step = item.get('current_step', 0) + 1
+            
+            # ATOMIC CLAIM: Set delivery_status to 'sending' to prevent race conditions
+            claim_result = self.model.collection.update_one(
+                {'user_id': user_id, 'delivery_status': {'$ne': 'sending'}, 'current_step': item.get('current_step', 0)},
+                {'$set': {'delivery_status': 'sending', 'updated_at': datetime.utcnow()}}
+            )
+            if claim_result.modified_count == 0:
+                # Another process already claimed this user
+                continue
             
             # Select offers based on step
             offers, interests = self._get_offers_for_step(current_step, user_id, item) # Pass item (state)
@@ -296,6 +315,19 @@ class AutomationService:
             user = self.user_model.find_by_id(user_id)
             if not user or not user.get('email'): return False
 
+            # DEDUPLICATION: Check if an email for this user+step already exists and is pending/sending/sent
+            scheduled_emails = db_instance.get_collection('scheduled_emails')
+            existing = scheduled_emails.find_one({
+                'user_id': str(user_id),
+                'step': step,
+                'type': f'automation_step_{step}',
+                'status': {'$in': ['pending', 'sending', 'sent', 'dry_run']},
+                'created_at': {'$gte': datetime.utcnow() - timedelta(hours=24)}
+            })
+            if existing:
+                logger.warning(f"⚠️ Duplicate prevention: Automation email for user {user_id} step {step} already exists (id={existing.get('_id')})")
+                return True  # Return True to advance state without re-sending
+
             # Prepare the email content
             primary_offer = offers[0].get('offer_name') or offers[0].get('name')
             
@@ -333,6 +365,11 @@ class AutomationService:
 
             # Create a record in 'scheduled_emails' with ALL fields the service expects
             scheduled_emails = db_instance.get_collection('scheduled_emails')
+            
+            # Check if dry_run mode is enabled
+            settings = self.model.get_settings()
+            email_status = 'dry_run' if settings.get('dry_run') else 'pending'
+            
             scheduled_emails.insert_one({
                 'user_id': str(user_id),
                 'recipients': [user.get('email')],
@@ -341,11 +378,13 @@ class AutomationService:
                 'type': f'automation_step_{step}',
                 'step': step,
                 'related_offer_ids': [str(o['_id']) for o in offers],
-                'status': 'pending',
+                'status': email_status,
                 'scheduled_at': datetime.utcnow(),
                 'created_at': datetime.utcnow(),
                 'created_by': 'automation_engine'
             })
+            if email_status == 'dry_run':
+                logger.info(f"🧪 DRY RUN: Would have sent automation step {step} to user {user_id} ({user.get('email')})")
             return True
         except Exception as e:
             logger.error(f"Failed to schedule automation mail: {e}")
@@ -639,6 +678,40 @@ class AutomationService:
             if not offer_ids:
                 return False, "No offers selected"
 
+            # DEDUPLICATION CHECK 1: Prevent scheduling duplicate emails for same user within 5 minutes
+            scheduled_emails_col = db_instance.get_collection('scheduled_emails')
+            five_min_ago = datetime.utcnow() - timedelta(minutes=5)
+            recent_pending = scheduled_emails_col.find_one({
+                'user_id': str(user_id),
+                'status': {'$in': ['pending', 'sending', 'sent', 'dry_run']},
+                'created_at': {'$gte': five_min_ago}
+            })
+            if recent_pending:
+                logger.warning(f"⚠️ Duplicate prevention: User {user_id} already has an email from {recent_pending.get('created_at')} (status: {recent_pending.get('status')})")
+                return False, "An email was already scheduled/sent for this user within the last 5 minutes. Please wait before sending again."
+
+            # DEDUPLICATION CHECK 2: If user already has an active cycle in progress (step > 0), 
+            # don't allow another manual send — the background engine will handle the remaining steps
+            state = self.model.get_user_state(user_id)
+            if state and state.get('queue_status') == 'active' and state.get('current_step', 0) > 0:
+                # User already has an active cycle with at least 1 step sent
+                # Only allow if this is explicitly a "next step" send (not a duplicate Step 1)
+                current_step_in_db = state.get('current_step', 0)
+                existing_for_next_step = scheduled_emails_col.find_one({
+                    'user_id': str(user_id),
+                    'step': current_step_in_db + 1,
+                    'status': {'$in': ['pending', 'sending', 'sent', 'dry_run']},
+                    'created_at': {'$gte': datetime.utcnow() - timedelta(hours=24)}
+                })
+                if existing_for_next_step:
+                    logger.warning(f"⚠️ Duplicate prevention: User {user_id} already has step {current_step_in_db + 1} email scheduled/sent")
+                    return False, f"Step {current_step_in_db + 1} email already exists for this user. The automation engine will handle the remaining steps automatically."
+
+            # Auto-create automation state if user doesn't have one
+            if not state:
+                self.handle_user_activity(user_id, activity_type='ManualOutreach', username=user.get('username'), force_reset=True)
+                state = self.model.get_user_state(user_id)
+
             # 1. Fetch offers — try both offer_id field AND _id (MongoDB ObjectId)
             from bson import ObjectId as BsonObjectId
             offers_col = db_instance.get_collection('offers')
@@ -725,6 +798,9 @@ class AutomationService:
             send_mode = data.get('send_mode', 'all_in_one')
             settings = self.model.get_settings()
             step_interval = settings.get('step_interval_minutes', 180)
+            
+            # Check dry_run mode
+            email_status = 'dry_run' if settings.get('dry_run') else 'pending'
 
             if send_mode == 'one_by_one' and len(offers) > 1:
                 # Create separate scheduled emails for each offer with staggered times using global step_interval
@@ -754,7 +830,7 @@ class AutomationService:
                         'type': f'automation_manual_{current_step}_offer_{idx+1}',
                         'step': current_step,
                         'related_offer_ids': [offer.get('offer_id', str(offer.get('_id', '')))],
-                        'status': 'pending',
+                        'status': email_status,
                         'scheduled_at': offset_time,
                         'created_at': datetime.utcnow(),
                         'created_by': admin_username
@@ -769,13 +845,16 @@ class AutomationService:
                     'type': f'automation_manual_{current_step}',
                     'step': current_step,
                     'related_offer_ids': offer_ids,
-                    'status': 'pending',
+                    'status': email_status,
                     'scheduled_at': scheduled_at,
                     'created_at': datetime.utcnow(),
                     'created_by': admin_username
                 })
 
-            # 4. Advance State
+            if email_status == 'dry_run':
+                logger.info(f"🧪 DRY RUN: Manual send for user {user_id} ({user.get('email')}) - step {current_step}, {len(offers)} offers")
+
+            # 4. Advance State — mark as sent and schedule next step for background engine
             settings = self.model.get_settings()
             now = datetime.utcnow()
             
@@ -787,7 +866,8 @@ class AutomationService:
                 'sent_offer_ids': list(set(new_sent_ids)),
                 'sent_mail_count': (state.get('sent_mail_count', 0) if state else 0) + 1,
                 'delivery_status': 'sent',
-                'is_authorized': True
+                'is_authorized': True,
+                'last_manual_send_at': now  # Track when admin last sent manually
             }
             
             if current_step >= 5:

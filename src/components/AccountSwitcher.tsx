@@ -80,6 +80,12 @@ const AccountSwitcher: React.FC = () => {
     setSessions(getSessions());
   }, [token, user]);
 
+  // Show account switcher only if the current user is admin OR any stored session is admin.
+  // This means: admin impersonating a publisher still sees the switcher to go back,
+  // but a regular publisher who never had an admin session won't see it at all.
+  const hasAdminSession = sessions.some(s => s.user.role === 'admin');
+  const isAdmin = user?.role === 'admin' || hasAdminSession;
+
   const switchTo = (session: StoredSession) => {
     if (session.user.id === user?.id) return; // Already active
 
@@ -138,6 +144,9 @@ const AccountSwitcher: React.FC = () => {
     if (session.user.user_type === 'advertiser') return <Badge className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0">Advertiser</Badge>;
     return <Badge className="bg-green-100 text-green-700 text-[10px] px-1.5 py-0">Publisher</Badge>;
   };
+
+  // Hide account switcher entirely for non-admin users
+  if (!isAdmin) return null;
 
   if (!user || sessions.length <= 1) {
     // Show a minimal "Add Account" button if only one session

@@ -252,26 +252,26 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
     if (!open || activeItems.length === 0) return;
 
     setPersonalOverrides(prev => {
-      const next = { ...prev };
-      let changed = false;
+      const next: Record<string, { subject: string, body: string }> = {};
       activeItems.forEach(item => {
-        // If we don't have an override yet, or it's empty, initialize it
-        if (!next[item.user_id] || !next[item.user_id].body) {
-          const name = item.username || 'Publisher';
-          let note = customMsg || item.custom_message || 'We have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.';
+        const name = item.username || 'Publisher';
+        let note = customMsg || item.custom_message || 'We have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.';
 
-          // Prevent double greeting if the note already starts with "Hi" or "Hello"
-          const hasGreeting = note.trim().toLowerCase().startsWith('hi') || note.trim().toLowerCase().startsWith('hello');
-          const finalBody = hasGreeting ? note : `Hi ${name},\n\n${note}\n\nBest regards,\nPublisher Support Team\nMoustache Leads`;
+        // Prevent double greeting if the note already starts with "Hi" or "Hello"
+        const hasGreeting = note.trim().toLowerCase().startsWith('hi') || note.trim().toLowerCase().startsWith('hello');
+        const finalBody = hasGreeting ? note : `Hi ${name},\n\n${note}\n\nBest regards,\nPublisher Support Team\nMoustache Leads`;
 
+        // If admin has already customized this user's message, keep it; otherwise initialize fresh
+        if (prev[item.user_id] && prev[item.user_id].body && prev[item.user_id].body !== '') {
+          next[item.user_id] = prev[item.user_id];
+        } else {
           next[item.user_id] = {
-            subject: item.custom_subject || next[item.user_id]?.subject || 'Recommended Offers',
+            subject: item.custom_subject || 'Recommended Offers',
             body: finalBody
           };
-          changed = true;
         }
       });
-      return changed ? next : prev;
+      return next;
     });
   }, [open, activeItems.length, customMsg]);
 
@@ -279,6 +279,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
   useEffect(() => {
     if (open) {
       setPreviewIdx(0);
+      setPersonalOverrides({}); // Reset overrides for fresh initialization
 
       // If we have no offers, try to fetch some relevant ones automatically
       if (offers.length === 0 && (mainItem?.country || mainItem?.user_id)) {
@@ -443,11 +444,33 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
 
       const promises = activeItems.map(item => {
         const personal = personalOverrides[item.user_id] || { subject: emailSubject, body: messageBody };
-        // We still allow dynamic placeholders if they want to use them in individual edits
-        const finalBody = personal.body.replace(/{{username}}/g, item.username || 'Publisher')
-          .replace(/{{name}}/g, item.username || 'Publisher');
-        const finalSubject = personal.subject.replace(/{{username}}/g, item.username || 'Publisher')
-          .replace(/{{name}}/g, item.username || 'Publisher');
+        const userName = item.username || 'Publisher';
+        
+        // CRITICAL FIX: If the body still contains another user's greeting (from shared state),
+        // replace it with the correct user's name. Also handle {{username}} placeholders.
+        let finalBody = personal.body;
+        
+        // If the body has no personalization at all or uses a generic greeting, inject the correct name
+        if (!finalBody || !finalBody.trim()) {
+          finalBody = `Hi ${userName},\n\nWe have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.\n\nBest regards,\nPublisher Support Team\nMoustache Leads`;
+        }
+        
+        // Replace placeholders
+        finalBody = finalBody.replace(/{{username}}/g, userName).replace(/{{name}}/g, userName);
+        
+        // If the body starts with "Hi <someone_else>," and this is a bulk send where the admin
+        // didn't individually customize each user, replace the greeting with the correct name
+        const greetingMatch = finalBody.match(/^(Hi|Hello|Hey)\s+([^,\n]+),/i);
+        if (greetingMatch && isBulk) {
+          const greetedName = greetingMatch[2].trim().toLowerCase();
+          const currentName = userName.toLowerCase();
+          // Only replace if the greeting name doesn't match this user AND the admin hasn't explicitly customized this user's message
+          if (greetedName !== currentName && !personalOverrides[item.user_id]?.body) {
+            finalBody = finalBody.replace(/^(Hi|Hello|Hey)\s+[^,\n]+,/i, `${greetingMatch[1]} ${userName},`);
+          }
+        }
+        
+        let finalSubject = personal.subject.replace(/{{username}}/g, userName).replace(/{{name}}/g, userName);
 
         return fetch(`${apiUrl}/api/admin/automation/send-now`, {
           method: 'POST',
@@ -478,11 +501,27 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
       });
 
       const results = await Promise.all(promises);
-      const allOk = results.every(r => r.ok);
+      const successCount = results.filter(r => r.ok).length;
+      const failCount = results.filter(r => !r.ok).length;
 
-      if (!allOk) throw new Error('Some messages failed to send');
+      if (successCount === 0) {
+        // Try to get error message from first failed response
+        const firstFailed = results.find(r => !r.ok);
+        let errorMsg = 'Failed to send outreach';
+        if (firstFailed) {
+          try {
+            const errData = await firstFailed.json();
+            errorMsg = errData.error || errorMsg;
+          } catch {}
+        }
+        throw new Error(errorMsg);
+      }
 
-      toast({ title: 'Success', description: `Successfully dispatched outreach to ${activeItems.length} user(s).` });
+      const desc = failCount > 0 
+        ? `Sent to ${successCount} user(s). ${failCount} skipped (already had pending/active emails).`
+        : `Successfully dispatched outreach to ${successCount} user(s).`;
+      
+      toast({ title: 'Success', description: desc });
       if (onSent) onSent();
       onClose();
     } catch (e) {
@@ -918,7 +957,12 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                       <div className="p-8 space-y-6">
                         {/* Message Body */}
                         <div className="text-slate-700 text-sm leading-relaxed whitespace-pre-wrap font-medium">
-                          {messageBody.replace(/{{username}}/g, activeItems[previewIdx]?.username || 'Publisher').replace(/{{name}}/g, activeItems[previewIdx]?.username || 'Publisher')}
+                          {(() => {
+                            const currentUser = activeItems[previewIdx];
+                            const userName = currentUser?.username || 'Publisher';
+                            const body = personalOverrides[currentUser?.user_id]?.body || messageBody || `Hi ${userName},\n\nWe have found some great offers that match what you are looking for. Check out the offers below and log in to your publisher dashboard to get started.\n\nBest regards,\nPublisher Support Team\nMoustache Leads`;
+                            return body.replace(/{{username}}/g, userName).replace(/{{name}}/g, userName);
+                          })()}
                         </div>
 
                         <Separator className="bg-slate-100" />

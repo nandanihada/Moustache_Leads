@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX, UserPlus, RefreshCw, Eye, EyeOff, ChevronDown, ChevronRight, Globe, Activity, BarChart2, PieChart, MessageSquare, Send, TrendingUp, ShieldAlert, Award, Filter, Users as UsersIcon, FileCheck, Download, X, Copy, Link } from "lucide-react";
+import { Search, UserCheck, UserX, Mail, Clock, CheckCircle, XCircle, Loader2, CheckSquare, Square, MailCheck, MailX, UserPlus, RefreshCw, Eye, EyeOff, ChevronDown, ChevronRight, Globe, Activity, BarChart2, PieChart, MessageSquare, Send, TrendingUp, ShieldAlert, Award, Filter, Users as UsersIcon, FileCheck, Download, X, Copy, Link, LogIn, KeyRound } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import { API_BASE_URL } from "@/services/apiConfig";
 import UserPreferenceBadges from "@/components/UserPreferenceBadges";
 
@@ -117,7 +118,12 @@ const Users = () => {
   const [selectedActivityLevel, setSelectedActivityLevel] = useState<string | null>(null);
   const [topOffersByLevel, setTopOffersByLevel] = useState<Record<string, any>>({});
   const [topOffersLoading, setTopOffersLoading] = useState<Record<string, boolean>>({});
+  const [impersonateDialogOpen, setImpersonateDialogOpen] = useState(false);
+  const [impersonateUserId, setImpersonateUserId] = useState<string | null>(null);
+  const [impersonateSecret, setImpersonateSecret] = useState("");
+  const [impersonateLoading, setImpersonateLoading] = useState(false);
   const { toast } = useToast();
+  const { login: authLogin } = useAuth();
 
   const levelDefinitions = [
     { value: "L1", label: "L1 — Signed up, no engagement", description: "No clicks, no views, no requests" },
@@ -448,6 +454,46 @@ const Users = () => {
     }
   };
 
+  const handleImpersonate = async () => {
+    if (!impersonateUserId || !impersonateSecret) return;
+    try {
+      setImpersonateLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_BASE_URL}/api/auth/admin/impersonate`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: impersonateUserId, secret: impersonateSecret })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Impersonation failed');
+
+      // Log in as the target user
+      authLogin(data.token, data.user);
+      toast({ title: "Impersonation Active", description: `You are now logged in as ${data.user.username}` });
+      setImpersonateDialogOpen(false);
+      setImpersonateSecret("");
+      // Redirect to appropriate dashboard based on role
+      const isProduction = window.location.hostname.includes('moustacheleads.com');
+      if (isProduction) {
+        if (data.user.role === 'admin' || data.user.role === 'subadmin') {
+          window.location.href = 'https://dashboard.moustacheleads.com/admin';
+        } else {
+          window.location.href = 'https://moustacheleads.com/dashboard';
+        }
+      } else {
+        if (data.user.role === 'admin' || data.user.role === 'subadmin') {
+          window.location.href = '/admin';
+        } else {
+          window.location.href = '/dashboard';
+        }
+      }
+    } catch (error: any) {
+      toast({ title: "Impersonation Failed", description: error.message, variant: "destructive" });
+    } finally {
+      setImpersonateLoading(false);
+    }
+  };
+
   const handleResetApiKey = async (userId: string) => {
     try {
       setActionLoading(`reset-${userId}`);
@@ -594,13 +640,27 @@ const Users = () => {
           <h1 className="text-3xl font-bold text-foreground">Users</h1>
           <p className="text-muted-foreground">Manage affiliate users and approve new applications</p>
         </div>
-        <Button
-          onClick={() => setShowCreateDialog(true)}
-          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-200"
-        >
-          <UserPlus className="h-4 w-4 mr-2" />
-          Add New Publisher
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+            title="Copy impersonation secret"
+            onClick={() => {
+              navigator.clipboard.writeText('moustache-admin-2024-secret');
+              toast({ title: "Copied!", description: "Impersonation secret copied to clipboard" });
+            }}
+          >
+            <KeyRound className="h-5 w-5" />
+          </Button>
+          <Button
+            onClick={() => setShowCreateDialog(true)}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-200"
+          >
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add New Publisher
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -1007,6 +1067,9 @@ const Users = () => {
                                 )}
                                 {user.account_status === "approved" && <Badge variant="outline" className="text-green-600 bg-green-50">Active</Badge>}
                                 {user.account_status === "rejected" && <Badge variant="outline" className="text-red-600 bg-red-50">Rejected</Badge>}
+                                <Button size="sm" variant="ghost" className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50" onClick={() => { setImpersonateUserId(user._id); setImpersonateDialogOpen(true); }} title="Login as this user">
+                                  <LogIn className="h-4 w-4" />
+                                </Button>
                               </div>
                             </TableCell>
                           </TableRow>
@@ -1480,6 +1543,29 @@ const Users = () => {
             <Button variant="destructive" onClick={handleBulkReject} disabled={bulkLoading}>
               {bulkLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Reject {selectedIds.size} Users
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Impersonate User Dialog */}
+      <Dialog open={impersonateDialogOpen} onOpenChange={(open) => { setImpersonateDialogOpen(open); if (!open) setImpersonateSecret(""); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><LogIn className="h-5 w-5 text-indigo-600" /> Login as User</DialogTitle>
+            <DialogDescription>Enter your admin impersonation secret to log in as this user. You will be redirected to their dashboard.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Secret Key</label>
+              <Input type="password" placeholder="Enter ADMIN_IMPERSONATE_SECRET..." value={impersonateSecret} onChange={(e) => setImpersonateSecret(e.target.value)} className="mt-2" onKeyDown={(e) => { if (e.key === 'Enter') handleImpersonate(); }} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setImpersonateDialogOpen(false)}>Cancel</Button>
+            <Button className="bg-indigo-600 hover:bg-indigo-700 text-white" onClick={handleImpersonate} disabled={impersonateLoading || !impersonateSecret}>
+              {impersonateLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <LogIn className="h-4 w-4 mr-2" />}
+              Login as User
             </Button>
           </DialogFooter>
         </DialogContent>
