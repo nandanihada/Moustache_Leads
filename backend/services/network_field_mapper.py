@@ -118,7 +118,7 @@ class NetworkFieldMapper:
         
         Args:
             offer_data: Raw offer data from network API
-            network_type: Type of network ('hasoffers', 'everflow', 'cj', 'shareasale')
+            network_type: Type of network ('hasoffers', 'everflow', 'mobplus', 'cj', 'shareasale')
             network_id: Network identifier (e.g., 'cpamerchant')
             
         Returns:
@@ -129,6 +129,8 @@ class NetworkFieldMapper:
                 return self._map_hasoffers_offer(offer_data, network_id)
             elif network_type == 'everflow':
                 return self._map_everflow_offer(offer_data, network_id)
+            elif network_type == 'mobplus':
+                return self._map_mobplus_offer(offer_data, network_id)
             elif network_type == 'cj':
                 return self._map_cj_offer(offer_data, network_id)
             elif network_type == 'shareasale':
@@ -682,6 +684,221 @@ class NetworkFieldMapper:
         except Exception as e:
             logger.error(f"Error mapping Everflow offer: {str(e)}", exc_info=True)
             return {}
+    
+    def _map_mobplus_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
+        """Map MobPlus offer to database format
+        
+        MobPlus response fields:
+        - id: offer ID (int)
+        - name: offer name
+        - desc: description
+        - status: "Live", "Paused", etc.
+        - currency: "USD", "EUR"
+        - categories: ["Adult", "Direct", ...]
+        - trackingLink: full tracking URL with {CLICK_ID} and {SOURCE} macros
+        - previewLink: image/preview URL (cloudfront)
+        - ecpm24h: eCPM value
+        - shortCodes: null or array
+        """
+        try:
+            network_name = 'mobplus'
+            
+            # Extract offer ID
+            offer_id = str(offer_data.get('id', ''))
+            
+            # Extract and format name
+            raw_name = offer_data.get('name', '') or ''
+            formatted_name = format_offer_name(raw_name)
+            
+            # Extract description
+            raw_description = offer_data.get('desc', '') or offer_data.get('description', '') or ''
+            clean_description = clean_html_description(raw_description)
+            
+            # Extract tracking link — MobPlus uses {CLICK_ID} and {SOURCE} macros
+            # We normalize them to our standard {click_id} and {sub1}
+            tracking_link = offer_data.get('trackingLink', '') or offer_data.get('tracking_link', '') or ''
+            if tracking_link:
+                tracking_link = tracking_link.replace('{CLICK_ID}', '{click_id}')
+                tracking_link = tracking_link.replace('{SOURCE}', '{sub1}')
+                tracking_link = tracking_link.replace('{SUBID}', '{sub1}')
+                tracking_link = tracking_link.replace('{SUB_ID}', '{sub1}')
+            
+            # Extract preview/image URL
+            image_url = offer_data.get('previewLink', '') or offer_data.get('preview_link', '') or ''
+            preview_url = offer_data.get('previewUrl', '') or offer_data.get('preview_url', '') or image_url or ''
+            
+            # Extract payout
+            payout = 0.0
+            payout_raw = offer_data.get('payout', 0) or offer_data.get('payoutAmount', 0) or offer_data.get('defaultPayout', 0)
+            try:
+                payout = float(payout_raw)
+            except (ValueError, TypeError):
+                payout = 0.0
+            
+            # Extract currency
+            currency = offer_data.get('currency', 'USD') or 'USD'
+            
+            # Extract status — MobPlus uses "Live", "Paused", etc.
+            raw_status = offer_data.get('status', 'active') or 'active'
+            status_map = {
+                'live': 'active',
+                'active': 'active',
+                'paused': 'inactive',
+                'stopped': 'inactive',
+                'expired': 'inactive',
+                'deleted': 'inactive',
+            }
+            status = status_map.get(str(raw_status).lower(), 'active')
+            
+            # Extract categories — MobPlus returns array like ["Adult", "Direct"]
+            categories = offer_data.get('categories', []) or []
+            if isinstance(categories, str):
+                categories = [categories]
+            
+            # Map MobPlus categories to our vertical system
+            vertical = self._map_mobplus_category_to_vertical(categories, formatted_name, clean_description)
+            
+            # Extract countries from offer name (MobPlus often encodes geo in name like "Offer-US-SOI")
+            countries = self._extract_countries_from_text(formatted_name)
+            if not countries and clean_description:
+                countries = self._extract_countries_from_text(clean_description)
+            if not countries:
+                countries = ['US']  # Default
+            
+            # Extract eCPM
+            ecpm = offer_data.get('ecpm24h', 0) or 0
+            
+            # Basic mapping
+            mapped = {
+                'campaign_id': offer_id,
+                'name': formatted_name,
+                'description': clean_description,
+                'preview_url': preview_url or 'https://www.google.com',
+                'payout': payout,
+                'currency': currency.upper() if currency else 'USD',
+                'status': status,
+                'network': network_name,
+                'target_url': tracking_link or preview_url or '',
+                'image_url': image_url,
+            }
+            
+            # Payout type — MobPlus offers are typically CPA/CPL/CPI
+            payout_type = offer_data.get('payoutType', '') or offer_data.get('payout_type', '') or 'cpa'
+            mapped['offer_type'] = self.PAYOUT_TYPE_MAPPING.get(str(payout_type).lower(), 'CPA')
+            mapped['payout_model'] = mapped['offer_type']
+            
+            # Expiration date
+            expiration = offer_data.get('expirationDate', '') or offer_data.get('expiration_date', '')
+            if expiration and expiration not in ['0000-00-00', '', None]:
+                mapped['expiration_date'] = str(expiration)[:10]
+            else:
+                mapped['expiration_date'] = (datetime.utcnow() + timedelta(days=90)).strftime('%Y-%m-%d')
+            
+            # Vertical / Category
+            mapped['vertical'] = vertical
+            mapped['category'] = vertical
+            
+            # Countries
+            mapped['countries'] = countries
+            
+            # Caps
+            daily_cap = offer_data.get('dailyCap', 0) or offer_data.get('daily_cap', 0) or 0
+            mapped['daily_cap'] = int(daily_cap)
+            mapped['monthly_cap'] = int(offer_data.get('monthlyCap', 0) or offer_data.get('monthly_cap', 0) or 0)
+            
+            # Incentive type — extract from name or categories
+            if any('incent' in c.lower() for c in categories if isinstance(c, str)):
+                mapped['incentive_type'] = 'Incent'
+            else:
+                mapped['incentive_type'] = self._extract_incentive_type(raw_name)
+            
+            # Default fields
+            mapped['affiliates'] = 'all'
+            mapped['revenue_share_percent'] = 0
+            mapped['tracking_protocol'] = ''
+            mapped['conversion_flow'] = ''
+            mapped['conversion_window'] = None
+            mapped['conversion_type'] = ''
+            mapped['traffic_type'] = ''
+            mapped['device_targeting'] = ''
+            mapped['allowed_traffic_sources'] = []
+            mapped['blocked_traffic_sources'] = []
+            mapped['restrictions'] = ''
+            mapped['creative_requirements'] = ''
+            mapped['terms_notes'] = ''
+            mapped['affiliate_terms'] = ''
+            mapped['allowed_countries'] = countries
+            mapped['blocked_countries'] = []
+            mapped['os_requirements'] = []
+            mapped['browser_requirements'] = []
+            mapped['carrier_requirements'] = []
+            mapped['connection_type'] = ''
+            mapped['language_requirements'] = []
+            mapped['age_restrictions'] = ''
+            mapped['gender_targeting'] = ''
+            mapped['kpi'] = ''
+            
+            # Process tracking link for partner param injection
+            mapped = process_offer_tracking_link(mapped, network_identifier=network_name)
+            
+            logger.debug(f"Mapped MobPlus offer: {mapped['name']} (campaign: {mapped['campaign_id']})")
+            return mapped
+            
+        except Exception as e:
+            logger.error(f"Error mapping MobPlus offer: {str(e)}", exc_info=True)
+            return {}
+    
+    def _map_mobplus_category_to_vertical(self, categories: list, name: str, description: str) -> str:
+        """Map MobPlus categories to our vertical system"""
+        # MobPlus category to vertical mapping
+        category_vertical_map = {
+            'adult': 'DATING',
+            'dating': 'DATING',
+            'finance': 'FINANCE',
+            'loan': 'LOAN',
+            'insurance': 'INSURANCE',
+            'health': 'HEALTH',
+            'beauty': 'HEALTH',
+            'nutra': 'HEALTH',
+            'gaming': 'GAMES_INSTALL',
+            'games': 'GAMES_INSTALL',
+            'casino': 'GAMBLING',
+            'gambling': 'GAMBLING',
+            'betting': 'GAMBLING',
+            'sweepstakes': 'SWEEPSTAKES',
+            'sweeps': 'SWEEPSTAKES',
+            'survey': 'SURVEY',
+            'surveys': 'SURVEY',
+            'education': 'EDUCATION',
+            'crypto': 'CRYPTO',
+            'cryptocurrency': 'CRYPTO',
+            'shopping': 'SHOPPING',
+            'ecommerce': 'SHOPPING',
+            'travel': 'TRAVEL',
+            'entertainment': 'ENTERTAINMENT',
+            'streaming': 'ENTERTAINMENT',
+            'install': 'INSTALLS',
+            'installs': 'INSTALLS',
+            'app': 'INSTALLS',
+            'mobile': 'INSTALLS',
+            'pin submit': 'INSTALLS',
+            'pin': 'INSTALLS',
+            'direct': 'INSTALLS',
+            'free trial': 'FREE_TRIAL',
+            'trial': 'FREE_TRIAL',
+            'subscription': 'FREE_TRIAL',
+        }
+        
+        # Try to match from categories array
+        for cat in categories:
+            if isinstance(cat, str):
+                cat_lower = cat.lower().strip()
+                if cat_lower in category_vertical_map:
+                    return category_vertical_map[cat_lower]
+        
+        # Fallback: detect from name/description
+        from models.offer import detect_vertical_from_text
+        return detect_vertical_from_text(name, description)
     
     def _map_cj_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
         """Map CJ offer to database format"""

@@ -106,6 +106,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
 
   const getEffectiveNetworkId = () => {
     if (networkType === 'everflow') return apiUrl || 'https://api.eflow.team';
+    if (networkType === 'mobplus') return apiUrl || 'http://mob.mobplus.net';
     return networkId;
   };
 
@@ -515,6 +516,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                 <SelectContent>
                   <SelectItem value="hasoffers">HasOffers / Tune</SelectItem>
                   <SelectItem value="everflow">Everflow</SelectItem>
+                  <SelectItem value="mobplus">MobPlus</SelectItem>
                   <SelectItem value="cj" disabled>Commission Junction (Coming Soon)</SelectItem>
                   <SelectItem value="shareasale" disabled>ShareASale (Coming Soon)</SelectItem>
                 </SelectContent>
@@ -536,10 +538,18 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
               </div>
             )}
             
+            {networkType === 'mobplus' && (
+              <div className="space-y-2">
+                <Label>API URL / Endpoint *</Label>
+                <Input placeholder="http://mob.mobplus.net" value={apiUrl} onChange={(e) => setApiUrl(e.target.value)} />
+                <p className="text-xs text-muted-foreground">Default: http://mob.mobplus.net — auto-appends /api/affiliate/offers</p>
+              </div>
+            )}
+            
             <div className="space-y-2">
               <Label>API Key *</Label>
               <div className="relative">
-                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
+                <Input type={showApiKey ? 'text' : 'password'} placeholder={networkType === 'everflow' ? 'Enter your x-eflow-api-key' : networkType === 'mobplus' ? 'Enter your MobPlus Authorization token' : 'Enter your API key'} value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="pr-10" />
                 <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3" onClick={() => setShowApiKey(!showApiKey)}>
                   {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>

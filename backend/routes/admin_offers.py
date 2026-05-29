@@ -3034,7 +3034,7 @@ def empty_recycle_bin():
         # Get offer_ids before deleting for cascade cleanup
         offers_col = db_instance.get_collection('offers')
         deleted_ids = []
-        if offers_col:
+        if offers_col is not None:
             deleted_docs = offers_col.find({'deleted': True}, {'offer_id': 1})
             deleted_ids = [d['offer_id'] for d in deleted_docs if d.get('offer_id')]
 

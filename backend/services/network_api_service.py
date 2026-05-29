@@ -29,7 +29,7 @@ class NetworkAPIService:
         Args:
             network_id: Network identifier (e.g., 'cpamerchant') or API URL for Everflow
             api_key: API key for authentication
-            network_type: Type of network ('hasoffers', 'everflow', 'cj', 'shareasale')
+            network_type: Type of network ('hasoffers', 'everflow', 'mobplus', 'cj', 'shareasale')
             
         Returns:
             Tuple of (success, offer_count, error_message)
@@ -39,6 +39,8 @@ class NetworkAPIService:
                 return self._test_hasoffers_connection(network_id, api_key)
             elif network_type == 'everflow':
                 return self._test_everflow_connection(network_id, api_key)
+            elif network_type == 'mobplus':
+                return self._test_mobplus_connection(network_id, api_key)
             elif network_type == 'cj':
                 return self._test_cj_connection(network_id, api_key)
             elif network_type == 'shareasale':
@@ -69,6 +71,8 @@ class NetworkAPIService:
                 return self._fetch_hasoffers_offers(network_id, api_key, filters, limit)
             elif network_type == 'everflow':
                 return self._fetch_everflow_offers(network_id, api_key, filters, limit)
+            elif network_type == 'mobplus':
+                return self._fetch_mobplus_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
                 return self._fetch_cj_offers(network_id, api_key, filters, limit)
             elif network_type == 'shareasale':
@@ -376,6 +380,175 @@ class NetworkAPIService:
             return [], f"HTTP Error: {e.response.status_code}"
         except Exception as e:
             logger.error(f"Error fetching Everflow offers: {str(e)}", exc_info=True)
+            return [], f"Error: {str(e)}"
+    
+    # ==================== MobPlus Implementation ====================
+    
+    def _test_mobplus_connection(self, api_url: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+        """Test MobPlus API connection using POST with form-encoded body"""
+        try:
+            import json
+            
+            # Normalize the API URL
+            base_url = api_url.rstrip('/')
+            if not base_url.startswith('http'):
+                base_url = f"http://{base_url}"
+            
+            # If user provided just the domain, append the standard endpoint
+            if '/api/affiliate/offers' not in base_url:
+                base_url = f"{base_url}/api/affiliate/offers"
+            
+            logger.info(f"Testing MobPlus connection: {base_url}")
+            
+            headers = {
+                'Authorization': api_key,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            # First do a small request to verify connection works
+            form_data = {
+                'q': json.dumps({"page": 1, "pageSize": 1})
+            }
+            
+            response = self.session.post(base_url, headers=headers, data=form_data, timeout=self.timeout)
+            
+            if response.status_code == 401:
+                return False, None, "Invalid API key. Please check your MobPlus Authorization token."
+            elif response.status_code == 403:
+                return False, None, "Access denied. Your API key may not have affiliate permissions."
+            
+            response.raise_for_status()
+            
+            # Connection works — now count total offers by paginating with pageSize=5000
+            total_count = 0
+            page = 1
+            while page <= 20:  # Max 20 pages for counting (100k max)
+                form_data_count = {
+                    'q': json.dumps({"page": page, "pageSize": 5000})
+                }
+                resp = self.session.post(base_url, headers=headers, data=form_data_count, timeout=60)
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+                batch_size = 0
+                if isinstance(data, list):
+                    batch_size = len(data)
+                elif isinstance(data, dict) and 'data' in data:
+                    batch_size = len(data['data']) if isinstance(data['data'], list) else 0
+                elif isinstance(data, dict) and 'offers' in data:
+                    batch_size = len(data['offers']) if isinstance(data['offers'], list) else 0
+                
+                total_count += batch_size
+                
+                if batch_size < 5000:
+                    break  # Last page
+                page += 1
+            
+            logger.info(f"MobPlus connection successful: {total_count} offers found ({page} pages)")
+            return True, total_count, None
+            
+        except requests.exceptions.Timeout:
+            return False, None, "Connection timeout. Please check the API URL and try again."
+        except requests.exceptions.ConnectionError:
+            return False, None, "Unable to connect. Please verify the API URL is correct."
+        except requests.exceptions.HTTPError as e:
+            return False, None, f"HTTP Error: {e.response.status_code}"
+        except Exception as e:
+            return False, None, f"Error: {str(e)}"
+    
+    def _fetch_mobplus_offers(self, api_url: str, api_key: str,
+                              filters: Optional[Dict] = None,
+                              limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+        """Fetch offers from MobPlus API using POST with form-encoded body.
+        Paginates through all pages with pageSize=5000 to get all offers."""
+        try:
+            import json
+            
+            # Normalize the API URL
+            base_url = api_url.rstrip('/')
+            if not base_url.startswith('http'):
+                base_url = f"http://{base_url}"
+            
+            if '/api/affiliate/offers' not in base_url:
+                base_url = f"{base_url}/api/affiliate/offers"
+            
+            headers = {
+                'Authorization': api_key,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+            
+            # Use smaller page size for reliable pagination
+            page_size = 5000
+            max_offers = limit or 50000  # Safety cap at 50k
+            max_pages = 20  # Safety: max 20 pages (100k offers max)
+            
+            logger.info(f"Fetching MobPlus offers from {base_url} (pageSize: {page_size}, max: {max_offers})")
+            
+            all_offers = []
+            page = 1
+            
+            while page <= max_pages and len(all_offers) < max_offers:
+                form_data = {
+                    'q': json.dumps({"page": page, "pageSize": page_size})
+                }
+                
+                response = self.session.post(base_url, headers=headers, data=form_data, timeout=90)
+                
+                if response.status_code == 401:
+                    return [], "Invalid API key"
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                # Parse response — MobPlus returns a direct array of offers
+                offers_batch = []
+                if isinstance(data, list):
+                    offers_batch = data
+                elif isinstance(data, dict):
+                    if 'data' in data:
+                        offers_batch = data['data'] if isinstance(data['data'], list) else []
+                    elif 'offers' in data:
+                        offers_batch = data['offers'] if isinstance(data['offers'], list) else []
+                    else:
+                        offers_batch = []
+                
+                logger.info(f"MobPlus page {page}: got {len(offers_batch)} offers")
+                
+                if not offers_batch:
+                    break
+                
+                # Filter by status if requested
+                if filters and filters.get('status'):
+                    status_filter = filters['status'].lower()
+                    offers_batch = [o for o in offers_batch if (o.get('status', '') or '').lower() == status_filter]
+                
+                all_offers.extend(offers_batch)
+                
+                # If we got fewer than page_size, we've reached the end
+                if len(offers_batch) < page_size:
+                    break
+                
+                # If we already have enough
+                if limit and len(all_offers) >= limit:
+                    break
+                
+                page += 1
+            
+            # Trim to limit
+            if limit and len(all_offers) > limit:
+                all_offers = all_offers[:limit]
+            
+            logger.info(f"Fetched {len(all_offers)} total offers from MobPlus ({page} page(s))")
+            return all_offers, None
+            
+        except requests.exceptions.Timeout:
+            return [], "Connection timeout. MobPlus API may be slow — try again."
+        except requests.exceptions.ConnectionError:
+            return [], "Unable to connect to MobPlus API."
+        except requests.exceptions.HTTPError as e:
+            return [], f"HTTP Error: {e.response.status_code}"
+        except Exception as e:
+            logger.error(f"Error fetching MobPlus offers: {str(e)}", exc_info=True)
             return [], f"Error: {str(e)}"
     
     # ==================== Commission Junction Implementation ====================
