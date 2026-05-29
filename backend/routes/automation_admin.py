@@ -308,3 +308,65 @@ def get_email_history():
         'per_page': per_page,
         'pages': (total + per_page - 1) // per_page
     })
+
+
+@automation_admin_bp.route('/automation/email-history', methods=['DELETE'])
+@token_required
+def delete_email_history():
+    """Delete all automation email logs"""
+    user = request.current_user
+    if user.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    db = db_instance.get_db()
+    scheduled_col = db['scheduled_emails']
+    
+    # Only delete automation-related emails
+    result = scheduled_col.delete_many({
+        '$or': [
+            {'type': {'$regex': '^automation_'}},
+            {'created_by': 'automation_engine'}
+        ]
+    })
+    
+    return jsonify({
+        'success': True,
+        'deleted_count': result.deleted_count,
+        'message': f'Deleted {result.deleted_count} automation email logs'
+    })
+
+
+@automation_admin_bp.route('/automation/emergency-stop', methods=['POST'])
+@token_required
+def emergency_stop():
+    """Emergency stop - cancel ALL pending emails and disable engine"""
+    user = request.current_user
+    if user.get('role') != 'admin':
+        return jsonify({'error': 'Unauthorized'}), 403
+    
+    db = db_instance.get_db()
+    
+    # 1. Cancel all pending scheduled emails
+    result = db['scheduled_emails'].update_many(
+        {'status': 'pending'},
+        {'$set': {'status': 'cancelled', 'cancelled_at': __import__('datetime').datetime.utcnow()}}
+    )
+    
+    # 2. Disable the automation engine
+    db['automation_settings'].update_one(
+        {'type': 'global'},
+        {'$set': {'enabled': False}},
+        upsert=True
+    )
+    
+    # 3. Mark all active users as paused
+    db['automation_states'].update_many(
+        {'queue_status': 'active'},
+        {'$set': {'queue_status': 'paused', 'next_mail_time': None}}
+    )
+    
+    return jsonify({
+        'success': True,
+        'cancelled_emails': result.modified_count,
+        'message': f'EMERGENCY STOP: Cancelled {result.modified_count} pending emails, disabled engine, paused all users.'
+    })

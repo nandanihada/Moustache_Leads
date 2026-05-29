@@ -1431,6 +1431,32 @@ export const AutomationQueueDashboardModal: React.FC<{
               <RefreshCw className={`w-3 h-3 mr-2 ${emailHistoryLoading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="border-red-200 text-red-600 hover:bg-red-50"
+              onClick={async () => {
+                if (!window.confirm(`Delete ALL ${emailHistoryTotal} automation email logs? This cannot be undone.`)) return;
+                try {
+                  const token = localStorage.getItem('token');
+                  const res = await fetch(`${apiUrl}/api/admin/automation/email-history`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                  });
+                  if (res.ok) {
+                    toast({ title: 'Deleted', description: 'All automation email logs have been cleared.' });
+                    loadEmailHistory(1);
+                  } else {
+                    toast({ title: 'Error', description: 'Failed to delete logs', variant: 'destructive' });
+                  }
+                } catch {
+                  toast({ title: 'Error', description: 'Network error', variant: 'destructive' });
+                }
+              }}
+            >
+              <Trash2 className="w-3 h-3 mr-2" />
+              Delete All
+            </Button>
           </div>
         </div>
 
@@ -1509,10 +1535,10 @@ export const AutomationQueueDashboardModal: React.FC<{
                       )}
                     </TableCell>
                     <TableCell className="text-[10px] text-slate-500">
-                      {email.scheduled_at ? new Date(email.scheduled_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
+                      {email.scheduled_at ? new Date(email.scheduled_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '---'}
                     </TableCell>
                     <TableCell className="text-[10px] text-slate-500">
-                      {email.sent_at ? new Date(email.sent_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '---'}
+                      {email.sent_at ? new Date(email.sent_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) : '---'}
                     </TableCell>
                     <TableCell>
                       <span className={`text-[10px] font-bold ${email.created_by === 'automation_engine' ? 'text-indigo-600' : 'text-slate-600'}`}>

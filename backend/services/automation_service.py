@@ -320,7 +320,6 @@ class AutomationService:
             existing = scheduled_emails.find_one({
                 'user_id': str(user_id),
                 'step': step,
-                'type': f'automation_step_{step}',
                 'status': {'$in': ['pending', 'sending', 'sent', 'dry_run']},
                 'created_at': {'$gte': datetime.utcnow() - timedelta(hours=24)}
             })
@@ -500,6 +499,8 @@ class AutomationService:
             update_data['next_mail_time'] = now + timedelta(hours=float(settings.get('initial_delay_hours', 5)))
             update_data['delivery_status'] = 'pending'
             update_data['cooldown_until'] = now
+            update_data['is_authorized'] = False  # Require admin to click "Start" again
+            update_data['sent_offer_ids'] = []  # Clear sent history for fresh cycle
 
         elif action == 'pause':
             update_data['queue_status'] = 'paused'
@@ -545,6 +546,7 @@ class AutomationService:
             # Give them a 30 min buffer to resume
             update_data['next_mail_time'] = now + timedelta(minutes=30)
             update_data['delivery_status'] = 'pending'
+            update_data['is_authorized'] = False  # Require admin to click "Start" again
 
         elif action == 'pin' and step is not None:
             # Here 'step' parameter is repurposed as offer_id string
@@ -678,39 +680,38 @@ class AutomationService:
             if not offer_ids:
                 return False, "No offers selected"
 
-            # DEDUPLICATION CHECK 1: Prevent scheduling duplicate emails for same user within 5 minutes
+            # DEDUPLICATION CHECK 1: If user already completed their cycle (step >= 5), block completely
+            state = self.model.get_user_state(user_id)
+            if state and state.get('current_step', 0) >= 5:
+                logger.warning(f"⚠️ Blocked: User {user_id} already completed cycle (step={state.get('current_step')})")
+                return False, "This user has already completed their 5-step cycle. Wait for cooldown to expire or reset their state manually."
+
+            # DEDUPLICATION CHECK 2: If user already has ANY email in the last step_interval period, block
             scheduled_emails_col = db_instance.get_collection('scheduled_emails')
-            five_min_ago = datetime.utcnow() - timedelta(minutes=5)
-            recent_pending = scheduled_emails_col.find_one({
+            settings = self.model.get_settings()
+            step_interval = settings.get('step_interval_minutes', 179)
+            interval_ago = datetime.utcnow() - timedelta(minutes=step_interval)
+            recent_email = scheduled_emails_col.find_one({
                 'user_id': str(user_id),
                 'status': {'$in': ['pending', 'sending', 'sent', 'dry_run']},
-                'created_at': {'$gte': five_min_ago}
+                'created_at': {'$gte': interval_ago}
             })
-            if recent_pending:
-                logger.warning(f"⚠️ Duplicate prevention: User {user_id} already has an email from {recent_pending.get('created_at')} (status: {recent_pending.get('status')})")
-                return False, "An email was already scheduled/sent for this user within the last 5 minutes. Please wait before sending again."
+            if recent_email:
+                logger.warning(f"⚠️ Duplicate prevention: User {user_id} already has an email within the last {step_interval} min (step={recent_email.get('step')}, created={recent_email.get('created_at')})")
+                return False, f"This user already received an email within the last {step_interval} minutes. The automation engine handles the remaining steps automatically."
 
-            # DEDUPLICATION CHECK 2: If user already has an active cycle in progress (step > 0), 
-            # don't allow another manual send — the background engine will handle the remaining steps
-            state = self.model.get_user_state(user_id)
+            # DEDUPLICATION CHECK 3: If user is in active cycle (step > 0), the background engine handles it
             if state and state.get('queue_status') == 'active' and state.get('current_step', 0) > 0:
-                # User already has an active cycle with at least 1 step sent
-                # Only allow if this is explicitly a "next step" send (not a duplicate Step 1)
-                current_step_in_db = state.get('current_step', 0)
-                existing_for_next_step = scheduled_emails_col.find_one({
-                    'user_id': str(user_id),
-                    'step': current_step_in_db + 1,
-                    'status': {'$in': ['pending', 'sending', 'sent', 'dry_run']},
-                    'created_at': {'$gte': datetime.utcnow() - timedelta(hours=24)}
-                })
-                if existing_for_next_step:
-                    logger.warning(f"⚠️ Duplicate prevention: User {user_id} already has step {current_step_in_db + 1} email scheduled/sent")
-                    return False, f"Step {current_step_in_db + 1} email already exists for this user. The automation engine will handle the remaining steps automatically."
+                logger.warning(f"⚠️ Blocked: User {user_id} already in active cycle at step {state.get('current_step')}. Background engine will continue.")
+                return False, f"This user is already in an active automation cycle (Step {state.get('current_step')}/5). The background engine will send the remaining steps automatically. No manual intervention needed."
 
             # Auto-create automation state if user doesn't have one
             if not state:
                 self.handle_user_activity(user_id, activity_type='ManualOutreach', username=user.get('username'), force_reset=True)
                 state = self.model.get_user_state(user_id)
+            
+            # IMMEDIATELY mark as 'sending' to prevent background engine from picking up this user
+            self.model.update_user_state(user_id, {'delivery_status': 'sending', 'queue_status': 'active'})
 
             # 1. Fetch offers — try both offer_id field AND _id (MongoDB ObjectId)
             from bson import ObjectId as BsonObjectId
@@ -729,6 +730,19 @@ class AutomationService:
                     offers = list(offers_col.find({'_id': {'$in': obj_ids}}))
             if not offers:
                 return False, "Selected offers not found in database"
+
+            # DEDUPLICATE offers — ensure each offer appears only once (by _id)
+            seen_offer_ids = set()
+            unique_offers = []
+            for o in offers:
+                oid = str(o.get('_id'))
+                if oid not in seen_offer_ids:
+                    seen_offer_ids.add(oid)
+                    unique_offers.append(o)
+            offers = unique_offers
+            
+            # HARD CAP: Maximum 5 offers per user regardless of how many were selected
+            offers = offers[:5]
 
             # Apply Payout Overrides
             payout_overrides = data.get('payout_overrides', {})
@@ -802,41 +816,151 @@ class AutomationService:
             # Check dry_run mode
             email_status = 'dry_run' if settings.get('dry_run') else 'pending'
 
-            if send_mode == 'one_by_one' and len(offers) > 1:
-                # Create separate scheduled emails for each offer with staggered times using global step_interval
-                for idx, offer in enumerate(offers):
+            if send_mode == 'one_by_one':
+                # ONE BY ONE MODE: Use intelligence engine to pick PERSONALIZED offers per user
+                # Ignore frontend offer_ids — use _get_offers_for_step for each step
+                personalized_offers = []
+                simulated_state = dict(state) if state else {'sent_offer_ids': []}
+                simulated_sent_ids = list(simulated_state.get('sent_offer_ids', []))
+                
+                for step in range(1, 6):  # Steps 1-5
+                    simulated_state['sent_offer_ids'] = simulated_sent_ids
+                    step_offers, _ = self._get_offers_for_step(step, user_id, simulated_state)
+                    if step_offers:
+                        personalized_offers.append(step_offers[0])
+                        simulated_sent_ids.append(str(step_offers[0].get('_id')))
+                    else:
+                        break  # No more offers available
+                
+                if not personalized_offers:
+                    # Fallback to frontend-selected offers if intelligence finds nothing
+                    personalized_offers = offers[:5]
+                
+                total_offers = len(personalized_offers)
+                logger.info(f"📧 One-by-one mode (personalized): {total_offers} offers for user {user_id}: {[o.get('offer_name') or o.get('name') for o in personalized_offers]}")
+                
+                # Build all email HTML upfront
+                email_payloads = []
+                for idx in range(total_offers):
+                    offer = personalized_offers[idx]
+                    step_number = current_step + idx
+                    if step_number > 5:
+                        break
+                    
                     offer_html = _build_email_html(
-                        message_body, 
-                        frontend_url, 
-                        offers=[offer], 
-                        payout_type=payout_type, 
-                        template_style=template_style, 
-                        visible_fields=visible_fields, 
-                        default_image=default_image, 
-                        see_more_fields=see_more_fields, 
-                        mask_preview_links=mask_preview_links, 
-                        payment_terms=payment_terms, 
-                        custom_preview_url=custom_preview_url, 
-                        custom_preview_urls=custom_preview_urls, 
-                        preview_in_email=preview_in_email, 
+                        message_body, frontend_url, offers=[offer], 
+                        payout_type=payout_type, template_style=template_style, 
+                        visible_fields=visible_fields, default_image=default_image, 
+                        see_more_fields=see_more_fields, mask_preview_links=mask_preview_links, 
+                        payment_terms=payment_terms, custom_preview_url=custom_preview_url, 
+                        custom_preview_urls=custom_preview_urls, preview_in_email=preview_in_email, 
                         custom_preview_in_email=custom_preview_in_email
                     )
                     offset_time = scheduled_at + timedelta(minutes=step_interval * idx)
+                    email_payloads.append({
+                        'offer': offer, 'html': offer_html, 
+                        'step': step_number, 'send_at': offset_time
+                    })
+                
+                # Send Step 1 directly NOW
+                if email_payloads and email_status != 'dry_run':
+                    try:
+                        from services.email_service import get_email_service
+                        email_svc = get_email_service()
+                        if email_svc.is_configured:
+                            from email.mime.multipart import MIMEMultipart
+                            from email.mime.text import MIMEText
+                            msg = MIMEMultipart('alternative')
+                            msg['Subject'] = subject
+                            msg['From'] = email_svc.from_email
+                            msg['To'] = user.get('email')
+                            msg.attach(MIMEText(email_payloads[0]['html'], 'html'))
+                            email_svc._send_email_smtp(msg)
+                    except Exception as e:
+                        logger.error(f"Direct SMTP send failed for step 1: {e}")
+                
+                # Schedule Steps 2-5 in a background thread that sends directly via SMTP
+                if len(email_payloads) > 1 and email_status != 'dry_run':
+                    remaining = email_payloads[1:]
+                    user_email = user.get('email')
+                    def send_remaining_steps(payloads, recipient, subj):
+                        import time as _time
+                        for payload in payloads:
+                            # Wait until send_at time
+                            wait_seconds = (payload['send_at'] - datetime.utcnow()).total_seconds()
+                            if wait_seconds > 0:
+                                _time.sleep(wait_seconds)
+                            try:
+                                from services.email_service import get_email_service
+                                svc = get_email_service()
+                                if svc.is_configured:
+                                    from email.mime.multipart import MIMEMultipart
+                                    from email.mime.text import MIMEText
+                                    m = MIMEMultipart('alternative')
+                                    m['Subject'] = subj
+                                    m['From'] = svc.from_email
+                                    m['To'] = recipient
+                                    m.attach(MIMEText(payload['html'], 'html'))
+                                    svc._send_email_smtp(m)
+                                    # Update status in DB
+                                    scheduled_emails.update_one(
+                                        {'user_id': str(user_id), 'step': payload['step'], 'type': f"automation_manual_{payload['step']}"},
+                                        {'$set': {'status': 'sent', 'sent_at': datetime.utcnow()}}
+                                    )
+                                    logger.info(f"✅ Step {payload['step']} sent to {recipient}")
+                            except Exception as ex:
+                                logger.error(f"❌ Failed to send step {payload['step']} to {recipient}: {ex}")
+                                scheduled_emails.update_one(
+                                    {'user_id': str(user_id), 'step': payload['step'], 'type': f"automation_manual_{payload['step']}"},
+                                    {'$set': {'status': 'failed', 'error_message': str(ex)}}
+                                )
+                    
+                    t = threading.Thread(target=send_remaining_steps, args=(remaining, user_email, subject), daemon=True)
+                    t.start()
+                
+                # Store ALL steps in DB for history tracking (status: sent for step 1, scheduled_future for rest)
+                for idx, payload in enumerate(email_payloads):
                     scheduled_emails.insert_one({
                         'user_id': str(user_id),
                         'recipients': [user.get('email')],
                         'subject': subject,
-                        'body': offer_html,
-                        'type': f'automation_manual_{current_step}_offer_{idx+1}',
-                        'step': current_step,
-                        'related_offer_ids': [offer.get('offer_id', str(offer.get('_id', '')))],
-                        'status': email_status,
-                        'scheduled_at': offset_time,
+                        'body': payload['html'],
+                        'type': f'automation_manual_{payload["step"]}',
+                        'step': payload['step'],
+                        'related_offer_ids': [payload['offer'].get('offer_id', str(payload['offer'].get('_id', '')))],
+                        'status': 'sent' if (idx == 0 and email_status != 'dry_run') else ('scheduled_future' if email_status != 'dry_run' else email_status),
+                        'scheduled_at': payload['send_at'],
                         'created_at': datetime.utcnow(),
-                        'created_by': admin_username
+                        'created_by': admin_username,
+                        'sent_at': datetime.utcnow() if idx == 0 else None
                     })
+                
+                # Advance state to the LAST step we scheduled so background engine doesn't duplicate
+                final_step = min(current_step + total_offers - 1, 5)
+                current_step = final_step  # Override for state advancement below
             else:
-                # all_in_one: single email with all offers
+                # all_in_one: single email with all offers — send directly
+                all_in_one_status = email_status
+                if email_status != 'dry_run':
+                    try:
+                        from services.email_service import get_email_service
+                        email_svc = get_email_service()
+                        if email_svc.is_configured:
+                            from email.mime.multipart import MIMEMultipart
+                            from email.mime.text import MIMEText
+                            msg = MIMEMultipart('alternative')
+                            msg['Subject'] = subject
+                            msg['From'] = email_svc.from_email
+                            msg['To'] = user.get('email')
+                            msg.attach(MIMEText(html_body, 'html'))
+                            email_svc._send_email_smtp(msg)
+                            all_in_one_status = 'sent'
+                        else:
+                            all_in_one_status = 'pending'
+                    except Exception as send_err:
+                        logger.error(f"Direct send failed for all_in_one: {send_err}")
+                        all_in_one_status = 'pending'
+                
                 scheduled_emails.insert_one({
                     'user_id': str(user_id),
                     'recipients': [user.get('email')],
@@ -845,7 +969,7 @@ class AutomationService:
                     'type': f'automation_manual_{current_step}',
                     'step': current_step,
                     'related_offer_ids': offer_ids,
-                    'status': email_status,
+                    'status': all_in_one_status,
                     'scheduled_at': scheduled_at,
                     'created_at': datetime.utcnow(),
                     'created_by': admin_username

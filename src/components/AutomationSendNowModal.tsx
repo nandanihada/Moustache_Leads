@@ -224,10 +224,11 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
           }
         }
 
-        setOffers(finalOffers);
+        // Cap at 5 offers max per cycle
+        setOffers(finalOffers.slice(0, 5));
 
-        // Auto-select all matched offers by default
-        const allMatchedIds = finalOffers.map(o => getOfferId(o)).filter(Boolean);
+        // Auto-select first 5 matched offers only (max 5 per cycle)
+        const allMatchedIds = finalOffers.slice(0, 5).map(o => getOfferId(o)).filter(Boolean);
         const selSet = new Set(allMatchedIds as string[]);
         setSelected(selSet);
 
@@ -425,6 +426,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
 
   const handleSend = async () => {
     if (activeItems.length === 0 || selected.size === 0) return;
+    if (sending) return; // Prevent double-clicks
 
     // If not in preview mode, switch to preview mode first as a "soft" confirmation
     if (!previewMode) {
@@ -558,7 +560,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
         </DialogHeader>
 
         <div className="mt-4 space-y-6">
-          {queueItem?.queue_status === 'completed' ? (
+          {!isBulk && queueItem?.queue_status === 'completed' ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <Label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Historical Sent Offers (Sent to User)</Label>
@@ -1249,7 +1251,7 @@ export default function AutomationSendNowModal({ open, onClose, queueItem, queue
                   </div>
                 )}
 
-                {activeItems.length > 0 && mainItem?.queue_status !== 'completed' && (
+                {activeItems.length > 0 && (isBulk || mainItem?.queue_status !== 'completed') && (
                   <DialogFooter className="mt-8 border-t pt-6 flex items-center justify-between sm:justify-between">
                     <div className="flex flex-col">
                       <span className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Selection Summary</span>
