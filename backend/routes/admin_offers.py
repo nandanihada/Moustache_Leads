@@ -4133,6 +4133,7 @@ def test_api_connection():
         network_id = data.get('network_id')
         api_key = data.get('api_key')
         network_type = data.get('network_type', 'hasoffers')
+        fetch_mode = data.get('fetch_mode', 'my_offers')
         
         if not network_id or not api_key:
             return jsonify({'error': 'network_id and api_key are required'}), 400
@@ -4142,7 +4143,7 @@ def test_api_connection():
         
         # Test connection
         success, offer_count, error = network_api_service.test_connection(
-            network_id, api_key, network_type
+            network_id, api_key, network_type, fetch_mode
         )
         
         if success:
@@ -4177,6 +4178,7 @@ def preview_api_offers():
         network_id = data.get('network_id')
         api_key = data.get('api_key')
         network_type = data.get('network_type', 'hasoffers')
+        fetch_mode = data.get('fetch_mode', 'my_offers')
         filters = data.get('filters', {})
         limit = data.get('limit', 5)  # Preview only 5 offers
         
@@ -4189,7 +4191,7 @@ def preview_api_offers():
         
         # First, get the actual total count from test_connection
         success, total_count, test_error = network_api_service.test_connection(
-            network_id, api_key, network_type
+            network_id, api_key, network_type, fetch_mode
         )
         
         if not success:
@@ -4200,7 +4202,7 @@ def preview_api_offers():
         
         # Fetch preview offers (limited)
         offers, error = network_api_service.fetch_offers(
-            network_id, api_key, network_type, filters, limit
+            network_id, api_key, network_type, filters, limit, fetch_mode
         )
         
         # Debug with print (always shows)
@@ -4256,6 +4258,7 @@ def full_preview_api_offers():
         network_id = data.get('network_id')
         api_key = data.get('api_key')
         network_type = data.get('network_type', 'hasoffers')
+        fetch_mode = data.get('fetch_mode', 'my_offers')
         filters = data.get('filters', {})
         
         if not network_id or not api_key:
@@ -4267,7 +4270,7 @@ def full_preview_api_offers():
         
         # Fetch ALL offers (no limit)
         offers, error = network_api_service.fetch_offers(
-            network_id, api_key, network_type, filters
+            network_id, api_key, network_type, filters, None, fetch_mode
         )
         
         if error:
@@ -4419,6 +4422,7 @@ def import_api_offers():
         network_id = data.get('network_id')
         api_key = data.get('api_key')
         network_type = data.get('network_type', 'hasoffers')
+        fetch_mode = data.get('fetch_mode', 'my_offers')
         filters = data.get('filters', {})
         options = data.get('options', {})
         
@@ -4436,7 +4440,7 @@ def import_api_offers():
         
         # Fetch offers from API
         offers, error = network_api_service.fetch_offers(
-            network_id, api_key, network_type, filters
+            network_id, api_key, network_type, filters, None, fetch_mode
         )
         
         logging.info(f"🔍 API Import: Fetched {len(offers)} offers from {network_id}")

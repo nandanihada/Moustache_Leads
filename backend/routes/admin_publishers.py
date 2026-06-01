@@ -76,6 +76,43 @@ def get_all_publishers():
                 pending_placements = placement_model.collection.count_documents({'publisherId': ObjectId(publisher_id), 'approvalStatus': 'PENDING_APPROVAL'})
                 rejected_placements = placement_model.collection.count_documents({'publisherId': ObjectId(publisher_id), 'approvalStatus': 'REJECTED'})
                 
+                # Fetch full placement details
+                placements_cursor = placement_model.collection.find(
+                    {'publisherId': ObjectId(publisher_id)},
+                    {
+                        'platformName': 1, 'offerwallTitle': 1, 'platformLink': 1,
+                        'placementIdentifier': 1, 'currencyName': 1, 'exchangeRate': 1,
+                        'postbackUrl': 1, 'postbackUri': 1, 'description': 1, 'platformType': 1,
+                        'status': 1, 'approvalStatus': 1, 'apiKey': 1,
+                        'createdAt': 1, 'created_at': 1, 'updatedAt': 1
+                    }
+                ).sort('createdAt', -1)
+                
+                placement_details = []
+                for pl in placements_cursor:
+                    created = pl.get('createdAt') or pl.get('created_at')
+                    if created and hasattr(created, 'isoformat'):
+                        created = created.isoformat()
+                    elif created:
+                        created = str(created)
+                    
+                    placement_details.append({
+                        'id': str(pl['_id']),
+                        'platformName': pl.get('platformName', ''),
+                        'offerwallTitle': pl.get('offerwallTitle', ''),
+                        'platformLink': pl.get('platformLink', ''),
+                        'placementIdentifier': pl.get('placementIdentifier', ''),
+                        'currencyName': pl.get('currencyName', ''),
+                        'exchangeRate': pl.get('exchangeRate', ''),
+                        'postbackUrl': pl.get('postbackUrl') or pl.get('postbackUri', ''),
+                        'description': pl.get('description', ''),
+                        'platformType': pl.get('platformType', ''),
+                        'status': pl.get('status', ''),
+                        'approvalStatus': pl.get('approvalStatus', ''),
+                        'apiKey': pl.get('apiKey', ''),
+                        'createdAt': created,
+                    })
+                
                 stats = {
                     'total': total_placements,
                     'approved': approved_placements,
@@ -85,6 +122,7 @@ def get_all_publishers():
             except Exception as stats_error:
                 logger.warning(f"Error getting stats for publisher {publisher.get('username')}: {stats_error}")
                 stats = {'total': 0, 'approved': 0, 'pending': 0, 'rejected': 0}
+                placement_details = []
             
             publisher_data = {
                 'id': publisher_id,
@@ -101,7 +139,8 @@ def get_all_publishers():
                 'createdAt': publisher['created_at'].isoformat() if publisher.get('created_at') and hasattr(publisher.get('created_at'), 'isoformat') else None,
                 'updatedAt': publisher.get('updated_at').isoformat() if publisher.get('updated_at') and hasattr(publisher.get('updated_at'), 'isoformat') else None,
                 'lastLogin': publisher.get('lastLogin').isoformat() if publisher.get('lastLogin') and hasattr(publisher.get('lastLogin'), 'isoformat') else None,
-                'placementStats': stats
+                'placementStats': stats,
+                'placements': placement_details
             }
             publisher_list.append(publisher_data)
         

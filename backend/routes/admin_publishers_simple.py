@@ -80,6 +80,43 @@ def get_all_publishers():
             # Simple placement count (no complex aggregation)
             total_placements = placement_model.collection.count_documents({'publisherId': ObjectId(publisher_id)})
             
+            # Fetch full placement details for each publisher
+            placements_cursor = placement_model.collection.find(
+                {'publisherId': ObjectId(publisher_id)},
+                {
+                    'platformName': 1, 'offerwallTitle': 1, 'platformLink': 1,
+                    'placementIdentifier': 1, 'currencyName': 1, 'exchangeRate': 1,
+                    'postbackUrl': 1, 'postbackUri': 1, 'description': 1, 'platformType': 1,
+                    'status': 1, 'approvalStatus': 1, 'apiKey': 1,
+                    'createdAt': 1, 'created_at': 1, 'updatedAt': 1
+                }
+            ).sort('createdAt', -1)
+            
+            placement_details = []
+            for pl in placements_cursor:
+                created = pl.get('createdAt') or pl.get('created_at')
+                if created and hasattr(created, 'isoformat'):
+                    created = created.isoformat()
+                elif created:
+                    created = str(created)
+                
+                placement_details.append({
+                    'id': str(pl['_id']),
+                    'platformName': pl.get('platformName', ''),
+                    'offerwallTitle': pl.get('offerwallTitle', ''),
+                    'platformLink': pl.get('platformLink', ''),
+                    'placementIdentifier': pl.get('placementIdentifier', ''),
+                    'currencyName': pl.get('currencyName', ''),
+                    'exchangeRate': pl.get('exchangeRate', ''),
+                    'postbackUrl': pl.get('postbackUrl') or pl.get('postbackUri', ''),
+                    'description': pl.get('description', ''),
+                    'platformType': pl.get('platformType', ''),
+                    'status': pl.get('status', ''),
+                    'approvalStatus': pl.get('approvalStatus', ''),
+                    'apiKey': pl.get('apiKey', ''),
+                    'createdAt': created,
+                })
+            
             publisher_data = {
                 'id': publisher_id,
                 'username': publisher['username'],
@@ -97,10 +134,11 @@ def get_all_publishers():
                 'lastLogin': publisher.get('lastLogin').strftime('%Y-%m-%d') if publisher.get('lastLogin') else None,
                 'placementStats': {
                     'total': total_placements,
-                    'approved': 0,  # Simplified for now
+                    'approved': 0,
                     'pending': 0,
                     'rejected': 0
-                }
+                },
+                'placements': placement_details
             }
             publisher_list.append(publisher_data)
         

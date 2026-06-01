@@ -1453,6 +1453,47 @@ def get_user_profile_stats(publisher_id):
                     'offerwall_url': offerwall_url
                 }
 
+        # Fetch payout method for this publisher
+        payout_methods_col = db_instance.get_collection('payout_methods')
+        payout_info = None
+        if payout_methods_col is not None:
+            payout_doc = payout_methods_col.find_one({'user_id': ObjectId(publisher_id)})
+            if payout_doc:
+                active_method = payout_doc.get('active_method', '')
+                updated_at = payout_doc.get('updated_at', payout_doc.get('created_at', ''))
+                if hasattr(updated_at, 'isoformat'):
+                    updated_at = updated_at.isoformat() + 'Z'
+                payout_info = {
+                    'active_method': active_method,
+                    'updated_at': updated_at,
+                }
+                if active_method == 'bank':
+                    bd = payout_doc.get('bank_details', {})
+                    payout_info['details'] = {
+                        'bank_name': bd.get('bank_name', ''),
+                        'account_name': bd.get('account_name', ''),
+                        'account_number': bd.get('account_number', ''),
+                        'ifsc_swift': bd.get('ifsc_swift', ''),
+                        'country': bd.get('country', ''),
+                        'currency': bd.get('currency', ''),
+                        'upi': bd.get('upi', ''),
+                    }
+                elif active_method == 'paypal':
+                    pd = payout_doc.get('paypal_details', {})
+                    payout_info['details'] = {
+                        'email': pd.get('email', ''),
+                        'country': pd.get('country', ''),
+                        'minimum_threshold': pd.get('minimum_threshold', 100),
+                    }
+                elif active_method == 'crypto':
+                    cd = payout_doc.get('crypto_details', {})
+                    payout_info['details'] = {
+                        'currency': cd.get('currency', ''),
+                        'network': cd.get('network', ''),
+                        'wallet_address': cd.get('wallet_address', ''),
+                        'label': cd.get('label', ''),
+                    }
+
         return jsonify({
             'success': True,
             'stats': {
@@ -1468,7 +1509,8 @@ def get_user_profile_stats(publisher_id):
                 'avg_time_spent': total_time_formatted,  # Now shows total time, not average
                 'total_time_spent_seconds': total_time_spent,
                 'offerwall_url': offerwall_url,
-                'placement_info': placement_info
+                'placement_info': placement_info,
+                'payout_info': payout_info
             }
         })
     except Exception as e:

@@ -1417,6 +1417,115 @@ const Users = () => {
                                     </div>
 
                                     {/* RECOMMENDED OFFERS */}
+                                    {/* PAYMENT INFO SECTION */}
+                                    <div className="bg-white p-6 rounded-2xl border-2 border-emerald-200 shadow-md">
+                                      <h4 className="text-base font-bold text-emerald-800 mb-5 flex items-center gap-2">
+                                        💳 Payment Method Info
+                                      </h4>
+                                      {statsLoading[user._id] ? (
+                                        <div className="text-center py-4"><Loader2 className="w-4 h-4 animate-spin mx-auto" /></div>
+                                      ) : profileStats[user._id]?.payout_info ? (
+                                        <div className="space-y-4">
+                                          <div className="flex items-center gap-3 mb-4">
+                                            <Badge className={`text-sm px-3 py-1 ${
+                                              profileStats[user._id].payout_info.active_method === 'bank' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                                              profileStats[user._id].payout_info.active_method === 'paypal' ? 'bg-indigo-100 text-indigo-800 border-indigo-300' :
+                                              'bg-orange-100 text-orange-800 border-orange-300'
+                                            }`}>
+                                              {profileStats[user._id].payout_info.active_method === 'bank' ? '🏦 Bank Transfer' :
+                                               profileStats[user._id].payout_info.active_method === 'paypal' ? '💰 PayPal' :
+                                               '₿ Cryptocurrency'}
+                                            </Badge>
+                                            {profileStats[user._id].payout_info.updated_at && (
+                                              <span className="text-xs text-muted-foreground">
+                                                Updated: {formatDate(profileStats[user._id].payout_info.updated_at)}
+                                              </span>
+                                            )}
+                                          </div>
+                                          
+                                          {profileStats[user._id].payout_info.active_method === 'bank' && profileStats[user._id].payout_info.details && (
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-blue-50 p-4 rounded-xl border border-blue-100">
+                                              <div>
+                                                <p className="text-[10px] text-blue-600 font-bold uppercase">Account Name</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.account_name || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-blue-600 font-bold uppercase">Bank Name</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.bank_name || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-blue-600 font-bold uppercase">Account Number</p>
+                                                <p className="text-sm font-bold text-slate-800 font-mono">{profileStats[user._id].payout_info.details.account_number || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-blue-600 font-bold uppercase">IFSC/SWIFT</p>
+                                                <p className="text-sm font-bold text-slate-800 font-mono">{profileStats[user._id].payout_info.details.ifsc_swift || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-blue-600 font-bold uppercase">Country</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.country || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-blue-600 font-bold uppercase">Currency</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.currency || 'N/A'}</p>
+                                              </div>
+                                              {profileStats[user._id].payout_info.details.upi && (
+                                                <div>
+                                                  <p className="text-[10px] text-blue-600 font-bold uppercase">UPI ID</p>
+                                                  <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.upi}</p>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                          
+                                          {profileStats[user._id].payout_info.active_method === 'paypal' && profileStats[user._id].payout_info.details && (
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                                              <div>
+                                                <p className="text-[10px] text-indigo-600 font-bold uppercase">PayPal Email</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.email || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-indigo-600 font-bold uppercase">Country</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.country || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-indigo-600 font-bold uppercase">Min Threshold</p>
+                                                <p className="text-sm font-bold text-slate-800">${profileStats[user._id].payout_info.details.minimum_threshold || 100}</p>
+                                              </div>
+                                            </div>
+                                          )}
+                                          
+                                          {profileStats[user._id].payout_info.active_method === 'crypto' && profileStats[user._id].payout_info.details && (
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 bg-orange-50 p-4 rounded-xl border border-orange-100">
+                                              <div>
+                                                <p className="text-[10px] text-orange-600 font-bold uppercase">Currency</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.currency || 'N/A'}</p>
+                                              </div>
+                                              <div>
+                                                <p className="text-[10px] text-orange-600 font-bold uppercase">Network</p>
+                                                <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.network || 'N/A'}</p>
+                                              </div>
+                                              <div className="col-span-2 md:col-span-3">
+                                                <p className="text-[10px] text-orange-600 font-bold uppercase">Wallet Address</p>
+                                                <p className="text-sm font-bold text-slate-800 font-mono break-all">{profileStats[user._id].payout_info.details.wallet_address || 'N/A'}</p>
+                                              </div>
+                                              {profileStats[user._id].payout_info.details.label && (
+                                                <div>
+                                                  <p className="text-[10px] text-orange-600 font-bold uppercase">Label</p>
+                                                  <p className="text-sm font-bold text-slate-800">{profileStats[user._id].payout_info.details.label}</p>
+                                                </div>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <div className="py-6 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                          <p className="text-sm text-muted-foreground">No payment method configured by this user.</p>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* RECOMMENDED OFFERS (original) */}
                                     <div className="bg-gradient-to-br from-indigo-50 to-white p-5 rounded-2xl border border-indigo-200 shadow-sm">
                                       <h4 className="text-base font-bold text-indigo-800 mb-4 flex items-center gap-2">
                                         <TrendingUp className="w-5 h-5" /> Recommended Offers (Based on GEO + Activity)

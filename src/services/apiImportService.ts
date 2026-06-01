@@ -14,6 +14,7 @@ export interface TestConnectionRequest {
   network_id: string;
   api_key: string;
   network_type: string;
+  fetch_mode?: string;
 }
 
 export interface TestConnectionResponse {
@@ -28,6 +29,7 @@ export interface PreviewRequest {
   network_id: string;
   api_key: string;
   network_type: string;
+  fetch_mode?: string;
   filters?: {
     status?: string;
     countries?: string;
@@ -54,6 +56,7 @@ export interface ImportRequest {
   network_id: string;
   api_key: string;
   network_type: string;
+  fetch_mode?: string;
   filters?: {
     status?: string;
     countries?: string;
@@ -212,7 +215,7 @@ class ApiImportService {
     }
   }
 
-  async fetchFullPreview(request: { network_id: string; api_key: string; network_type: string; filters?: any }): Promise<FullPreviewResponse> {
+  async fetchFullPreview(request: { network_id: string; api_key: string; network_type: string; fetch_mode?: string; filters?: any }): Promise<FullPreviewResponse> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/admin/offers/api-import/full-preview`, {
         method: 'POST',

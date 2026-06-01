@@ -117,7 +117,7 @@ class Advertiser:
             if not advertiser:
                 return None
             
-            if bcrypt.checkpw(password.encode('utf-8'), advertiser['password']):
+            if bcrypt.checkpw(password.encode('utf-8'), advertiser['password'].encode('utf-8') if isinstance(advertiser['password'], str) else advertiser['password']):
                 return advertiser
             return None
         except Exception as e:

@@ -22,7 +22,7 @@ class NetworkAPIService:
             'Accept': 'application/json'
         })
     
-    def test_connection(self, network_id: str, api_key: str, network_type: str = 'hasoffers') -> Tuple[bool, Optional[int], Optional[str]]:
+    def test_connection(self, network_id: str, api_key: str, network_type: str = 'hasoffers', fetch_mode: str = 'my_offers') -> Tuple[bool, Optional[int], Optional[str]]:
         """
         Test API connection and return offer count
         
@@ -30,15 +30,16 @@ class NetworkAPIService:
             network_id: Network identifier (e.g., 'cpamerchant') or API URL for Everflow
             api_key: API key for authentication
             network_type: Type of network ('hasoffers', 'everflow', 'mobplus', 'cj', 'shareasale')
+            fetch_mode: 'my_offers' (approved for your account) or 'all_offers' (all network offers)
             
         Returns:
             Tuple of (success, offer_count, error_message)
         """
         try:
             if network_type == 'hasoffers':
-                return self._test_hasoffers_connection(network_id, api_key)
+                return self._test_hasoffers_connection(network_id, api_key, fetch_mode)
             elif network_type == 'everflow':
-                return self._test_everflow_connection(network_id, api_key)
+                return self._test_everflow_connection(network_id, api_key, fetch_mode)
             elif network_type == 'mobplus':
                 return self._test_mobplus_connection(network_id, api_key)
             elif network_type == 'cj':
@@ -52,7 +53,8 @@ class NetworkAPIService:
             return False, None, str(e)
     
     def fetch_offers(self, network_id: str, api_key: str, network_type: str = 'hasoffers', 
-                    filters: Optional[Dict] = None, limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+                    filters: Optional[Dict] = None, limit: Optional[int] = None,
+                    fetch_mode: str = 'my_offers') -> Tuple[List[Dict], Optional[str]]:
         """
         Fetch offers from network API
         
@@ -62,15 +64,16 @@ class NetworkAPIService:
             network_type: Type of network
             filters: Optional filters (status, countries, etc.)
             limit: Optional limit on number of offers
+            fetch_mode: 'my_offers' (approved for your account) or 'all_offers' (all network offers)
             
         Returns:
             Tuple of (offers_list, error_message)
         """
         try:
             if network_type == 'hasoffers':
-                return self._fetch_hasoffers_offers(network_id, api_key, filters, limit)
+                return self._fetch_hasoffers_offers(network_id, api_key, filters, limit, fetch_mode)
             elif network_type == 'everflow':
-                return self._fetch_everflow_offers(network_id, api_key, filters, limit)
+                return self._fetch_everflow_offers(network_id, api_key, filters, limit, fetch_mode)
             elif network_type == 'mobplus':
                 return self._fetch_mobplus_offers(network_id, api_key, filters, limit)
             elif network_type == 'cj':
@@ -85,20 +88,29 @@ class NetworkAPIService:
     
     # ==================== HasOffers/Tune Implementation ====================
     
-    def _test_hasoffers_connection(self, network_id: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+    def _test_hasoffers_connection(self, network_id: str, api_key: str, fetch_mode: str = 'my_offers') -> Tuple[bool, Optional[int], Optional[str]]:
         """Test HasOffers API connection"""
         try:
             url = f"https://{network_id}.api.hasoffers.com/Apiv3/json"
+            
+            # Choose method based on fetch_mode
+            if fetch_mode == 'all_offers':
+                target = 'Offer'
+                method = 'findAll'
+            else:
+                target = 'Affiliate_Offer'
+                method = 'findMyOffers'
+            
             params = {
                 'NetworkId': network_id,
-                'Target': 'Affiliate_Offer',
-                'Method': 'findMyOffers',
+                'Target': target,
+                'Method': method,
                 'api_key': api_key,
                 'limit': 100,
                 'contain[]': ['Country', 'Thumbnail']
             }
             
-            logger.info(f"Testing HasOffers connection for {network_id}")
+            logger.info(f"Testing HasOffers connection for {network_id} (mode: {fetch_mode})")
             
             response = self.session.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
@@ -137,15 +149,24 @@ class NetworkAPIService:
     
     def _fetch_hasoffers_offers(self, network_id: str, api_key: str, 
                                filters: Optional[Dict] = None, 
-                               limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+                               limit: Optional[int] = None,
+                               fetch_mode: str = 'my_offers') -> Tuple[List[Dict], Optional[str]]:
         """Fetch offers from HasOffers API — resilient per-offer parsing"""
         try:
             url = f"https://{network_id}.api.hasoffers.com/Apiv3/json"
 
+            # Choose method based on fetch_mode
+            if fetch_mode == 'all_offers':
+                target = 'Offer'
+                method = 'findAll'
+            else:
+                target = 'Affiliate_Offer'
+                method = 'findMyOffers'
+
             params = {
                 'NetworkId': network_id,
-                'Target': 'Affiliate_Offer',
-                'Method': 'findMyOffers',
+                'Target': target,
+                'Method': method,
                 'api_key': api_key,
                 'limit': limit or 1000,
                 'contain[]': ['Country', 'Thumbnail']
@@ -157,7 +178,7 @@ class NetworkAPIService:
                 if filters.get('countries'):
                     params['filters[countries]'] = filters['countries']
 
-            logger.info(f"Fetching HasOffers offers from {network_id} (limit: {limit or 1000})")
+            logger.info(f"Fetching HasOffers offers from {network_id} (limit: {limit or 1000}, mode: {fetch_mode})")
 
             response = self.session.get(url, params=params, timeout=self.timeout)
             response.raise_for_status()
@@ -209,7 +230,7 @@ class NetworkAPIService:
     
     # ==================== Everflow Implementation ====================
     
-    def _test_everflow_connection(self, api_url: str, api_key: str) -> Tuple[bool, Optional[int], Optional[str]]:
+    def _test_everflow_connection(self, api_url: str, api_key: str, fetch_mode: str = 'my_offers') -> Tuple[bool, Optional[int], Optional[str]]:
         """Test Everflow API connection using header-based auth"""
         try:
             # Normalize the API URL
@@ -217,9 +238,15 @@ class NetworkAPIService:
             if not base_url.startswith('http'):
                 base_url = f"https://{base_url}"
             
-            # If user provided just the domain, append the standard endpoint
+            # If user provided just the domain, append the appropriate endpoint
             if '/v1/' not in base_url:
-                base_url = f"{base_url}/v1/affiliates/offersrunnable"
+                if fetch_mode == 'all_offers':
+                    base_url = f"{base_url}/v1/affiliates/alloffers"
+                else:
+                    base_url = f"{base_url}/v1/affiliates/offersrunnable"
+            elif fetch_mode == 'all_offers' and 'offersrunnable' in base_url:
+                # User provided the runnable URL but wants all offers
+                base_url = base_url.replace('offersrunnable', 'alloffers')
             
             logger.info(f"Testing Everflow connection: {base_url}")
             
@@ -292,7 +319,8 @@ class NetworkAPIService:
     
     def _fetch_everflow_offers(self, api_url: str, api_key: str,
                                filters: Optional[Dict] = None,
-                               limit: Optional[int] = None) -> Tuple[List[Dict], Optional[str]]:
+                               limit: Optional[int] = None,
+                               fetch_mode: str = 'my_offers') -> Tuple[List[Dict], Optional[str]]:
         """Fetch offers from Everflow API with pagination"""
         try:
             # Normalize the API URL
@@ -301,7 +329,12 @@ class NetworkAPIService:
                 base_url = f"https://{base_url}"
             
             if '/v1/' not in base_url:
-                base_url = f"{base_url}/v1/affiliates/offersrunnable"
+                if fetch_mode == 'all_offers':
+                    base_url = f"{base_url}/v1/affiliates/alloffers"
+                else:
+                    base_url = f"{base_url}/v1/affiliates/offersrunnable"
+            elif fetch_mode == 'all_offers' and 'offersrunnable' in base_url:
+                base_url = base_url.replace('offersrunnable', 'alloffers')
             
             headers = {
                 'Content-Type': 'application/json',

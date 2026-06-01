@@ -35,6 +35,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   const [apiKey, setApiKey] = useState('');
   const [apiUrl, setApiUrl] = useState('');
   const [showApiKey, setShowApiKey] = useState(false);
+  const [fetchMode, setFetchMode] = useState<'my_offers' | 'all_offers'>('my_offers');
   
   // Full preview / audit state
   const [fullPreviewOffers, setFullPreviewOffers] = useState<FullPreviewOffer[]>([]);
@@ -133,7 +134,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     }
     setTesting(true);
     try {
-      const response = await apiImportService.testConnection({ network_id: effectiveId, api_key: apiKey, network_type: networkType });
+      const response = await apiImportService.testConnection({ network_id: effectiveId, api_key: apiKey, network_type: networkType, fetch_mode: fetchMode });
       if (response.success) {
         toast({ title: 'Connection Successful', description: `Found ${response.offer_count} offers available` });
         setTotalAvailable(response.offer_count || 0);
@@ -148,7 +149,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
     if (!effectiveId || !apiKey) { toast({ title: 'Error', description: 'Please test connection first', variant: 'destructive' }); return; }
     setLoading(true);
     try {
-      const response = await apiImportService.fetchFullPreview({ network_id: effectiveId, api_key: apiKey, network_type: networkType });
+      const response = await apiImportService.fetchFullPreview({ network_id: effectiveId, api_key: apiKey, network_type: networkType, fetch_mode: fetchMode });
       if (response.success && response.offers) {
         setFullPreviewOffers(response.offers);
         setAuditSummary(response.audit_summary);
@@ -189,6 +190,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
         network_id: getEffectiveNetworkId(),
         api_key: apiKey,
         network_type: networkType,
+        fetch_mode: fetchMode,
         options: {
           skip_duplicates: skipDuplicates,
           update_existing: updateExisting,
@@ -231,6 +233,7 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
   
   const handleClose = () => {
     setCurrentStep('credentials'); setNetworkId(''); setApiKey(''); setApiUrl('');
+    setFetchMode('my_offers');
     setFullPreviewOffers([]); setAuditSummary(null); setAuditFilter('all');
     setSelectedOfferIds(new Set()); setEditedOffers({}); setEditingOfferId(null);
     setImportSummary(null); setImportErrors([]); setImportStep(''); setTotalAvailable(0);
@@ -555,6 +558,24 @@ export const ApiImportModal: React.FC<ApiImportModalProps> = ({ open, onOpenChan
                 </Button>
               </div>
             </div>
+            
+            {(networkType === 'hasoffers' || networkType === 'everflow') && (
+              <div className="space-y-2">
+                <Label>Fetch Mode</Label>
+                <Select value={fetchMode} onValueChange={(v) => { setFetchMode(v as 'my_offers' | 'all_offers'); setTotalAvailable(0); }}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="my_offers">📋 My Offers (Approved for your account)</SelectItem>
+                    <SelectItem value="all_offers">🌐 All Offers (Entire network catalog)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {fetchMode === 'my_offers' 
+                    ? 'Fetches only offers approved/available for your affiliate account.' 
+                    : 'Fetches all offers in the network — includes offers you may not be approved for yet.'}
+                </p>
+              </div>
+            )}
             
             <Button onClick={handleTestConnection} disabled={testing || (networkType === 'hasoffers' ? !networkId : !apiUrl) || !apiKey}>
               {testing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Test Connection

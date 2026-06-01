@@ -56,13 +56,17 @@ export function BillingInfoTab() {
                 if (response.has_method && response.method) {
                     setActiveMethod(response.method.active_method);
                     if (response.method.bank_details) {
-                        setBankDetails(response.method.bank_details);
+                        setBankDetails(prev => ({ ...prev, ...response.method!.bank_details }));
                     }
                     if (response.method.paypal_details) {
-                        setPaypalDetails(response.method.paypal_details);
+                        setPaypalDetails(prev => ({
+                            ...prev,
+                            ...response.method!.paypal_details,
+                            minimum_threshold: response.method!.paypal_details!.minimum_threshold ?? 100
+                        }));
                     }
                     if (response.method.crypto_details) {
-                        setCryptoDetails(response.method.crypto_details);
+                        setCryptoDetails(prev => ({ ...prev, ...response.method!.crypto_details }));
                     }
                 }
             } catch (error) {
@@ -308,7 +312,7 @@ export function BillingInfoTab() {
                     <div className="space-y-2">
                         <Label htmlFor="minimum_threshold">Minimum Payout Threshold *</Label>
                         <Select
-                            value={paypalDetails.minimum_threshold.toString()}
+                            value={(paypalDetails.minimum_threshold ?? 100).toString()}
                             onValueChange={(v) => setPaypalDetails({ ...paypalDetails, minimum_threshold: parseInt(v) })}
                         >
                             <SelectTrigger>

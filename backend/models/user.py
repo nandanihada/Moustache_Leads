@@ -168,7 +168,7 @@ class User:
         if not user:
             user = self.find_by_email(username)
         
-        if user and bcrypt.checkpw(password.encode('utf-8'), user['password']):
+        if user and bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8') if isinstance(user['password'], str) else user['password']):
             # Remove password from returned data
             user.pop('password')
             return user
