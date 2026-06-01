@@ -602,48 +602,51 @@ const AdminPlacementApproval = () => {
                 <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isExp ? 'rotate-180' : ''}`} />
               </div>
             </div>
-            {/* Expanded: Show full placement details */}
+            {/* Expanded: Show full placement details + ExpandedPanel */}
             {isExp && (
-              <div className="border-t px-4 pb-4 pt-3 bg-muted/30 space-y-3">
-                <h4 className="text-sm font-bold flex items-center gap-2"><Globe className="h-4 w-4 text-blue-500" /> All Placements ({(pub as any).placements?.length || 0})</h4>
-                {(pub as any).placements && (pub as any).placements.length > 0 ? (
-                  <div className="grid grid-cols-1 gap-3">
-                    {(pub as any).placements.map((pl: any) => (
-                      <div key={pl.id} className="rounded-lg border bg-card p-4 space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-sm">{pl.offerwallTitle || pl.platformName || 'Unnamed'}</span>
-                            <StatusBadge status={pl.approvalStatus || pl.status || 'N/A'} />
-                            {pl.platformType && <TagChip label={pl.platformType} />}
+              <div className="border-t">
+                <div className="px-4 pb-4 pt-3 bg-muted/30 space-y-3">
+                  <h4 className="text-sm font-bold flex items-center gap-2"><Globe className="h-4 w-4 text-blue-500" /> All Placements ({(pub as any).placements?.length || 0})</h4>
+                  {(pub as any).placements && (pub as any).placements.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-3">
+                      {(pub as any).placements.map((pl: any) => (
+                        <div key={pl.id} className="rounded-lg border bg-card p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm">{pl.offerwallTitle || pl.platformName || 'Unnamed'}</span>
+                              <StatusBadge status={pl.approvalStatus || pl.status || 'N/A'} />
+                              {pl.platformType && <TagChip label={pl.platformType} />}
+                            </div>
+                            {pl.createdAt && <span className="text-[10px] text-muted-foreground">{fmtDate(pl.createdAt)}</span>}
                           </div>
-                          {pl.createdAt && <span className="text-[10px] text-muted-foreground">{fmtDate(pl.createdAt)}</span>}
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2">
+                            <KVItem label="Platform Name" value={pl.platformName || 'N/A'} />
+                            <KVItem label="Offerwall Title" value={pl.offerwallTitle || 'N/A'} />
+                            <KVItem label="Platform Link" value={pl.platformLink || 'N/A'} />
+                            <KVItem label="Placement ID" value={pl.placementIdentifier || 'N/A'} />
+                            <KVItem label="Currency" value={pl.currencyName || 'N/A'} />
+                            <KVItem label="Exchange Rate" value={pl.exchangeRate ? `1 USD = ${pl.exchangeRate}` : 'N/A'} />
+                          </div>
+                          {(pl.postbackUrl || pl.postbackUri) && (
+                            <div className="mt-1">
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Postback URL</div>
+                              <div className="text-xs font-mono bg-muted p-2 rounded break-all mt-0.5">{pl.postbackUrl || pl.postbackUri}</div>
+                            </div>
+                          )}
+                          {pl.description && (
+                            <div className="mt-1">
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Description</div>
+                              <div className="text-xs text-muted-foreground mt-0.5">{pl.description}</div>
+                            </div>
+                          )}
                         </div>
-                        <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2">
-                          <KVItem label="Platform Name" value={pl.platformName || 'N/A'} />
-                          <KVItem label="Offerwall Title" value={pl.offerwallTitle || 'N/A'} />
-                          <KVItem label="Platform Link" value={pl.platformLink || 'N/A'} />
-                          <KVItem label="Placement ID" value={pl.placementIdentifier || 'N/A'} />
-                          <KVItem label="Currency" value={pl.currencyName || 'N/A'} />
-                          <KVItem label="Exchange Rate" value={pl.exchangeRate ? `1 USD = ${pl.exchangeRate}` : 'N/A'} />
-                        </div>
-                        {(pl.postbackUrl || pl.postbackUri) && (
-                          <div className="mt-1">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Postback URL</div>
-                            <div className="text-xs font-mono bg-muted p-2 rounded break-all mt-0.5">{pl.postbackUrl || pl.postbackUri}</div>
-                          </div>
-                        )}
-                        {pl.description && (
-                          <div className="mt-1">
-                            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Description</div>
-                            <div className="text-xs text-muted-foreground mt-0.5">{pl.description}</div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6 text-sm text-muted-foreground">No placements created by this publisher</div>
-                )}
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-sm text-muted-foreground">No placements created by this publisher</div>
+                  )}
+                </div>
+                <ExpandedPanel placement={{ id: pub.id, publisherId: pub.id, publisherName: `${pub.firstName || ''} ${pub.lastName || ''}`.trim() || pub.username, publisherEmail: pub.email, placementIdentifier: '', platformType: 'website', offerwallTitle: pub.companyName || 'N/A', currencyName: 'USD', exchangeRate: 1, postbackUrl: pub.postbackUrl || '', status: 'LIVE', approvalStatus: 'APPROVED', createdAt: pub.createdAt || new Date().toISOString() } as PlacementRequest} onAction={a => setActionModal({ type: a, publisher: pub })} readOnly />
               </div>
             )}
           </div>); })}
