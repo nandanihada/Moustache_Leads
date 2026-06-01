@@ -1315,7 +1315,7 @@ const PublisherOffersContent = () => {
                                 </div>
                               </div>
                               <span className="font-bold text-emerald-600 shrink-0">
-                                {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
+                                {(offer as any).payout_type === 'percentage' || (offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent || offer.payout || 0}%` : `$${offer.payout.toFixed(2)}`}
                               </span>
                               {hasAccess ? (
                                 <Button size="sm" variant="outline" className="h-8 text-xs rounded-full px-3 border-purple-200 text-purple-600"
@@ -1392,7 +1392,7 @@ const PublisherOffersContent = () => {
                           {/* Payout */}
                           <TableCell className="py-2.5">
                             <span className="font-bold text-emerald-600">
-                              {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
+                              {(offer as any).payout_type === 'percentage' || (offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent || offer.payout || 0}%` : `$${offer.payout.toFixed(2)}`}
                             </span>
                           </TableCell>
 
@@ -1500,7 +1500,7 @@ const PublisherOffersContent = () => {
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-muted-foreground">Payout</span>
                           <span className="font-bold text-lg text-emerald-600">
-                            {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `$${offer.payout.toFixed(2)}`}
+                            {(offer as any).payout_type === 'percentage' || (offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent || offer.payout || 0}%` : `$${offer.payout.toFixed(2)}`}
                           </span>
                         </div>
 
@@ -1642,3 +1642,4 @@ const PublisherOffers = () => (
 );
 
 export default PublisherOffers;
+

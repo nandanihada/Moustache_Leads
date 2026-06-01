@@ -204,7 +204,7 @@ class NetworkFieldMapper:
             
             # ENHANCEMENT 1: Handle countries with name-to-code mapping
             countries = self._extract_countries(offer_data, offer)
-            mapped['countries'] = countries if countries else ['US']
+            mapped['countries'] = countries if countries else ['WW']
             
             # ENHANCEMENT 3: Extract tracking protocol - Use ONLY real data
             protocol = offer.get('protocol') or offer.get('tracking_protocol')
@@ -226,7 +226,9 @@ class NetworkFieldMapper:
             
             # Traffic and targeting - Use ONLY real data from API
             device_targeting = offer.get('device_targeting') or offer.get('devices')
-            mapped['device_targeting'] = device_targeting if device_targeting else ''
+            if not device_targeting:
+                device_targeting = self._detect_device_from_name(offer.get('name', ''))
+            mapped['device_targeting'] = device_targeting if device_targeting else 'all'
             mapped['allowed_traffic_sources'] = offer.get('allowed_traffic_types') or []
             mapped['blocked_traffic_sources'] = offer.get('blocked_traffic_types') or []
             
@@ -379,7 +381,7 @@ class NetworkFieldMapper:
         if not countries:
             text_to_check = f"{offer_name} {description}".lower()
             if 'global' in text_to_check or 'worldwide' in text_to_check or 'all geos' in text_to_check:
-                countries = ['US', 'GB', 'CA', 'AU', 'DE', 'FR', 'IT', 'ES', 'NL', 'BE']
+                countries = ['WW']
 
         return countries
 
@@ -411,27 +413,122 @@ class NetworkFieldMapper:
         return countries
     
     def _extract_countries_from_text(self, text: str) -> List[str]:
-        """Extract country codes from text (offer name, description)"""
+        """Extract country codes from offer name/description using STRICT patterns only.
+        
+        Only matches these safe, high-confidence patterns:
+        1. Name-CC-Carrier (MobPlus: "Game Zone-KW-Ooredoo-MS-2Click")
+        2. Brand_CC or Brand_CC_CC (Everflow: "Airpaz_WW", "JobScan_US_CA_AU_UK_DE")
+        3. Brand [CC] (Bracketed: "Binance [CH]", "Spinarium [AR]")
+        4. Brand - Platform - CC - CPI (Dash-separated: "Block Blast! - Android - TH - CPI")
+        5. Brand CC at end (Last token: "Crocs FI", "KingOpinion_Survey CO")
+        
+        Does NOT match:
+        - "My" → MY, "Select My Policy" → MY
+        - "Incent OK" → anything
+        - "RevShare" / "RS" suffix
+        - ".co" / ".io" / ".com" domains
+        - "AM"/"PM" from time formats
+        - "TV" from product names (Sling TV, Fubo TV)
+        - "Contractors" → CO
+        """
+        if not text:
+            return []
+        
         countries = []
         
-        # Common 2-letter country codes
-        valid_codes = set(self.COUNTRY_NAME_TO_CODE.values())
-        valid_codes.update(['UK'])  # Add UK as alias for GB
-        
-        # Split by common delimiters
         import re
-        parts = re.split(r'[\s,\-–—/|]+', text.upper())
         
-        for part in parts:
-            part = part.strip()
-            if len(part) == 2 and part.isalpha() and part in valid_codes:
-                # Map UK to GB
-                if part == 'UK':
-                    countries.append('GB')
-                else:
-                    countries.append(part)
+        # Full ISO 3166-1 alpha-2 country codes
+        ALL_ISO_CODES = {
+            'AD','AE','AF','AG','AI','AL','AM','AO','AQ','AR','AS','AT','AU','AW','AX','AZ',
+            'BA','BB','BD','BE','BF','BG','BH','BI','BJ','BL','BM','BN','BO','BQ','BR','BS','BT','BV','BW','BY','BZ',
+            'CA','CC','CD','CF','CG','CH','CI','CK','CL','CM','CN','CO','CR','CU','CV','CW','CX','CY','CZ',
+            'DE','DJ','DK','DM','DO','DZ',
+            'EC','EE','EG','EH','ER','ES','ET',
+            'FI','FJ','FK','FM','FO','FR',
+            'GA','GB','GD','GE','GF','GG','GH','GI','GL','GM','GN','GP','GQ','GR','GS','GT','GU','GW','GY',
+            'HK','HM','HN','HR','HT','HU',
+            'ID','IE','IL','IM','IN','IO','IQ','IR','IS','IT',
+            'JE','JM','JO','JP',
+            'KE','KG','KH','KI','KM','KN','KP','KR','KW','KY','KZ',
+            'LA','LB','LC','LI','LK','LR','LS','LT','LU','LV','LY',
+            'MA','MC','MD','ME','MF','MG','MH','MK','ML','MM','MN','MO','MP','MQ','MR','MS','MT','MU','MV','MW','MX','MY','MZ',
+            'NA','NC','NE','NF','NG','NI','NL','NO','NP','NR','NU','NZ',
+            'OM',
+            'PA','PE','PF','PG','PH','PK','PL','PM','PN','PR','PS','PT','PW','PY',
+            'QA',
+            'RE','RO','RS','RU','RW',
+            'SA','SB','SC','SD','SE','SG','SH','SI','SJ','SK','SL','SM','SN','SO','SR','SS','ST','SV','SX','SY','SZ',
+            'TC','TD','TF','TG','TH','TJ','TK','TL','TM','TN','TO','TR','TT','TV','TW','TZ',
+            'UA','UG','UM','US','UY','UZ',
+            'VA','VC','VE','VG','VI','VN','VU',
+            'WF','WS',
+            'XK',
+            'YE','YT',
+            'ZA','ZM','ZW',
+            'UK','WW'
+        }
         
-        return countries
+        # STRICT false positives — codes that commonly appear in offer names but are NOT countries
+        STRICT_FALSE_POSITIVES = {
+            'OK', 'CC', 'AI', 'BE', 'AT', 'BY', 'IN', 'IS', 'IT', 'TO', 'ME',
+            'NO', 'OR', 'SO', 'DO', 'AN', 'ON', 'UP',
+            # Additional false positives identified from bad migration
+            'AM', 'PM',  # Time formats (8AM-8PM)
+            'TV',        # Product names (Sling TV, Fubo TV)
+            'IO',        # Domain extensions (.io)
+            'CO',        # Domain extensions (.co), "Contractors", "Company"
+            'MY',        # "My" in English names
+            'RS',        # "RevShare", "RS" suffix
+            'MS',        # "Microsoft", "MS" abbreviation (except in MobPlus pattern)
+            'US',        # Don't extract US from names (it's the default)
+        }
+        
+        name_upper = text.upper()
+        
+        # Pattern 1: MobPlus style "Name-CC-Carrier"
+        # e.g., "Game Zone-KW-Ooredoo-MS-2Click", "VIP Games-SA-Mobily-MS-2Click"
+        mobplus_match = re.findall(r'-([A-Z]{2})-', name_upper)
+        for code in mobplus_match:
+            if code in ALL_ISO_CODES and code not in {'MS', 'OK', 'CC', 'AI'}:
+                countries.append('GB' if code == 'UK' else code)
+        
+        # Pattern 2: Underscore-separated codes "Brand_CC" or "Brand_CC_CC_CC"
+        # e.g., "Airpaz_WW", "JobScan_US_CA_AU_UK_DE", "Crocs_FI"
+        underscore_match = re.findall(r'_([A-Z]{2})(?=_|$)', name_upper)
+        for code in underscore_match:
+            if code in ALL_ISO_CODES and code not in STRICT_FALSE_POSITIVES:
+                countries.append('GB' if code == 'UK' else code)
+        
+        # Pattern 3: Bracketed codes "[CC]" or "[CC, CC]"
+        # e.g., "Binance [CH]", "Spinarium [AR]", "Offer [US, CA]"
+        bracket_match = re.findall(r'\[([A-Z]{2}(?:\s*,\s*[A-Z]{2})*)\]', name_upper)
+        for match in bracket_match:
+            codes = re.findall(r'[A-Z]{2}', match)
+            for code in codes:
+                if code in ALL_ISO_CODES and code not in STRICT_FALSE_POSITIVES:
+                    countries.append('GB' if code == 'UK' else code)
+        
+        # Pattern 4: Dash-separated with country code as a standalone segment
+        # e.g., "Block Blast! - Android - TH - CPI", "Doodle - CH"
+        dash_segments = re.split(r'\s*[-–—]\s*', text)
+        for segment in dash_segments:
+            segment_stripped = segment.strip().upper()
+            if len(segment_stripped) == 2 and segment_stripped.isalpha():
+                if segment_stripped in ALL_ISO_CODES and segment_stripped not in STRICT_FALSE_POSITIVES:
+                    countries.append('GB' if segment_stripped == 'UK' else segment_stripped)
+        
+        # Pattern 5: Last token is a 2-letter country code (space-separated)
+        # e.g., "Crocs FI", "KingOpinion_Survey CO"
+        # But NOT "Sling TV", "My App", "RevShare RS"
+        tokens = text.strip().split()
+        if len(tokens) >= 2:
+            last_token = tokens[-1].upper()
+            if len(last_token) == 2 and last_token.isalpha():
+                if last_token in ALL_ISO_CODES and last_token not in STRICT_FALSE_POSITIVES:
+                    countries.append('GB' if last_token == 'UK' else last_token)
+        
+        return list(set(countries))
     
     def _extract_incentive_type(self, offer_name: str) -> str:
         """
@@ -450,6 +547,33 @@ class NetworkFieldMapper:
             return 'Incent'
         else:
             return 'Incent'  # Default
+    
+    def _detect_device_from_name(self, offer_name: str) -> str:
+        """
+        Detect device targeting from offer name.
+        Looks for iOS/Android/Desktop keywords.
+        
+        Returns: 'ios', 'android', 'mobile', 'desktop', or 'all'
+        """
+        if not offer_name:
+            return 'all'
+        
+        name_lower = offer_name.lower()
+        
+        has_ios = any(kw in name_lower for kw in ['ios', 'iphone', 'ipad', 'apple'])
+        has_android = 'android' in name_lower
+        has_desktop = any(kw in name_lower for kw in ['desktop', 'windows', 'mac os', 'macos'])
+        
+        if has_ios and has_android:
+            return 'mobile'
+        elif has_ios:
+            return 'ios'
+        elif has_android:
+            return 'android'
+        elif has_desktop:
+            return 'desktop'
+        else:
+            return 'all'
     
     def _map_everflow_offer(self, offer_data: Dict, network_id: str = None) -> Dict[str, Any]:
         """Map Everflow offer to database format — based on real Everflow API response structure"""
@@ -580,7 +704,7 @@ class NetworkFieldMapper:
                 elif isinstance(country_data, str):
                     countries = self._parse_geo_string(country_data)
             
-            mapped['countries'] = countries if countries else ['US']
+            mapped['countries'] = countries if countries else ['WW']
             
             # Vertical / Category — from relationship.category.name
             api_vertical = ''
@@ -622,7 +746,7 @@ class NetworkFieldMapper:
                     for p in platform_entries:
                         if isinstance(p, dict) and p.get('label'):
                             platforms.append(p['label'])
-            mapped['device_targeting'] = ', '.join(platforms) if platforms else ''
+            mapped['device_targeting'] = ', '.join(platforms) if platforms else self._detect_device_from_name(offer_data.get('name', '') or offer_data.get('offer_name', ''))
             mapped['allowed_traffic_sources'] = []
             mapped['blocked_traffic_sources'] = []
             
@@ -763,7 +887,7 @@ class NetworkFieldMapper:
             if not countries and clean_description:
                 countries = self._extract_countries_from_text(clean_description)
             if not countries:
-                countries = ['US']  # Default
+                countries = ['WW']  # Default to Worldwide
             
             # Extract eCPM
             ecpm = offer_data.get('ecpm24h', 0) or 0
@@ -820,7 +944,7 @@ class NetworkFieldMapper:
             mapped['conversion_window'] = None
             mapped['conversion_type'] = ''
             mapped['traffic_type'] = ''
-            mapped['device_targeting'] = ''
+            mapped['device_targeting'] = self._detect_device_from_name(formatted_name if 'formatted_name' in dir() else offer_data.get('name', ''))
             mapped['allowed_traffic_sources'] = []
             mapped['blocked_traffic_sources'] = []
             mapped['restrictions'] = ''

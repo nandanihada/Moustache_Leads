@@ -222,7 +222,7 @@ def get_available_offers():
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
-            'payout': 1, 'publisher_payout_override': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'payout': 1, 'payout_type': 1, 'publisher_payout_override': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
             'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
             'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
             'affiliates': 1, 'selected_users': 1, 'is_active': 1,
@@ -330,9 +330,15 @@ def get_available_offers():
                     original_payout = float(offer.get('payout', 0) or 0)
                 except (ValueError, TypeError):
                     original_payout = 0.0
+                
+                payout_type = offer.get('payout_type', 'fixed')
                 publisher_override = offer.get('publisher_payout_override')
+                
                 if publisher_override and float(publisher_override) > 0:
                     publisher_payout = round(float(publisher_override), 2)
+                elif payout_type == 'percentage':
+                    # For percentage offers, show 80% of the percentage value
+                    publisher_payout = round(original_payout * 0.8, 2)
                 else:
                     publisher_payout = round(original_payout * 0.8, 2)
                 
@@ -428,6 +434,7 @@ def get_available_offers():
                     'vertical': offer.get('vertical', offer.get('category', 'OTHER')),
                     'device_targeting': offer.get('device_targeting', 'all'),
                     'payout': publisher_payout,
+                    'payout_type': offer.get('payout_type', 'fixed'),
                     'revenue_share_percent': publisher_revenue_share,
                     'currency': offer.get('currency', 'USD'),
                     'network': offer.get('network', 'Unknown'),
@@ -602,6 +609,7 @@ def get_offer_details(offer_id):
         
         # Calculate publisher payout: use override if set, else 80% of admin payout
         original_payout = float(offer.get('payout', 0))
+        payout_type = offer.get('payout_type', 'fixed')
         publisher_override = offer.get('publisher_payout_override')
         if publisher_override and float(publisher_override) > 0:
             offer['payout'] = round(float(publisher_override), 2)

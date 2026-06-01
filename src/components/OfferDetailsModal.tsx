@@ -321,7 +321,7 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                   <div>
                     <span className="text-muted-foreground">Payout:</span>
                     <div className="font-semibold text-green-600">
-                      {(offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent}%` : `${getCurrencySymbol((offer as any).currency)}${offer.payout?.toFixed(2)}`}
+                      {(offer as any).payout_type === 'percentage' || (offer as any).revenue_share_percent > 0 ? `${(offer as any).revenue_share_percent || offer.payout || 0}%` : `${getCurrencySymbol((offer as any).currency)}${offer.payout?.toFixed(2)}`}
                     </div>
                   </div>
                 </div>

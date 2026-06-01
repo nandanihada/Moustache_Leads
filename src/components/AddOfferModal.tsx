@@ -45,6 +45,7 @@ interface AddOfferModalProps {
 }
 
 const COUNTRIES = [
+  { code: 'WW', name: 'Worldwide' },
   { code: 'US', name: 'United States' },
   { code: 'CA', name: 'Canada' },
   { code: 'GB', name: 'United Kingdom' },
@@ -274,6 +275,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
     allowed_countries: [],  // NEW: Geo-restriction - allowed country codes
     non_access_url: '',  // NEW: Fallback URL for geo-blocked users
     payout: 0,
+    payout_type: 'fixed',  // fixed/percentage/tiered
     revenue_share_percent: 0,  // NEW: 0-100 percentage for revenue sharing
     incentive_type: 'Incent',  // NEW: Auto-calculated - 'Incent' or 'Non-Incent'
     network: '',
@@ -986,13 +988,18 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="device_targeting">Device Targeting *</Label>
+                      <Label htmlFor="device_targeting">Device Targeting</Label>
                       <Select value={formData.device_targeting} onValueChange={(value) => handleInputChange('device_targeting', value)}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Devices</SelectItem>
+                          <SelectItem value="ios">iOS</SelectItem>
+                          <SelectItem value="android">Android</SelectItem>
+                          <SelectItem value="windows">Windows</SelectItem>
+                          <SelectItem value="mac">Mac</SelectItem>
+                          <SelectItem value="linux">Linux</SelectItem>
                           <SelectItem value="mobile">Mobile Only</SelectItem>
                           <SelectItem value="desktop">Desktop Only</SelectItem>
                         </SelectContent>
@@ -1094,7 +1101,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="payout">Payout Amount *</Label>
+                      <Label htmlFor="payout">Payout Amount</Label>
                       <Input
                         id="payout"
                         type="number"
@@ -1106,10 +1113,10 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           handleInputChange('payout', payout);
                           // Auto-calculate incentive type
                           const revenueShare = formData.revenue_share_percent || 0;
-                          handleInputChange('incentive_type', revenueShare > 0 ? 'Non-Incent' : 'Incent');
+                          const payoutType = (formData as any).payout_type || 'fixed';
+                          handleInputChange('incentive_type', (payoutType === 'percentage' || revenueShare > 0) ? 'Non-Incent' : 'Incent');
                         }}
                         placeholder="5.00"
-                        required
                       />
                     </div>
                     <div>
@@ -1155,12 +1162,17 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                         onChange={(e) => {
                           const percent = parseFloat(e.target.value) || 0;
                           handleInputChange('revenue_share_percent', percent);
-                          // Auto-calculate incentive type
-                          handleInputChange('incentive_type', percent > 0 ? 'Non-Incent' : 'Incent');
+                          // Auto-calculate incentive type based on payout_type
+                          const payoutType = (formData as any).payout_type || 'fixed';
+                          handleInputChange('incentive_type', (payoutType === 'percentage' || percent > 0) ? 'Non-Incent' : 'Incent');
                         }}
-                        placeholder="0"
+                        placeholder={((formData as any).payout_type === 'percentage') ? "e.g. 80" : "0"}
                       />
-                      <p className="text-sm text-gray-500 mt-1">% of upward payout to forward</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        {(formData as any).payout_type === 'percentage' 
+                          ? '⚡ This IS the payout (% of revenue per conversion)' 
+                          : '% of upward payout to forward'}
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="incentive_type">Incentive Type</Label>

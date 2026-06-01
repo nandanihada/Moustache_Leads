@@ -45,6 +45,7 @@ interface EditOfferModalProps {
 }
 
 const COUNTRIES = [
+  { code: 'WW', name: 'Worldwide' },
   { code: 'US', name: 'United States' },
   { code: 'CA', name: 'Canada' },
   { code: 'GB', name: 'United Kingdom' },
@@ -274,6 +275,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         allowed_countries: (offer as any).allowed_countries || [],  // NEW: Geo-restriction
         non_access_url: (offer as any).non_access_url || '',  // NEW: Fallback URL
         payout: offer.payout,
+        payout_type: (offer as any).payout_type || 'fixed',  // fixed/percentage/tiered
         revenue_share_percent: (offer as any).revenue_share_percent || 0,  // NEW: Revenue share
         incentive_type: (offer as any).incentive_type || 'Incent',  // NEW: Auto-calculated
         network: offer.network,
@@ -955,13 +957,18 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="device_targeting">Device Targeting *</Label>
+                      <Label htmlFor="device_targeting">Device Targeting</Label>
                       <Select value={formData.device_targeting} onValueChange={(value) => handleInputChange('device_targeting', value)}>
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Devices</SelectItem>
+                          <SelectItem value="ios">iOS</SelectItem>
+                          <SelectItem value="android">Android</SelectItem>
+                          <SelectItem value="windows">Windows</SelectItem>
+                          <SelectItem value="mac">Mac</SelectItem>
+                          <SelectItem value="linux">Linux</SelectItem>
                           <SelectItem value="mobile">Mobile Only</SelectItem>
                           <SelectItem value="desktop">Desktop Only</SelectItem>
                         </SelectContent>
@@ -1057,7 +1064,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-3 gap-4">
                     <div>
-                      <Label htmlFor="payout">Payout ($) *</Label>
+                      <Label htmlFor="payout">Payout Amount</Label>
                       <Input
                         id="payout"
                         type="number"
@@ -1069,10 +1076,10 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                           handleInputChange('payout', payout);
                           // Auto-calculate incentive type
                           const revenueShare = formData.revenue_share_percent || 0;
-                          handleInputChange('incentive_type', revenueShare > 0 ? 'Non-Incent' : 'Incent');
+                          const payoutType = (formData as any).payout_type || 'fixed';
+                          handleInputChange('incentive_type', (payoutType === 'percentage' || revenueShare > 0) ? 'Non-Incent' : 'Incent');
                         }}
                         placeholder="2.50"
-                        required
                       />
                     </div>
                     <div>
@@ -1090,7 +1097,28 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                       </Select>
                     </div>
                     <div>
-                      <Label htmlFor="revenue">Revenue ($)</Label>
+                      <Label htmlFor="payout_type">Payout Type</Label>
+                      <Select value={(formData as any).payout_type || 'fixed'} onValueChange={(value) => {
+                        handleInputChange('payout_type' as any, value);
+                        // Recalculate incentive type
+                        const revenueShare = formData.revenue_share_percent || 0;
+                        handleInputChange('incentive_type', (value === 'percentage' || revenueShare > 0) ? 'Non-Incent' : 'Incent');
+                      }}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="fixed">Fixed</SelectItem>
+                          <SelectItem value="tiered">Tiered</SelectItem>
+                          <SelectItem value="percentage">Percentage</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="revenue">Revenue (Optional)</Label>
                       <Input
                         id="revenue"
                         type="number"
@@ -1100,6 +1128,7 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                         onChange={(e) => handleInputChange('revenue', parseFloat(e.target.value) || undefined)}
                         placeholder="3.00"
                       />
+                      <p className="text-sm text-gray-500 mt-1">Network earnings per conversion</p>
                     </div>
                   </div>
 
@@ -1117,12 +1146,17 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                         onChange={(e) => {
                           const percent = parseFloat(e.target.value) || 0;
                           handleInputChange('revenue_share_percent', percent);
-                          // Auto-calculate incentive type
-                          handleInputChange('incentive_type', percent > 0 ? 'Non-Incent' : 'Incent');
+                          // Auto-calculate incentive type based on payout_type
+                          const payoutType = (formData as any).payout_type || 'fixed';
+                          handleInputChange('incentive_type', (payoutType === 'percentage' || percent > 0) ? 'Non-Incent' : 'Incent');
                         }}
-                        placeholder="0"
+                        placeholder={((formData as any).payout_type === 'percentage') ? "e.g. 80" : "0"}
                       />
-                      <p className="text-sm text-gray-500 mt-1">% of upward payout to forward</p>
+                      <p className="text-sm text-gray-500 mt-1">
+                        {(formData as any).payout_type === 'percentage' 
+                          ? '⚡ This IS the payout (% of revenue per conversion)' 
+                          : '% of upward payout to forward'}
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="incentive_type">Incentive Type</Label>

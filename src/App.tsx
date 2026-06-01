@@ -27,6 +27,7 @@ import AscendIframe from "@/pages/AscendIframe";   // ✅ Updated import
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const AdminOffers = lazy(() => import("./pages/AdminOffers"));
 const AdminOffersV3 = lazy(() => import("./pages/AdminOffersV3"));
+const AdminOfferDetail = lazy(() => import("./pages/AdminOfferDetail"));
 const AdminAnalytics = lazy(() => import("./pages/AdminAnalytics"));
 const AdminReports = lazy(() => import("./pages/AdminReports"));
 const AdminTracking = lazy(() => import("./pages/AdminTracking"));
@@ -218,6 +219,7 @@ const App = () => (
                 <Route index element={<AdminDashboard />} />
                 <Route path="users" element={<Users />} />
                 <Route path="offers" element={<AdminOffers />} />
+                <Route path="offers/:offerId" element={<AdminOfferDetail />} />
                 <Route path="offers-new" element={<AdminOffersV2 />} />
                 <Route path="offers-v3" element={<AdminOffersV3 />} />
                 <Route path="missing-offers" element={<AdminMissingOffers />} />

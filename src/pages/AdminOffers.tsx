@@ -2489,13 +2489,23 @@ const AdminOffers = () => {
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-1 flex-wrap">
-                                {(offer.countries || []).slice(0, 2).map(c => (
-                                  <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
-                                ))}
-                                {(offer.countries || []).length > 2 && <Badge variant="outline" className="text-xs">+{offer.countries.length - 2}</Badge>}
+                                {(offer.countries || []).includes('WW') || (offer.countries || []).length >= 20 ? (
+                                  <Badge variant="outline" className="text-xs font-bold">🌍 WW</Badge>
+                                ) : (
+                                  <>
+                                    {(offer.countries || []).slice(0, 2).map(c => (
+                                      <Badge key={c} variant="outline" className="text-xs">{c}</Badge>
+                                    ))}
+                                    {(offer.countries || []).length > 2 && <Badge variant="outline" className="text-xs">+{offer.countries.length - 2}</Badge>}
+                                  </>
+                                )}
                               </div>
                             </TableCell>
-                            <TableCell className="font-medium text-green-600">${offer.payout?.toFixed(2) || '0.00'}</TableCell>
+                            <TableCell className="font-medium text-green-600">
+                              {(offer as any).payout_type === 'percentage' 
+                                ? `${(offer as any).revenue_share_percent || offer.payout || 0}%` 
+                                : `$${offer.payout?.toFixed(2) || '0.00'}`}
+                            </TableCell>
                             <TableCell className="text-sm">{offer.network || '—'}</TableCell>
                             <TableCell className="text-sm">
                               {offer.when_active ? (
@@ -2692,8 +2702,14 @@ const AdminOffers = () => {
                             <TableCell className="text-sm">{offer.network}</TableCell>
                             <TableCell>
                               <div className="flex gap-1 flex-wrap">
-                                {(offer.countries || []).slice(0, 3).map(c => <Badge key={c} variant="outline" className="text-xs">{c}</Badge>)}
-                                {(offer.countries || []).length > 3 && <Badge variant="outline" className="text-xs">+{offer.countries.length - 3}</Badge>}
+                                {(offer.countries || []).includes('WW') || (offer.countries || []).length >= 20 ? (
+                                  <Badge variant="outline" className="text-xs font-bold">🌍 WW</Badge>
+                                ) : (
+                                  <>
+                                    {(offer.countries || []).slice(0, 3).map(c => <Badge key={c} variant="outline" className="text-xs">{c}</Badge>)}
+                                    {(offer.countries || []).length > 3 && <Badge variant="outline" className="text-xs">+{offer.countries.length - 3}</Badge>}
+                                  </>
+                                )}
                               </div>
                             </TableCell>
                             <TableCell>
@@ -3160,6 +3176,7 @@ const AdminOffers = () => {
                     <TableCell className="font-medium text-green-600">
                       {(() => {
                         const revenueSharePercent = (offer as any).revenue_share_percent || 0;
+                        const payoutType = (offer as any).payout_type || 'fixed';
                         const currency = offer.currency || 'USD';
                         const currencySymbols: Record<string, string> = {
                           'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹', 'JPY': '¥',
@@ -3171,7 +3188,9 @@ const AdminOffers = () => {
                         };
                         const symbol = currencySymbols[currency] || '$';
                         
-                        if (revenueSharePercent > 0) {
+                        if (payoutType === 'percentage') {
+                          return `${revenueSharePercent || offer.payout || 0}%`;
+                        } else if (revenueSharePercent > 0) {
                           return `${revenueSharePercent}%`;
                         } else {
                           return `${symbol}${offer.payout.toFixed(2)}`;
@@ -3185,6 +3204,18 @@ const AdminOffers = () => {
                         const currency = offer.currency || 'USD';
                         const currencySymbols: Record<string, string> = { 'USD': '$', 'EUR': '€', 'GBP': '£', 'INR': '₹' };
                         const symbol = currencySymbols[currency] || '$';
+                        
+                        // For percentage payout type, show percentage
+                        if ((offer as any).payout_type === 'percentage') {
+                          const pct = (offer as any).revenue_share_percent || offer.payout || 0;
+                          const pubPct = pubOverride && pubOverride > 0 ? pubOverride : pct * 0.8;
+                          return (
+                            <div className="relative group cursor-pointer">
+                              <span>{pubPct.toFixed(1)}%</span>
+                            </div>
+                          );
+                        }
+                        
                         const pubPrice = pubOverride && pubOverride > 0 ? pubOverride : offer.payout * 0.8;
                         return (
                           <div className="relative group cursor-pointer">
