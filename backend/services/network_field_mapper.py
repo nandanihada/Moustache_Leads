@@ -298,6 +298,46 @@ class NetworkFieldMapper:
             else:
                 mapped['affiliate_terms'] = ''
             
+            # LEVEL-BASED PAYOUTS: Detect goals/conversion events from HasOffers API
+            # HasOffers returns goals in offer_data.get('Goal', {}) or offer.get('goals', [])
+            level_payouts = {'enabled': False, 'levels': []}
+            goals_data = offer_data.get('Goal', {}) or offer_data.get('Goals', {})
+            if isinstance(goals_data, dict) and goals_data:
+                level_num = 1
+                for goal_id, goal_info in goals_data.items():
+                    if isinstance(goal_info, dict):
+                        goal_name = goal_info.get('name', '') or goal_info.get('description', '') or f'Goal {level_num}'
+                        goal_payout = float(goal_info.get('default_payout', 0) or goal_info.get('payout', 0) or 0)
+                        goal_type = goal_info.get('payout_type', 'CPA') or 'CPA'
+                        if goal_payout > 0:
+                            level_payouts['levels'].append({
+                                'level': level_num,
+                                'name': goal_name,
+                                'payout': goal_payout,
+                                'type': goal_type.upper() if goal_type else 'CPA'
+                            })
+                            level_num += 1
+            # Also check for goals as a list
+            goals_list = offer.get('goals', []) or offer_data.get('goals', [])
+            if isinstance(goals_list, list) and goals_list and not level_payouts['levels']:
+                level_num = 1
+                for goal in goals_list:
+                    if isinstance(goal, dict):
+                        goal_name = goal.get('name', '') or goal.get('description', '') or f'Goal {level_num}'
+                        goal_payout = float(goal.get('payout', 0) or goal.get('default_payout', 0) or 0)
+                        goal_type = goal.get('type', 'CPA') or 'CPA'
+                        if goal_payout > 0:
+                            level_payouts['levels'].append({
+                                'level': level_num,
+                                'name': goal_name,
+                                'payout': goal_payout,
+                                'type': goal_type.upper() if goal_type else 'CPA'
+                            })
+                            level_num += 1
+            if level_payouts['levels']:
+                level_payouts['enabled'] = True
+            mapped['level_payouts'] = level_payouts
+            
             # Generate tracking link for special networks (leadads, cpamerchant, chameleonads)
             # Pass network_id to identify the network since mapped data might not have it set yet
             mapped = process_offer_tracking_link(mapped, network_identifier=network_id)
@@ -800,6 +840,52 @@ class NetworkFieldMapper:
                     mapped['incentive_type'] = 'Incent'
                 else:
                     mapped['incentive_type'] = self._extract_incentive_type(raw_name)
+            
+            # LEVEL-BASED PAYOUTS: Detect multiple payout entries from Everflow
+            # Everflow can have multiple payout entries with different goals
+            level_payouts = {'enabled': False, 'levels': []}
+            if isinstance(payouts_data, dict):
+                entries = payouts_data.get('entries', [])
+                if isinstance(entries, list) and len(entries) > 1:
+                    # Multiple payout entries = level-based payouts
+                    level_num = 1
+                    for entry in entries:
+                        if isinstance(entry, dict):
+                            entry_name = entry.get('name', '') or entry.get('goal_name', '') or f'Level {level_num}'
+                            entry_payout = float(entry.get('payout_amount', 0) or 0)
+                            entry_type = entry.get('payout_type', 'CPA') or 'CPA'
+                            if entry_payout > 0:
+                                level_payouts['levels'].append({
+                                    'level': level_num,
+                                    'name': entry_name,
+                                    'payout': entry_payout,
+                                    'type': entry_type.upper() if entry_type else 'CPA'
+                                })
+                                level_num += 1
+                    if level_payouts['levels']:
+                        level_payouts['enabled'] = True
+            # Also check goals from relationship
+            goals_data = relationship.get('goals', {})
+            if isinstance(goals_data, dict) and not level_payouts['levels']:
+                goal_entries = goals_data.get('entries', [])
+                if isinstance(goal_entries, list) and goal_entries:
+                    level_num = 1
+                    for goal in goal_entries:
+                        if isinstance(goal, dict):
+                            goal_name = goal.get('name', '') or goal.get('description', '') or f'Goal {level_num}'
+                            goal_payout = float(goal.get('payout_amount', 0) or goal.get('payout', 0) or 0)
+                            goal_type = goal.get('payout_type', 'CPA') or 'CPA'
+                            if goal_payout > 0:
+                                level_payouts['levels'].append({
+                                    'level': level_num,
+                                    'name': goal_name,
+                                    'payout': goal_payout,
+                                    'type': goal_type.upper() if goal_type else 'CPA'
+                                })
+                                level_num += 1
+                    if level_payouts['levels']:
+                        level_payouts['enabled'] = True
+            mapped['level_payouts'] = level_payouts
             
             # Process tracking link for special networks
             mapped = process_offer_tracking_link(mapped, network_identifier=network_id)

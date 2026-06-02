@@ -138,6 +138,37 @@ SPREADSHEET_TO_DB_MAPPING = {
     'redirect timer': 'fallback_redirect_timer',
     'timer_seconds': 'fallback_redirect_timer',
     'timer seconds': 'fallback_redirect_timer',
+    # NEW: Level-based payouts (conversion event levels)
+    'level_1_name': 'level_1_name',
+    'level 1 name': 'level_1_name',
+    'level_1_payout': 'level_1_payout',
+    'level 1 payout': 'level_1_payout',
+    'level_1_type': 'level_1_type',
+    'level 1 type': 'level_1_type',
+    'level_2_name': 'level_2_name',
+    'level 2 name': 'level_2_name',
+    'level_2_payout': 'level_2_payout',
+    'level 2 payout': 'level_2_payout',
+    'level_2_type': 'level_2_type',
+    'level 2 type': 'level_2_type',
+    'level_3_name': 'level_3_name',
+    'level 3 name': 'level_3_name',
+    'level_3_payout': 'level_3_payout',
+    'level 3 payout': 'level_3_payout',
+    'level_3_type': 'level_3_type',
+    'level 3 type': 'level_3_type',
+    'level_4_name': 'level_4_name',
+    'level 4 name': 'level_4_name',
+    'level_4_payout': 'level_4_payout',
+    'level 4 payout': 'level_4_payout',
+    'level_4_type': 'level_4_type',
+    'level 4 type': 'level_4_type',
+    'level_5_name': 'level_5_name',
+    'level 5 name': 'level_5_name',
+    'level_5_payout': 'level_5_payout',
+    'level 5 payout': 'level_5_payout',
+    'level_5_type': 'level_5_type',
+    'level 5 type': 'level_5_type',
 }
 
 # Required fields that must be present in spreadsheet
@@ -758,6 +789,35 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"🔗 Before apply_network_offer_params: target_url={result.get('target_url', 'N/A')}")
     result = apply_network_offer_params(result)
     logger.info(f"🔗 After apply_network_offer_params: target_url={result.get('target_url', 'N/A')}")
+    
+    # LEVEL-BASED PAYOUTS: Detect from spreadsheet columns (level_1_name, level_1_payout, etc.)
+    level_payouts = {'enabled': False, 'levels': []}
+    for i in range(1, 6):  # Support up to 5 levels
+        level_name = result.get(f'level_{i}_name', '').strip() if result.get(f'level_{i}_name') else ''
+        level_payout_raw = result.get(f'level_{i}_payout', 0)
+        level_type = result.get(f'level_{i}_type', 'CPA').strip().upper() if result.get(f'level_{i}_type') else 'CPA'
+        
+        try:
+            level_payout = float(level_payout_raw) if level_payout_raw else 0
+        except (ValueError, TypeError):
+            level_payout = 0
+        
+        if level_name and level_payout > 0:
+            level_payouts['levels'].append({
+                'level': i,
+                'name': level_name,
+                'payout': level_payout,
+                'type': level_type
+            })
+        
+        # Clean up individual level fields from result (they shouldn't go to DB as separate fields)
+        result.pop(f'level_{i}_name', None)
+        result.pop(f'level_{i}_payout', None)
+        result.pop(f'level_{i}_type', None)
+    
+    if level_payouts['levels']:
+        level_payouts['enabled'] = True
+    result['level_payouts'] = level_payouts
     
     return result
 

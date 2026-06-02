@@ -530,6 +530,11 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         email_include_user_ids: includeUserIds.length > 0 ? includeUserIds : undefined,
         email_send_mode: emailSendMode,
         email_schedule_at: emailSendMode === 'schedule' && emailScheduleDate ? `${emailScheduleDate}T${emailScheduleTime || '09:00'}:00` : undefined,
+        // 🔥 LEVEL-BASED PAYOUTS (conversion event levels)
+        level_payouts: {
+          enabled: formData.level_payouts_enabled || false,
+          levels: (formData.level_payouts_list || []).filter((l: any) => l.name && l.payout > 0)
+        }
       };
 
       // Remove partner_id if it's empty
@@ -646,10 +651,11 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <Tabs defaultValue="identification" className="w-full">
-            <TabsList className="grid w-full grid-cols-10 text-xs">
+            <TabsList className="grid w-full grid-cols-11 text-xs">
               <TabsTrigger value="identification">ID</TabsTrigger>
               <TabsTrigger value="targeting">Target</TabsTrigger>
               <TabsTrigger value="payout">Payout</TabsTrigger>
+              <TabsTrigger value="levels">Level</TabsTrigger>
               <TabsTrigger value="tracking">Track</TabsTrigger>
               <TabsTrigger value="access">Access</TabsTrigger>
               <TabsTrigger value="creatives">Creative</TabsTrigger>
@@ -1255,6 +1261,154 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                       />
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* SECTION 3.1: LEVEL-BASED PAYOUTS (Own Tab) */}
+            <TabsContent value="levels" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Level-Based Payouts</CardTitle>
+                  <CardDescription>Configure different payouts for each conversion stage (Click, Registration, Deposit, Purchase, etc.)</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-sm text-gray-600">Enable level-based payouts to set different amounts for each conversion event.</p>
+                      <p className="text-xs text-amber-600 mt-1">💡 Publishers will see 80% of each level payout.</p>
+                    </div>
+                    <Switch
+                      checked={formData.level_payouts_enabled || false}
+                      onCheckedChange={(checked) => handleInputChange('level_payouts_enabled', checked)}
+                    />
+                  </div>
+
+                  {formData.level_payouts_enabled && (
+                    <div className="space-y-3">
+                      {/* Column headers */}
+                      <div className="grid grid-cols-12 gap-2 items-center text-xs text-gray-500 font-medium px-1">
+                        <div className="col-span-1">#</div>
+                        <div className="col-span-4">Level Name</div>
+                        <div className="col-span-3">Payout (Admin)</div>
+                        <div className="col-span-3">Type</div>
+                        <div className="col-span-1"></div>
+                      </div>
+
+                      {(formData.level_payouts_list || []).map((level: any, idx: number) => (
+                        <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                          <div className="col-span-1">
+                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-violet-100 text-violet-700 text-xs font-bold">{level.level}</span>
+                          </div>
+                          <div className="col-span-4">
+                            <Input
+                              placeholder="e.g. Click, Registration, Deposit"
+                              value={level.name}
+                              onChange={(e) => {
+                                const updated = [...(formData.level_payouts_list || [])];
+                                updated[idx] = { ...updated[idx], name: e.target.value };
+                                handleInputChange('level_payouts_list', updated);
+                              }}
+                              className="text-sm"
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="Amount"
+                              value={level.payout || ''}
+                              onChange={(e) => {
+                                const updated = [...(formData.level_payouts_list || [])];
+                                updated[idx] = { ...updated[idx], payout: parseFloat(e.target.value) || 0 };
+                                handleInputChange('level_payouts_list', updated);
+                              }}
+                              className="text-sm"
+                            />
+                          </div>
+                          <div className="col-span-3">
+                            <Select
+                              value={level.type}
+                              onValueChange={(val) => {
+                                const updated = [...(formData.level_payouts_list || [])];
+                                updated[idx] = { ...updated[idx], type: val };
+                                handleInputChange('level_payouts_list', updated);
+                              }}
+                            >
+                              <SelectTrigger className="text-sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="CPC">CPC (Click)</SelectItem>
+                                <SelectItem value="CPL">CPL (Lead)</SelectItem>
+                                <SelectItem value="CPA">CPA (Action)</SelectItem>
+                                <SelectItem value="CPI">CPI (Install)</SelectItem>
+                                <SelectItem value="CPS">CPS (Sale)</SelectItem>
+                                <SelectItem value="RevShare">RevShare</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="col-span-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                const updated = (formData.level_payouts_list || []).filter((_: any, i: number) => i !== idx);
+                                handleInputChange('level_payouts_list', updated);
+                              }}
+                              className="text-red-500 hover:text-red-700 p-1"
+                            >
+                              ×
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const list = formData.level_payouts_list || [];
+                          const nextLevel = list.length + 1;
+                          const defaultNames = ['Click', 'Registration', 'First Deposit', 'Purchase', 'Subscription'];
+                          const defaultTypes = ['CPC', 'CPL', 'CPA', 'CPS', 'CPA'];
+                          handleInputChange('level_payouts_list', [...list, {
+                            level: nextLevel,
+                            name: defaultNames[list.length] || `Level ${nextLevel}`,
+                            payout: 0,
+                            type: defaultTypes[list.length] || 'CPA'
+                          }]);
+                        }}
+                        className="w-full"
+                      >
+                        + Add Level
+                      </Button>
+
+                      {(formData.level_payouts_list || []).length > 0 && (
+                        <div className="mt-4 p-3 rounded-lg bg-gray-50 border">
+                          <p className="text-xs font-medium text-gray-700 mb-2">Publisher Preview:</p>
+                          <div className="space-y-1">
+                            {(formData.level_payouts_list || []).filter((l: any) => l.payout > 0).map((level: any, idx: number) => (
+                              <div key={idx} className="flex justify-between text-xs">
+                                <span className="text-gray-600">Level {level.level}: {level.name} ({level.type})</span>
+                                <span className="font-medium text-emerald-600">${(level.payout * 0.8).toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {!formData.level_payouts_enabled && (
+                    <div className="text-center py-8 text-gray-400">
+                      <p className="text-sm">Level payouts are disabled for this offer.</p>
+                      <p className="text-xs mt-1">Toggle the switch above to add conversion level tiers.</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

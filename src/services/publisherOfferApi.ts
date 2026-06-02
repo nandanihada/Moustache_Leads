@@ -87,6 +87,13 @@ export interface PublisherOffer {
   // Lock/visibility fields
   is_locked?: boolean;
   lock_reason?: string;
+  // Level-based payouts (conversion event levels)
+  level_payouts?: {
+    enabled: boolean;
+    levels: Array<{level: number; name: string; payout: number; type: string}>;
+  };
+  // Geo-split payouts (country-wise)
+  geo_payouts?: Array<{country: string; payout: number; type: string}>;
 }
 
 export interface GetOffersParams {

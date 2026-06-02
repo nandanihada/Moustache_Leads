@@ -506,6 +506,40 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
             </GlassCard>
           </div>
 
+          {/* Level-Based Payouts (Conversion Event Levels) */}
+          {(offer as any).level_payouts?.enabled && (offer as any).level_payouts?.levels?.length > 0 && (
+            <GlassCard>
+              <div className="flex items-center gap-2 mb-3">
+                <TrendingUp className="h-4 w-4 text-emerald-300" />
+                <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Payout Levels</span>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 ml-auto">
+                  {(offer as any).level_payouts.levels.length} levels
+                </span>
+              </div>
+              <p className="text-xs text-white/40 mb-3">Different payouts based on conversion stage. Your payout at each level:</p>
+              <div className="space-y-2">
+                {(offer as any).level_payouts.levels.map((lvl: any, idx: number) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-6 h-6 rounded-full bg-violet-500/20 border border-violet-500/30 flex items-center justify-center text-xs font-bold text-violet-300">
+                        {lvl.level}
+                      </span>
+                      <span className="text-sm text-white/80 font-medium">{lvl.name}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-white/40 border border-white/10">{lvl.type}</span>
+                    </div>
+                    <span className="text-sm font-bold text-emerald-400">
+                      {getCurrencySymbol((offer as any).currency)}{lvl.payout.toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          )}
+
           {/* Countries */}
           <GlassCard>
             <div className="flex items-center gap-2 mb-3">

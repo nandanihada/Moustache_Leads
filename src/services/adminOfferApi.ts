@@ -96,6 +96,15 @@ export interface Offer {
   fallback_redirect_url?: string;
   fallback_redirect_timer?: number;
   
+  // Level-Based Payouts (conversion event levels)
+  level_payouts?: {
+    enabled: boolean;
+    levels: Array<{level: number; name: string; payout: number; type: string}>;
+  };
+  
+  // Geo-Split Payouts (country-wise payouts)
+  geo_payouts?: Array<{country: string; payout: number; type: string}>;
+  
   // Smart Rules
   smart_rules?: {
     random_redirect?: boolean;

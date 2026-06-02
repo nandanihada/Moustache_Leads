@@ -688,7 +688,9 @@ class OfferExtended:
                 'allowed_traffic_sources', 'risky_traffic_sources', 
                 'disallowed_traffic_sources', 'blocked_traffic_sources', 'traffic_source_overrides',
                 # Vertical/category
-                'vertical', 'category'
+                'vertical', 'category',
+                # Level-based payouts and Geo-split payouts
+                'level_payouts', 'geo_payouts'
             ]
             
             for field in regular_fields:

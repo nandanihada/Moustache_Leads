@@ -10,6 +10,7 @@ import AdminLayout from "./components/layout/AdminLayout";
 import Dashboard from "./pages/Dashboard";
 import Offers from "./pages/Offers";
 import PublisherOffers from "./pages/PublisherOffers";
+import PublisherOfferDetail from "./pages/PublisherOfferDetail";
 import PublisherSmartLink from "./pages/PublisherSmartLink";
 import Reports from "./pages/Reports";
 import Users from "./pages/Users";
@@ -181,6 +182,7 @@ const App = () => (
               >
                 <Route index element={<Dashboard />} />
                 <Route path="offers" element={<PublisherOffers />} />
+                <Route path="offers/:offerId" element={<PublisherOfferDetail />} />
                 <Route path="smart-link" element={<Navigate to="/dashboard" replace />} />
                 <Route path="promo-codes" element={<PublisherPromoCodeManagement />} />
                 <Route path="reports" element={<Reports />} />

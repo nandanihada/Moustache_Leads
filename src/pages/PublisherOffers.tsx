@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Search, Loader2, Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight, Filter, Send, Sparkles, ExternalLink, LayoutGrid, List, X, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -34,9 +35,20 @@ const getFlag = (code: string) => {
 const PublisherOffersContent = () => {
   const { toast } = useToast();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // View mode
-  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers" | "top_20">("available");
+  // View mode — persisted in URL ?tab=my_offers so it survives navigation back
+  const initialTab = (searchParams.get('tab') || 'available') as "available" | "requests" | "my_offers" | "top_20";
+  const [viewMode, setViewMode] = useState<"available" | "requests" | "my_offers" | "top_20">(
+    ['available', 'requests', 'my_offers', 'top_20'].includes(initialTab) ? initialTab : 'available'
+  );
+
+  // Sync viewMode changes to URL
+  const handleSetViewMode = (mode: "available" | "requests" | "my_offers" | "top_20") => {
+    setViewMode(mode);
+    setSearchParams(mode === 'available' ? {} : { tab: mode }, { replace: true });
+  };
 
   // Filters
   const [searchTerm, setSearchTerm] = useState("");
@@ -729,10 +741,10 @@ const PublisherOffersContent = () => {
     } catch {}
   };
 
-  // Click offer name → open details modal
+  // Click offer name → navigate to detail page
   const handleViewDetails = (offer: PublisherOffer) => {
-    setSelectedOffer(offer);
-    setDetailsModalOpen(true);
+    // Navigate to the full offer detail page
+    navigate(`/dashboard/offers/${offer.offer_id}`);
     // Log the offer view
     publisherOfferApi.logOfferView(offer.offer_id, offer.name, 'publisher_offers', offer.network || '');
     // Track picked offer in search logs
@@ -880,7 +892,7 @@ const PublisherOffersContent = () => {
         {/* ── TOP CONTROL BAR ── */}
         <div className="flex items-center gap-2 flex-wrap">
           {/* View mode */}
-          <Select value={viewMode} onValueChange={(v: any) => { setViewMode(v); setPage(1); }}>
+          <Select value={viewMode} onValueChange={(v: any) => { handleSetViewMode(v); setPage(1); }}>
             <SelectTrigger className="w-[170px] h-9 text-sm border-purple-200 focus:ring-purple-400">
               <SelectValue />
             </SelectTrigger>

@@ -223,14 +223,18 @@ def get_available_offers():
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
             'payout': 1, 'payout_type': 1, 'publisher_payout_override': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
-            'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
-            'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
+            'countries': 1, 'allowed_countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
+            'created_at': 1, 'updated_at': 1, 'approval_status': 1, 'approval_settings': 1,
             'affiliates': 1, 'selected_users': 1, 'is_active': 1,
             'target_url': 1, 'masked_url': 1, 'show_in_offerwall': 1,
             'promo_code': 1, 'promo_code_id': 1, 'bonus_amount': 1, 'bonus_type': 1,
             'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1,
-            'device_targeting': 1, 'is_pinned': 1,
-            'pinnedPosition': 1, 'pinStartTime': 1, 'pinEndTime': 1, 'pinDuration': 1, 'pinnedBy': 1, 'pinStatus': 1
+            'device_targeting': 1, 'os_targeting': 1, 'is_pinned': 1,
+            'pinnedPosition': 1, 'pinStartTime': 1, 'pinEndTime': 1, 'pinDuration': 1, 'pinnedBy': 1, 'pinStatus': 1,
+            'level_payouts': 1, 'geo_payouts': 1,
+            'daily_cap': 1, 'weekly_cap': 1, 'monthly_cap': 1, 'limit': 1,
+            'expiration_date': 1, 'conversion_window': 1, 'incentive_type': 1,
+            'offer_type': 1, 'conversion_goal': 1, 'languages': 1
         }
         
         # Get paginated results with projection
@@ -465,7 +469,61 @@ def get_available_offers():
                     'pinDuration': offer.get('pinDuration'),
                     'pinnedBy': offer.get('pinnedBy'),
                     'pinStatus': offer.get('pinStatus'),
+                    # Additional detail fields
+                    'os_targeting': offer.get('os_targeting', []),
+                    'daily_cap': offer.get('daily_cap'),
+                    'weekly_cap': offer.get('weekly_cap'),
+                    'monthly_cap': offer.get('monthly_cap'),
+                    'limit': offer.get('limit'),
+                    'expiration_date': offer.get('expiration_date'),
+                    'conversion_window': offer.get('conversion_window'),
+                    'incentive_type': offer.get('incentive_type', 'Incent'),
+                    'offer_type': offer.get('offer_type', 'CPA'),
+                    'conversion_goal': offer.get('conversion_goal', ''),
+                    'languages': offer.get('languages', []),
+                    'allowed_countries': offer.get('allowed_countries', []),
+                    'updated_at': offer.get('updated_at'),
                 }
+                
+                # Add level_payouts with 80% applied to each level
+                raw_level_payouts = offer.get('level_payouts', {})
+                if raw_level_payouts and raw_level_payouts.get('enabled') and raw_level_payouts.get('levels'):
+                    publisher_levels = []
+                    for lvl in raw_level_payouts['levels']:
+                        try:
+                            lvl_payout = float(lvl.get('payout', 0))
+                            publisher_levels.append({
+                                'level': lvl.get('level'),
+                                'name': lvl.get('name', ''),
+                                'payout': round(lvl_payout * 0.8, 2),
+                                'type': lvl.get('type', 'CPA')
+                            })
+                        except (ValueError, TypeError):
+                            pass
+                    offer_data['level_payouts'] = {
+                        'enabled': True,
+                        'levels': publisher_levels
+                    }
+                else:
+                    offer_data['level_payouts'] = {'enabled': False, 'levels': []}
+                
+                # Add geo_payouts with 80% applied to each country payout
+                raw_geo_payouts = offer.get('geo_payouts', [])
+                if raw_geo_payouts and isinstance(raw_geo_payouts, list):
+                    publisher_geo_payouts = []
+                    for gp in raw_geo_payouts:
+                        try:
+                            geo_payout = float(gp.get('payout', 0))
+                            publisher_geo_payouts.append({
+                                'country': gp.get('country', ''),
+                                'payout': round(geo_payout * 0.8, 2),
+                                'type': gp.get('type', 'CPA')
+                            })
+                        except (ValueError, TypeError):
+                            pass
+                    offer_data['geo_payouts'] = publisher_geo_payouts
+                else:
+                    offer_data['geo_payouts'] = []
                 
                 # Add request status if exists
                 if existing_request:
@@ -1256,12 +1314,17 @@ def get_my_offers():
 
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,
-            'payout': 1, 'publisher_payout_override': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
-            'countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
-            'created_at': 1, 'approval_status': 1, 'approval_settings': 1,
+            'payout': 1, 'payout_type': 1, 'publisher_payout_override': 1, 'revenue_share_percent': 1, 'currency': 1, 'network': 1, 'status': 1,
+            'countries': 1, 'allowed_countries': 1, 'image_url': 1, 'thumbnail_url': 1, 'preview_url': 1,
+            'created_at': 1, 'updated_at': 1, 'approval_status': 1, 'approval_settings': 1,
             'target_url': 1, 'masked_url': 1,
-            'allowed_traffic_sources': 1, 'device_targeting': 1,
-            'is_pinned': 1, 'pinnedPosition': 1
+            'allowed_traffic_sources': 1, 'risky_traffic_sources': 1, 'disallowed_traffic_sources': 1,
+            'device_targeting': 1, 'os_targeting': 1,
+            'is_pinned': 1, 'pinnedPosition': 1,
+            'level_payouts': 1, 'geo_payouts': 1,
+            'daily_cap': 1, 'weekly_cap': 1, 'monthly_cap': 1, 'limit': 1,
+            'expiration_date': 1, 'conversion_window': 1, 'incentive_type': 1,
+            'offer_type': 1, 'conversion_goal': 1, 'languages': 1
         }
 
         offers = list(offers_collection.find(
@@ -1278,11 +1341,62 @@ def get_my_offers():
         for offer in offers:
             offer_data = serialize_for_json(offer)
             offer_data['has_access'] = True
+            offer_data['is_locked'] = False
             offer_data['request_status'] = 'approved'
+            offer_data['access_reason'] = 'Access approved'
+            offer_data['requires_approval'] = False
             req_info = request_map.get(offer.get('offer_id'))
             if req_info:
                 offer_data['approved_at'] = serialize_for_json(req_info.get('approved_at'))
                 offer_data['requested_at'] = serialize_for_json(req_info.get('requested_at'))
+
+            # Apply 80% payout for publisher
+            try:
+                original_payout = float(offer.get('payout', 0) or 0)
+            except (ValueError, TypeError):
+                original_payout = 0.0
+            publisher_override = offer.get('publisher_payout_override')
+            if publisher_override and float(publisher_override) > 0:
+                offer_data['payout'] = round(float(publisher_override), 2)
+            else:
+                offer_data['payout'] = round(original_payout * 0.8, 2)
+
+            # Apply 80% to level_payouts
+            raw_level_payouts = offer.get('level_payouts', {})
+            if raw_level_payouts and raw_level_payouts.get('enabled') and raw_level_payouts.get('levels'):
+                publisher_levels = []
+                for lvl in raw_level_payouts['levels']:
+                    try:
+                        lvl_payout = float(lvl.get('payout', 0))
+                        publisher_levels.append({
+                            'level': lvl.get('level'),
+                            'name': lvl.get('name', ''),
+                            'payout': round(lvl_payout * 0.8, 2),
+                            'type': lvl.get('type', 'CPA')
+                        })
+                    except (ValueError, TypeError):
+                        pass
+                offer_data['level_payouts'] = {'enabled': True, 'levels': publisher_levels}
+            else:
+                offer_data['level_payouts'] = {'enabled': False, 'levels': []}
+
+            # Apply 80% to geo_payouts
+            raw_geo_payouts = offer.get('geo_payouts', [])
+            if raw_geo_payouts and isinstance(raw_geo_payouts, list):
+                publisher_geo_payouts = []
+                for gp in raw_geo_payouts:
+                    try:
+                        geo_payout = float(gp.get('payout', 0))
+                        publisher_geo_payouts.append({
+                            'country': gp.get('country', ''),
+                            'payout': round(geo_payout * 0.8, 2),
+                            'type': gp.get('type', 'CPA')
+                        })
+                    except (ValueError, TypeError):
+                        pass
+                offer_data['geo_payouts'] = publisher_geo_payouts
+            else:
+                offer_data['geo_payouts'] = []
 
             # Build tracking URL if user has access
             try:
