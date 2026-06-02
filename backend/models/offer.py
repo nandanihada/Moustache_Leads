@@ -630,6 +630,17 @@ class Offer:
                 'auto_pause_on_cap': offer_data.get('auto_pause_on_cap', False),  # Auto pause when cap reached
                 'cap_alert_emails': offer_data.get('cap_alert_emails', []),  # Email alerts for caps
                 
+                # SECTION 3.1: LEVEL-BASED PAYOUTS (Conversion event levels)
+                # Different payouts for different conversion stages (Click, Registration, Deposit, etc.)
+                'level_payouts': offer_data.get('level_payouts', {
+                    'enabled': False,
+                    'levels': []  # [{level: 1, name: 'Click', payout: 0.50, type: 'CPC'}, ...]
+                }),
+                
+                # SECTION 3.2: GEO-SPLIT PAYOUTS (Country-wise payouts)
+                # Different payouts per country - base payout applies to all other GEOs
+                'geo_payouts': offer_data.get('geo_payouts', []),  # [{country: 'CH', payout: 1000, type: 'CPA'}, ...]
+                
                 # SECTION 4: TRACKING SETUP
                 'network': offer_data['network'].strip(),
                 'partner_id': offer_data.get('partner_id', '').strip(),  # Partner ID for postback

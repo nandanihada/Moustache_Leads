@@ -128,7 +128,7 @@ const PaymentsContent = () => {
         <Button 
           variant="default" 
           className="bg-[#4D94FF] hover:bg-[#3d7ae6] text-white"
-          onClick={() => navigate('/dashboard/settings')}
+          onClick={() => navigate('/dashboard/settings?tab=billing')}
         >
           Update Payment Settings
         </Button>

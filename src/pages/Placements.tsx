@@ -543,7 +543,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
             />
             <Input
               label="Postback URL"
-              placeholder="https://yourserver.com/postback?click_id={click_id}&user_id={username}&points={points}"
+              placeholder="https://yourserver.com/postback?user_id={sub1}&click_id={click_id}&payout={payout}"
               value={data.postbackUri}
               onChange={(e) => onChange('postbackUri', e.target.value)}
               icon={Send}
@@ -588,9 +588,9 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                 <span></span>
               </div>
               {(data._postbackParams || [
+                { theirParam: '', ourMacro: '{sub1}' },
                 { theirParam: '', ourMacro: '{click_id}' },
-                { theirParam: '', ourMacro: '{username}' },
-                { theirParam: '', ourMacro: '{points}' },
+                { theirParam: '', ourMacro: '{payout}' },
               ]).map((param: any, idx: number) => (
                 <div key={idx} className="grid grid-cols-[1fr_auto_1fr_auto] gap-2 items-center">
                   <input
@@ -599,7 +599,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                     placeholder="e.g. uid, txn_id, reward"
                     value={param.theirParam}
                     onChange={(e) => {
-                      const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{username}' }, { theirParam: '', ourMacro: '{points}' }])];
+                      const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{sub1}' }, { theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{payout}' }])];
                       params[idx] = { ...params[idx], theirParam: e.target.value };
                       onChange('_postbackParams', params);
                       // Rebuild URL
@@ -613,7 +613,7 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                     className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg focus:ring-2 focus:ring-violet-200 focus:border-violet-400 outline-none bg-white font-mono text-violet-700"
                     value={param.ourMacro}
                     onChange={(e) => {
-                      const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{username}' }, { theirParam: '', ourMacro: '{points}' }])];
+                      const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{sub1}' }, { theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{payout}' }])];
                       params[idx] = { ...params[idx], ourMacro: e.target.value };
                       onChange('_postbackParams', params);
                       const base = data._postbackBaseUrl || (data.postbackUri ? data.postbackUri.split('?')[0] : '');
@@ -621,19 +621,18 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                       onChange('postbackUri', qs ? `${base}?${qs}` : base);
                     }}
                   >
+                    <option value="{sub1}">sub1 — Your User ID (passed via sub1 in tracking link)</option>
                     <option value="{click_id}">click_id — Unique Click ID</option>
-                    <option value="{username}">username — User who completed</option>
-                    <option value="{points}">points — Reward amount</option>
                     <option value="{payout}">payout — Payout in USD</option>
+                    <option value="{points}">points — Reward amount (in your currency)</option>
                     <option value="{offer_id}">offer_id — Offer identifier</option>
                     <option value="{offer_name}">offer_name — Offer name</option>
-                    <option value="{status}">status — Conversion status</option>
+                    <option value="{status}">status — Conversion status (always "approved")</option>
+                    <option value="{sub2}">sub2 — Sub ID 2 (passed via sub2 in tracking link)</option>
+                    <option value="{sub3}">sub3 — Sub ID 3 (passed via sub3 in tracking link)</option>
                     <option value="{user_ip}">user_ip — User IP address</option>
-                    <option value="{affiliate_id}">affiliate_id — Affiliate ID</option>
+                    <option value="{username}">username — Offerwall end-user</option>
                     <option value="{transaction_id}">transaction_id — Transaction ID</option>
-                    <option value="{sub_id1}">sub_id1 — Sub ID 1</option>
-                    <option value="{sub_id2}">sub_id2 — Sub ID 2</option>
-                    <option value="{sub_id3}">sub_id3 — Sub ID 3</option>
                   </select>
                   <button
                     type="button"
@@ -655,8 +654,8 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
               <button
                 type="button"
                 onClick={() => {
-                  const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{username}' }, { theirParam: '', ourMacro: '{points}' }])];
-                  params.push({ theirParam: '', ourMacro: '{payout}' });
+                  const params = [...(data._postbackParams || [{ theirParam: '', ourMacro: '{sub1}' }, { theirParam: '', ourMacro: '{click_id}' }, { theirParam: '', ourMacro: '{payout}' }])];
+                  params.push({ theirParam: '', ourMacro: '{offer_id}' });
                   onChange('_postbackParams', params);
                 }}
                 className="flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 font-medium mt-1"
@@ -687,20 +686,23 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
               <div className="mt-2 p-3 bg-white rounded-lg border border-violet-100 text-xs text-gray-600 space-y-2">
                 <p className="font-medium text-violet-800">📋 How Postback Works:</p>
                 <p>When a user completes an offer on your offerwall, our system sends a GET request to your Postback URL. We replace the macros (like <code className="bg-violet-100 px-1 rounded text-violet-700">{'{click_id}'}</code>) with actual conversion data.</p>
+                <p className="font-medium text-violet-800 mt-2">🔑 Important:</p>
+                <p>The <code className="bg-violet-100 px-1 rounded text-violet-700">{'{sub1}'}</code> macro returns whatever value you pass as <code className="bg-violet-100 px-1 rounded text-violet-700">sub1</code> in your tracking link. Example: if your tracking link is <code className="bg-gray-100 px-1 rounded text-gray-700">/track/ML-00123?user_id=YOUR_ID&sub1=end_user_123</code>, then <code className="bg-violet-100 px-1 rounded text-violet-700">{'{sub1}'}</code> will be replaced with <code className="bg-gray-100 px-1 rounded text-gray-700">end_user_123</code> in your postback.</p>
                 <p className="font-medium text-violet-800 mt-2">Available Macros:</p>
                 <div className="grid grid-cols-2 gap-1.5">
                   {[
+                    { macro: '{sub1}', desc: 'Your user ID (from sub1 in tracking link)' },
                     { macro: '{click_id}', desc: 'Unique Click ID for this conversion' },
-                    { macro: '{username}', desc: 'User who completed the offer' },
-                    { macro: '{points}', desc: 'Calculated reward (in your currency)' },
                     { macro: '{payout}', desc: 'Payout amount in USD' },
+                    { macro: '{points}', desc: 'Reward amount (in your currency)' },
                     { macro: '{offer_id}', desc: 'Offer identifier (e.g. ML-00123)' },
                     { macro: '{offer_name}', desc: 'Name of the completed offer' },
                     { macro: '{status}', desc: 'Always "approved" on conversion' },
+                    { macro: '{sub2}', desc: 'Sub ID 2 (from sub2 in tracking link)' },
+                    { macro: '{sub3}', desc: 'Sub ID 3 (from sub3 in tracking link)' },
                     { macro: '{user_ip}', desc: 'IP address of the user' },
-                    { macro: '{sub_id1}', desc: 'Sub ID 1 — custom tracking tag' },
-                    { macro: '{sub_id2}', desc: 'Sub ID 2 — custom tracking tag' },
-                    { macro: '{sub_id3}', desc: 'Sub ID 3 — custom tracking tag' },
+                    { macro: '{username}', desc: 'Offerwall end-user username' },
+                    { macro: '{transaction_id}', desc: 'Transaction/conversion ID' },
                   ].map((m, i) => (
                     <div key={i} className="flex items-center gap-1.5 bg-gray-50 rounded px-2 py-1">
                       <code className="text-violet-700 font-mono text-[11px]">{m.macro}</code>
@@ -709,13 +711,13 @@ const PlacementConfiguration = ({ data, onChange, onSubmit, isNew, loading = fal
                   ))}
                 </div>
                 <div className="mt-2 p-2 bg-blue-50 rounded-md text-[10px] text-blue-700 leading-relaxed">
-                  💡 <span className="font-semibold">Tip:</span> You can map any parameter name to any data value. For example, if your system expects <code className="bg-white px-1 rounded font-mono">subid</code>, you can map it to <code className="bg-white px-1 rounded font-mono">{'{username}'}</code>, <code className="bg-white px-1 rounded font-mono">{'{click_id}'}</code>, or any other value. Just type your parameter name on the left side and select the data you want on the right.
+                  💡 <span className="font-semibold">Tip:</span> Use <code className="bg-white px-1 rounded font-mono">{'{sub1}'}</code> to get back your end-user's ID. Pass it as <code className="bg-white px-1 rounded font-mono">sub1</code> in the tracking link and we'll return it in your postback.
                 </div>
                 <p className="font-medium text-violet-800 mt-2">Example:</p>
                 <code className="block bg-gray-50 p-2 rounded text-[11px] break-all">
-                  https://yoursite.com/postback?uid={'{username}'}&reward={'{points}'}&txn={'{click_id}'}&status={'{status}'}
+                  https://yoursite.com/postback?user_id={'{sub1}'}&reward={'{payout}'}&click={'{click_id}'}&status={'{status}'}
                 </code>
-                <p className="text-gray-400 text-[10px] mt-1">After conversion: https://yoursite.com/postback?uid=john_doe&reward=100&txn=abc123&status=approved</p>
+                <p className="text-gray-400 text-[10px] mt-1">After conversion: https://yoursite.com/postback?user_id=end_user_123&reward=1.50&click=abc123&status=approved</p>
               </div>
             )}
           </div>

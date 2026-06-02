@@ -1,10 +1,11 @@
 /**
  * Billing Info Component
  * Payout method setup (Bank, PayPal, Crypto)
+ * Shows read-only view after saving, with edit icon to switch to edit mode
  */
 
 import { useState, useEffect } from 'react';
-import { Save, AlertCircle } from 'lucide-react';
+import { Save, AlertCircle, Pencil, Building2, Wallet, Bitcoin } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,8 @@ export function BillingInfoTab() {
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [activeMethod, setActiveMethod] = useState<'bank' | 'paypal' | 'crypto'>('bank');
+    const [hasExistingMethod, setHasExistingMethod] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
 
     // Bank details state
     const [bankDetails, setBankDetails] = useState({
@@ -55,6 +58,7 @@ export function BillingInfoTab() {
                 const response = await payoutSettingsApi.getPayoutMethod();
                 if (response.has_method && response.method) {
                     setActiveMethod(response.method.active_method);
+                    setHasExistingMethod(true);
                     if (response.method.bank_details) {
                         setBankDetails(prev => ({ ...prev, ...response.method!.bank_details }));
                     }
@@ -68,9 +72,12 @@ export function BillingInfoTab() {
                     if (response.method.crypto_details) {
                         setCryptoDetails(prev => ({ ...prev, ...response.method!.crypto_details }));
                     }
+                } else {
+                    setIsEditing(true); // No method yet, show form
                 }
             } catch (error) {
                 console.error('Error loading payout method:', error);
+                setIsEditing(true);
             } finally {
                 setLoading(false);
             }
@@ -136,6 +143,8 @@ export function BillingInfoTab() {
 
             await payoutSettingsApi.savePayoutMethod(methodData);
 
+            setHasExistingMethod(true);
+            setIsEditing(false);
             toast({
                 title: 'Success',
                 description: 'Payout method saved successfully'
@@ -155,8 +164,139 @@ export function BillingInfoTab() {
         return <div className="p-4">Loading...</div>;
     }
 
+    // ========== READ-ONLY VIEW (after saving) ==========
+    if (hasExistingMethod && !isEditing) {
+        const maskValue = (val: string) => {
+            if (!val || val.length < 6) return val ? '••••••' : '—';
+            return '••••••' + val.slice(-4);
+        };
+
+        const COUNTRY_NAMES: Record<string, string> = {
+            US: 'United States', IN: 'India', GB: 'United Kingdom', CA: 'Canada', AU: 'Australia'
+        };
+
+        return (
+            <div className="space-y-6">
+                {/* Billing Details Header */}
+                <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold text-gray-900">Billing Details</h3>
+                    <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50">
+                        <Pencil className="h-4 w-4 mr-1" /> Edit
+                    </Button>
+                </div>
+
+                {/* Bank Transfer Card */}
+                <div className={`border rounded-lg p-5 ${activeMethod === 'bank' ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-gray-50/50'}`}>
+                    <div className="flex items-center gap-2 mb-4">
+                        <Building2 className={`h-5 w-5 ${activeMethod === 'bank' ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <span className="font-medium text-sm text-gray-800">Bank Transfer</span>
+                        {activeMethod === 'bank' && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Active</span>}
+                    </div>
+                    {bankDetails.account_name ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <span className="text-gray-500 text-xs">Account Name</span>
+                                <p className="font-medium text-gray-900">{bankDetails.account_name}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">Bank Name</span>
+                                <p className="font-medium text-gray-900">{bankDetails.bank_name || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">Account Number</span>
+                                <p className="font-medium text-gray-900 font-mono">{maskValue(bankDetails.account_number)}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">IFSC/SWIFT</span>
+                                <p className="font-medium text-gray-900 font-mono">{bankDetails.ifsc_swift || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">Country</span>
+                                <p className="font-medium text-gray-900">{COUNTRY_NAMES[bankDetails.country] || bankDetails.country || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">Currency</span>
+                                <p className="font-medium text-gray-900">{bankDetails.currency || '—'}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-400 italic">No bank details configured</p>
+                    )}
+                </div>
+
+                {/* PayPal Card */}
+                <div className={`border rounded-lg p-5 ${activeMethod === 'paypal' ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-gray-50/50'}`}>
+                    <div className="flex items-center gap-2 mb-4">
+                        <Wallet className={`h-5 w-5 ${activeMethod === 'paypal' ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <span className="font-medium text-sm text-gray-800">PayPal</span>
+                        {activeMethod === 'paypal' && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Active</span>}
+                    </div>
+                    {paypalDetails.email ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <span className="text-gray-500 text-xs">Email</span>
+                                <p className="font-medium text-gray-900">{paypalDetails.email}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">Country</span>
+                                <p className="font-medium text-gray-900">{COUNTRY_NAMES[paypalDetails.country] || paypalDetails.country || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">Min Threshold</span>
+                                <p className="font-medium text-gray-900">${paypalDetails.minimum_threshold}</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-400 italic">No PayPal details configured</p>
+                    )}
+                </div>
+
+                {/* Crypto Card */}
+                <div className={`border rounded-lg p-5 ${activeMethod === 'crypto' ? 'border-blue-200 bg-blue-50/30' : 'border-gray-100 bg-gray-50/50'}`}>
+                    <div className="flex items-center gap-2 mb-4">
+                        <Bitcoin className={`h-5 w-5 ${activeMethod === 'crypto' ? 'text-blue-600' : 'text-gray-400'}`} />
+                        <span className="font-medium text-sm text-gray-800">Cryptocurrency</span>
+                        {activeMethod === 'crypto' && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">Active</span>}
+                    </div>
+                    {cryptoDetails.wallet_address ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                            <div>
+                                <span className="text-gray-500 text-xs">Currency</span>
+                                <p className="font-medium text-gray-900">{cryptoDetails.currency || '—'}</p>
+                            </div>
+                            <div>
+                                <span className="text-gray-500 text-xs">Network</span>
+                                <p className="font-medium text-gray-900">{cryptoDetails.network || '—'}</p>
+                            </div>
+                            <div className="col-span-2 md:col-span-1">
+                                <span className="text-gray-500 text-xs">Wallet Address</span>
+                                <p className="font-medium text-gray-900 font-mono text-xs truncate">{maskValue(cryptoDetails.wallet_address)}</p>
+                            </div>
+                            {cryptoDetails.label && (
+                                <div>
+                                    <span className="text-gray-500 text-xs">Label</span>
+                                    <p className="font-medium text-gray-900">{cryptoDetails.label}</p>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <p className="text-sm text-gray-400 italic">No crypto details configured</p>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ========== EDIT MODE (form) ==========
     return (
         <div className="space-y-6">
+            {hasExistingMethod && (
+                <div className="flex justify-end">
+                    <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)} className="text-gray-500 hover:text-gray-700">
+                        Cancel
+                    </Button>
+                </div>
+            )}
             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                 <div className="flex items-start gap-3">
                     <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5" />
