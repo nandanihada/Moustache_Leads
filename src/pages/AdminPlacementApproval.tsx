@@ -14,7 +14,7 @@ const API_BASE_URL = `${BASE_URL}/api`;
 
 // ─── Types ───
 interface Publisher { id: string; username: string; email: string; firstName: string; lastName: string; companyName: string; website: string; postbackUrl: string; role: string; status: string; password: string; createdAt: string; updatedAt?: string; lastLogin?: string; placementStats: { total: number; approved: number; pending: number; rejected: number }; }
-interface PlacementRequest { id: string; publisherId: string; publisherName: string; publisherEmail: string; placementIdentifier: string; platformType: string; offerwallTitle: string; currencyName: string; exchangeRate: number; postbackUrl: string; status: string; approvalStatus: string; approvedBy?: string; approvedAt?: string; rejectionReason?: string; reviewMessage?: string; createdAt: string; }
+interface PlacementRequest { id: string; publisherId: string; publisherName: string; publisherEmail: string; placementIdentifier: string; platformType: string; platformName?: string; platformLink?: string; offerwallTitle: string; currencyName: string; exchangeRate: number; postbackUrl: string; status: string; approvalStatus: string; approvedBy?: string; approvedAt?: string; rejectionReason?: string; reviewMessage?: string; createdAt: string; }
 interface PublisherData { publisher: any; risk: { score: number; trustScore: number; confidence: number; level: string; flags: string[]; breakdown: { label: string; points: number }[] }; identity: any; vpn: any; loginHistory: any[]; geoLocations: any[]; clickStats: any; activeSessions: any[]; fraudSignals: any[]; }
 type ActionType = 'approve' | 'reject' | 'view' | 'edit' | 'block' | 'unblock' | 'delete' | 'suspicious' | 'review' | 'edit-placement' | 'bulk-approve' | 'bulk-reject' | 'bulk-suspicious' | 'bulk-block' | 'bulk-delete' | null;
 
@@ -238,6 +238,8 @@ const ExpandedPanel = ({ placement, onAction, readOnly = false }: { placement: P
           <div className="rounded-xl border bg-card p-4">
             <SectionHeader icon={Globe} title="Placement Details" />
             <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+              <KVItem label="Platform Name" value={placement.platformName || 'N/A'} />
+              <KVItem label="Platform Link" value={placement.platformLink || 'N/A'} />
               <KVItem label="Offerwall Title" value={placement.offerwallTitle} />
               <KVItem label="Platform" value={placement.platformType} />
               <KVItem label="Currency" value={placement.currencyName} />
@@ -245,6 +247,7 @@ const ExpandedPanel = ({ placement, onAction, readOnly = false }: { placement: P
               <KVItem label="Placement ID" value={placement.placementIdentifier || 'N/A'} />
               <KVItem label="Status" value={placement.status} />
             </div>
+            {placement.platformLink && <div className="mt-3"><div className="text-[10px] uppercase tracking-wider text-muted-foreground">Platform Link</div><a href={placement.platformLink} target="_blank" rel="noopener noreferrer" className="text-xs font-mono text-blue-600 hover:underline bg-muted p-2 rounded mt-1 break-all block">{placement.platformLink}</a></div>}
             {placement.postbackUrl && <div className="mt-3"><div className="text-[10px] uppercase tracking-wider text-muted-foreground">Postback URL</div><div className="text-xs font-mono bg-muted p-2 rounded mt-1 break-all">{placement.postbackUrl}</div></div>}
           </div>
         </div>
@@ -563,7 +566,7 @@ const AdminPlacementApproval = () => {
               <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 bg-gradient-to-br from-blue-500 to-purple-500 text-white">{getInitials(p.publisherName)}</div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap"><span className="font-medium text-sm">{p.publisherName}</span><span className="text-xs text-muted-foreground">PUB-{p.publisherId.slice(-6)}</span><span className="text-xs text-muted-foreground truncate max-w-[200px]">{p.publisherEmail}</span></div>
-                <div className="flex items-center gap-2 mt-1 flex-wrap"><StatusBadge status={p.approvalStatus} />{daysSince(p.createdAt) < 7 && <TagChip label="New User" variant="info" />}<TagChip label={p.platformType} /><TagChip label={p.offerwallTitle} /><span className="text-[10px] text-muted-foreground">{fmtDate(p.createdAt)}</span></div>
+                <div className="flex items-center gap-2 mt-1 flex-wrap"><StatusBadge status={p.approvalStatus} />{daysSince(p.createdAt) < 7 && <TagChip label="New User" variant="info" />}<TagChip label={p.platformType} /><TagChip label={p.offerwallTitle} />{p.platformName && <TagChip label={p.platformName} variant="info" />}<span className="text-[10px] text-muted-foreground">{fmtDate(p.createdAt)}</span></div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
                 {(p.approvalStatus === 'PENDING_APPROVAL' || p.approvalStatus === 'IN_REVIEW') && (<><button onClick={e => { e.stopPropagation(); setActionModal({ type: 'approve', placement: p }); }} className="p-1.5 rounded-lg text-green-600 hover:bg-green-50" title="Approve"><CheckCircle className="h-4 w-4" /></button><button onClick={e => { e.stopPropagation(); setActionModal({ type: 'reject', placement: p }); }} className="p-1.5 rounded-lg text-red-600 hover:bg-red-50" title="Reject"><XCircle className="h-4 w-4" /></button></>)}
@@ -620,9 +623,9 @@ const AdminPlacementApproval = () => {
                             {pl.createdAt && <span className="text-[10px] text-muted-foreground">{fmtDate(pl.createdAt)}</span>}
                           </div>
                           <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2">
-                            <KVItem label="Platform Name" value={pl.platformName || 'N/A'} />
+                            {pl.platformName && <KVItem label="Platform Name" value={pl.platformName} />}
                             <KVItem label="Offerwall Title" value={pl.offerwallTitle || 'N/A'} />
-                            <KVItem label="Platform Link" value={pl.platformLink || 'N/A'} />
+                            {pl.platformLink && <KVItem label="Platform Link" value={pl.platformLink} />}
                             <KVItem label="Placement ID" value={pl.placementIdentifier || 'N/A'} />
                             <KVItem label="Currency" value={pl.currencyName || 'N/A'} />
                             <KVItem label="Exchange Rate" value={pl.exchangeRate ? `1 USD = ${pl.exchangeRate}` : 'N/A'} />

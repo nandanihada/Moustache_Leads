@@ -65,6 +65,8 @@ class PlacementApiService {
       currencyName: frontendData.currencyName || '',
       exchangeRate: parseFloat(frontendData.exchangeRate) || 1,
       postbackUrl: frontendData.postbackUri || frontendData.postbackUrl || '',
+      platformName: frontendData.platformName || '',
+      platformLink: frontendData.platformLink || '',
       status: 'LIVE' // Default status
     };
   }

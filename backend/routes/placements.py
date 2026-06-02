@@ -50,6 +50,8 @@ def create_placement():
             'placementIdentifier': placement['placementIdentifier'],
             'apiKey': placement.get('apiKey', ''),  # Handle missing apiKey gracefully
             'platformType': placement['platformType'],
+            'platformName': placement.get('platformName', ''),
+            'platformLink': placement.get('platformLink', ''),
             'offerwallTitle': placement['offerwallTitle'],
             'currencyName': placement['currencyName'],
             'exchangeRate': placement['exchangeRate'],
@@ -123,6 +125,8 @@ def get_placements():
                 'placementIdentifier': placement['placementIdentifier'],
                 'apiKey': placement.get('apiKey', ''),  # Handle missing apiKey gracefully
                 'platformType': placement['platformType'],
+                'platformName': placement.get('platformName', ''),
+                'platformLink': placement.get('platformLink', ''),
                 'offerwallTitle': placement['offerwallTitle'],
                 'currencyName': placement['currencyName'],
                 'exchangeRate': placement['exchangeRate'],
@@ -177,6 +181,8 @@ def get_placement(placement_id):
             'placementIdentifier': placement['placementIdentifier'],
             'apiKey': placement.get('apiKey', ''),  # Handle missing apiKey gracefully
             'platformType': placement['platformType'],
+            'platformName': placement.get('platformName', ''),
+            'platformLink': placement.get('platformLink', ''),
             'offerwallTitle': placement['offerwallTitle'],
             'currencyName': placement['currencyName'],
             'exchangeRate': placement['exchangeRate'],
@@ -229,6 +235,8 @@ def update_placement(placement_id):
             'placementIdentifier': placement['placementIdentifier'],
             'apiKey': placement.get('apiKey', ''),  # Handle missing apiKey gracefully
             'platformType': placement['platformType'],
+            'platformName': placement.get('platformName', ''),
+            'platformLink': placement.get('platformLink', ''),
             'offerwallTitle': placement['offerwallTitle'],
             'currencyName': placement['currencyName'],
             'exchangeRate': placement['exchangeRate'],
@@ -524,6 +532,8 @@ def get_all_placements_admin():
                 'publisherEmail': publisher.get('email', 'Unknown'),
                 'placementIdentifier': placement['placementIdentifier'],
                 'platformType': placement['platformType'],
+                'platformName': placement.get('platformName', ''),
+                'platformLink': placement.get('platformLink', ''),
                 'offerwallTitle': placement['offerwallTitle'],
                 'currencyName': placement['currencyName'],
                 'exchangeRate': placement['exchangeRate'],
@@ -581,7 +591,7 @@ def edit_placement_admin(placement_id):
     """Admin edit placement details (postback URL, currency, exchange rate, etc.)"""
     try:
         data = request.get_json() or {}
-        allowed_fields = ['postbackUrl', 'offerwallTitle', 'currencyName', 'exchangeRate', 'platformType', 'status']
+        allowed_fields = ['postbackUrl', 'offerwallTitle', 'currencyName', 'exchangeRate', 'platformType', 'status', 'platformName', 'platformLink']
         update_doc = {'updatedAt': datetime.utcnow()}
         for field in allowed_fields:
             if field in data:

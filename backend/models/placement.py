@@ -86,6 +86,8 @@ class Placement:
             'placementIdentifier': generate_placement_identifier(),
             'apiKey': generate_api_key(),
             'platformType': placement_data['platformType'],
+            'platformName': placement_data.get('platformName', '').strip() if placement_data.get('platformName') else '',
+            'platformLink': placement_data.get('platformLink', '').strip() if placement_data.get('platformLink') else '',
             'offerwallTitle': placement_data['offerwallTitle'].strip(),
             'currencyName': placement_data['currencyName'].strip(),
             'exchangeRate': exchange_rate,
@@ -227,7 +229,7 @@ class Placement:
                 return None, "Placement not found"
             
             # Validate update data
-            valid_fields = ['offerwallTitle', 'currencyName', 'exchangeRate', 'postbackUrl', 'status']
+            valid_fields = ['offerwallTitle', 'currencyName', 'exchangeRate', 'postbackUrl', 'status', 'platformName', 'platformLink']
             update_doc = {}
             
             for field, value in update_data.items():
@@ -253,6 +255,8 @@ class Placement:
                         if not value.strip():
                             return None, f"{field} cannot be empty"
                         update_doc[field] = value.strip()
+                    elif field in ['platformName', 'platformLink']:
+                        update_doc[field] = value.strip() if value else ''
             
             if not update_doc:
                 return None, "No valid fields to update"
