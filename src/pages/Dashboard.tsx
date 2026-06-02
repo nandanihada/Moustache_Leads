@@ -467,37 +467,41 @@ const DashboardContent = () => {
               <table className="w-full">
                 <thead>
                   <tr className="border-b border-gray-100">
-                    <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Rank</th>
                     <th className="text-left py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Offer Name</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Clicks</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Conversions</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Revenue</th>
-                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Conv. Rate</th>
+                    <th className="text-center py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Country</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">Payout</th>
+                    <th className="text-right py-3 px-4 text-xs font-semibold text-gray-600 uppercase tracking-wider">EPC</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {topOffers.map((offer, index) => (
+                  {topOffers.map((offer) => (
                     <tr key={offer.id} className="group hover:bg-gray-50 transition-colors duration-150">
                       <td className="py-4 px-4">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 group-hover:from-gray-100 group-hover:to-gray-50 transition-all">
-                          <span className="text-sm font-bold text-gray-700">{index + 1}</span>
+                        <p className="font-medium text-sm text-gray-900 truncate max-w-[280px]">{offer.name}</p>
+                      </td>
+                      <td className="py-4 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          {(offer.countries || ['US']).slice(0, 3).map((code) => (
+                            <img
+                              key={code}
+                              src={`https://flagcdn.com/20x15/${(code === 'WW' ? 'un' : code).toLowerCase()}.png`}
+                              alt={code}
+                              className="w-5 h-3.5 rounded-sm object-cover"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          ))}
+                          <span className="text-xs text-gray-600 font-medium">
+                            {(offer.countries || ['US']).slice(0, 3).join(', ')}
+                            {(offer.countries || []).length > 3 && ` +${(offer.countries || []).length - 3}`}
+                          </span>
                         </div>
                       </td>
-                      <td className="py-4 px-4">
-                        <p className="font-medium text-sm text-gray-900">{offer.name}</p>
-                      </td>
                       <td className="py-4 px-4 text-right">
-                        <span className="text-sm text-gray-700">{offer.clicks.toLocaleString()}</span>
-                      </td>
-                      <td className="py-4 px-4 text-right">
-                        <span className="text-sm text-gray-700">{offer.conversions}</span>
-                      </td>
-                      <td className="py-4 px-4 text-right">
-                        <span className="text-sm font-semibold text-emerald-600">{offer.revenue}</span>
+                        <span className="text-sm font-semibold text-emerald-600">${(offer.payout || 0).toFixed(2)}</span>
                       </td>
                       <td className="py-4 px-4 text-right">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold">
-                          {offer.conversionRate}
+                          {offer.epc || '$0.00'}
                         </span>
                       </td>
                     </tr>

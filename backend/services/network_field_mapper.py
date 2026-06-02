@@ -481,8 +481,10 @@ class NetworkFieldMapper:
             'MY',        # "My" in English names
             'RS',        # "RevShare", "RS" suffix
             'MS',        # "Microsoft", "MS" abbreviation (except in MobPlus pattern)
-            'US',        # Don't extract US from names (it's the default)
         }
+        
+        # Extra false positives only for Pattern 5 (last-token) — more ambiguous context
+        LAST_TOKEN_FALSE_POSITIVES = STRICT_FALSE_POSITIVES | {'US'}  # US at end is usually part of the name
         
         name_upper = text.upper()
         
@@ -525,7 +527,7 @@ class NetworkFieldMapper:
         if len(tokens) >= 2:
             last_token = tokens[-1].upper()
             if len(last_token) == 2 and last_token.isalpha():
-                if last_token in ALL_ISO_CODES and last_token not in STRICT_FALSE_POSITIVES:
+                if last_token in ALL_ISO_CODES and last_token not in LAST_TOKEN_FALSE_POSITIVES:
                     countries.append('GB' if last_token == 'UK' else last_token)
         
         return list(set(countries))

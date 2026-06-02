@@ -45,6 +45,9 @@ export interface TopOffer {
   conversions: number;
   revenue: string;
   conversionRate: string;
+  countries?: string[];
+  payout?: number;
+  epc?: string;
 }
 
 export const dashboardApi = {

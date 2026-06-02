@@ -261,10 +261,24 @@ const PublisherOffersContent = () => {
       // Support both old single category and new categories array
       const cats = (o as any).categories;
       if (Array.isArray(cats)) {
-        cats.forEach((c: string) => { if (c) set.add(c); });
+        cats.forEach((c: string) => {
+          if (c) {
+            // Split slash-separated categories into individual items
+            c.split(/\s*\/\s*/).forEach((part) => {
+              const trimmed = part.trim();
+              if (trimmed) set.add(trimmed);
+            });
+          }
+        });
       } else {
         const v = (o as any).category || (o as any).vertical;
-        if (v) set.add(v);
+        if (v) {
+          // Split slash-separated categories into individual items
+          v.split(/\s*\/\s*/).forEach((part: string) => {
+            const trimmed = part.trim();
+            if (trimmed) set.add(trimmed);
+          });
+        }
       }
     });
     return Array.from(set).sort();
@@ -324,14 +338,19 @@ const PublisherOffersContent = () => {
     }
     if (verticalFilter !== "all") {
       list = list.filter((o) => {
+        const filterLower = verticalFilter.toLowerCase();
         // Check categories array first (new system)
         const cats = (o as any).categories;
         if (Array.isArray(cats) && cats.length > 0) {
-          return cats.some((c: string) => c.toLowerCase() === verticalFilter.toLowerCase());
+          return cats.some((c: string) => 
+            c.toLowerCase() === filterLower ||
+            c.split(/\s*\/\s*/).some((part) => part.trim().toLowerCase() === filterLower)
+          );
         }
-        // Fallback to old single category
+        // Fallback to old single category — also split on slash
         const v = (o as any).category || (o as any).vertical || "";
-        return v.toLowerCase() === verticalFilter.toLowerCase();
+        return v.toLowerCase() === filterLower ||
+          v.split(/\s*\/\s*/).some((part: string) => part.trim().toLowerCase() === filterLower);
       });
     }
     // Sort and merge - honor granular pinnedPosition slots and legacy pins

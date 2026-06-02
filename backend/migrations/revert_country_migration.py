@@ -77,8 +77,11 @@ ALL_ISO_CODES = {
 STRICT_FALSE_POSITIVES = {
     'OK', 'CC', 'AI', 'BE', 'AT', 'BY', 'IN', 'IS', 'IT', 'TO', 'ME',
     'NO', 'OR', 'SO', 'DO', 'AN', 'ON', 'UP',
-    'AM', 'PM', 'TV', 'IO', 'CO', 'MY', 'RS', 'MS', 'US',
+    'AM', 'PM', 'TV', 'IO', 'CO', 'MY', 'RS', 'MS',
 }
+
+# Extra false positives only for last-token pattern (more ambiguous)
+LAST_TOKEN_FALSE_POSITIVES = STRICT_FALSE_POSITIVES | {'US'}
 
 
 def strict_extract_countries(name):
@@ -113,7 +116,7 @@ def strict_extract_countries(name):
     tokens = name.strip().split()
     if len(tokens) >= 2:
         last = tokens[-1].upper()
-        if len(last) == 2 and last.isalpha() and last in ALL_ISO_CODES and last not in STRICT_FALSE_POSITIVES:
+        if len(last) == 2 and last.isalpha() and last in ALL_ISO_CODES and last not in LAST_TOKEN_FALSE_POSITIVES:
             countries.append('GB' if last == 'UK' else last)
 
     return list(dict.fromkeys(countries))

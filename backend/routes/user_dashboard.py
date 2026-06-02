@@ -18,6 +18,43 @@ logger = logging.getLogger(__name__)
 
 user_dashboard_bp = Blueprint('user_dashboard', __name__)
 
+
+def _generate_fake_epc(offer_id: str, payout: float) -> str:
+    """
+    Generate a fake EPC value for display on publisher dashboard.
+    
+    - Deterministic: same offer_id produces same EPC within a 3-day window.
+    - Changes every 3 days to appear fresh/realistic.
+    - Range: $0.03 - $0.30 for low-mid tier GEOs.
+    - Higher payout offers get slightly higher EPC to look believable.
+    """
+    import hashlib
+    
+    # 3-day epoch: changes every 3 days
+    day_epoch = int(_time.time() // (3 * 86400))
+    
+    # Create deterministic seed from offer_id + epoch
+    seed_str = f"{offer_id}_{day_epoch}"
+    hash_bytes = hashlib.md5(seed_str.encode()).hexdigest()
+    
+    # Convert first 8 hex chars to a float between 0 and 1
+    hash_val = int(hash_bytes[:8], 16) / 0xFFFFFFFF
+    
+    # Base range: $0.03 - $0.30
+    min_epc = 0.03
+    max_epc = 0.30
+    
+    # Slightly boost EPC for higher-payout offers (makes it look realistic)
+    if payout > 5:
+        min_epc = 0.08
+        max_epc = 0.35
+    elif payout > 2:
+        min_epc = 0.05
+        max_epc = 0.30
+    
+    epc = min_epc + (max_epc - min_epc) * hash_val
+    return f"${epc:.2f}"
+
 # Per-user dashboard cache (60 second TTL)
 _dashboard_cache = {}  # user_id -> {'stats': data, 'chart': data, 'top_offers': data, 'expires': timestamp}
 _DASHBOARD_CACHE_TTL = 60  # seconds
@@ -1211,6 +1248,7 @@ def get_top_offers():
                 'name': offer.get('name', 'Unknown Offer'),
                 'description': offer.get('description', ''),
                 'payout': offer.get('payout', 0.0),
+                'countries': offer.get('countries', ['US']),
                 'category': offer.get('category', 'OTHER'),
                 'vertical': offer.get('vertical', 'OTHER'),
                 'image_url': offer.get('image_url', ''),
@@ -1218,7 +1256,8 @@ def get_top_offers():
                 'clicks': clicks,
                 'conversions': conversions,
                 'revenue': f"${revenue:.2f}",
-                'conversionRate': f"{conv_rate:.1f}%"
+                'conversionRate': f"{conv_rate:.1f}%",
+                'epc': _generate_fake_epc(offer_id, offer.get('payout', 0.0))
             })
             
         logger.debug(f"🏆 Pinned/Top offers generated: {len(top_offers)} offers")
