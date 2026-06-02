@@ -1345,21 +1345,34 @@ def get_my_offers():
             offer_data['request_status'] = 'approved'
             offer_data['access_reason'] = 'Access approved'
             offer_data['requires_approval'] = False
+            offer_data['approval_type'] = 'auto_approve'
             req_info = request_map.get(offer.get('offer_id'))
             if req_info:
                 offer_data['approved_at'] = serialize_for_json(req_info.get('approved_at'))
                 offer_data['requested_at'] = serialize_for_json(req_info.get('requested_at'))
 
-            # Apply 80% payout for publisher
+            # Apply 80% payout for publisher (MUST override the raw admin payout)
             try:
                 original_payout = float(offer.get('payout', 0) or 0)
             except (ValueError, TypeError):
                 original_payout = 0.0
             publisher_override = offer.get('publisher_payout_override')
             if publisher_override and float(publisher_override) > 0:
-                offer_data['payout'] = round(float(publisher_override), 2)
+                publisher_payout = round(float(publisher_override), 2)
             else:
-                offer_data['payout'] = round(original_payout * 0.8, 2)
+                publisher_payout = round(original_payout * 0.8, 2)
+            # Force override the payout field
+            offer_data['payout'] = publisher_payout
+            
+            # Ensure payout_type is present
+            offer_data['payout_type'] = offer.get('payout_type', 'fixed')
+            
+            # Apply 90% to revenue share percent
+            try:
+                original_rev_share = float(offer.get('revenue_share_percent', 0) or 0)
+            except (ValueError, TypeError):
+                original_rev_share = 0.0
+            offer_data['revenue_share_percent'] = round(original_rev_share * 0.9, 2) if original_rev_share > 0 else 0
 
             # Apply 80% to level_payouts
             raw_level_payouts = offer.get('level_payouts', {})
