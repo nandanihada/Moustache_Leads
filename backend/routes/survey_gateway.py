@@ -272,30 +272,34 @@ def serve_survey(click_id):
         # ── GEO RESTRICTION: Block users from non-target countries ──
         offer_countries = offer.get('countries', [])
         if offer_countries and len(offer_countries) > 0:
-            # Get user's real IP and country
-            user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '')
-            user_ip = user_ip.split(',')[0].strip() if ',' in user_ip else user_ip.strip()
-            try:
-                from models.geolocation import GeolocationService
-                geo_svc = GeolocationService()
-                ip_info = geo_svc.get_ip_info(user_ip)
-                user_country = (ip_info.get('country_code') or '').upper()
-                offer_countries_upper = [c.upper() for c in offer_countries]
-                # Only block if we have a valid 2-letter country code (not XX, empty, or local)
-                # Skip blocking for private/local IPs where geo can't be determined
-                is_valid_country = (
-                    user_country
-                    and len(user_country) == 2
-                    and user_country not in ('XX', 'ZZ', 'T1', 'A1', 'A2')
-                    and user_ip not in ('127.0.0.1', 'localhost', '::1', '')
-                    and not user_ip.startswith(('10.', '192.168.', '172.'))
-                )
-                if is_valid_country and user_country not in offer_countries_upper:
-                    logger.info(f"Geo blocked: user from {user_country}, offer requires {offer_countries_upper}")
-                    return render_template_string(GEO_BLOCKED_TEMPLATE, user_country=user_country, offer_countries=', '.join(offer_countries_upper))
-            except Exception as geo_err:
-                logger.warning(f"Geo check failed: {geo_err}")
-                # Don't block on geo check failure — let them through
+            # Skip geo check if offer is worldwide (WW = all countries allowed)
+            offer_countries_upper = [c.upper() for c in offer_countries]
+            is_worldwide = any(c in ('WW', 'WORLDWIDE', 'ALL', 'GLOBAL') for c in offer_countries_upper)
+            
+            if not is_worldwide:
+                # Get user's real IP and country
+                user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '')
+                user_ip = user_ip.split(',')[0].strip() if ',' in user_ip else user_ip.strip()
+                try:
+                    from models.geolocation import GeolocationService
+                    geo_svc = GeolocationService()
+                    ip_info = geo_svc.get_ip_info(user_ip)
+                    user_country = (ip_info.get('country_code') or '').upper()
+                    # Only block if we have a valid 2-letter country code (not XX, empty, or local)
+                    # Skip blocking for private/local IPs where geo can't be determined
+                    is_valid_country = (
+                        user_country
+                        and len(user_country) == 2
+                        and user_country not in ('XX', 'ZZ', 'T1', 'A1', 'A2')
+                        and user_ip not in ('127.0.0.1', 'localhost', '::1', '')
+                        and not user_ip.startswith(('10.', '192.168.', '172.'))
+                    )
+                    if is_valid_country and user_country not in offer_countries_upper:
+                        logger.info(f"Geo blocked: user from {user_country}, offer requires {offer_countries_upper}")
+                        return render_template_string(GEO_BLOCKED_TEMPLATE, user_country=user_country, offer_countries=', '.join(offer_countries_upper))
+                except Exception as geo_err:
+                    logger.warning(f"Geo check failed: {geo_err}")
+                    # Don't block on geo check failure — let them through
 
         model = Survey()
         survey = model.get_survey_for_offer(offer)

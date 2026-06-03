@@ -393,9 +393,43 @@ def simulate_conversion():
         steps.append({'step': 'Duplicate Check', 'status': 'success', 'detail': 'No existing conversion for this click'})
         
         # Step 3: Find the partner key to fire the postback through the real pipeline
-        # We need any valid partner key to hit the /postback/<key> endpoint
+        # We need the correct partner key to hit the /postback/<key> endpoint
+        # Try to match by offer's network first, fallback to any active partner
         partners_collection = db_instance.get_collection('partners')
-        partner = partners_collection.find_one({'status': 'active', 'unique_postback_key': {'$exists': True, '$ne': ''}})
+        
+        # First try to find a partner that matches the offer's network
+        partner = None
+        offers_collection_for_partner = db_instance.get_collection('offers')
+        if offers_collection_for_partner is not None and offer_id:
+            offer_doc = offers_collection_for_partner.find_one({'offer_id': offer_id})
+            if offer_doc:
+                offer_network = offer_doc.get('network', '')
+                if offer_network:
+                    # Try to find partner matching the offer's network name
+                    partner = partners_collection.find_one({
+                        'status': 'active',
+                        'unique_postback_key': {'$exists': True, '$ne': ''},
+                        '$or': [
+                            {'partner_name': {'$regex': offer_network, '$options': 'i'}},
+                            {'partner_id': {'$regex': offer_network, '$options': 'i'}},
+                            {'network_domain': {'$regex': offer_network, '$options': 'i'}}
+                        ]
+                    })
+                    if partner:
+                        logger.info(f"✅ Matched partner '{partner.get('partner_name')}' for offer network '{offer_network}'")
+        
+        # Fallback: use any active partner (but prefer non-leadads if possible for test)
+        if not partner:
+            # Try to find a partner that's NOT the default leadads (for cleaner test labeling)
+            all_active = list(partners_collection.find({'status': 'active', 'unique_postback_key': {'$exists': True, '$ne': ''}}).limit(10))
+            if len(all_active) > 1:
+                # Prefer non-leadads partner
+                for p in all_active:
+                    if 'leadads' not in p.get('partner_name', '').lower():
+                        partner = p
+                        break
+            if not partner and all_active:
+                partner = all_active[0]
         
         if not partner:
             # Create a temporary test partner key

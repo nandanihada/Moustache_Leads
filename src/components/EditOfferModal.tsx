@@ -178,6 +178,12 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
   const [levelPayoutsEnabled, setLevelPayoutsEnabled] = useState(false);
   const [levelPayouts, setLevelPayouts] = useState<Array<{level: number; name: string; payout: number; type: string}>>([]);
 
+  // Geo-Split Payouts state (country-wise payouts)
+  const [geoPayouts, setGeoPayouts] = useState<Array<{country: string; payout: number; type: string}>>([]);
+  const [geoPayoutCountry, setGeoPayoutCountry] = useState('');
+  const [geoPayoutAmount, setGeoPayoutAmount] = useState('');
+  const [geoPayoutType, setGeoPayoutType] = useState('CPA');
+
   // Promo code state
   const [promoCodes, setPromoCodes] = useState<any[]>([]);
   const [selectedPromoCode, setSelectedPromoCode] = useState('');
@@ -416,6 +422,14 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         setLevelPayoutsEnabled(false);
         setLevelPayouts([]);
       }
+
+      // Load geo-split payouts
+      const offerGeoPayouts = (offer as any).geo_payouts;
+      if (offerGeoPayouts && Array.isArray(offerGeoPayouts)) {
+        setGeoPayouts(offerGeoPayouts);
+      } else {
+        setGeoPayouts([]);
+      }
     }
   }, [offer, open]);
 
@@ -648,7 +662,9 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
         level_payouts: {
           enabled: levelPayoutsEnabled,
           levels: levelPayouts.filter(l => l.name && l.payout > 0)
-        }
+        },
+        // 🔥 GEO-SPLIT PAYOUTS (country-wise payouts)
+        geo_payouts: geoPayouts.filter(g => g.country && g.payout > 0)
       };
 
       // 🔍 QA VERIFICATION: Debug logs
@@ -695,11 +711,12 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <Tabs defaultValue="identification" className="w-full">
-            <TabsList className="grid w-full grid-cols-11 text-xs">
+            <TabsList className="grid w-full grid-cols-12 text-xs">
               <TabsTrigger value="identification">ID</TabsTrigger>
               <TabsTrigger value="targeting">Target</TabsTrigger>
               <TabsTrigger value="payout">Payout</TabsTrigger>
               <TabsTrigger value="levels">Level</TabsTrigger>
+              <TabsTrigger value="geosplit">Geo</TabsTrigger>
               <TabsTrigger value="tracking">Track</TabsTrigger>
               <TabsTrigger value="access">Access</TabsTrigger>
               <TabsTrigger value="creatives">Creative</TabsTrigger>
@@ -1400,6 +1417,124 @@ export const EditOfferModal: React.FC<EditOfferModalProps> = ({
                       <p className="text-sm">Level payouts are disabled for this offer.</p>
                       <p className="text-xs mt-1">Toggle the switch above to add conversion level tiers.</p>
                     </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* SECTION 3.2: GEO-SPLIT PAYOUTS (Own Tab) */}
+            <TabsContent value="geosplit" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Geo-Split Payouts</CardTitle>
+                  <CardDescription>Set different payout amounts per country. The base payout (Payout tab) applies to all other GEOs not listed here.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Add new geo payout */}
+                  <div className="flex items-end gap-2 p-3 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                    <div className="flex-1">
+                      <Label className="text-xs text-gray-500">Country Code</Label>
+                      <Input
+                        placeholder="e.g. US, CH, NL"
+                        value={geoPayoutCountry}
+                        onChange={(e) => setGeoPayoutCountry(e.target.value.toUpperCase().slice(0, 2))}
+                        className="text-sm uppercase"
+                        maxLength={2}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Label className="text-xs text-gray-500">Payout (Admin)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Amount"
+                        value={geoPayoutAmount}
+                        onChange={(e) => setGeoPayoutAmount(e.target.value)}
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="w-32">
+                      <Label className="text-xs text-gray-500">Type</Label>
+                      <Select value={geoPayoutType} onValueChange={setGeoPayoutType}>
+                        <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CPA">CPA</SelectItem>
+                          <SelectItem value="CPL">CPL</SelectItem>
+                          <SelectItem value="CPS">CPS</SelectItem>
+                          <SelectItem value="CPI">CPI</SelectItem>
+                          <SelectItem value="RevShare">RevShare</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        if (geoPayoutCountry.length === 2 && parseFloat(geoPayoutAmount) > 0) {
+                          const exists = geoPayouts.find(g => g.country === geoPayoutCountry);
+                          if (exists) {
+                            setGeoPayouts(geoPayouts.map(g => g.country === geoPayoutCountry ? { ...g, payout: parseFloat(geoPayoutAmount), type: geoPayoutType } : g));
+                          } else {
+                            setGeoPayouts([...geoPayouts, { country: geoPayoutCountry, payout: parseFloat(geoPayoutAmount), type: geoPayoutType }]);
+                          }
+                          setGeoPayoutCountry('');
+                          setGeoPayoutAmount('');
+                        }
+                      }}
+                      className="bg-violet-600 hover:bg-violet-700 text-white"
+                    >
+                      Add
+                    </Button>
+                  </div>
+
+                  {/* Geo payouts table */}
+                  {geoPayouts.length > 0 ? (
+                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                      <div className="grid grid-cols-12 gap-2 text-xs text-gray-500 font-medium px-2 sticky top-0 bg-white pb-1">
+                        <div className="col-span-3">Country</div>
+                        <div className="col-span-4">Payout (Admin)</div>
+                        <div className="col-span-3">Type</div>
+                        <div className="col-span-2">Action</div>
+                      </div>
+                      {geoPayouts.sort((a, b) => b.payout - a.payout).map((gp, idx) => (
+                        <div key={idx} className="grid grid-cols-12 gap-2 items-center px-2 py-2 rounded-lg hover:bg-gray-50 border border-transparent hover:border-gray-100">
+                          <div className="col-span-3 flex items-center gap-2">
+                            <img src={`https://flagcdn.com/20x15/${gp.country.toLowerCase()}.png`} alt={gp.country} className="w-5 h-3.5 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            <span className="font-mono text-sm font-semibold">{gp.country}</span>
+                          </div>
+                          <div className="col-span-4">
+                            <span className="text-sm font-bold text-emerald-600">${gp.payout.toFixed(2)}</span>
+                            <span className="text-xs text-gray-400 ml-1">→ ${(gp.payout * 0.8).toFixed(2)} pub</span>
+                          </div>
+                          <div className="col-span-3">
+                            <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-600">{gp.type}</span>
+                          </div>
+                          <div className="col-span-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setGeoPayouts(geoPayouts.filter((_, i) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 h-7 px-2 text-xs"
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-400">
+                      <p className="text-sm">No geo-split payouts configured.</p>
+                      <p className="text-xs mt-1">Add country-specific payouts above. Base payout applies to all other GEOs.</p>
+                    </div>
+                  )}
+
+                  {geoPayouts.length > 0 && (
+                    <p className="text-xs text-amber-600">
+                      💡 {geoPayouts.length} country-specific payout(s). Publisher sees 80% of each. Base rate (${formData.payout}) applies to all other GEOs.
+                    </p>
                   )}
                 </CardContent>
               </Card>

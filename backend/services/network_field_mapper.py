@@ -338,6 +338,32 @@ class NetworkFieldMapper:
                 level_payouts['enabled'] = True
             mapped['level_payouts'] = level_payouts
             
+            # GEO-SPLIT PAYOUTS: Detect country-specific payouts from HasOffers API
+            # HasOffers may return per-country payouts in Payout object or payout_per_country
+            geo_payouts = []
+            payout_data = offer_data.get('Payout', {}) or {}
+            if isinstance(payout_data, dict):
+                for country_id, payout_info in payout_data.items():
+                    if isinstance(payout_info, dict):
+                        country_code = payout_info.get('country_code', '') or payout_info.get('code', '')
+                        country_payout = float(payout_info.get('amount', 0) or payout_info.get('payout', 0) or 0)
+                        if country_code and len(country_code) == 2 and country_payout > 0:
+                            geo_payouts.append({
+                                'country': country_code.upper(),
+                                'payout': country_payout,
+                                'type': payout_info.get('payout_type', 'CPA') or 'CPA'
+                            })
+            # Also check for geo_payouts in the offer itself
+            geo_payout_list = offer.get('geo_payouts', []) or offer.get('country_payouts', []) or offer_data.get('country_payouts', [])
+            if isinstance(geo_payout_list, list) and geo_payout_list and not geo_payouts:
+                for gp in geo_payout_list:
+                    if isinstance(gp, dict):
+                        cc = gp.get('country', '') or gp.get('country_code', '') or gp.get('geo', '')
+                        amt = float(gp.get('payout', 0) or gp.get('amount', 0) or 0)
+                        if cc and len(cc) == 2 and amt > 0:
+                            geo_payouts.append({'country': cc.upper(), 'payout': amt, 'type': gp.get('type', 'CPA')})
+            mapped['geo_payouts'] = geo_payouts
+            
             # Generate tracking link for special networks (leadads, cpamerchant, chameleonads)
             # Pass network_id to identify the network since mapped data might not have it set yet
             mapped = process_offer_tracking_link(mapped, network_identifier=network_id)
@@ -621,17 +647,23 @@ class NetworkFieldMapper:
         """Map Everflow offer to database format — based on real Everflow API response structure"""
         try:
             # network_id for Everflow is the API URL - extract a clean network name from it
-            if network_id and ('http://' in network_id or 'https://' in network_id):
-                # Extract domain from URL and use as network name (e.g. "api.eflow.team" -> "eflow")
-                try:
-                    from urllib.parse import urlparse
-                    parsed = urlparse(network_id)
-                    domain = parsed.hostname or ''
-                    # Try to get a clean name: "api.eflow.team" -> "eflow", "api.everflow.io" -> "everflow"
-                    parts = domain.replace('api.', '').replace('www.', '').split('.')
-                    network_name = parts[0].capitalize() if parts else 'Everflow'
-                except:
+            if network_id and ('http://' in network_id or 'https://' in network_id or 'eflow' in str(network_id).lower() or 'everflow' in str(network_id).lower()):
+                # Force clean network name for known Everflow domains
+                network_id_lower = str(network_id).lower()
+                if 'eflow.team' in network_id_lower:
+                    network_name = 'Adtogame'
+                elif 'everflow' in network_id_lower:
                     network_name = 'Everflow'
+                else:
+                    try:
+                        from urllib.parse import urlparse
+                        parsed = urlparse(network_id)
+                        domain = parsed.hostname or ''
+                        clean_domain = domain.replace('api.', '').replace('www.', '')
+                        parts = clean_domain.split('.')
+                        network_name = parts[0].capitalize() if parts and parts[0] else 'Everflow'
+                    except:
+                        network_name = 'Everflow'
             else:
                 network_name = network_id if network_id else 'Everflow'
             
@@ -658,19 +690,75 @@ class NetworkFieldMapper:
                     # Find default payout or first entry
                     for entry in entries:
                         if entry.get('is_default', False):
-                            payout = float(entry.get('payout_amount', 0) or 0)
+                            try:
+                                payout = float(entry.get('payout_amount', 0) or 0)
+                            except (ValueError, TypeError):
+                                payout = 0
                             break
                     if payout == 0 and entries:
-                        payout = float(entries[0].get('payout_amount', 0) or 0)
-            if payout == 0:
-                payout = float(offer_data.get('payout', 0) or 0)
+                        try:
+                            payout = float(entries[0].get('payout_amount', 0) or 0)
+                        except (ValueError, TypeError):
+                            payout = 0
             
-            # Extract payout type from payouts entries
+            # Try payout_amount field directly (Everflow provides this as numeric)
+            if payout == 0:
+                try:
+                    payout = float(offer_data.get('payout_amount', 0) or 0)
+                except (ValueError, TypeError):
+                    payout = 0
+            
+            if payout == 0:
+                # Parse payout from string formats like "CPS 75.00%", "CPA: $26.250", or numeric
+                raw_payout = offer_data.get('payout', 0)
+                if isinstance(raw_payout, (int, float)):
+                    payout = float(raw_payout)
+                elif isinstance(raw_payout, str) and raw_payout:
+                    import re
+                    # Extract numeric value from strings like "CPA: $26.250", "CPS 75.00%", "$1.050"
+                    num_match = re.search(r'[\$]?([\d]+\.?[\d]*)', raw_payout)
+                    if num_match:
+                        payout = float(num_match.group(1))
+                    else:
+                        payout = 0
+                else:
+                    payout = 0
+            
+            # Extract payout type from payouts entries or from payout string
             payout_type = 'cpa'
+            raw_payout_str = str(offer_data.get('payout', ''))
+            # First check the dedicated payout_type field from API
+            api_payout_type = offer_data.get('payout_type', '')
+            if api_payout_type:
+                payout_type = api_payout_type.lower()
+            elif 'CPS' in raw_payout_str.upper():
+                payout_type = 'cps'
+            elif 'CPL' in raw_payout_str.upper():
+                payout_type = 'cpl'
+            elif 'CPI' in raw_payout_str.upper():
+                payout_type = 'cpi'
+            elif 'CPA' in raw_payout_str.upper():
+                payout_type = 'cpa'
+            
+            # Detect percentage-based payouts (revenue share)
+            is_percentage = '%' in raw_payout_str
+            payout_percentage_field = offer_data.get('payout_percentage', 0)
+            if is_percentage and payout > 0:
+                # This is a revenue share percentage, not a fixed amount
+                mapped_revenue_share = payout  # e.g., 75.00
+                payout = 0  # Fixed payout is 0 for percentage offers
+            elif payout_percentage_field and float(payout_percentage_field) > 0:
+                mapped_revenue_share = float(payout_percentage_field)
+                payout = 0
+            else:
+                mapped_revenue_share = 0
+            
             if isinstance(payouts_data, dict):
                 entries = payouts_data.get('entries', [])
                 if entries and isinstance(entries, list):
-                    payout_type = entries[0].get('payout_type', 'cpa') or 'cpa'
+                    entry_type = entries[0].get('payout_type', '') or ''
+                    if entry_type:
+                        payout_type = entry_type
             
             # Extract currency
             currency = offer_data.get('currency_id') or offer_data.get('currency') or 'USD'
@@ -813,7 +901,8 @@ class NetworkFieldMapper:
             
             # Defaults
             mapped['affiliates'] = 'all'
-            mapped['revenue_share_percent'] = 0
+            mapped['revenue_share_percent'] = mapped_revenue_share if mapped_revenue_share > 0 else 0
+            mapped['payout_type'] = 'percentage' if mapped_revenue_share > 0 else 'fixed'
             mapped['tracking_protocol'] = ''
             mapped['conversion_flow'] = ''
             mapped['conversion_window'] = None
@@ -886,6 +975,39 @@ class NetworkFieldMapper:
                     if level_payouts['levels']:
                         level_payouts['enabled'] = True
             mapped['level_payouts'] = level_payouts
+            
+            # GEO-SPLIT PAYOUTS: Detect country-specific payouts from Everflow
+            # Everflow payouts.entries can have country-specific amounts
+            geo_payouts = []
+            if isinstance(payouts_data, dict):
+                entries = payouts_data.get('entries', [])
+                if isinstance(entries, list):
+                    for entry in entries:
+                        if isinstance(entry, dict):
+                            # Check if entry has geo/country info
+                            geo_targets = entry.get('geo_targets', []) or entry.get('countries', [])
+                            entry_payout = float(entry.get('payout_amount', 0) or 0)
+                            entry_type = entry.get('payout_type', 'CPA') or 'CPA'
+                            if isinstance(geo_targets, list) and geo_targets and entry_payout > 0:
+                                for gt in geo_targets:
+                                    cc = ''
+                                    if isinstance(gt, dict):
+                                        cc = gt.get('country_code', '') or gt.get('code', '')
+                                    elif isinstance(gt, str) and len(gt) == 2:
+                                        cc = gt
+                                    if cc and len(cc) == 2:
+                                        geo_payouts.append({'country': cc.upper(), 'payout': entry_payout, 'type': entry_type.upper()})
+            # Also check ruleset for geo-specific payouts
+            if not geo_payouts and isinstance(ruleset, dict):
+                geo_payout_rules = ruleset.get('geo_payouts', []) or ruleset.get('country_payouts', [])
+                if isinstance(geo_payout_rules, list):
+                    for gp in geo_payout_rules:
+                        if isinstance(gp, dict):
+                            cc = gp.get('country_code', '') or gp.get('country', '')
+                            amt = float(gp.get('payout', 0) or gp.get('amount', 0) or 0)
+                            if cc and len(cc) == 2 and amt > 0:
+                                geo_payouts.append({'country': cc.upper(), 'payout': amt, 'type': gp.get('type', 'CPA')})
+            mapped['geo_payouts'] = geo_payouts
             
             # Process tracking link for special networks
             mapped = process_offer_tracking_link(mapped, network_identifier=network_id)

@@ -534,7 +534,9 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         level_payouts: {
           enabled: formData.level_payouts_enabled || false,
           levels: (formData.level_payouts_list || []).filter((l: any) => l.name && l.payout > 0)
-        }
+        },
+        // 🔥 GEO-SPLIT PAYOUTS (country-wise payouts)
+        geo_payouts: (formData.geo_payouts_list || []).filter((g: any) => g.country && g.payout > 0)
       };
 
       // Remove partner_id if it's empty
@@ -651,11 +653,12 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <Tabs defaultValue="identification" className="w-full">
-            <TabsList className="grid w-full grid-cols-11 text-xs">
+            <TabsList className="grid w-full grid-cols-12 text-xs">
               <TabsTrigger value="identification">ID</TabsTrigger>
               <TabsTrigger value="targeting">Target</TabsTrigger>
               <TabsTrigger value="payout">Payout</TabsTrigger>
               <TabsTrigger value="levels">Level</TabsTrigger>
+              <TabsTrigger value="geosplit">Geo</TabsTrigger>
               <TabsTrigger value="tracking">Track</TabsTrigger>
               <TabsTrigger value="access">Access</TabsTrigger>
               <TabsTrigger value="creatives">Creative</TabsTrigger>
@@ -1407,6 +1410,112 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                     <div className="text-center py-8 text-gray-400">
                       <p className="text-sm">Level payouts are disabled for this offer.</p>
                       <p className="text-xs mt-1">Toggle the switch above to add conversion level tiers.</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* SECTION 3.2: GEO-SPLIT PAYOUTS (Own Tab) */}
+            <TabsContent value="geosplit" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Geo-Split Payouts</CardTitle>
+                  <CardDescription>Set different payout amounts per country. Base payout applies to all other GEOs.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Add new geo payout */}
+                  <div className="flex items-end gap-2 p-3 bg-gray-50 rounded-lg border border-dashed border-gray-200">
+                    <div className="flex-1">
+                      <Label className="text-xs text-gray-500">Country Code</Label>
+                      <Input
+                        placeholder="e.g. US, CH, NL"
+                        value={formData.geo_payout_country || ''}
+                        onChange={(e) => handleInputChange('geo_payout_country', e.target.value.toUpperCase().slice(0, 2))}
+                        className="text-sm uppercase"
+                        maxLength={2}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Label className="text-xs text-gray-500">Payout (Admin)</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Amount"
+                        value={formData.geo_payout_amount || ''}
+                        onChange={(e) => handleInputChange('geo_payout_amount', e.target.value)}
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="w-32">
+                      <Label className="text-xs text-gray-500">Type</Label>
+                      <Select value={formData.geo_payout_type || 'CPA'} onValueChange={(v) => handleInputChange('geo_payout_type', v)}>
+                        <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="CPA">CPA</SelectItem>
+                          <SelectItem value="CPL">CPL</SelectItem>
+                          <SelectItem value="CPS">CPS</SelectItem>
+                          <SelectItem value="CPI">CPI</SelectItem>
+                          <SelectItem value="RevShare">RevShare</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => {
+                        const country = formData.geo_payout_country || '';
+                        const amount = parseFloat(formData.geo_payout_amount || '0');
+                        const type = formData.geo_payout_type || 'CPA';
+                        if (country.length === 2 && amount > 0) {
+                          const list = formData.geo_payouts_list || [];
+                          const exists = list.find((g: any) => g.country === country);
+                          if (exists) {
+                            handleInputChange('geo_payouts_list', list.map((g: any) => g.country === country ? { ...g, payout: amount, type } : g));
+                          } else {
+                            handleInputChange('geo_payouts_list', [...list, { country, payout: amount, type }]);
+                          }
+                          handleInputChange('geo_payout_country', '');
+                          handleInputChange('geo_payout_amount', '');
+                        }
+                      }}
+                      className="bg-violet-600 hover:bg-violet-700 text-white"
+                    >
+                      Add
+                    </Button>
+                  </div>
+
+                  {/* Geo payouts list */}
+                  {(formData.geo_payouts_list || []).length > 0 ? (
+                    <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                      {(formData.geo_payouts_list || []).sort((a: any, b: any) => b.payout - a.payout).map((gp: any, idx: number) => (
+                        <div key={idx} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 border border-gray-100">
+                          <div className="flex items-center gap-2">
+                            <img src={`https://flagcdn.com/20x15/${gp.country.toLowerCase()}.png`} alt={gp.country} className="w-5 h-3.5 rounded-sm" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            <span className="font-mono text-sm font-semibold">{gp.country}</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-bold text-emerald-600">${gp.payout.toFixed(2)}</span>
+                            <span className="text-xs text-gray-400">→ ${(gp.payout * 0.8).toFixed(2)} pub</span>
+                            <span className="text-xs px-2 py-0.5 rounded bg-gray-100">{gp.type}</span>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleInputChange('geo_payouts_list', (formData.geo_payouts_list || []).filter((_: any, i: number) => i !== idx))}
+                              className="text-red-500 hover:text-red-700 h-6 px-2 text-xs"
+                            >
+                              ×
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-400">
+                      <p className="text-sm">No geo-split payouts configured.</p>
+                      <p className="text-xs mt-1">Add country-specific payouts above.</p>
                     </div>
                   )}
                 </CardContent>

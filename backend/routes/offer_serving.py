@@ -41,6 +41,11 @@ def check_geo_access(offer, user_country):
     allowed_countries = [c.upper() for c in allowed_countries]
     user_country = user_country.upper() if user_country else ''
     
+    # If offer has WW/WORLDWIDE/ALL/GLOBAL, it's available everywhere — skip geo check
+    if any(c in ('WW', 'WORLDWIDE', 'ALL', 'GLOBAL') for c in allowed_countries):
+        logger.info(f"✅ Geo-check skipped: offer is worldwide (WW)")
+        return True, None
+    
     # Check if user's country is in allowed list
     if user_country in allowed_countries:
         logger.info(f"✅ Geo-check passed: {user_country} in {allowed_countries}")

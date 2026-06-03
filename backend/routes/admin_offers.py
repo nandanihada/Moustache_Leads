@@ -4389,11 +4389,43 @@ def full_preview_api_offers():
                 'incentive_type': offer.get('incentive_type', ''),
                 'daily_cap': offer.get('daily_cap', 0),
                 'expiration_date': offer.get('expiration_date', ''),
+                'level_payouts': offer.get('level_payouts', {'enabled': False, 'levels': []}),
+                'geo_payouts': offer.get('geo_payouts', []),
                 'issues': issues,
                 'is_duplicate': is_dup,
             })
         
         logging.info(f"✅ Full preview: {len(audit_results)} offers mapped, {len(mapping_errors)} errors")
+        
+        # GEO-SPLIT DETECTION: Find offers with same name but different payouts/countries
+        # Group by normalized name to find potential geo-split candidates
+        name_groups = {}
+        for offer in audit_results:
+            normalized_name = (offer.get('name', '') or '').strip().lower()
+            if normalized_name:
+                if normalized_name not in name_groups:
+                    name_groups[normalized_name] = []
+                name_groups[normalized_name].append(offer)
+        
+        geo_split_candidates = []
+        for name, group in name_groups.items():
+            if len(group) > 1:
+                # Multiple offers with same name — check if they have different payouts or countries
+                payouts = set()
+                countries_sets = []
+                for o in group:
+                    payouts.add(float(o.get('payout', 0)))
+                    countries_sets.append(set(o.get('countries', [])))
+                
+                # If they have different payouts OR different countries, flag as geo-split candidate
+                if len(payouts) > 1 or (len(countries_sets) > 1 and any(c1 != c2 for c1, c2 in zip(countries_sets, countries_sets[1:]))):
+                    geo_split_candidates.append({
+                        'name': group[0].get('name', ''),
+                        'count': len(group),
+                        'payouts': sorted(list(payouts), reverse=True),
+                        'offer_ids': [o.get('_temp_id') for o in group],
+                        'countries': list(set(c for o in group for c in o.get('countries', []))),
+                    })
         
         return jsonify({
             'success': True,
@@ -4401,6 +4433,7 @@ def full_preview_api_offers():
             'total': len(audit_results),
             'mapping_errors': mapping_errors[:10],
             'audit_summary': missing_counts,
+            'geo_split_candidates': geo_split_candidates,
         }), 200
         
     except Exception as e:

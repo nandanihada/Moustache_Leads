@@ -240,13 +240,7 @@ class NetworkAPIService:
             
             # If user provided just the domain, append the appropriate endpoint
             if '/v1/' not in base_url:
-                if fetch_mode == 'all_offers':
-                    base_url = f"{base_url}/v1/affiliates/alloffers"
-                else:
-                    base_url = f"{base_url}/v1/affiliates/offersrunnable"
-            elif fetch_mode == 'all_offers' and 'offersrunnable' in base_url:
-                # User provided the runnable URL but wants all offers
-                base_url = base_url.replace('offersrunnable', 'alloffers')
+                base_url = f"{base_url}/v1/affiliates/offerstable"
             
             logger.info(f"Testing Everflow connection: {base_url}")
             
@@ -255,17 +249,27 @@ class NetworkAPIService:
                 'x-eflow-api-key': api_key
             }
             
+            # Everflow uses POST with JSON body for offer listing
+            payload = {
+                'filters': {'affiliate_status': '__all'} if fetch_mode == 'all_offers' else {},
+                'search_terms': []
+            }
             params = {
                 'page': 1,
                 'page_size': 1  # Just test with 1 to get total count
             }
             
-            response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
+            response = self.session.post(base_url, headers=headers, params=params, json=payload, timeout=self.timeout)
             
             if response.status_code == 401:
                 return False, None, "Invalid API key. Please check your Everflow API key."
             elif response.status_code == 403:
                 return False, None, "Access denied. Your API key may not have affiliate permissions."
+            elif response.status_code == 405:
+                # Try GET as fallback (some Everflow versions use GET)
+                response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
+                if response.status_code != 200:
+                    return False, None, f"API returned status {response.status_code}. Check your API URL."
             
             response.raise_for_status()
             
@@ -281,24 +285,8 @@ class NetworkAPIService:
                 elif 'total_count' in data:
                     total_count = data['total_count']
                 elif 'offers' in data:
-                    # If no paging info, fetch with larger page to count
                     total_count = len(data.get('offers', []))
-                    # Try a larger fetch to get real count
-                    params_full = {'page': 1, 'page_size': 100}
-                    try:
-                        resp_full = self.session.get(base_url, headers=headers, params=params_full, timeout=self.timeout)
-                        if resp_full.status_code == 200:
-                            full_data = resp_full.json()
-                            if isinstance(full_data, dict) and 'paging' in full_data:
-                                total_count = full_data['paging'].get('total_count', total_count)
-                            elif isinstance(full_data, dict) and 'offers' in full_data:
-                                total_count = len(full_data['offers'])
-                            elif isinstance(full_data, list):
-                                total_count = len(full_data)
-                    except:
-                        pass
                 else:
-                    # Maybe the response itself is the offers list at top level
                     total_count = len(data)
             elif isinstance(data, list):
                 total_count = len(data)
@@ -329,16 +317,17 @@ class NetworkAPIService:
                 base_url = f"https://{base_url}"
             
             if '/v1/' not in base_url:
-                if fetch_mode == 'all_offers':
-                    base_url = f"{base_url}/v1/affiliates/alloffers"
-                else:
-                    base_url = f"{base_url}/v1/affiliates/offersrunnable"
-            elif fetch_mode == 'all_offers' and 'offersrunnable' in base_url:
-                base_url = base_url.replace('offersrunnable', 'alloffers')
+                base_url = f"{base_url}/v1/affiliates/offerstable"
             
             headers = {
                 'Content-Type': 'application/json',
                 'x-eflow-api-key': api_key
+            }
+            
+            # POST body for Everflow offerstable endpoint
+            payload = {
+                'filters': {'affiliate_status': '__all'} if fetch_mode == 'all_offers' else {},
+                'search_terms': []
             }
             
             page_size = min(limit or 100, 100)  # Everflow max page size is typically 100
@@ -352,13 +341,18 @@ class NetworkAPIService:
             while len(all_offers) < max_offers:
                 params = {
                     'page': page,
-                    'page_size': page_size
+                    'page_size': page_size,
+                    'order_field': 'id',
+                    'order_direction': 'desc'
                 }
                 
-                response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
+                response = self.session.post(base_url, headers=headers, params=params, json=payload, timeout=self.timeout)
                 
                 if response.status_code == 401:
                     return [], "Invalid API key"
+                elif response.status_code == 405:
+                    # Fallback to GET for older Everflow versions
+                    response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
                 
                 response.raise_for_status()
                 data = response.json()

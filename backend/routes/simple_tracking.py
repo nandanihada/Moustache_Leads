@@ -209,7 +209,13 @@ def track_offer_click(offer_id):
         if isinstance(offer_countries, str):
             offer_countries = [c.strip().upper() for c in offer_countries.replace(',', ' ').split() if c.strip()]
         
-        if offer_countries:  # Only check if offer has country restrictions
+        # Normalize to uppercase
+        offer_countries = [c.upper().strip() for c in offer_countries if c]
+        
+        # Skip geo check if offer is worldwide (WW = all countries allowed)
+        is_worldwide = any(c in ('WW', 'WORLDWIDE', 'ALL', 'GLOBAL') for c in offer_countries)
+        
+        if offer_countries and not is_worldwide:  # Only check if offer has country restrictions and is NOT worldwide
             try:
                 from services.ipinfo_service import get_ipinfo_service
                 ipinfo_svc = get_ipinfo_service()

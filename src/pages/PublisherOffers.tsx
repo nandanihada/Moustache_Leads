@@ -630,9 +630,18 @@ const PublisherOffersContent = () => {
       }
     }
 
-    // Filter from loaded offers
-    let results = [...offers];
-    // Keyword filter
+    // Fetch results from server using the search keyword (not filtering client-side)
+    let results: typeof offers = [];
+    try {
+      const res = await publisherOfferApi.getAvailableOffers({ page: 1, per_page: 200, search: wizardKeyword });
+      results = res.offers || [];
+    } catch {
+      // Fallback to filtering loaded offers if API fails
+      results = [...offers];
+    }
+
+    // Apply additional wizard filters on top of server results
+    // Keyword filter (shouldn't be needed since server already searched, but keeps it robust)
     if (keyword) {
       results = results.filter(o =>
         o.name.toLowerCase().includes(keyword) ||

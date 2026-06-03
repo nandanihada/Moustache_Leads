@@ -53,6 +53,20 @@ class GeoRestrictionService:
                     'redirect_url': None
                 }
             
+            # Normalize country codes to uppercase
+            allowed_countries_upper = [c.upper().strip() for c in allowed_countries if c]
+            
+            # If offer has WW/WORLDWIDE/ALL/GLOBAL, it's available everywhere — skip geo check
+            if any(c in ('WW', 'WORLDWIDE', 'ALL', 'GLOBAL') for c in allowed_countries_upper):
+                logger.debug(f"Offer {offer.get('offer_id')} is worldwide (WW) — allowing all countries")
+                return {
+                    'allowed': True,
+                    'country_code': None,
+                    'country_name': None,
+                    'reason': 'Worldwide offer (WW)',
+                    'redirect_url': None
+                }
+            
             # Detect user's country from IP
             ip_data = self.ipinfo.lookup_ip(user_ip)
             user_country_code = ip_data.get('country_code', 'XX')

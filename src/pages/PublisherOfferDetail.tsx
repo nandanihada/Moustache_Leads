@@ -12,6 +12,7 @@ import { publisherOfferApi, type PublisherOffer, markOfferClicked } from '@/serv
 import { userReportsApi } from '@/services/userReportsApi';
 import { searchLogsApi } from '@/services/searchLogsApi';
 import { useToast } from '@/hooks/use-toast';
+import { getOfferImage } from '@/utils/categoryImages';
 
 const getFlag = (code: string) => {
   const c = code.toUpperCase();
@@ -35,8 +36,9 @@ export default function PublisherOfferDetail() {
   const [customSubId, setCustomSubId] = useState('');
   const [trackingLink, setTrackingLink] = useState('');
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    description: true, geo: true, device: true, traffic: true, levels: true
+    description: true, geo: false, device: false, traffic: false, levels: true, geosplit: true
   });
+  const [geoSearch, setGeoSearch] = useState('');
 
   const [applyLoading, setApplyLoading] = useState(false);
 
@@ -243,12 +245,10 @@ export default function PublisherOfferDetail() {
       {/* ===== HERO SECTION ===== */}
       <section className="relative overflow-hidden text-white" style={{ background: 'linear-gradient(135deg, #630ed4 0%, #25005a 50%, #4b41e1 100%)' }}>
         {/* Offer image as background with glass overlay */}
-        {(offer.thumbnail_url || offer.image_url) && (
-          <div className="absolute inset-0 z-0">
-            <img src={offer.thumbnail_url || offer.image_url} alt="" className="w-full h-full object-cover opacity-10 blur-sm scale-110" />
-            <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(99,14,212,0.93) 0%, rgba(37,0,90,0.96) 50%, rgba(75,65,225,0.93) 100%)' }} />
-          </div>
-        )}
+        <div className="absolute inset-0 z-0">
+          <img src={getOfferImage(offer as any)} alt="" className="w-full h-full object-cover opacity-10 blur-sm scale-110" />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(99,14,212,0.93) 0%, rgba(37,0,90,0.96) 50%, rgba(75,65,225,0.93) 100%)' }} />
+        </div>
 
         {/* Animated mesh grid with glowing nodes */}
         <div className="absolute inset-0 z-[1] pointer-events-none overflow-hidden">
@@ -305,13 +305,7 @@ export default function PublisherOfferDetail() {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8">
             <div className="flex items-start gap-4">
               {/* Offer image thumbnail */}
-              {(offer.thumbnail_url || offer.image_url) ? (
-                <img src={offer.thumbnail_url || offer.image_url} alt={offer.name} className="w-20 h-20 rounded-xl object-cover border-2 border-white/20 shadow-xl hidden md:block" style={{ backdropFilter: 'blur(8px)' }} />
-              ) : (
-                <div className="w-20 h-20 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 shadow-xl hidden md:block">
-                  <DollarSign className="h-8 w-8 text-white/70" />
-                </div>
-              )}
+              <img src={getOfferImage(offer as any)} alt={offer.name} className="w-20 h-20 rounded-xl object-cover border-2 border-white/20 shadow-xl hidden md:block" style={{ backdropFilter: 'blur(8px)' }} />
               <div className="space-y-3">
               {/* Status + ID */}
               <div className="flex items-center gap-2 flex-wrap">
@@ -474,7 +468,7 @@ export default function PublisherOfferDetail() {
           )}
 
           {/* Geo & Device Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
             {/* Geo Targeting */}
             <ExpandableCard
               icon={<Globe className="h-5 w-5 text-[#4b41e1]" />}
@@ -580,17 +574,63 @@ export default function PublisherOfferDetail() {
             </div>
           </ExpandableCard>
 
-          {/* Geo-Split Payouts (placeholder for Feature 2) */}
+          {/* Geo-Split Payouts */}
           {(offer.geo_payouts || []).length > 0 && (
             <ExpandableCard
               icon={<Globe className="h-5 w-5 text-cyan-600" />}
               iconBg="bg-cyan-100"
               title="Geo-Split Payouts"
               badge={`${offer.geo_payouts!.length} countries`}
-              expanded={false}
-              onToggle={() => {}}
+              expanded={expandedSections.geosplit}
+              onToggle={() => toggleSection('geosplit')}
             >
-              <p className="text-gray-500 text-sm">Different payout per country. Base rate applies to all other GEOs.</p>
+              <p className="text-gray-500 text-sm mb-3">Different payout per country. Base rate ({cs}{offer.payout.toFixed(2)}) applies to all other GEOs.</p>
+              
+              {/* Search */}
+              <div className="relative mb-3">
+                <input
+                  type="text"
+                  placeholder="Search country..."
+                  value={geoSearch}
+                  onChange={(e) => setGeoSearch(e.target.value.toUpperCase())}
+                  className="w-full text-sm px-3 py-2 border border-gray-200 rounded-lg bg-[#f7f9fb] placeholder:text-gray-400 focus:outline-none focus:border-[#630ed4]/30 focus:ring-1 focus:ring-[#630ed4]/20"
+                />
+              </div>
+
+              {/* Table header */}
+              <div className="grid grid-cols-12 gap-2 text-[11px] text-gray-400 font-mono tracking-wider uppercase px-3 pb-2 border-b border-gray-100">
+                <div className="col-span-4">GEO</div>
+                <div className="col-span-3">TYPE</div>
+                <div className="col-span-5 text-right">PAYOUT</div>
+              </div>
+
+              {/* Base rate row */}
+              <div className="grid grid-cols-12 gap-2 items-center px-3 py-2.5 bg-[#f7f9fb] border-b border-gray-50">
+                <div className="col-span-4 flex items-center gap-2">
+                  <span className="w-5 h-3.5 rounded-sm bg-gray-200 flex items-center justify-center text-[8px] text-gray-500">🌍</span>
+                  <span className="text-sm font-medium text-gray-700">All other GEOs</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-semibold">BASE</span>
+                </div>
+                <div className="col-span-3"><span className="text-xs text-gray-500">CPA</span></div>
+                <div className="col-span-5 text-right"><span className="text-sm font-bold text-gray-900">{cs}{offer.payout.toFixed(2)}</span></div>
+              </div>
+
+              {/* Country rows */}
+              <div className="max-h-[280px] overflow-y-auto">
+                {offer.geo_payouts!
+                  .filter(gp => !geoSearch || gp.country.includes(geoSearch))
+                  .sort((a, b) => b.payout - a.payout)
+                  .map((gp, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 items-center px-3 py-2.5 border-b border-gray-50 hover:bg-[#f7f9fb] transition-colors">
+                      <div className="col-span-4 flex items-center gap-2">
+                        <img src={`https://flagcdn.com/20x15/${gp.country.toLowerCase()}.png`} alt={gp.country} className="w-5 h-3.5 rounded-sm object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                        <span className="text-sm font-medium text-gray-900">{gp.country}</span>
+                      </div>
+                      <div className="col-span-3"><span className="text-xs text-gray-500">{gp.type}</span></div>
+                      <div className="col-span-5 text-right"><span className="text-sm font-bold text-[#630ed4]">{cs}{gp.payout.toFixed(2)}</span></div>
+                    </div>
+                  ))}
+              </div>
             </ExpandableCard>
           )}
         </div>
@@ -630,10 +670,9 @@ export default function PublisherOfferDetail() {
           </div>
 
           {/* Landing Page Preview */}
-          {(offer.thumbnail_url || offer.image_url) && (
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:border-[#630ed4]/20 transition-all group">
-              <div className="aspect-video bg-[#f7f9fb] relative overflow-hidden">
-                <img src={offer.thumbnail_url || offer.image_url} alt={offer.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:border-[#630ed4]/20 transition-all group">
+            <div className="aspect-video bg-[#f7f9fb] relative overflow-hidden">
+              <img src={getOfferImage(offer as any)} alt={offer.name} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                 <div className="absolute inset-0 bg-[#630ed4]/20 backdrop-blur-[2px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
                   <button onClick={() => window.open(offer.preview_url || '#', '_blank')} className="bg-white text-[#630ed4] p-3 rounded-full shadow-2xl scale-90 group-hover:scale-100 transition-transform">
                     <Eye className="h-5 w-5" />
@@ -648,7 +687,6 @@ export default function PublisherOfferDetail() {
                 </a>
               </div>
             </div>
-          )}
 
           {/* Access Status Card */}
           <div className={`rounded-xl p-5 shadow-sm relative overflow-hidden ${hasAccess ? 'bg-gradient-to-br from-[#7c3aed] to-[#4b41e1]' : 'bg-white border border-amber-200'}`}>

@@ -152,10 +152,22 @@ class OfferRotationService:
         previous_batch = state.get('current_batch_ids', [])
         batch_index = state.get('batch_index', 0)
 
-        # 1. Deactivate previous batch (skip running offers)
+        # 1. Deactivate previous batch (skip running offers AND offers with approved/pending requests)
         #    Also deactivate any orphaned rotation-activated offers not in the new batch
         if previous_batch:
-            ids_to_deactivate = [oid for oid in previous_batch if oid not in running_ids]
+            # Get offers with approved or pending access requests — these should NEVER be deactivated by rotation
+            batch_protected_ids = set()
+            try:
+                requests_col = db_instance.get_collection('affiliate_requests')
+                if requests_col is not None:
+                    for oid in previous_batch:
+                        has_active_request = requests_col.find_one({'offer_id': oid, 'status': {'$in': ['approved', 'pending']}})
+                        if has_active_request:
+                            batch_protected_ids.add(oid)
+            except Exception:
+                pass
+            
+            ids_to_deactivate = [oid for oid in previous_batch if oid not in running_ids and oid not in batch_protected_ids]
             if ids_to_deactivate:
                 result = self.offers_col.update_many(
                     {
@@ -168,11 +180,12 @@ class OfferRotationService:
                         'updated_at': datetime.utcnow(),
                     }}
                 )
-                logger.info(f"🔄 Deactivated {result.modified_count} offers from previous batch (skipped {len(previous_batch) - len(ids_to_deactivate)} running)")
+                logger.info(f"🔄 Deactivated {result.modified_count} offers from previous batch (skipped {len(previous_batch) - len(ids_to_deactivate)} running/protected)")
 
         # 1b. Cleanup: deactivate any orphaned rotation-activated offers
         #     These are offers that were activated by rotation in past cycles
         #     but are no longer tracked in current/previous batch state
+        #     IMPORTANT: Skip offers that have approved access requests (publishers are using them)
         orphan_query = {
             'status': 'active',
             'rotation_activated_at': {'$exists': True},
@@ -182,6 +195,35 @@ class OfferRotationService:
         # Exclude offers in the current running list
         if running_ids:
             orphan_query['offer_id'] = {'$nin': list(running_ids)}
+        
+        # Also exclude offers that have approved OR pending affiliate requests (publishers need them)
+        protected_offer_ids = set()
+        try:
+            requests_col = db_instance.get_collection('affiliate_requests')
+            if requests_col is not None:
+                active_requests = requests_col.distinct('offer_id', {'status': {'$in': ['approved', 'pending']}})
+                protected_offer_ids.update([str(oid) for oid in active_requests if oid])
+        except Exception as req_err:
+            logger.warning(f"Failed to fetch active requests for orphan protection: {req_err}")
+        
+        # Also protect offers that received a click recently (last 30 days)
+        try:
+            from datetime import timezone
+            recent_cutoff = datetime.utcnow() - timedelta(days=30)
+            offers_with_recent_clicks = self.offers_col.distinct(
+                'offer_id',
+                {'last_click_date': {'$gte': recent_cutoff}, 'status': 'active', 'rotation_activated_at': {'$exists': True}}
+            )
+            protected_offer_ids.update([str(oid) for oid in offers_with_recent_clicks if oid])
+        except Exception:
+            pass
+        
+        # Exclude protected offers from orphan cleanup
+        if protected_offer_ids:
+            existing_nin = orphan_query.get('offer_id', {}).get('$nin', [])
+            all_excluded = list(set(existing_nin) | protected_offer_ids)
+            orphan_query['offer_id'] = {'$nin': all_excluded}
+        
         orphan_result = self.offers_col.update_many(
             orphan_query,
             {'$set': {
@@ -192,7 +234,7 @@ class OfferRotationService:
             }}
         )
         if orphan_result.modified_count > 0:
-            logger.info(f"🧹 Cleaned up {orphan_result.modified_count} orphaned rotation-activated offers")
+            logger.info(f"🧹 Cleaned up {orphan_result.modified_count} orphaned rotation-activated offers (protected {len(protected_offer_ids)} with approved requests/recent clicks)")
 
         # 2. Get all inactive, non-deleted, non-running candidates
         query = {

@@ -169,6 +169,13 @@ SPREADSHEET_TO_DB_MAPPING = {
     'level 5 payout': 'level_5_payout',
     'level_5_type': 'level_5_type',
     'level 5 type': 'level_5_type',
+    # NEW: Geo-split payouts (country-wise payouts as JSON or pipe-separated)
+    'geo_payouts': 'geo_payouts_raw',
+    'geo payouts': 'geo_payouts_raw',
+    'geo_split': 'geo_payouts_raw',
+    'geo split': 'geo_payouts_raw',
+    'country_payouts': 'geo_payouts_raw',
+    'country payouts': 'geo_payouts_raw',
 }
 
 # Required fields that must be present in spreadsheet
@@ -818,6 +825,63 @@ def apply_default_values(row_data: Dict[str, Any]) -> Dict[str, Any]:
     if level_payouts['levels']:
         level_payouts['enabled'] = True
     result['level_payouts'] = level_payouts
+    
+    # GEO-SPLIT PAYOUTS: Detect from spreadsheet
+    # Supports formats:
+    #   - Column "geo_payouts" with pipe-separated values: "US:100|CH:1000|NL:950"
+    #   - Column "geo_payouts" with JSON: [{"country":"US","payout":100}]
+    #   - Individual columns like "geo_US", "geo_CH" (handled in map_spreadsheet_to_db)
+    geo_payouts = []
+    geo_payouts_raw = result.get('geo_payouts_raw', '')
+    if geo_payouts_raw:
+        raw_str = str(geo_payouts_raw).strip()
+        # Try JSON format first
+        if raw_str.startswith('['):
+            try:
+                import json
+                parsed = json.loads(raw_str)
+                if isinstance(parsed, list):
+                    for gp in parsed:
+                        if isinstance(gp, dict):
+                            cc = (gp.get('country', '') or gp.get('geo', '')).upper()
+                            amt = float(gp.get('payout', 0) or gp.get('amount', 0) or 0)
+                            if cc and len(cc) == 2 and amt > 0:
+                                geo_payouts.append({'country': cc, 'payout': amt, 'type': gp.get('type', 'CPA')})
+            except (json.JSONDecodeError, ValueError):
+                pass
+        # Try pipe-separated format: "US:100|CH:1000|NL:950"
+        elif '|' in raw_str or ':' in raw_str:
+            parts = raw_str.split('|') if '|' in raw_str else raw_str.split(',')
+            for part in parts:
+                part = part.strip()
+                if ':' in part:
+                    cc_part, payout_part = part.split(':', 1)
+                    cc = cc_part.strip().upper()
+                    try:
+                        amt = float(payout_part.strip())
+                        if cc and len(cc) == 2 and amt > 0:
+                            geo_payouts.append({'country': cc, 'payout': amt, 'type': 'CPA'})
+                    except ValueError:
+                        pass
+    # Clean up the raw field
+    result.pop('geo_payouts_raw', None)
+    
+    # Also check for individual geo_ columns (geo_US=100, geo_CH=1000)
+    geo_cols_to_remove = []
+    for key, value in result.items():
+        if key.startswith('geo_') and len(key) == 6 and key != 'geo_payouts_raw':
+            cc = key[4:].upper()
+            try:
+                amt = float(value) if value else 0
+                if cc and len(cc) == 2 and amt > 0:
+                    geo_payouts.append({'country': cc, 'payout': amt, 'type': 'CPA'})
+            except (ValueError, TypeError):
+                pass
+            geo_cols_to_remove.append(key)
+    for col in geo_cols_to_remove:
+        result.pop(col, None)
+    
+    result['geo_payouts'] = geo_payouts
     
     return result
 
