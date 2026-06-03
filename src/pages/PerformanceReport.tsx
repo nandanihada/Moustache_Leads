@@ -172,10 +172,17 @@ function PerformanceReportContent() {
   // Export handler
   const handleExport = async () => {
     try {
+      // Pass selected columns from reportOptions
+      const columns = reportOptions ? Object.entries(reportOptions)
+        .filter(([_, enabled]) => enabled)
+        .map(([key]) => key)
+        .join(',') : '';
+      
       await userReportsApi.exportReport('performance', {
         start_date: dateRange.start,
         end_date: dateRange.end,
         group_by: filters.group_by || 'date,offer_id',
+        columns,
         ...filters
       });
       toast.success('Report exported successfully');

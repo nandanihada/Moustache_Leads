@@ -163,9 +163,16 @@ export function ConversionReportContent() {
   // Export handler
   const handleExport = async () => {
     try {
+      // Pass selected columns from reportOptions
+      const columns = reportOptions ? Object.entries(reportOptions)
+        .filter(([_, enabled]) => enabled)
+        .map(([key]) => key)
+        .join(',') : '';
+      
       await userReportsApi.exportReport('conversions', {
         start_date: dateRange.start,
         end_date: dateRange.end,
+        columns,
       });
       toast.success('Report exported successfully');
     } catch (error) {

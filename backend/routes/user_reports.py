@@ -356,6 +356,10 @@ def export_report():
             
             group_by = request.args.get('group_by', 'date').split(',')
             
+            # Get selected columns (comma-separated from frontend)
+            selected_columns = request.args.get('columns', '').split(',') if request.args.get('columns') else []
+            selected_columns = [c.strip() for c in selected_columns if c.strip()]
+            
             is_admin_user = user.get('role') in ('admin', 'subadmin')
             report = user_reports_model.get_performance_report(
                 user_id=user_id,
@@ -369,29 +373,61 @@ def export_report():
             if 'error' in report:
                 return jsonify({'error': report['error']}), 500
             
-            # Create CSV
+            # Create CSV - include columns based on user selection
             output = io.StringIO()
             writer = csv.writer(output)
             
+            # Define all available columns with their data keys
+            all_perf_columns = [
+                ('Date', 'date', None),
+                ('Offer ID', 'offer_id', 'offer'),
+                ('Offer Name', 'offer_name', 'offer'),
+                ('Category', 'category', 'category'),
+                ('Country', 'country', 'country'),
+                ('Source', 'source', 'source'),
+                ('Sub ID 1', 'sub_id1', 'subId1'),
+                ('Sub ID 2', 'sub_id2', 'subId2'),
+                ('Sub ID 3', 'sub_id3', 'subId3'),
+                ('Sub ID 4', 'sub_id4', 'subId4'),
+                ('Sub ID 5', 'sub_id5', 'subId5'),
+                ('Impressions', 'impressions', 'impressions'),
+                ('Clicks', 'clicks', 'clicks'),
+                ('Gross Clicks', 'gross_clicks', 'grossClicks'),
+                ('Unique Clicks', 'unique_clicks', 'uniqueClicks'),
+                ('Rejected Clicks', 'rejected_clicks', 'rejectedClicks'),
+                ('Suspicious Clicks', 'suspicious_clicks', 'suspiciousClicks'),
+                ('Conversions', 'conversions', 'conversions'),
+                ('CR%', 'cr', 'cr'),
+                ('CTR%', 'ctr', 'ctr'),
+                ('Unique Click Rate', 'unique_click_rate', 'uniqueClickRate'),
+                ('EPC', 'epc', 'epc'),
+                ('CPM', 'cpm', 'cpm'),
+                ('CPL', 'cpl', 'cpl'),
+                ('Payout', 'total_payout', 'payout'),
+                ('Revenue', 'total_revenue', 'payout'),
+            ]
+            
+            # Filter columns based on user selection (if provided)
+            if selected_columns:
+                # Always include Date
+                export_columns = [c for c in all_perf_columns if c[2] is None or c[2] in selected_columns]
+            else:
+                # Default: original hardcoded set
+                export_columns = [c for c in all_perf_columns if c[2] is None or c[2] in ['offer', 'clicks', 'uniqueClicks', 'conversions', 'cr', 'payout']]
+            
             # Headers
-            headers = ['Date', 'Offer ID', 'Offer Name', 'Clicks', 'Unique Clicks', 
-                      'Conversions', 'CR%', 'Payout', 'EPC', 'Revenue']
+            headers = [c[0] for c in export_columns]
             writer.writerow(headers)
             
             # Data rows
             for row in report['data']:
-                writer.writerow([
-                    row.get('date', ''),
-                    row.get('offer_id', ''),
-                    row.get('offer_name', ''),
-                    row.get('clicks', 0),
-                    row.get('unique_clicks', 0),
-                    row.get('conversions', 0),
-                    row.get('cr', 0),
-                    row.get('total_payout', 0),
-                    row.get('epc', 0),
-                    row.get('total_revenue', 0)
-                ])
+                csv_row = []
+                for _, data_key, _ in export_columns:
+                    val = row.get(data_key, '')
+                    if val is None:
+                        val = ''
+                    csv_row.append(val)
+                writer.writerow(csv_row)
             
             output.seek(0)
             return output.getvalue(), 200, {
@@ -403,6 +439,10 @@ def export_report():
             filters = {}
             if request.args.get('offer_id'):
                 filters['offer_id'] = request.args.get('offer_id')
+            
+            # Get selected columns (comma-separated from frontend)
+            selected_columns = request.args.get('columns', '').split(',') if request.args.get('columns') else []
+            selected_columns = [c.strip() for c in selected_columns if c.strip()]
             
             is_admin_user = user.get('role') in ('admin', 'subadmin')
             report = user_reports_model.get_conversion_report(
@@ -420,25 +460,53 @@ def export_report():
             output = io.StringIO()
             writer = csv.writer(output)
             
+            # Define all available conversion columns with their data keys
+            all_conv_columns = [
+                ('Time', 'time', 'time'),
+                ('Transaction ID', 'transaction_id', 'transactionId'),
+                ('Offer', 'offer_name', 'offer'),
+                ('Category', 'category', 'category'),
+                ('Status', 'status', 'status'),
+                ('Payout', 'payout', 'payout'),
+                ('Currency', 'currency', 'currency'),
+                ('Country', 'country', 'country'),
+                ('Source', 'source', 'source'),
+                ('Sub ID 1', 'sub1', 'subId1'),
+                ('Sub ID 2', 'sub2', 'subId2'),
+                ('Sub ID 3', 'sub3', 'subId3'),
+                ('Sub ID 4', 'sub4', 'subId4'),
+                ('Sub ID 5', 'sub5', 'subId5'),
+                ('Device', 'device_type', None),
+                ('Browser', 'browser', None),
+                ('Promo Code', 'promo_code', 'promoCode'),
+                ('Session IP', 'ip_address', 'sessionIp'),
+                ('Event ID', 'event_id', 'eventId'),
+                ('Conversion ID', 'conversion_id', 'conversionId'),
+            ]
+            
+            # Filter columns based on user selection (if provided)
+            if selected_columns:
+                export_columns = [c for c in all_conv_columns if c[2] is None or c[2] in selected_columns]
+            else:
+                # Default: original hardcoded set
+                export_columns = all_conv_columns[:10] + [all_conv_columns[14], all_conv_columns[15]]  # Time through Sub1 + Device + Browser
+            
             # Headers
-            headers = ['Time', 'Transaction ID', 'Offer', 'Status', 'Payout', 
-                      'Currency', 'Country', 'Sub ID', 'Device', 'Browser']
+            headers = [c[0] for c in export_columns]
             writer.writerow(headers)
             
             # Data rows
             for conv in report['conversions']:
-                writer.writerow([
-                    conv.get('time', ''),
-                    conv.get('transaction_id', ''),
-                    conv.get('offer_name', ''),
-                    conv.get('status', ''),
-                    conv.get('payout', 0),
-                    conv.get('currency', 'USD'),
-                    conv.get('country', ''),
-                    conv.get('sub_ids', {}).get('sub1', ''),
-                    conv.get('device_type', ''),
-                    conv.get('browser', '')
-                ])
+                csv_row = []
+                for _, data_key, _ in export_columns:
+                    if data_key in ('sub1', 'sub2', 'sub3', 'sub4', 'sub5'):
+                        val = conv.get('sub_ids', {}).get(data_key, '')
+                    else:
+                        val = conv.get(data_key, '')
+                    if val is None:
+                        val = ''
+                    csv_row.append(val)
+                writer.writerow(csv_row)
             
             output.seek(0)
             return output.getvalue(), 200, {
