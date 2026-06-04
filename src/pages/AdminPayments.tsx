@@ -240,6 +240,33 @@ function AdminPaymentsContent() {
 
                           {/* Conversions Tab */}
                           <TabsContent value="conversions">
+                            {/* Balance source breakdown */}
+                            <div className="mb-3 p-3 bg-blue-50/50 border border-blue-100 rounded-md">
+                              <h5 className="text-xs font-semibold mb-2 text-blue-800">Balance Breakdown (Where ${ user.total_balance.toFixed(2)} comes from)</h5>
+                              <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
+                                <div className="bg-white p-2 rounded border">
+                                  <div className="text-muted-foreground">Conversions</div>
+                                  <div className={`font-bold ${user.breakdown.conversion > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>${user.breakdown.conversion.toFixed(2)}</div>
+                                </div>
+                                <div className="bg-white p-2 rounded border">
+                                  <div className="text-muted-foreground">Referrals</div>
+                                  <div className={`font-bold ${user.breakdown.referral > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>${user.breakdown.referral.toFixed(2)}</div>
+                                </div>
+                                <div className="bg-white p-2 rounded border">
+                                  <div className="text-muted-foreground">Promo Bonuses</div>
+                                  <div className={`font-bold ${user.breakdown.promo > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>${user.breakdown.promo.toFixed(2)}</div>
+                                </div>
+                                <div className="bg-white p-2 rounded border">
+                                  <div className="text-muted-foreground">Gift Cards</div>
+                                  <div className={`font-bold ${user.breakdown.gift > 0 ? 'text-green-600' : 'text-muted-foreground'}`}>${user.breakdown.gift.toFixed(2)}</div>
+                                </div>
+                                <div className="bg-white p-2 rounded border">
+                                  <div className="text-muted-foreground">Adjustments</div>
+                                  <div className={`font-bold ${user.breakdown.manual_adjustments !== 0 ? (user.breakdown.manual_adjustments > 0 ? 'text-green-600' : 'text-red-600') : 'text-muted-foreground'}`}>${user.breakdown.manual_adjustments.toFixed(2)}</div>
+                                </div>
+                              </div>
+                            </div>
+
                             {convSummary && (
                               <div className="flex gap-4 mb-3 text-sm">
                                 <span className="text-green-600 font-medium">Active: ${convSummary.active_amount?.toFixed(2)} ({convSummary.active_count})</span>

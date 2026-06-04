@@ -38,10 +38,10 @@ def get_all_users_payments():
         adj_col = get_collection('balance_adjustments')
         pm_col = get_collection('payout_methods')
         
-        conv_res = list(conversions_col.aggregate([{'$match': {'publisher_id': {'$in': user_ids_str}, 'forward_status': {'$nin': ['reversed']}, 'is_reversal': {'$ne': True}}}, {'$group': {'_id': '$publisher_id', 'total': {'$sum': '$points'}}}])) if conversions_col is not None else []
+        conv_res = list(conversions_col.aggregate([{'$match': {'publisher_id': {'$in': user_ids_str}, 'forward_status': {'$nin': ['reversed']}, 'is_reversal': {'$ne': True}, 'source': {'$nin': ['fallback_fake']}}}, {'$group': {'_id': '$publisher_id', 'total': {'$sum': '$points'}}}])) if conversions_col is not None else []
         conv_map = {r['_id']: r['total'] for r in conv_res}
         
-        rev_conv_res = list(conversions_col.aggregate([{'$match': {'publisher_id': {'$in': user_ids_str}, '$or': [{'forward_status': 'reversed'}, {'status': 'reversed'}, {'is_reversal': True}]}}, {'$group': {'_id': '$publisher_id', 'total': {'$sum': '$points'}}}])) if conversions_col is not None else []
+        rev_conv_res = list(conversions_col.aggregate([{'$match': {'publisher_id': {'$in': user_ids_str}, '$or': [{'forward_status': 'reversed'}, {'status': 'reversed'}, {'is_reversal': True}], 'source': {'$nin': ['fallback_fake']}}}, {'$group': {'_id': '$publisher_id', 'total': {'$sum': '$points'}}}])) if conversions_col is not None else []
         rev_conv_map = {r['_id']: r['total'] for r in rev_conv_res}
 
         promo_res = list(promo_col.aggregate([{'$match': {'user_id': {'$in': user_ids_obj}, 'status': 'credited'}}, {'$group': {'_id': '$user_id', 'total': {'$sum': '$bonus_amount'}}}])) if promo_col is not None else []
