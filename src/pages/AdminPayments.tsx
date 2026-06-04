@@ -1,598 +1,380 @@
-import { useState, useEffect } from "react";
-import { Search, Download, CreditCard, DollarSign, Filter, RefreshCcw, Activity, History, Undo, Mail } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Search, DollarSign, Settings, RefreshCw, ChevronDown, ChevronRight, CreditCard, Clock, CheckCircle, History, Eye, Banknote, FileText, Undo2 } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getAuthToken } from "@/utils/cookies";
 import { getApiBaseUrl } from "@/services/apiConfig";
+import { adminReportsApi } from "@/services/adminReportsApi";
 import { toast } from "sonner";
-import { Progress } from "@/components/ui/progress";
+import { AdminPageGuard } from "@/components/AdminPageGuard";
 
-const AdminPayments = () => {
-  const [users, setUsers] = useState<any[]>([]);
+const API_BASE = getApiBaseUrl();
+function authHeaders() { return { Authorization: `Bearer ${getAuthToken()}`, "Content-Type": "application/json" }; }
+
+interface UserPayment {
+  user_id: string; username: string; email: string; country: string;
+  total_balance: number;
+  breakdown: { referral: number; conversion: number; promo: number; gift: number; manual_adjustments: number };
+  payout_method: any;
+  net_terms_settings: { net_terms: number; temporary_duration_months?: number; temporary_start_date?: string; default_net_terms: number };
+}
+
+function AdminPaymentsContent() {
+  const [users, setUsers] = useState<UserPayment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedUser, setSelectedUser] = useState<any>(null);
-  const [userTransactions, setUserTransactions] = useState<any[]>([]);
-  const [txLoading, setTxLoading] = useState(false);
-  const [emailDialogUser, setEmailDialogUser] = useState<any>(null);
-  const [emailSubject, setEmailSubject] = useState("");
-  const [emailMessage, setEmailMessage] = useState("");
-  const [isSending, setIsSending] = useState(false);
-
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [statusFilter, setStatusFilter] = useState("all");
-  const [minBalanceFilter, setMinBalanceFilter] = useState("");
-  const [countryFilter, setCountryFilter] = useState("");
-  
-  const [netTermsDialogUser, setNetTermsDialogUser] = useState<any>(null);
-  const [netTermsData, setNetTermsData] = useState({
-    net_terms: 30,
-    default_net_terms: 30,
-    temporary_duration_months: "" as string | number
-  });
-  const [isUpdatingNetTerms, setIsUpdatingNetTerms] = useState(false);
+  const [sortBy, setSortBy] = useState<"balance" | "name">("balance");
+  const [threshold, setThreshold] = useState(50);
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"users" | "history">("users");
+  const [actionLogs, setActionLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
-  const fetchUsers = async () => {
+  // Expanded user state
+  const [userConversions, setUserConversions] = useState<any[]>([]);
+  const [convSummary, setConvSummary] = useState<any>(null);
+  const [convLoading, setConvLoading] = useState(false);
+  const [convFilter, setConvFilter] = useState("all");
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [expandedTab, setExpandedTab] = useState("conversions");
+
+  // Dialogs
+  const [showThresholdDialog, setShowThresholdDialog] = useState(false);
+  const [newThreshold, setNewThreshold] = useState("50");
+  const [showNetTermsDialog, setShowNetTermsDialog] = useState(false);
+  const [netTermsUserId, setNetTermsUserId] = useState("");
+  const [netTermsValue, setNetTermsValue] = useState("30");
+  const [showPayDialog, setShowPayDialog] = useState(false);
+  const [payUser, setPayUser] = useState<UserPayment | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payRef, setPayRef] = useState("");
+  const [paying, setPaying] = useState(false);
+
+  const fetchUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/payments/users`, {
-        headers: {
-          'Authorization': `Bearer ${getAuthToken()}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUsers(data.data || []);
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load user payments");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchUsers();
+      const res = await fetch(`${API_BASE}/api/admin/payments/users`, { headers: authHeaders() });
+      const data = await res.json();
+      if (data.success) setUsers(data.data || []);
+    } catch { toast.error("Failed to load users"); }
+    finally { setLoading(false); }
   }, []);
 
-  const formatCurrency = (amount: number) => {
-    return `$${(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const fetchThreshold = useCallback(async () => {
+    try {
+      const res = await adminReportsApi.getInvoiceThreshold();
+      if (res.success) { setThreshold(res.threshold || 50); setNewThreshold(String(res.threshold || 50)); }
+    } catch {}
+  }, []);
+
+  const fetchActionLogs = useCallback(async () => {
+    setLogsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/payments/action-logs`, { headers: authHeaders() });
+      const data = await res.json();
+      if (data.success) setActionLogs(data.logs || []);
+    } catch {}
+    finally { setLogsLoading(false); }
+  }, []);
+
+  useEffect(() => { fetchUsers(); fetchThreshold(); }, [fetchUsers, fetchThreshold]);
+
+  // Fetch user data when expanded
+  const handleExpand = async (userId: string) => {
+    if (expandedUser === userId) { setExpandedUser(null); return; }
+    setExpandedUser(userId);
+    setExpandedTab("conversions");
+    fetchUserConversions(userId, "all");
+    fetchPaymentHistory(userId);
   };
 
-  const handleAdjustBalance = async (userId: string, amount: number, isAdd: boolean) => {
-    const reason = prompt("Enter reason for adjustment:");
-    if (!reason) return;
-
+  const fetchUserConversions = async (userId: string, status: string) => {
+    setConvLoading(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/payments/users/${userId}/adjust`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthToken()}`
-        },
-        body: JSON.stringify({
-          amount: isAdd ? Math.abs(amount) : -Math.abs(amount),
-          reason
-        })
-      });
-
-      if (response.ok) {
-        toast.success("Balance adjusted successfully");
-        fetchUsers();
-      } else {
-        toast.error("Failed to adjust balance");
-      }
-    } catch (err) {
-      console.error(err);
-      toast.error("Error adjusting balance");
-    }
+      const res = await fetch(`${API_BASE}/api/admin/payments/users/${userId}/conversions?status=${status}&per_page=30`, { headers: authHeaders() });
+      const data = await res.json();
+      if (data.success) { setUserConversions(data.conversions || []); setConvSummary(data.summary || null); }
+    } catch {}
+    finally { setConvLoading(false); }
   };
 
-  const handleViewTransactions = async (userId: string) => {
-    setSelectedUser(userId);
-    setTxLoading(true);
+  const fetchPaymentHistory = async (userId: string) => {
+    setHistoryLoading(true);
     try {
-      // We can use the same route or a dedicated admin one. Since we don't have a dedicated admin transaction route, 
-      // let's fetch it if there's an API, or we rely on the summary. Wait, we don't have an admin route to get a specific user's transactions.
-      // We will need to build the API call for that.
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/payments/users/${userId}/transactions`, {
-        headers: {
-          'Authorization': `Bearer ${getAuthToken()}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUserTransactions(data.data || []);
-      }
-    } catch (err) {
-      toast.error("Failed to load user transactions");
-    } finally {
-      setTxLoading(false);
-    }
+      const res = await fetch(`${API_BASE}/api/admin/payments/users/${userId}/payment-history`, { headers: authHeaders() });
+      const data = await res.json();
+      if (data.success) setPaymentHistory(data.payments || []);
+    } catch {}
+    finally { setHistoryLoading(false); }
   };
 
-  const handleReverseTransaction = async (txType: string, txId: string) => {
-    if (!confirm(`Are you sure you want to reverse this ${txType} transaction?`)) return;
+  const handleUpdateThreshold = async () => {
+    const val = parseFloat(newThreshold);
+    if (isNaN(val) || val < 0) { toast.error("Invalid threshold"); return; }
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/payments/transactions/${txType}/${txId}/reverse`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${getAuthToken()}`
-        }
-      });
-      if (response.ok) {
-        toast.success("Transaction reversed successfully");
-        if (selectedUser) handleViewTransactions(selectedUser);
-        fetchUsers();
-      } else {
-        const data = await response.json();
-        toast.error(data.error || "Failed to reverse transaction");
-      }
-    } catch (err) {
-      toast.error("Error reversing transaction");
-    }
-  };
-
-  const handleSendEmail = async () => {
-    if (!emailDialogUser || !emailSubject || !emailMessage) {
-      toast.error("Subject and message are required");
-      return;
-    }
-
-    setIsSending(true);
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/payments/email/${emailDialogUser.user_id}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthToken()}`
-        },
-        body: JSON.stringify({
-          subject: emailSubject,
-          message: emailMessage
-        })
-      });
-
-      if (response.ok) {
-        toast.success("Email sent successfully");
-        setEmailDialogUser(null);
-        setEmailSubject("");
-        setEmailMessage("");
-      } else {
-        const data = await response.json();
-        toast.error(data.error || "Failed to send email");
-      }
-    } catch (err) {
-      toast.error("Error sending email");
-    } finally {
-      setIsSending(false);
-    }
+      await adminReportsApi.setInvoiceThreshold(val);
+      setThreshold(val); setShowThresholdDialog(false);
+      toast.success(`Threshold updated to $${val}`);
+    } catch { toast.error("Failed to update threshold"); }
   };
 
   const handleUpdateNetTerms = async () => {
-    if (!netTermsDialogUser) return;
-    setIsUpdatingNetTerms(true);
     try {
-      const response = await fetch(`${getApiBaseUrl()}/api/admin/payments/users/${netTermsDialogUser.user_id}/net-terms`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthToken()}`
-        },
-        body: JSON.stringify({
-          net_terms: Number(netTermsData.net_terms),
-          default_net_terms: Number(netTermsData.default_net_terms),
-          temporary_duration_months: netTermsData.temporary_duration_months ? Number(netTermsData.temporary_duration_months) : null
-        })
+      await fetch(`${API_BASE}/api/admin/payments/users/${netTermsUserId}/net-terms`, {
+        method: "POST", headers: authHeaders(),
+        body: JSON.stringify({ net_terms: parseInt(netTermsValue), default_net_terms: parseInt(netTermsValue) })
       });
-
-      if (response.ok) {
-        toast.success("Net terms updated successfully");
-        setNetTermsDialogUser(null);
-        fetchUsers();
-      } else {
-        const data = await response.json();
-        toast.error(data.error || "Failed to update net terms");
-      }
-    } catch (err) {
-      toast.error("Error updating net terms");
-    } finally {
-      setIsUpdatingNetTerms(false);
-    }
+      setShowNetTermsDialog(false); toast.success("Net terms updated"); fetchUsers();
+    } catch { toast.error("Failed to update net terms"); }
   };
 
-  const filteredUsers = users.filter((u: any) => {
-    // Basic search text
-    const matchesSearch =
-      u.username?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.country?.toLowerCase().includes(searchTerm.toLowerCase());
+  const handlePayUser = async () => {
+    if (!payUser || !payAmount || parseFloat(payAmount) <= 0) { toast.error("Enter valid amount"); return; }
+    setPaying(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/payments/users/${payUser.user_id}/pay`, {
+        method: "POST", headers: authHeaders(),
+        body: JSON.stringify({ amount: parseFloat(payAmount), reference_note: payRef, payment_method: payUser.payout_method?.active_method || "manual", username: payUser.username })
+      });
+      const data = await res.json();
+      if (data.success) { toast.success(data.message); setShowPayDialog(false); fetchUsers(); if (expandedUser === payUser.user_id) fetchPaymentHistory(payUser.user_id); }
+      else toast.error(data.error || "Failed");
+    } catch { toast.error("Payment failed"); }
+    finally { setPaying(false); }
+  };
 
-    if (!matchesSearch) return false;
+  const getUserStatus = (user: UserPayment): "held" | "eligible" | "none" => {
+    if (user.total_balance <= 0) return "none";
+    if (user.total_balance < threshold) return "held";
+    return "eligible";
+  };
 
-    // Advanced filters
-    const balance = u.total_balance || 0;
+  const filteredUsers = useMemo(() => {
+    let result = users.filter(u => {
+      if (searchTerm) { const s = searchTerm.toLowerCase(); if (!u.username?.toLowerCase().includes(s) && !u.email?.toLowerCase().includes(s)) return false; }
+      if (statusFilter !== "all") { const status = getUserStatus(u); if (statusFilter === "held" && status !== "held") return false; if (statusFilter === "eligible" && status !== "eligible") return false; }
+      return true;
+    });
+    if (sortBy === "balance") result.sort((a, b) => b.total_balance - a.total_balance);
+    else result.sort((a, b) => (a.username || "").localeCompare(b.username || ""));
+    return result;
+  }, [users, searchTerm, statusFilter, sortBy, threshold]);
 
-    if (statusFilter === 'ready' && balance < 100) return false;
-    if (statusFilter === 'accumulating' && balance >= 100) return false;
-
-    if (minBalanceFilter && balance < parseFloat(minBalanceFilter)) return false;
-
-    if (countryFilter && u.country?.toLowerCase() !== countryFilter.toLowerCase()) return false;
-
-    return true;
-  });
-
-  const totalPlatformEarnings = users.reduce((acc, curr) => acc + (curr.total_balance || 0), 0);
-  const readyToPay = users.filter(u => (u.total_balance || 0) >= 100).reduce((acc, curr) => acc + curr.total_balance, 0);
+  const getPayoutMethodLabel = (pm: any) => {
+    if (!pm || !pm.active_method) return "Not Set";
+    if (pm.active_method === "bank") return "Bank Transfer";
+    if (pm.active_method === "paypal") return "PayPal";
+    if (pm.active_method === "crypto") return "Crypto";
+    return pm.active_method;
+  };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Admin – Affiliate Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Monitor, manage and control all affiliate activity</p>
-        </div>
-        <Button variant="outline" onClick={fetchUsers}>
-          <RefreshCcw className="h-4 w-4 mr-2" />
-          Refresh Data
-        </Button>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-4">
-        <Card className="border-border/60 shadow-sm relative overflow-hidden group">
-          <div className="absolute right-0 top-0 p-4 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity">
-            <CreditCard className="h-24 w-24" />
-          </div>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Affiliates</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">{users.length}</div>
-            <p className="text-xs text-muted-foreground mt-1">Active platform users</p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60 shadow-sm relative overflow-hidden group col-span-2">
-          <div className="absolute right-0 top-0 p-4 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity">
-            <DollarSign className="h-24 w-24 text-green-500" />
-          </div>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Earnings Pool</CardTitle>
-          </CardHeader>
-          <CardContent className="flex justify-between items-end">
-            <div>
-              <div className="text-3xl font-bold text-foreground">{formatCurrency(totalPlatformEarnings)}</div>
-              <p className="text-xs text-muted-foreground mt-1">Combined affiliate balances</p>
-            </div>
-            <div className="text-right">
-              <div className="text-sm font-medium text-amber-600 mb-1">Ready for Payout</div>
-              <div className="text-lg font-bold text-amber-700">{formatCurrency(readyToPay)}</div>
-              <p className="text-xs text-amber-600/70">{users.filter(u => u.total_balance >= 100).length} users eligible</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border-border/60 shadow-sm overflow-hidden">
-        <div className="p-4 bg-muted/20 border-b border-border flex items-center justify-between gap-4">
-          <div className="flex gap-2 flex-wrap items-center flex-1">
-            <div className="relative max-w-sm w-full">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search user, email or country..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button variant={showAdvancedFilters ? "default" : "secondary"} size="sm" onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}>
-              <Filter className="h-4 w-4 mr-2" />
-              Advanced Filters
-            </Button>
-          </div>
-          <Button variant="outline" size="sm">
-            <Download className="h-4 w-4 mr-2" />
-            Export
+      <div className="flex items-center justify-between">
+        <div><h1 className="text-3xl font-bold tracking-tight">Payments</h1><p className="text-muted-foreground">Manage publisher payments, invoices, and net terms</p></div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => { setActiveTab(activeTab === "users" ? "history" : "users"); if (activeTab === "users") fetchActionLogs(); }}>
+            <History className="h-4 w-4 mr-1" />{activeTab === "users" ? "Action History" : "Back to Users"}
           </Button>
+          <Button variant="outline" size="sm" onClick={() => fetchUsers()}><RefreshCw className="h-4 w-4 mr-1" />Refresh</Button>
         </div>
+      </div>
 
-        {showAdvancedFilters && (
-          <div className="p-4 bg-muted/10 border-b border-border grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Status</label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">All Statuses</option>
-                <option value="ready">Ready for Payout (≥$100)</option>
-                <option value="accumulating">Accumulating</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Min Balance ($)</label>
-              <Input
-                type="number"
-                placeholder="0.00"
-                value={minBalanceFilter}
-                onChange={(e) => setMinBalanceFilter(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Country (Exact)</label>
-              <Input
-                placeholder="e.g. US"
-                value={countryFilter}
-                onChange={(e) => setCountryFilter(e.target.value)}
-              />
-            </div>
-            <div className="flex items-end">
-              <Button variant="ghost" onClick={() => { setStatusFilter("all"); setMinBalanceFilter(""); setCountryFilter(""); }} className="text-muted-foreground hover:text-foreground">
-                Clear Filters
-              </Button>
-            </div>
-          </div>
-        )}
-
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader className="bg-muted/30">
-              <TableRow>
-                <TableHead>Affiliate</TableHead>
-                <TableHead>Country</TableHead>
-                <TableHead className="text-right">Referral</TableHead>
-                <TableHead className="text-right">Conv%</TableHead>
-                <TableHead className="text-right">Gift</TableHead>
-                <TableHead className="text-right">Promo</TableHead>
-                <TableHead className="text-right font-bold text-black border-l border-r border-border/50">Total</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredUsers.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center p-12 text-muted-foreground">
-                    No affiliates found matching your search.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredUsers.map((user: any) => (
-                  <TableRow key={user.user_id} className="hover:bg-muted/10 transition-colors">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-medium text-xs">
-                          {user.username?.substring(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-medium text-sm text-blue-600 hover:underline cursor-pointer">{user.username}</p>
-                          <p className="text-xs text-muted-foreground">{user.email}</p>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="bg-background text-[10px]">
-                        {user.country || "Unknown"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right text-muted-foreground text-sm">{formatCurrency(user.breakdown?.referral)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground text-sm">{formatCurrency(user.breakdown?.conversion)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground text-sm">{formatCurrency(user.breakdown?.gift)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground text-sm">{formatCurrency(user.breakdown?.promo)}</TableCell>
-                    <TableCell className="text-right font-bold text-foreground border-l border-r border-border/50 bg-muted/5">
-                      {formatCurrency(user.total_balance)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col gap-1 items-start">
-                      {user.total_balance >= 100 ? (
-                        <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200 shadow-sm flex items-center gap-1 w-fit text-[10px]">
-                          <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                          Ready
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="bg-muted text-muted-foreground shadow-sm text-[10px]">
-                          Accumulating
-                        </Badge>
-                      )}
-                        <Badge variant="secondary" className="text-[10px]">Net {user.net_terms_settings?.net_terms || 30}</Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => handleViewTransactions(user.user_id)} className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="View Transactions">
-                          <History className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => {
-                          setNetTermsDialogUser(user);
-                          setNetTermsData({
-                            net_terms: user.net_terms_settings?.net_terms || 30,
-                            default_net_terms: user.net_terms_settings?.default_net_terms || 30,
-                            temporary_duration_months: user.net_terms_settings?.temporary_duration_months || ""
-                          });
-                        }} className="h-7 px-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50" title="Manage Net Cycle">
-                          <RefreshCcw className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => setEmailDialogUser(user)} className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50" title="Email User">
-                          <Mail className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleAdjustBalance(user.user_id, 10, true)} className="h-7 px-2 text-green-600 hover:text-green-700 hover:bg-green-50">
-                          + Add
-                        </Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleAdjustBalance(user.user_id, 10, false)} className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50">
-                          - Sub
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+      {/* Settings Bar */}
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2"><DollarSign className="h-5 w-5 text-muted-foreground" /><span className="text-sm font-medium">Global Threshold:</span><Button variant="outline" size="sm" onClick={() => setShowThresholdDialog(true)}>${threshold}</Button></div>
+          <div className="ml-auto text-sm text-muted-foreground">{users.filter(u => getUserStatus(u) === "eligible").length} eligible &bull; {users.filter(u => getUserStatus(u) === "held").length} held</div>
         </div>
       </Card>
 
-      <Dialog open={!!selectedUser} onOpenChange={(open) => !open && setSelectedUser(null)}>
-        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>User Transactions</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto mt-4">
-            {txLoading ? (
-              <div className="p-8 text-center text-muted-foreground">Loading transactions...</div>
-            ) : userTransactions.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">No transactions found for this user.</div>
-            ) : (
-              <Table>
-                <TableHeader className="bg-muted/30">
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {userTransactions.map((tx: any) => (
-                    <TableRow key={tx.id}>
-                      <TableCell className="text-xs">{tx.date}</TableCell>
-                      <TableCell><Badge variant="outline">{tx.type}</Badge></TableCell>
-                      <TableCell className="text-xs">{tx.offer_name}</TableCell>
-                      <TableCell className={`text-right font-medium ${tx.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatCurrency(tx.amount)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant={tx.status === 'Valid' ? 'default' : 'destructive'}>{tx.status}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {tx.status === 'Valid' && (tx.type === 'Promo' || tx.type === 'Gift Card') && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleReverseTransaction(tx.type === 'Promo' ? 'promo' : 'gift', tx.id)}
-                            className="h-7 text-xs text-red-600 hover:bg-red-50"
-                          >
-                            <Undo className="h-3 w-3 mr-1" /> Reverse
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
+      {activeTab === "users" ? (
+        <>
+          <div className="flex flex-wrap gap-3">
+            <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input placeholder="Search username or email..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-9" /></div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-36"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All Users</SelectItem><SelectItem value="eligible">Eligible</SelectItem><SelectItem value="held">Held</SelectItem></SelectContent></Select>
+            <Select value={sortBy} onValueChange={v => setSortBy(v as any)}><SelectTrigger className="w-44"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="balance">Sort by Balance</SelectItem><SelectItem value="name">Sort by Name</SelectItem></SelectContent></Select>
+          </div>
+
+          {loading ? <div className="text-center py-12 text-muted-foreground">Loading...</div> : filteredUsers.length === 0 ? <div className="text-center py-12 text-muted-foreground">No users found</div> : (
+            <div className="space-y-2">
+              {filteredUsers.map(user => {
+                const status = getUserStatus(user);
+                const progressPct = Math.min(100, (user.total_balance / threshold) * 100);
+                const isExpanded = expandedUser === user.user_id;
+
+                return (
+                  <Card key={user.user_id} className={`overflow-hidden ${isExpanded ? "ring-2 ring-primary/20" : ""}`}>
+                    <div className="p-4 flex items-center gap-4 cursor-pointer hover:bg-muted/30" onClick={() => handleExpand(user.user_id)}>
+                      <div className="text-muted-foreground">{isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2"><span className="font-medium truncate">{user.username || "N/A"}</span><span className="text-xs text-muted-foreground truncate">{user.email}</span></div>
+                        <div className="flex items-center gap-3 mt-1"><div className="w-32"><Progress value={progressPct} className="h-2" /></div><span className="text-xs text-muted-foreground">${user.total_balance.toFixed(2)} / ${threshold}</span></div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right"><div className="text-lg font-bold">${user.total_balance.toFixed(2)}</div><div className="text-xs text-muted-foreground">Net {user.net_terms_settings?.net_terms || 30}</div></div>
+                        {status === "eligible" ? <Badge className="bg-green-100 text-green-800">Eligible</Badge> : status === "held" ? <Badge className="bg-yellow-100 text-yellow-800">Held</Badge> : <Badge variant="secondary">$0</Badge>}
+                        {status === "eligible" && <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white" onClick={e => { e.stopPropagation(); setPayUser(user); setPayAmount(user.total_balance.toFixed(2)); setPayRef(""); setShowPayDialog(true); }}><Banknote className="h-4 w-4 mr-1" />Pay</Button>}
+                        <Button variant="ghost" size="sm" onClick={e => { e.stopPropagation(); setNetTermsUserId(user.user_id); setNetTermsValue(String(user.net_terms_settings?.net_terms || 30)); setShowNetTermsDialog(true); }}><Settings className="h-4 w-4" /></Button>
+                      </div>
+                    </div>
+
+                    {/* Expanded View */}
+                    {isExpanded && (
+                      <div className="border-t bg-muted/10 p-4">
+                        <Tabs value={expandedTab} onValueChange={setExpandedTab}>
+                          <TabsList className="mb-3">
+                            <TabsTrigger value="conversions"><FileText className="h-3.5 w-3.5 mr-1" />Conversions</TabsTrigger>
+                            <TabsTrigger value="bank"><CreditCard className="h-3.5 w-3.5 mr-1" />Bank Details</TabsTrigger>
+                            <TabsTrigger value="payments"><History className="h-3.5 w-3.5 mr-1" />Payment History</TabsTrigger>
+                          </TabsList>
+
+                          {/* Conversions Tab */}
+                          <TabsContent value="conversions">
+                            {convSummary && (
+                              <div className="flex gap-4 mb-3 text-sm">
+                                <span className="text-green-600 font-medium">Active: ${convSummary.active_amount?.toFixed(2)} ({convSummary.active_count})</span>
+                                <span className="text-red-600 font-medium">Reversed: ${convSummary.reversed_amount?.toFixed(2)} ({convSummary.reversed_count})</span>
+                              </div>
+                            )}
+                            <div className="flex gap-2 mb-3">
+                              {["all", "active", "reversed"].map(f => (
+                                <Button key={f} variant={convFilter === f ? "default" : "outline"} size="sm" onClick={() => { setConvFilter(f); fetchUserConversions(user.user_id, f); }}>{f === "all" ? "All" : f === "active" ? "Active" : "Reversed"}</Button>
+                              ))}
+                            </div>
+                            {convLoading ? <div className="text-center py-4 text-sm text-muted-foreground">Loading...</div> : userConversions.length === 0 ? <div className="text-center py-4 text-sm text-muted-foreground">No conversions</div> : (
+                              <div className="max-h-64 overflow-y-auto">
+                                <Table>
+                                  <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Offer</TableHead><TableHead>Amount</TableHead><TableHead>Status</TableHead><TableHead>Reason</TableHead></TableRow></TableHeader>
+                                  <TableBody>
+                                    {userConversions.map(c => (
+                                      <TableRow key={c._id} className={c.status === "reversed" ? "bg-red-50/50" : ""}>
+                                        <TableCell className="text-xs">{c.timestamp ? new Date(c.timestamp).toLocaleDateString() : "-"}</TableCell>
+                                        <TableCell className="text-sm truncate max-w-[150px]">{c.offer_name || c.offer_id}</TableCell>
+                                        <TableCell className="font-medium">${c.points?.toFixed(2)}</TableCell>
+                                        <TableCell>{c.status === "reversed" ? <Badge className="bg-red-100 text-red-800">Reversed</Badge> : <Badge className="bg-green-100 text-green-800">Active</Badge>}</TableCell>
+                                        <TableCell className="text-xs text-muted-foreground truncate max-w-[120px]">{c.reversal_reason || "-"}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            )}
+                          </TabsContent>
+
+                          {/* Bank Details Tab */}
+                          <TabsContent value="bank">
+                            {!user.payout_method || !user.payout_method.active_method ? (
+                              <div className="text-center py-6 text-muted-foreground"><CreditCard className="h-8 w-8 mx-auto mb-2 opacity-50" /><p>No payout method set by this user</p></div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="flex items-center gap-2"><Badge>{getPayoutMethodLabel(user.payout_method)}</Badge></div>
+                                {user.payout_method.active_method === "bank" && user.payout_method.bank_details && (
+                                  <div className="grid grid-cols-2 gap-2 text-sm bg-muted/30 p-3 rounded">
+                                    <div><span className="text-muted-foreground">Account Name:</span><p className="font-medium">{user.payout_method.bank_details.account_name || "-"}</p></div>
+                                    <div><span className="text-muted-foreground">Account Number:</span><p className="font-medium">{user.payout_method.bank_details.account_number || "-"}</p></div>
+                                    <div><span className="text-muted-foreground">Bank Name:</span><p className="font-medium">{user.payout_method.bank_details.bank_name || "-"}</p></div>
+                                    <div><span className="text-muted-foreground">SWIFT/IFSC:</span><p className="font-medium">{user.payout_method.bank_details.swift_code || user.payout_method.bank_details.ifsc || "-"}</p></div>
+                                    <div><span className="text-muted-foreground">Country:</span><p className="font-medium">{user.payout_method.bank_details.country || "-"}</p></div>
+                                  </div>
+                                )}
+                                {user.payout_method.active_method === "paypal" && user.payout_method.paypal_details && (
+                                  <div className="text-sm bg-muted/30 p-3 rounded"><span className="text-muted-foreground">PayPal Email:</span><p className="font-medium">{user.payout_method.paypal_details.email || "-"}</p></div>
+                                )}
+                                {user.payout_method.active_method === "crypto" && user.payout_method.crypto_details && (
+                                  <div className="grid grid-cols-2 gap-2 text-sm bg-muted/30 p-3 rounded">
+                                    <div><span className="text-muted-foreground">Network:</span><p className="font-medium">{user.payout_method.crypto_details.network || "-"}</p></div>
+                                    <div><span className="text-muted-foreground">Wallet Address:</span><p className="font-medium break-all">{user.payout_method.crypto_details.wallet_address || "-"}</p></div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </TabsContent>
+
+                          {/* Payment History Tab */}
+                          <TabsContent value="payments">
+                            {historyLoading ? <div className="text-center py-4 text-sm text-muted-foreground">Loading...</div> : paymentHistory.length === 0 ? (
+                              <div className="text-center py-6 text-muted-foreground"><Banknote className="h-8 w-8 mx-auto mb-2 opacity-50" /><p>No payments made to this user yet</p></div>
+                            ) : (
+                              <div>
+                                <div className="mb-3 text-sm font-medium">Total Paid: <span className="text-green-600">${paymentHistory.reduce((s, p) => s + p.amount, 0).toFixed(2)}</span> ({paymentHistory.length} payments)</div>
+                                <Table>
+                                  <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Amount</TableHead><TableHead>Method</TableHead><TableHead>Reference</TableHead><TableHead>Admin</TableHead></TableRow></TableHeader>
+                                  <TableBody>
+                                    {paymentHistory.map(p => (
+                                      <TableRow key={p._id}>
+                                        <TableCell className="text-xs">{p.paid_at ? new Date(p.paid_at).toLocaleDateString() : "-"}</TableCell>
+                                        <TableCell className="font-medium text-green-600">${p.amount?.toFixed(2)}</TableCell>
+                                        <TableCell><Badge variant="outline">{p.payment_method}</Badge></TableCell>
+                                        <TableCell className="text-xs">{p.reference_note || "-"}</TableCell>
+                                        <TableCell className="text-xs">{p.admin_username}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </div>
+                            )}
+                          </TabsContent>
+                        </Tabs>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+        </>
+      ) : (
+        <Card>
+          <div className="p-4 border-b"><h3 className="font-semibold flex items-center gap-2"><History className="h-4 w-4" />Admin Action History</h3></div>
+          <div className="overflow-x-auto">
+            {logsLoading ? <div className="text-center py-8 text-muted-foreground">Loading...</div> : actionLogs.length === 0 ? <div className="text-center py-8 text-muted-foreground">No history</div> : (
+              <Table><TableHeader><TableRow><TableHead>Time</TableHead><TableHead>Admin</TableHead><TableHead>Action</TableHead><TableHead>User</TableHead><TableHead>Details</TableHead><TableHead>Amount</TableHead></TableRow></TableHeader>
+                <TableBody>{actionLogs.map(log => (<TableRow key={log._id}><TableCell className="text-xs">{new Date(log.created_at).toLocaleString()}</TableCell><TableCell>{log.admin_username}</TableCell><TableCell><Badge variant="outline">{log.action?.replace(/_/g, " ")}</Badge></TableCell><TableCell>{log.target_username || "-"}</TableCell><TableCell className="text-xs max-w-[200px] truncate">{log.details}</TableCell><TableCell>{log.amount ? `$${log.amount.toFixed(2)}` : "-"}</TableCell></TableRow>))}</TableBody>
               </Table>
             )}
           </div>
+        </Card>
+      )}
+
+      {/* Pay Dialog */}
+      <Dialog open={showPayDialog} onOpenChange={setShowPayDialog}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Pay {payUser?.username}</DialogTitle><DialogDescription>Record a payment to this publisher. This will mark their eligible invoices as paid and deduct from their balance.</DialogDescription></DialogHeader>
+          <div className="space-y-4 py-2">
+            <div><label className="text-sm font-medium">Amount ($)</label><Input type="number" value={payAmount} onChange={e => setPayAmount(e.target.value)} min="0" step="0.01" className="mt-1" /></div>
+            <div><label className="text-sm font-medium">Payout Method</label><p className="text-sm mt-1 font-medium">{payUser ? getPayoutMethodLabel(payUser.payout_method) : "N/A"}</p>
+              {payUser?.payout_method?.active_method === "paypal" && <p className="text-xs text-muted-foreground">{payUser.payout_method.paypal_details?.email}</p>}
+              {payUser?.payout_method?.active_method === "bank" && <p className="text-xs text-muted-foreground">{payUser.payout_method.bank_details?.account_name} - {payUser.payout_method.bank_details?.bank_name}</p>}
+              {payUser?.payout_method?.active_method === "crypto" && <p className="text-xs text-muted-foreground">{payUser.payout_method.crypto_details?.network}: {payUser.payout_method.crypto_details?.wallet_address?.slice(0, 20)}...</p>}
+            </div>
+            <div><label className="text-sm font-medium">Reference Note (optional)</label><Input value={payRef} onChange={e => setPayRef(e.target.value)} placeholder="Transaction ID, notes..." className="mt-1" /></div>
+          </div>
+          <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setShowPayDialog(false)}>Cancel</Button><Button className="bg-green-600 hover:bg-green-700" onClick={handlePayUser} disabled={paying}>{paying ? "Processing..." : `Pay $${payAmount}`}</Button></div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!emailDialogUser} onOpenChange={(open) => !open && setEmailDialogUser(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Email {emailDialogUser?.username}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Subject</label>
-              <Input
-                value={emailSubject}
-                onChange={(e) => setEmailSubject(e.target.value)}
-                placeholder="Message Subject..."
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Message</label>
-              <textarea
-                className="flex min-h-[120px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                value={emailMessage}
-                onChange={(e) => setEmailMessage(e.target.value)}
-                placeholder="Type your message here..."
-              />
-            </div>
-            <div className="flex justify-end pt-4 gap-2">
-              <Button variant="outline" onClick={() => setEmailDialogUser(null)}>Cancel</Button>
-              <Button onClick={handleSendEmail} disabled={isSending}>
-                {isSending ? "Sending..." : "Send Email"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
+      {/* Threshold Dialog */}
+      <Dialog open={showThresholdDialog} onOpenChange={setShowThresholdDialog}>
+        <DialogContent><DialogHeader><DialogTitle>Payment Threshold</DialogTitle></DialogHeader><div className="py-4"><Input type="number" value={newThreshold} onChange={e => setNewThreshold(e.target.value)} min="0" /></div><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setShowThresholdDialog(false)}>Cancel</Button><Button onClick={handleUpdateThreshold}>Save</Button></div></DialogContent>
       </Dialog>
 
-      <Dialog open={!!netTermsDialogUser} onOpenChange={(open) => !open && setNetTermsDialogUser(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Mange Net Cycle for {netTermsDialogUser?.username}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Active Net Cycle</label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={netTermsData.net_terms}
-                onChange={(e) => setNetTermsData({ ...netTermsData, net_terms: Number(e.target.value) })}
-              >
-                <option value={15}>Net 15</option>
-                <option value={30}>Net 30</option>
-                <option value={60}>Net 60</option>
-                <option value={90}>Net 90</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Default Net Cycle (Fallback)</label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                value={netTermsData.default_net_terms}
-                onChange={(e) => setNetTermsData({ ...netTermsData, default_net_terms: Number(e.target.value) })}
-              >
-                <option value={15}>Net 15</option>
-                <option value={30}>Net 30</option>
-                <option value={60}>Net 60</option>
-                <option value={90}>Net 90</option>
-              </select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Temporary Duration (Months)</label>
-              <Input
-                type="number"
-                placeholder="Leave blank for permanent"
-                value={netTermsData.temporary_duration_months}
-                onChange={(e) => setNetTermsData({ ...netTermsData, temporary_duration_months: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                If provided, the user will be on the Active Net Cycle for this many months, then automatically switch to the Default Net Cycle.
-              </p>
-            </div>
-            <div className="flex justify-end pt-4 gap-2">
-              <Button variant="outline" onClick={() => setNetTermsDialogUser(null)}>Cancel</Button>
-              <Button onClick={handleUpdateNetTerms} disabled={isUpdatingNetTerms}>
-                {isUpdatingNetTerms ? "Saving..." : "Save Configuration"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
+      {/* Net Terms Dialog */}
+      <Dialog open={showNetTermsDialog} onOpenChange={setShowNetTermsDialog}>
+        <DialogContent><DialogHeader><DialogTitle>Update Net Terms</DialogTitle></DialogHeader><div className="py-4"><Select value={netTermsValue} onValueChange={setNetTermsValue}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="7">Net 7</SelectItem><SelectItem value="15">Net 15</SelectItem><SelectItem value="30">Net 30</SelectItem></SelectContent></Select></div><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setShowNetTermsDialog(false)}>Cancel</Button><Button onClick={handleUpdateNetTerms}>Save</Button></div></DialogContent>
       </Dialog>
     </div>
   );
-};
+}
 
+const AdminPayments = () => (<AdminPageGuard requiredTab="payments"><AdminPaymentsContent /></AdminPageGuard>);
 export default AdminPayments;

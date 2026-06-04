@@ -72,6 +72,7 @@ const AdminSearchLogs = lazy(() => import("./pages/AdminSearchLogs"));
 const AdminActivityLogs = lazy(() => import("./pages/AdminActivityLogs"));
 const AdminRecentActivity = lazy(() => import("./pages/AdminRecentActivity"));
 const AdminReportsTracking = lazy(() => import("./pages/AdminReportsTracking"));
+const AdminInvoices = lazy(() => import("./pages/AdminInvoices"));
 const AdminReactivation = lazy(() => import("./pages/AdminReactivation"));
 const AdminPerUserOfferTrack = lazy(() => import("./pages/AdminPerUserOfferTrack"));
 const AdminMaskedLinks = lazy(() => import("./pages/AdminMaskedLinks"));
@@ -255,6 +256,7 @@ const App = () => (
                 <Route path="support-inbox" element={<AdminSupportInbox />} />
                 <Route path="search-logs" element={<AdminSearchLogs />} />
                 <Route path="tracking-reports" element={<AdminReportsTracking />} />
+                <Route path="invoices" element={<AdminInvoices />} />
                 <Route path="reactivation" element={<AdminReactivation />} />
                 <Route path="per-user-offers" element={<AdminPerUserOfferTrack />} />
                 <Route path="masked-links" element={<AdminMaskedLinks />} />

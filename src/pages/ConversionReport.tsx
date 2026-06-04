@@ -186,6 +186,7 @@ export function ConversionReportContent() {
       approved: { icon: CheckCircle, color: 'text-green-600 bg-green-100', label: 'Approved' },
       pending: { icon: Clock, color: 'text-yellow-600 bg-yellow-100', label: 'Pending' },
       rejected: { icon: XCircle, color: 'text-red-600 bg-red-100', label: 'Rejected' },
+      reversed: { icon: XCircle, color: 'text-red-700 bg-red-100 border border-red-300', label: 'Reversed' },
     };
     const { icon: Icon, color, label } = config[status as keyof typeof config] || config.pending;
     return (
@@ -279,12 +280,19 @@ export function ConversionReportContent() {
 
       {/* Summary Cards */}
       {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card className="p-4">
             <div className="text-sm text-muted-foreground">Approved Payout</div>
             <div className="text-2xl font-bold text-green-600">${summary.approved_payout.toFixed(2)}</div>
             <div className="text-xs text-muted-foreground mt-1">
               {summary.approved_conversions || 0} conversions
+            </div>
+          </Card>
+          <Card className="p-4">
+            <div className="text-sm text-muted-foreground">Reversed Amount</div>
+            <div className="text-2xl font-bold text-red-600">${(summary.reversed_payout || 0).toFixed(2)}</div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {summary.reversed_conversions || 0} conversions
             </div>
           </Card>
           <Card className="p-4">

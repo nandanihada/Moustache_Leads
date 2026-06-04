@@ -119,6 +119,8 @@ survey_funnel_bp = safe_import_blueprint('routes.survey_funnel', 'survey_funnel_
 survey_router_bp = safe_import_blueprint('routes.survey_router', 'survey_router_bp')
 search_auto_activation_bp = safe_import_blueprint('routes.search_auto_activation', 'search_auto_activation_bp')
 top_offers_bp = safe_import_blueprint('routes.top_offers', 'top_offers_bp')
+admin_reversals_bp = safe_import_blueprint('routes.admin_reversals', 'admin_reversals_bp')
+admin_invoices_bp = safe_import_blueprint('routes.admin_invoices', 'admin_invoices_bp')
 
 # Custom JSON provider to handle datetime serialization with UTC 'Z' suffix
 class CustomJSONProvider(DefaultJSONProvider):
@@ -227,6 +229,8 @@ blueprints = [
     (survey_router_bp, ''),
     (search_auto_activation_bp, '/api/admin'),
     (top_offers_bp, '/api/admin'),
+    (admin_reversals_bp, ''),
+    (admin_invoices_bp, ''),
 ]
 
 def create_app():
@@ -685,6 +689,14 @@ def start_background_services():
             logging.info("✅ Search auto-activation service started (per-user offer grants)")
         except Exception as e:
             logging.warning(f"⚠️ Search auto-activation service failed to start: {str(e)}")
+        
+        try:
+            from services.invoice_scheduler_service import get_invoice_scheduler
+            invoice_scheduler = get_invoice_scheduler()
+            invoice_scheduler.start()
+            logging.info("✅ Invoice scheduler service started (auto-generates on 1st of month)")
+        except Exception as e:
+            logging.warning(f"⚠️ Invoice scheduler service failed to start: {str(e)}")
         
         logging.info("Background services initialization completed")
     except Exception as e:

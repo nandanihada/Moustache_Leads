@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Download, RefreshCw, Search, Eye, FileText, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, BarChart3, Globe, Wifi, Shield, ChevronDown, ChevronRight, MousePointerClick, ChevronsUpDown, Check, Link2 } from 'lucide-react';
+import { Download, RefreshCw, Search, Eye, FileText, TrendingUp, ArrowUpDown, ArrowUp, ArrowDown, BarChart3, Globe, Wifi, Shield, ChevronDown, ChevronRight, MousePointerClick, ChevronsUpDown, Check, Link2, XCircle } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -193,6 +193,53 @@ function SearchablePublisherSelect({ publishers, value, onChange }: { publishers
   );
 }
 
+function SearchableOfferSelect({ offers, value, onChange }: { offers: { id: string; name: string }[]; value: string | undefined; onChange: (v: string | undefined) => void }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const filtered = useMemo(() => {
+    if (!search) return offers.slice(0, 50);
+    const s = search.toLowerCase();
+    return offers.filter(o => o.name?.toLowerCase().includes(s) || o.id?.toLowerCase().includes(s)).slice(0, 50);
+  }, [offers, search]);
+  const selectedName = value ? (offers.find(o => o.id === value)?.name || value) : 'All Offers';
+  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
+  return (
+    <div>
+      <label className="text-xs font-medium">Offer</label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" role="combobox" aria-expanded={open} className="w-56 justify-between font-normal">
+            <span className="truncate max-w-[180px]">{selectedName}</span>
+            <ChevronsUpDown className="ml-1 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-0" align="start">
+          <div className="p-2 border-b">
+            <Input ref={inputRef} placeholder="Search by name or ID..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 text-sm" />
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            <div className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted ${!value ? 'bg-muted' : ''}`} onClick={() => { onChange(undefined); setOpen(false); setSearch(''); }}>
+              {!value && <Check className="h-3 w-3" />}
+              <span>All Offers</span>
+            </div>
+            {filtered.map(o => (
+              <div key={o.id} className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted ${value === o.id ? 'bg-muted' : ''}`} onClick={() => { onChange(o.id); setOpen(false); setSearch(''); }}>
+                {value === o.id && <Check className="h-3 w-3" />}
+                <div className="flex flex-col min-w-0">
+                  <span className="truncate">{o.name}</span>
+                  <span className="text-xs text-muted-foreground font-mono truncate">{o.id}</span>
+                </div>
+              </div>
+            ))}
+            {filtered.length === 0 && <div className="px-3 py-4 text-sm text-muted-foreground text-center">No offers found</div>}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
 function ChartSection({ dateRange, tab }: { dateRange: { start: string; end: string }; tab: 'performance' | 'conversion' }) {
   const [open, setOpen] = useState(false);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
@@ -360,7 +407,7 @@ function PerformanceTab() {
           <div><label className="text-xs font-medium">End Date</label><Input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))} className="w-40" /></div>
           <DatePresets onPresetSelect={p => setDateRange({ start: p.start, end: p.end })} />
           {filterOptions && filterOptions.publishers.length > 0 && <SearchablePublisherSelect publishers={filterOptions.publishers} value={filters.publisher_id} onChange={v => setFilters(prev => ({ ...prev, publisher_id: v }))} />}
-          {filterOptions && filterOptions.offers.length > 0 && (<div><label className="text-xs font-medium">Offer</label><Select value={filters.offer_id || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, offer_id: v === 'all' ? undefined : v }))}><SelectTrigger className="w-48"><SelectValue placeholder="All Offers" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Offers</SelectItem>, ...filterOptions.offers.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.offers.length > 0 && <SearchableOfferSelect offers={filterOptions.offers} value={filters.offer_id} onChange={v => setFilters(prev => ({ ...prev, offer_id: v }))} />}
           {filterOptions && filterOptions.countries.length > 0 && (<div><label className="text-xs font-medium">Country</label><Select value={filters.country || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, country: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Countries</SelectItem>, ...filterOptions.countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.regions && filterOptions.regions.length > 0 && (<div><label className="text-xs font-medium">Region</label><Select value={filters.region || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, region: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Regions</SelectItem>, ...filterOptions.regions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.cities && filterOptions.cities.length > 0 && (<div><label className="text-xs font-medium">City</label><Select value={filters.city || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, city: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Cities</SelectItem>, ...filterOptions.cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
@@ -412,6 +459,16 @@ function ConversionTab() {
     if (saved) try { return JSON.parse(saved); } catch { /* */ }
     return CONV_COLUMNS.reduce((acc, col) => { acc[col.id] = col.defaultVisible; return acc; }, {} as Record<string, boolean>);
   });
+
+  // Reversal state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showReversalDialog, setShowReversalDialog] = useState(false);
+  const [reversalTarget, setReversalTarget] = useState<'single' | 'bulk'>('single');
+  const [reversalConvId, setReversalConvId] = useState('');
+  const [reversalReason, setReversalReason] = useState('');
+  const [wantsReason, setWantsReason] = useState(false);
+  const [reversing, setReversing] = useState(false);
+
   useEffect(() => { localStorage.setItem('admin_conv_cols_v3', JSON.stringify(visibleColumns)); }, [visibleColumns]);
   useEffect(() => { adminReportsApi.getFilterOptions().then(res => { if (res.success) setFilterOptions(res as any); }).catch(() => {}); }, []);
   const fetchData = useCallback(async (page = 1) => {
@@ -425,10 +482,67 @@ function ConversionTab() {
     finally { setLoading(false); }
   }, [dateRange, filters, sortField, sortOrder, perPage]);
   useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { setSelectedIds(new Set()); }, [conversions]);
   const handleSort = (field: string) => { if (sortField === field) setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc'); else { setSortField(field); setSortOrder('desc'); } };
   const filteredConversions = conversions.filter(conv => { if (!searchTerm) return true; const s = searchTerm.toLowerCase(); return (conv.offer_name?.toLowerCase().includes(s) || conv.publisher_name?.toLowerCase().includes(s) || conv.username?.toLowerCase().includes(s) || conv.click_id?.toLowerCase().includes(s) || conv.offer_id?.toLowerCase().includes(s) || conv.ip_address?.includes(s)); });
   const handleExport = async () => { try { await adminReportsApi.exportReport('conversions', { start_date: dateRange.start, end_date: dateRange.end } as AdminPerformanceFilters); toast.success('Report exported'); } catch { toast.error('Export failed'); } };
-  const getStatusBadge = (status: string) => {
+
+  // Reversal handlers
+  const handleReverseSingle = (convId: string) => {
+    setReversalTarget('single');
+    setReversalConvId(convId);
+    setReversalReason('');
+    setWantsReason(false);
+    setShowReversalDialog(true);
+  };
+  const handleReverseBulk = () => {
+    if (selectedIds.size === 0) { toast.error('Select conversions to reverse'); return; }
+    setReversalTarget('bulk');
+    setReversalReason('');
+    setWantsReason(false);
+    setShowReversalDialog(true);
+  };
+  const confirmReversal = async () => {
+    setReversing(true);
+    try {
+      const reason = wantsReason ? reversalReason : '';
+      if (reversalTarget === 'single') {
+        await adminReportsApi.reverseSingleConversion(reversalConvId, reason);
+        toast.success('Conversion reversed');
+      } else {
+        const res = await adminReportsApi.reverseBulkConversions(Array.from(selectedIds), reason);
+        toast.success(res.message || `Reversed ${res.reversed_count} conversions`);
+      }
+      setShowReversalDialog(false);
+      setSelectedIds(new Set());
+      fetchData(pagination.page);
+    } catch (e: any) { toast.error(e.message || 'Reversal failed'); }
+    finally { setReversing(false); }
+  };
+
+  const toggleSelectAll = () => {
+    const activeConvs = filteredConversions.filter(c => c.status !== 'reversed');
+    if (selectedIds.size === activeConvs.length && activeConvs.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(activeConvs.map(c => c._id)));
+    }
+  };
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const getStatusBadge = (status: string, conv?: any) => {
+    if (status === 'reversed') return (
+      <div className="flex flex-col">
+        <Badge className="bg-red-100 text-red-800 border-red-300">Reversed</Badge>
+        {conv?.reversed_at && <span className="text-[10px] text-muted-foreground mt-0.5">{new Date(conv.reversed_at).toLocaleDateString()}</span>}
+      </div>
+    );
     if (status === 'approved') return <Badge className="bg-green-100 text-green-800">Approved</Badge>;
     if (status === 'pending') return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>;
     if (status === 'rejected') return <Badge className="bg-red-100 text-red-800">Rejected</Badge>;
@@ -457,7 +571,7 @@ function ConversionTab() {
       case 'revenue': return `$${(conv.revenue || 0).toFixed(2)}`;
       case 'profit': { const p = conv.profit || 0; return <span className={p >= 0 ? 'text-green-600' : 'text-red-600'}>${p.toFixed(2)}</span>; }
       case 'currency': return conv.currency || 'USD';
-      case 'status': return getStatusBadge(conv.status);
+      case 'status': return getStatusBadge(conv.status, conv);
       case 'country': return conv.country || '-';
       case 'city': return conv.city || '-';
       case 'region': return conv.region || '-';
@@ -475,8 +589,13 @@ function ConversionTab() {
       case 'sub_id1': return conv.sub_id1 || '-';
       case 'sub_id2': return conv.sub_id2 || '-';
       case 'sub_id3': return conv.sub_id3 || '-';
-      case 'forward_status': return conv.forward_status === 'success' ? <Badge className="bg-green-100 text-green-800">Success</Badge> : <Badge variant="secondary">{conv.forward_status || '-'}</Badge>;
-      case 'actions': return <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setSelectedConversion(conv); setShowDetail(true); }}><Eye className="h-4 w-4" /></Button>;
+      case 'forward_status': return conv.forward_status === 'success' ? <Badge className="bg-green-100 text-green-800">Success</Badge> : conv.forward_status === 'reversed' ? <Badge className="bg-red-100 text-red-800">Reversed</Badge> : <Badge variant="secondary">{conv.forward_status || '-'}</Badge>;
+      case 'actions': return (
+        <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+          <Button variant="ghost" size="sm" onClick={() => { setSelectedConversion(conv); setShowDetail(true); }}><Eye className="h-4 w-4" /></Button>
+          {conv.status !== 'reversed' && <Button variant="ghost" size="sm" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => handleReverseSingle(conv._id)} title="Reverse"><XCircle className="h-4 w-4" /></Button>}
+        </div>
+      );
       default: return (conv as any)[col.id] ?? '-';
     }
   };
@@ -497,14 +616,14 @@ function ConversionTab() {
           <div><label className="text-xs font-medium">End Date</label><Input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))} className="w-40" /></div>
           <DatePresets onPresetSelect={p => setDateRange({ start: p.start, end: p.end })} />
           {filterOptions && filterOptions.publishers.length > 0 && <SearchablePublisherSelect publishers={filterOptions.publishers} value={filters.publisher_id} onChange={v => setFilters(prev => ({ ...prev, publisher_id: v }))} />}
-          {filterOptions && filterOptions.offers.length > 0 && (<div><label className="text-xs font-medium">Offer</label><Select value={filters.offer_id || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, offer_id: v === 'all' ? undefined : v }))}><SelectTrigger className="w-48"><SelectValue placeholder="All Offers" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Offers</SelectItem>, ...filterOptions.offers.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.offers.length > 0 && <SearchableOfferSelect offers={filterOptions.offers} value={filters.offer_id} onChange={v => setFilters(prev => ({ ...prev, offer_id: v }))} />}
           {filterOptions && filterOptions.countries.length > 0 && (<div><label className="text-xs font-medium">Country</label><Select value={filters.country || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, country: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Countries</SelectItem>, ...filterOptions.countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.regions && filterOptions.regions.length > 0 && (<div><label className="text-xs font-medium">Region</label><Select value={filters.region || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, region: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Regions</SelectItem>, ...filterOptions.regions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.cities && filterOptions.cities.length > 0 && (<div><label className="text-xs font-medium">City</label><Select value={filters.city || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, city: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Cities</SelectItem>, ...filterOptions.cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.categories && filterOptions.categories.length > 0 && (<div><label className="text-xs font-medium">Category</label><Select value={filters.category || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, category: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Categories</SelectItem>, ...filterOptions.categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.networks && filterOptions.networks.length > 0 && (<div><label className="text-xs font-medium">Network</label><Select value={filters.network || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, network: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Networks</SelectItem>, ...filterOptions.networks.map(n => <SelectItem key={n} value={n}>{n}</SelectItem>)]}</SelectContent></Select></div>)}
           <div><label className="text-xs font-medium">Device</label><Select value={filters.device_type || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, device_type: v === 'all' ? undefined : v }))}><SelectTrigger className="w-32"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="desktop">Desktop</SelectItem><SelectItem value="mobile">Mobile</SelectItem><SelectItem value="tablet">Tablet</SelectItem></SelectContent></Select></div>
-          <div><label className="text-xs font-medium">Status</label><Select value={filters.status || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, status: v === 'all' ? undefined : v }))}><SelectTrigger className="w-32"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="approved">Approved</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="rejected">Rejected</SelectItem></SelectContent></Select></div>
+          <div><label className="text-xs font-medium">Status</label><Select value={filters.status || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, status: v === 'all' ? undefined : v }))}><SelectTrigger className="w-32"><SelectValue placeholder="All" /></SelectTrigger><SelectContent><SelectItem value="all">All</SelectItem><SelectItem value="approved">Active</SelectItem><SelectItem value="reversed">Reversed</SelectItem></SelectContent></Select></div>
           <div><label className="text-xs font-medium">Per Page</label><Select value={String(perPage)} onValueChange={v => setPerPage(Number(v))}><SelectTrigger className="w-24"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="20">20</SelectItem><SelectItem value="50">50</SelectItem><SelectItem value="100">100</SelectItem></SelectContent></Select></div>
           <div className="relative"><Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" /><Input placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-8 w-56" /></div>
           <ColumnSelector columns={CONV_COLUMNS} visibleColumns={visibleColumns} onColumnChange={(id, v) => setVisibleColumns(prev => ({ ...prev, [id]: v }))} onSelectAll={() => setVisibleColumns(CONV_COLUMNS.reduce((a, c) => ({ ...a, [c.id]: true }), {}))} onClearAll={() => setVisibleColumns(CONV_COLUMNS.reduce((a, c) => ({ ...a, [c.id]: c.alwaysVisible || false }), {}))} />
@@ -512,17 +631,67 @@ function ConversionTab() {
           <Button size="sm" onClick={() => fetchData()}><RefreshCw className="h-4 w-4 mr-1" />Refresh</Button>
         </div>
       </Card>
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <Card className="p-3 bg-orange-50 border-orange-200 dark:bg-orange-950/30 dark:border-orange-800">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">{selectedIds.size} conversion{selectedIds.size > 1 ? 's' : ''} selected</span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setSelectedIds(new Set())}>Clear</Button>
+              <Button variant="destructive" size="sm" onClick={handleReverseBulk}>Reverse Selected</Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card>
         <div className="overflow-x-auto">
           {loading ? <div className="text-center py-12 text-muted-foreground">Loading...</div> : filteredConversions.length === 0 ? <div className="text-center py-12 text-muted-foreground">No conversions found.</div> : (
             <Table>
-              <TableHeader><TableRow>{CONV_COLUMNS.filter(c => visibleColumns[c.id]).map(col => col.id === 'actions' ? <TableHead key={col.id}>{col.label}</TableHead> : <SortableHeader key={col.id} label={col.label} field={col.id} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />)}</TableRow></TableHeader>
-              <TableBody>{filteredConversions.map((conv, i) => (<TableRow key={conv._id || i} className="cursor-pointer hover:bg-muted/50" onClick={() => { setSelectedConversion(conv); setShowDetail(true); }}>{CONV_COLUMNS.filter(c => visibleColumns[c.id]).map(col => <TableCell key={col.id}>{renderCell(col, conv)}</TableCell>)}</TableRow>))}</TableBody>
+              <TableHeader><TableRow>
+                <TableHead className="w-10"><input type="checkbox" className="rounded border-gray-300" checked={selectedIds.size > 0 && selectedIds.size === filteredConversions.filter(c => c.status !== 'reversed').length} onChange={toggleSelectAll} /></TableHead>
+                {CONV_COLUMNS.filter(c => visibleColumns[c.id]).map(col => col.id === 'actions' ? <TableHead key={col.id}>{col.label}</TableHead> : <SortableHeader key={col.id} label={col.label} field={col.id} sortField={sortField} sortOrder={sortOrder} onSort={handleSort} />)}
+              </TableRow></TableHeader>
+              <TableBody>{filteredConversions.map((conv, i) => (
+                <TableRow key={conv._id || i} className={`cursor-pointer hover:bg-muted/50 ${conv.status === 'reversed' ? 'opacity-60 bg-red-50/30 dark:bg-red-950/10' : ''}`} onClick={() => { setSelectedConversion(conv); setShowDetail(true); }}>
+                  <TableCell onClick={e => e.stopPropagation()}>
+                    {conv.status !== 'reversed' && <input type="checkbox" className="rounded border-gray-300" checked={selectedIds.has(conv._id)} onChange={() => toggleSelect(conv._id)} />}
+                  </TableCell>
+                  {CONV_COLUMNS.filter(c => visibleColumns[c.id]).map(col => <TableCell key={col.id}>{renderCell(col, conv)}</TableCell>)}
+                </TableRow>
+              ))}</TableBody>
             </Table>
           )}
         </div>
         {pagination.pages > 1 && (<div className="flex items-center justify-between p-4 border-t"><span className="text-sm text-muted-foreground">Page {pagination.page} of {pagination.pages} ({pagination.total} total)</span><div className="flex gap-2"><Button variant="outline" size="sm" disabled={pagination.page <= 1} onClick={() => fetchData(pagination.page - 1)}>Previous</Button><Button variant="outline" size="sm" disabled={pagination.page >= pagination.pages} onClick={() => fetchData(pagination.page + 1)}>Next</Button></div></div>)}
       </Card>
+
+      {/* Reversal Confirmation Dialog */}
+      <Dialog open={showReversalDialog} onOpenChange={setShowReversalDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reverse {reversalTarget === 'bulk' ? `${selectedIds.size} Conversions` : 'Conversion'}</DialogTitle>
+            <DialogDescription>This will mark the conversion{reversalTarget === 'bulk' ? 's' : ''} as reversed and deduct the payout from the publisher's balance.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="wantsReason" checked={wantsReason} onChange={e => setWantsReason(e.target.checked)} className="rounded border-gray-300" />
+              <label htmlFor="wantsReason" className="text-sm">Provide a reason? (will notify the publisher)</label>
+            </div>
+            {wantsReason && (
+              <Input placeholder="Enter reason for reversal..." value={reversalReason} onChange={e => setReversalReason(e.target.value)} />
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowReversalDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmReversal} disabled={reversing}>
+              {reversing ? 'Reversing...' : 'Confirm Reversal'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <DetailModal data={selectedConversion} open={showDetail} onClose={() => setShowDetail(false)} type="conversion" />
     </div>
   );
@@ -688,7 +857,7 @@ function ClickTrackingTab() {
           <div><label className="text-xs font-medium">End Date</label><Input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))} className="w-40" /></div>
           <DatePresets onPresetSelect={p => setDateRange({ start: p.start, end: p.end })} />
           {filterOptions && filterOptions.publishers.length > 0 && <SearchablePublisherSelect publishers={filterOptions.publishers} value={filters.publisher_id} onChange={v => setFilters(prev => ({ ...prev, publisher_id: v }))} />}
-          {filterOptions && filterOptions.offers.length > 0 && (<div><label className="text-xs font-medium">Offer</label><Select value={filters.offer_id || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, offer_id: v === 'all' ? undefined : v }))}><SelectTrigger className="w-48"><SelectValue placeholder="All Offers" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Offers</SelectItem>, ...filterOptions.offers.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)]}</SelectContent></Select></div>)}
+          {filterOptions && filterOptions.offers.length > 0 && <SearchableOfferSelect offers={filterOptions.offers} value={filters.offer_id} onChange={v => setFilters(prev => ({ ...prev, offer_id: v }))} />}
           {filterOptions && filterOptions.countries.length > 0 && (<div><label className="text-xs font-medium">Country</label><Select value={filters.country || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, country: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Countries</SelectItem>, ...filterOptions.countries.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.regions && filterOptions.regions.length > 0 && (<div><label className="text-xs font-medium">Region</label><Select value={filters.region || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, region: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Regions</SelectItem>, ...filterOptions.regions.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)]}</SelectContent></Select></div>)}
           {filterOptions && filterOptions.cities && filterOptions.cities.length > 0 && (<div><label className="text-xs font-medium">City</label><Select value={filters.city || 'all'} onValueChange={v => setFilters(prev => ({ ...prev, city: v === 'all' ? undefined : v }))}><SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger><SelectContent>{[<SelectItem key="all" value="all">All Cities</SelectItem>, ...filterOptions.cities.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)]}</SelectContent></Select></div>)}

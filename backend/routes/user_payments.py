@@ -37,7 +37,9 @@ def calculate_user_earnings(user_id):
         ]
         rev_conv_res = list(conversions_col.aggregate(rev_conv_pipeline)) if conversions_col is not None else []
         reversed_conversions = rev_conv_res[0]['total'] if rev_conv_res else 0
-        conversions_earnings -= reversed_conversions
+        # NOTE: Do NOT subtract reversed_conversions here.
+        # The active query already excludes reversed (forward_status not in ['reversed']).
+        # Subtracting again would double-count the deduction.
 
         # 2. PROMO
         promo_col = get_collection('bonus_earnings')
@@ -90,17 +92,27 @@ def calculate_user_earnings(user_id):
 
         referral_earnings = p1_earnings + p2_earnings
 
-        # 5. ADMIN ADJUSTMENTS
+        # 5. ADMIN ADJUSTMENTS (exclude payment-type adjustments — those track paid-out amounts separately)
         adj_col = get_collection('balance_adjustments')
         adj_pipeline = [
-            {'$match': {'user_id': user_obj_id}},
+            {'$match': {'user_id': user_obj_id, 'type': {'$ne': 'payment'}}},
             {'$group': {'_id': None, 'total': {'$sum': '$amount'}}}
         ]
         adj_res = list(adj_col.aggregate(adj_pipeline)) if adj_col is not None else []
         manual_adjustments = adj_res[0]['total'] if adj_res else 0
 
-        # Calculate total balance
-        total_balance = conversions_earnings + promo_earnings + gift_earnings + referral_earnings + manual_adjustments
+        # Calculate total balance (subtract total paid from payment_records)
+        payments_col = get_collection('payment_records')
+        total_paid_out = 0
+        if payments_col is not None:
+            paid_pipeline = [
+                {'$match': {'user_id': str(user_id)}},
+                {'$group': {'_id': None, 'total': {'$sum': '$amount'}}}
+            ]
+            paid_res = list(payments_col.aggregate(paid_pipeline))
+            total_paid_out = paid_res[0]['total'] if paid_res else 0
+
+        total_balance = conversions_earnings + promo_earnings + gift_earnings + referral_earnings + manual_adjustments - total_paid_out
 
         return {
             'total_balance': max(0, total_balance),
@@ -508,4 +520,192 @@ def get_invoice_details(invoice_id):
         
     except Exception as e:
         logger.error(f"Error fetching invoice details: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_payments_bp.route('/invoices', methods=['GET'])
+@token_required
+def get_user_invoices():
+    """
+    Get current user's monthly invoices.
+    Returns invoices grouped by month with status, amounts, and payment info.
+    If no formal invoices exist yet, dynamically computes from conversion data.
+    """
+    try:
+        user = request.current_user
+        user_id = str(user['_id'])
+
+        invoices_col = get_collection('invoices')
+        conversions_col = get_collection('forwarded_postbacks')
+
+        # Get threshold from platform settings
+        settings_col = get_collection('platform_settings')
+        threshold = 50
+        if settings_col is not None:
+            s = settings_col.find_one({'key': 'payment_threshold'})
+            if s:
+                threshold = s.get('value', 50)
+
+        # Try to get formal invoices first
+        formal_invoices = []
+        if invoices_col is not None:
+            formal_invoices = list(invoices_col.find({'user_id': user_id}).sort('period_start', -1))
+
+        results = []
+
+        if formal_invoices:
+            # Use formal invoices
+            for inv in formal_invoices:
+                results.append({
+                    '_id': str(inv['_id']),
+                    'period_start': inv.get('period_start', '').isoformat() + 'Z' if hasattr(inv.get('period_start', ''), 'isoformat') else '',
+                    'period_end': inv.get('period_end', '').isoformat() + 'Z' if hasattr(inv.get('period_end', ''), 'isoformat') else '',
+                    'gross_amount': inv.get('gross_amount', 0),
+                    'reversals_amount': inv.get('reversals_amount', 0),
+                    'carry_forward': inv.get('carry_forward', 0),
+                    'net_amount': inv.get('net_amount', 0),
+                    'threshold': inv.get('threshold', threshold),
+                    'status': inv.get('status', 'pending'),
+                    'net_terms': inv.get('net_terms', 30),
+                    'generated_at': inv.get('generated_at', '').isoformat() + 'Z' if hasattr(inv.get('generated_at', ''), 'isoformat') else '',
+                    'paid_at': inv.get('paid_at', '').isoformat() + 'Z' if hasattr(inv.get('paid_at', ''), 'isoformat') and inv.get('paid_at') else ''
+                })
+        else:
+            # No formal invoices — dynamically compute from conversions grouped by month
+            if conversions_col is not None:
+                # Aggregate conversions per month for this user
+                pipeline = [
+                    {'$match': {
+                        'publisher_id': user_id,
+                        'source': {'$nin': ['fallback_fake']}
+                    }},
+                    {'$project': {
+                        'year': {'$year': '$timestamp'},
+                        'month': {'$month': '$timestamp'},
+                        'points': 1,
+                        'forward_status': 1,
+                        'is_reversal': 1
+                    }},
+                    {'$group': {
+                        '_id': {'year': '$year', 'month': '$month'},
+                        'gross_amount': {'$sum': {
+                            '$cond': [
+                                {'$and': [
+                                    {'$ne': ['$forward_status', 'reversed']},
+                                    {'$ne': ['$is_reversal', True]}
+                                ]},
+                                '$points',
+                                0
+                            ]
+                        }},
+                        'reversals_amount': {'$sum': {
+                            '$cond': [
+                                {'$or': [
+                                    {'$eq': ['$forward_status', 'reversed']},
+                                    {'$eq': ['$is_reversal', True]}
+                                ]},
+                                '$points',
+                                0
+                            ]
+                        }}
+                    }},
+                    {'$sort': {'_id.year': -1, '_id.month': -1}}
+                ]
+
+                monthly_data = list(conversions_col.aggregate(pipeline))
+
+                # Check payment records to determine paid status
+                payments_col_check = get_collection('payment_records')
+                user_payments = []
+                if payments_col_check is not None:
+                    user_payments = list(payments_col_check.find({'user_id': user_id}).sort('paid_at', -1))
+                
+                # Total paid amount
+                total_paid_amount = sum(p.get('amount', 0) for p in user_payments)
+                last_payment_date = user_payments[0].get('paid_at') if user_payments else None
+
+                import calendar
+                for row in monthly_data:
+                    year = row['_id']['year']
+                    month = row['_id']['month']
+                    gross = row.get('gross_amount', 0)
+                    reversals = row.get('reversals_amount', 0)
+                    # Net = gross only (gross already excludes reversed conversions)
+                    # Reversals shown as info but NOT subtracted (already excluded from gross query)
+                    net = gross
+
+                    last_day = calendar.monthrange(year, month)[1]
+                    period_start = datetime(year, month, 1)
+                    period_end = datetime(year, month, last_day, 23, 59, 59)
+
+                    # Skip current month — invoice not generated yet (still accumulating)
+                    now = datetime.utcnow()
+                    if period_end >= now:
+                        continue
+
+                    # Determine status — check if this period has been paid
+                    paid_at_str = ''
+                    
+                    if total_paid_amount >= gross and gross > 0 and last_payment_date:
+                        # User has been paid enough to cover this month
+                        status = 'paid'
+                        paid_at_str = last_payment_date.isoformat() + 'Z' if hasattr(last_payment_date, 'isoformat') else ''
+                    else:
+                        # Past month, not paid
+                        status = 'eligible' if net >= threshold else 'held'
+
+                    results.append({
+                        '_id': f'{year}-{month:02d}',
+                        'period_start': period_start.isoformat() + 'Z',
+                        'period_end': period_end.isoformat() + 'Z',
+                        'gross_amount': round(gross, 2),
+                        'reversals_amount': round(reversals, 2),
+                        'carry_forward': 0,
+                        'net_amount': round(max(0, net), 2),
+                        'threshold': threshold,
+                        'status': status,
+                        'net_terms': 30,
+                        'generated_at': '',
+                        'paid_at': paid_at_str
+                    })
+
+        # Build summary
+        earnings = calculate_user_earnings(user_id)
+        net_settings = get_user_net_terms(user_id)
+
+        # Get total paid from payment_records for display
+        payments_col_display = get_collection('payment_records')
+        total_paid_out = 0
+        if payments_col_display is not None:
+            paid_agg = list(payments_col_display.aggregate([
+                {'$match': {'user_id': user_id}},
+                {'$group': {'_id': None, 'total': {'$sum': '$amount'}}}
+            ]))
+            total_paid_out = paid_agg[0]['total'] if paid_agg else 0
+
+        # Lifetime = pending + paid (total ever earned)
+        lifetime_earnings = earnings['total_balance'] + total_paid_out
+
+        # Calculate next payment date
+        next_payment = get_payment_cycle_date(user_id, earnings['total_balance'])
+
+        summary = {
+            'current_balance': earnings['total_balance'],
+            'lifetime_earnings': lifetime_earnings,
+            'threshold': threshold,
+            'progress_pct': min(100, (earnings['total_balance'] / threshold * 100)) if threshold > 0 else 100,
+            'net_terms': net_settings.get('net_terms', 30),
+            'next_payment_date': next_payment,
+            'total_paid': total_paid_out,
+            'total_held': sum(inv.get('net_amount', 0) for inv in formal_invoices if inv.get('status') == 'held')
+        }
+
+        return jsonify({
+            'success': True,
+            'invoices': results,
+            'summary': summary
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching user invoices: {str(e)}", exc_info=True)
         return jsonify({'error': str(e)}), 500

@@ -174,6 +174,10 @@ export interface AdminConversion {
   sub_id3?: string;
   sub_id4?: string;
   sub_id5?: string;
+  // Reversal fields
+  reversed_at?: string;
+  reversed_by?: string;
+  reversal_reason?: string;
 }
 
 export interface ChartDataPoint {
@@ -275,5 +279,80 @@ export const adminReportsApi = {
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
+  },
+
+  // --- Reversal APIs ---
+  async reverseSingleConversion(conversionId: string, reason?: string) {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/reversals/single`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversion_id: conversionId, reason: reason || '' })
+    });
+    if (!response.ok) throw new Error('Failed to reverse conversion');
+    return response.json();
+  },
+
+  async reverseBulkConversions(conversionIds: string[], reason?: string) {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/reversals/bulk`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conversion_ids: conversionIds, reason: reason || '' })
+    });
+    if (!response.ok) throw new Error('Failed to reverse conversions');
+    return response.json();
+  },
+
+  // --- Invoice APIs ---
+  async getInvoices(params: { user_id?: string; status?: string; month?: string; page?: number; per_page?: number }) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, String(value));
+      }
+    });
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/invoices?${searchParams}`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to fetch invoices');
+    return response.json();
+  },
+
+  async generateInvoices(year?: number, month?: number) {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/invoices/generate`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ year, month })
+    });
+    if (!response.ok) throw new Error('Failed to generate invoices');
+    return response.json();
+  },
+
+  async markInvoicePaid(invoiceId: string) {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/invoices/${invoiceId}/pay`, {
+      method: 'POST',
+      headers: authHeaders()
+    });
+    if (!response.ok) throw new Error('Failed to mark invoice paid');
+    return response.json();
+  },
+
+  async getInvoiceThreshold() {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/invoices/threshold`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to get threshold');
+    return response.json();
+  },
+
+  async setInvoiceThreshold(threshold: number) {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/invoices/threshold`, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threshold })
+    });
+    if (!response.ok) throw new Error('Failed to set threshold');
+    return response.json();
+  },
+
+  async getInvoiceStats() {
+    const response = await fetch(`${getApiBaseUrl()}/api/admin/invoices/stats`, { headers: authHeaders() });
+    if (!response.ok) throw new Error('Failed to get invoice stats');
+    return response.json();
   },
 };

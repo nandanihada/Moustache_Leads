@@ -654,14 +654,37 @@ class UserReports:
             # Build query - Filter by publisher_id unless admin
             # Only show REAL conversions — exclude flagged fakes
             # Include success, failed, and no_url (user has no postback URL but conversion is real)
-            query = {
-                'timestamp': {  # forwarded_postbacks uses 'timestamp'
-                    '$gte': start_date,
-                    '$lte': end_date
-                },
-                'forward_status': {'$in': ['success', 'failed', 'no_url']},  # All real conversions
-                'source': {'$nin': ['fallback_fake']}  # Exclude flagged fakes
-            }
+            # Support status filter: 'reversed' shows only reversed, 'approved'/'active' shows non-reversed
+            status_filter = filters.get('status', '')
+            
+            if status_filter == 'reversed':
+                query = {
+                    'timestamp': {
+                        '$gte': start_date,
+                        '$lte': end_date
+                    },
+                    'forward_status': 'reversed',
+                    'source': {'$nin': ['fallback_fake']}
+                }
+            elif status_filter in ('approved', 'active'):
+                query = {
+                    'timestamp': {
+                        '$gte': start_date,
+                        '$lte': end_date
+                    },
+                    'forward_status': {'$in': ['success', 'failed', 'no_url']},
+                    'source': {'$nin': ['fallback_fake']}
+                }
+            else:
+                # Default: show all including reversed
+                query = {
+                    'timestamp': {
+                        '$gte': start_date,
+                        '$lte': end_date
+                    },
+                    'forward_status': {'$in': ['success', 'failed', 'no_url', 'reversed']},
+                    'source': {'$nin': ['fallback_fake']}
+                }
             
             # Filter by publisher_id if not admin
             if not is_admin:
@@ -716,8 +739,11 @@ class UserReports:
                 # Set payout from points field
                 conv['payout'] = conv.get('points', 0)
                 
-                # Set status as 'approved' since all forwarded postbacks are successful
-                conv['status'] = 'approved'
+                # Set status based on forward_status
+                if conv.get('forward_status') == 'reversed':
+                    conv['status'] = 'reversed'
+                else:
+                    conv['status'] = 'approved'
                 
                 # Show the Transaction ID - use placement_id from the conversion record
                 # This is the same value shown in "Placement/Source" column of click tracking
@@ -726,6 +752,13 @@ class UserReports:
                 
                 # Add publisher_name for display
                 conv['publisher_name'] = conv.get('publisher_name', '')
+
+                # Add reversal metadata if reversed
+                if conv.get('forward_status') == 'reversed':
+                    reversed_at = conv.get('reversed_at')
+                    conv['reversed_at'] = reversed_at.isoformat() + 'Z' if hasattr(reversed_at, 'isoformat') else str(reversed_at) if reversed_at else ''
+                    conv['reversed_by'] = conv.get('reversed_by', '')
+                    conv['reversal_reason'] = conv.get('reversal_reason', '')
 
                 
                 # Convert ObjectIds to strings
@@ -737,11 +770,37 @@ class UserReports:
                 {
                     '$group': {
                         '_id': None,
-                        'approved_payout': {'$sum': '$points'},  # All forwards are successful, use points
+                        'approved_payout': {'$sum': {
+                            '$cond': [
+                                {'$ne': ['$forward_status', 'reversed']},
+                                '$points',
+                                0
+                            ]
+                        }},
+                        'reversed_payout': {'$sum': {
+                            '$cond': [
+                                {'$eq': ['$forward_status', 'reversed']},
+                                '$points',
+                                0
+                            ]
+                        }},
                         'pending_payout': {'$sum': 0},
                         'rejected_payout': {'$sum': 0},
                         'total_conversions': {'$sum': 1},
-                        'approved_conversions': {'$sum': 1},
+                        'approved_conversions': {'$sum': {
+                            '$cond': [
+                                {'$ne': ['$forward_status', 'reversed']},
+                                1,
+                                0
+                            ]
+                        }},
+                        'reversed_conversions': {'$sum': {
+                            '$cond': [
+                                {'$eq': ['$forward_status', 'reversed']},
+                                1,
+                                0
+                            ]
+                        }},
                         'pending_conversions': {'$sum': 0},
                         'rejected_conversions': {'$sum': 0}
                     }
@@ -751,10 +810,12 @@ class UserReports:
             summary_result = list(self.conversions_collection.aggregate(summary_pipeline))
             summary = summary_result[0] if summary_result else {
                 'approved_payout': 0.0,
+                'reversed_payout': 0.0,
                 'pending_payout': 0.0,
                 'rejected_payout': 0.0,
                 'total_conversions': 0,
                 'approved_conversions': 0,
+                'reversed_conversions': 0,
                 'pending_conversions': 0,
                 'rejected_conversions': 0
             }

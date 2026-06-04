@@ -33,7 +33,8 @@ import {
   HelpCircle,
   StickyNote,
   Link2,
-  CheckCircle
+  CheckCircle,
+  FileText
 } from "lucide-react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
@@ -201,6 +202,13 @@ const adminMenuStructure = [
     title: "Payments",
     url: "/admin/payments",
     icon: CreditCard,
+    tab: "payments",
+    type: "single" as const,
+  },
+  {
+    title: "Invoices",
+    url: "/admin/invoices",
+    icon: FileText,
     tab: "payments",
     type: "single" as const,
   },

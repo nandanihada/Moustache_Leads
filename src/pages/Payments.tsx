@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { Info, Eye, ChevronLeft, ChevronRight, Search, Download, History } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { DollarSign, Clock, CheckCircle, CreditCard, Settings, Eye, Info } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Table,
   TableBody,
@@ -12,385 +14,339 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { payoutSettingsApi } from "@/services/payoutSettingsApi";
+import { getAuthToken } from "@/utils/cookies";
+import { getApiBaseUrl } from "@/services/apiConfig";
 import { useNavigate } from "react-router-dom";
 import PlacementRequired from "@/components/PlacementRequired";
+
+const API_BASE = getApiBaseUrl();
+
+interface UserInvoice {
+  _id: string;
+  period_start: string;
+  period_end: string;
+  gross_amount: number;
+  reversals_amount: number;
+  carry_forward: number;
+  net_amount: number;
+  threshold: number;
+  status: string;
+  net_terms: number;
+  generated_at: string;
+  paid_at: string;
+}
+
+interface InvoiceSummary {
+  current_balance: number;
+  lifetime_earnings: number;
+  threshold: number;
+  progress_pct: number;
+  net_terms: number;
+  next_payment_date: string;
+  total_paid: number;
+  total_held: number;
+}
 
 const PaymentsContent = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [summaryData, setSummaryData] = useState<any>(null);
-  const [history, setHistory] = useState<any[]>([]);
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [searchTerm, setSearchTerm] = useState("");
-
-  // Pagination states
-  const [entriesPerPage, setEntriesPerPage] = useState(10);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [invoices, setInvoices] = useState<UserInvoice[]>([]);
+  const [summary, setSummary] = useState<InvoiceSummary | null>(null);
+  const [viewInvoice, setViewInvoice] = useState<UserInvoice | null>(null);
 
   useEffect(() => {
-    const fetchPaymentsData = async () => {
+    const fetchData = async () => {
       setLoading(true);
       try {
-        const [summary, hist, txs] = await Promise.all([
-          payoutSettingsApi.getPaymentsSummary(),
-          payoutSettingsApi.getPaymentsHistory(),
-          payoutSettingsApi.getPaymentsTransactions()
-        ]);
-        if (summary?.success) setSummaryData(summary.data);
-        if (hist?.success) setHistory(hist.data);
-        if (txs?.success) setTransactions(txs.data);
+        const res = await fetch(`${API_BASE}/api/payments/invoices`, {
+          headers: { Authorization: `Bearer ${getAuthToken()}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          setInvoices(data.invoices || []);
+          setSummary(data.summary || null);
+        }
       } catch (error) {
-        console.error('Error fetching payments details:', error);
+        console.error("Error fetching invoices:", error);
       } finally {
         setLoading(false);
       }
     };
-
-    fetchPaymentsData();
+    fetchData();
   }, []);
 
-  const formatCurrency = (amount: number) => {
-    return `$${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatDate = (dateStr: string) => {
+    if (!dateStr) return "N/A";
+    const parts = dateStr.replace('Z', '').split('T')[0].split('-');
+    if (parts.length < 3) return "N/A";
+    const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   };
 
-  const filteredTransactions = transactions.filter((tx: any) => {
-    const matchesSearch =
-      tx.type?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tx.offer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      tx.status?.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchesSearch;
-  });
-
-  const getTxStatusColor = (status: string) => {
-    if (status === 'Valid') return 'secondary';
-    if (status === 'Reversed') return 'destructive';
-    return 'outline';
+  const formatBillingPeriod = (start: string, end: string) => {
+    if (!start || !end) return "-";
+    const sParts = start.replace('Z', '').split('T')[0].split('-');
+    const eParts = end.replace('Z', '').split('T')[0].split('-');
+    if (sParts.length < 3 || eParts.length < 3) return "-";
+    const s = new Date(parseInt(sParts[0]), parseInt(sParts[1]) - 1, parseInt(sParts[2]));
+    const e = new Date(parseInt(eParts[0]), parseInt(eParts[1]) - 1, parseInt(eParts[2]));
+    return `${s.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} - ${e.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
   };
 
   const getStatusBadge = (status: string) => {
-    const s = status.toLowerCase();
-    if (s === 'paid') {
-      return <Badge variant="secondary" className="font-normal bg-green-50 text-green-700 hover:bg-green-50 border-0">Paid</Badge>;
+    switch (status) {
+      case "paid":
+        return (
+          <TooltipProvider><Tooltip><TooltipTrigger asChild>
+            <Badge className="bg-green-100 text-green-800 border-green-300 cursor-help">Paid <Info className="h-3 w-3 ml-1 inline" /></Badge>
+          </TooltipTrigger><TooltipContent><p>Payment has been processed by admin</p></TooltipContent></Tooltip></TooltipProvider>
+        );
+      case "eligible":
+        return (
+          <TooltipProvider><Tooltip><TooltipTrigger asChild>
+            <Badge className="bg-blue-100 text-blue-800 border-blue-300 cursor-help">Eligible <Info className="h-3 w-3 ml-1 inline" /></Badge>
+          </TooltipTrigger><TooltipContent><p>Threshold reached — payment will be processed soon</p></TooltipContent></Tooltip></TooltipProvider>
+        );
+      case "held":
+        return (
+          <TooltipProvider><Tooltip><TooltipTrigger asChild>
+            <Badge className="bg-gray-100 text-gray-600 border-gray-300 cursor-help">Deferred <Info className="h-3 w-3 ml-1 inline" /></Badge>
+          </TooltipTrigger><TooltipContent><p>Below minimum threshold — carries forward to next month</p></TooltipContent></Tooltip></TooltipProvider>
+        );
+      case "pending":
+        return (
+          <TooltipProvider><Tooltip><TooltipTrigger asChild>
+            <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300 cursor-help">Pending <Info className="h-3 w-3 ml-1 inline" /></Badge>
+          </TooltipTrigger><TooltipContent><p>Current month — still accumulating earnings</p></TooltipContent></Tooltip></TooltipProvider>
+        );
+      case "rolled_over":
+        return <Badge variant="outline">Rolled Over</Badge>;
+      default:
+        return <Badge variant="secondary">{status}</Badge>;
     }
-    if (s === 'deferred') {
-      return (
-        <div className="flex items-center gap-1 text-muted-foreground text-sm">
-          Deferred
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Info className="h-3 w-3" />
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Payment deferred for next cycle</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </div>
-      );
-    }
-    return <Badge variant="outline" className="font-normal">{status}</Badge>;
   };
 
+  const getCreationDate = (inv: UserInvoice) => {
+    if (inv.generated_at) return formatDate(inv.generated_at);
+    if (inv.period_end) {
+      const parts = inv.period_end.replace('Z', '').split('T')[0].split('-');
+      if (parts.length >= 3) {
+        const endYear = parseInt(parts[0]);
+        const endMonth = parseInt(parts[1]) - 1;
+        const nextMonth = new Date(endYear, endMonth + 1, 1);
+        return nextMonth.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+      }
+    }
+    return "N/A";
+  };
+
+  const getThresholdProgress = (inv: UserInvoice) => {
+    const threshold = inv.threshold || summary?.threshold || 50;
+    return Math.min(100, (inv.net_amount / threshold) * 100);
+  };
+
+  // Summary values
+  const pendingEarnings = summary?.current_balance || 0;
+  const totalPaidEarnings = summary?.total_paid || 0;
+  const lifetimeEarnings = summary?.lifetime_earnings || 0;
+
   if (loading) {
-    return <div className="p-8 text-center text-muted-foreground">Loading billing data...</div>;
+    return <div className="p-6 text-center text-muted-foreground">Loading payment information...</div>;
   }
 
-  const {
-    pending_earnings = 0,
-    total_paid_earnings = 0,
-    lifetime_confirmed_earnings = 0,
-    minimum_payment_threshold = 25,
-    payment_terms = 'Net 30'
-  } = summaryData || {};
-
-  // Payment history from API (no fallback to fake data)
-  const displayHistory = history || [];
-  const totalEntries = displayHistory.length;
-
-  // Pagination logic
-  const startIndex = (currentPage - 1) * entriesPerPage;
-  const endIndex = startIndex + entriesPerPage;
-  const paginatedHistory = displayHistory.slice(startIndex, endIndex);
-
   return (
-    <div className="space-y-6">
+    <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between border-b pb-4">
-        <h1 className="text-xl font-semibold text-foreground">Billing</h1>
-        <Button 
-          variant="default" 
-          className="bg-[#4D94FF] hover:bg-[#3d7ae6] text-white"
-          onClick={() => navigate('/dashboard/settings?tab=billing')}
-        >
-          Update Payment Settings
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">Billing</h1>
+        <Button onClick={() => navigate("/dashboard/settings?tab=billing")} className="bg-primary">
+          <Settings className="h-4 w-4 mr-2" />Update Payment Settings
         </Button>
       </div>
 
-      {/* Summary Cards Line */}
-      <div className="bg-white border rounded-lg shadow-sm w-full divide-x divide-gray-100 flex flex-wrap lg:flex-nowrap">
-        {/* Pending Earnings */}
-        <div className="p-6 flex-1 min-w-[200px]">
-          <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-2 font-medium">
-            Pending Earnings
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3.5 w-3.5 text-gray-400" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Earnings currently pending review</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(pending_earnings)}</div>
-        </div>
-
-        {/* Total Paid Earnings */}
-        <div className="p-6 flex-1 min-w-[200px]">
-          <div className="flex items-center text-sm text-gray-500 mb-2 font-medium">
-            Total Paid Earnings
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(total_paid_earnings)}</div>
-        </div>
-
-        {/* Lifetime Confirmed */}
-        <div className="p-6 flex-1 min-w-[200px]">
-          <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-2 font-medium">
-            Lifetime Confirmed Earnings
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3.5 w-3.5 text-gray-400" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Total confirmed earnings to date</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(lifetime_confirmed_earnings)}</div>
-        </div>
-
-        {/* Threshold */}
-        <div className="p-6 flex-1 min-w-[200px]">
-          <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-2 font-medium">
-            Minimum Payment Threshold
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3.5 w-3.5 text-gray-400" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Minimum balance required for payout</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{formatCurrency(minimum_payment_threshold)}</div>
-        </div>
-
-        {/* Terms */}
-        <div className="p-6 flex-1 min-w-[200px]">
-          <div className="flex items-center gap-1.5 text-sm text-gray-500 mb-2 font-medium">
-            Payment Terms
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger>
-                  <Info className="h-3.5 w-3.5 text-gray-400" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Current payout terms</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-          <div className="text-2xl font-bold text-gray-900">{payment_terms}</div>
-        </div>
+      {/* Summary Boxes */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Pending Earnings</div>
+            <div className="text-2xl font-bold">${Math.max(0, pendingEarnings).toFixed(2)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Total Paid Earnings</div>
+            <div className="text-2xl font-bold">${totalPaidEarnings.toFixed(2)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Lifetime Confirmed Earnings</div>
+            <div className="text-2xl font-bold">${lifetimeEarnings.toFixed(2)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Minimum Payment Threshold</div>
+            <div className="text-2xl font-bold">${summary?.threshold?.toFixed(2) || "50.00"}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground mb-1">Payment Terms</div>
+            <div className="text-2xl font-bold">Net {summary?.net_terms || 30}</div>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* History Table Container */}
-      <div className="bg-white border rounded-lg shadow-sm mt-8">
+      {/* Threshold Progress Bar (for current pending amount) */}
+      {summary && summary.current_balance > 0 && summary.current_balance < summary.threshold && (
+        <Card className="border-yellow-200 bg-yellow-50/50">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium">Threshold Progress</span>
+              <span className="text-sm text-muted-foreground">${summary.current_balance.toFixed(2)} / ${summary.threshold.toFixed(2)}</span>
+            </div>
+            <Progress value={summary.progress_pct} className="h-3" />
+            <p className="text-xs text-muted-foreground mt-2">
+              You need ${(summary.threshold - summary.current_balance).toFixed(2)} more to reach the payment threshold. Earnings below the threshold are deferred to the next month.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Payment History Table */}
+      <Card>
         <div className="p-4 border-b">
-          <h2 className="text-sm font-semibold text-gray-700">Payment History</h2>
+          <h3 className="font-semibold text-lg">Payment History</h3>
         </div>
-        
         <div className="overflow-x-auto">
-          <Table>
-            <TableHeader className="bg-gray-50/50">
-              <TableRow className="border-b border-gray-100">
-                <TableHead className="font-medium text-xs uppercase text-gray-500 h-11 px-4 tracking-wider">Creation Date</TableHead>
-                <TableHead className="font-medium text-xs uppercase text-gray-500 h-11 px-4 tracking-wider">Billing Period</TableHead>
-                <TableHead className="font-medium text-xs uppercase text-gray-500 h-11 px-4 tracking-wider">Amount</TableHead>
-                <TableHead className="font-medium text-xs uppercase text-gray-500 h-11 px-4 tracking-wider">Status</TableHead>
-                <TableHead className="font-medium text-xs uppercase text-gray-500 h-11 px-4 tracking-wider">Due On</TableHead>
-                <TableHead className="font-medium text-xs uppercase text-gray-500 h-11 px-4 tracking-wider">View</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedHistory.map((row: any) => (
-                <TableRow key={row.id} className="border-b border-gray-100 hover:bg-gray-50/50 group">
-                  <TableCell className="px-4 py-4 text-sm text-gray-700">{row.creation_date}</TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-gray-700">{row.billing_period}</TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-gray-700">{formatCurrency(row.amount)}</TableCell>
-                  <TableCell className="px-4 py-4">
-                    {getStatusBadge(row.status)}
-                  </TableCell>
-                  <TableCell className="px-4 py-4 text-sm text-gray-700">{row.due_on}</TableCell>
-                  <TableCell className="px-4 py-4">
-                    <button 
-                      onClick={() => navigate(`/dashboard/payments/invoice/${row.id}`)}
-                      className="flex items-center gap-1.5 text-sm text-blue-500 hover:text-blue-700 font-medium transition-colors"
-                    >
-                      <Eye className="h-4 w-4" />
-                      View
-                    </button>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {displayHistory.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-gray-500">
-                    No payment history available
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-        
-        {/* Pagination Footer */}
-        <div className="p-4 flex items-center justify-between text-sm text-gray-500 border-t border-gray-100 bg-white rounded-b-lg">
-          <div className="flex items-center gap-2">
-            <span>Show</span>
-            <select 
-              className="border border-gray-300 rounded px-2 py-1 text-gray-700 outline-none focus:border-blue-500"
-              value={entriesPerPage}
-              onChange={(e) => {
-                setEntriesPerPage(Number(e.target.value));
-                setCurrentPage(1); // Reset page on limit change
-              }}
-            >
-              <option value={2}>2</option>
-              <option value={5}>5</option>
-              <option value={10}>10</option>
-              <option value={25}>25</option>
-              <option value={50}>50</option>
-            </select>
-            <span>entries</span>
-          </div>
-          
-          <div className="flex items-center gap-6">
-            <div>
-              Displaying {totalEntries === 0 ? 0 : startIndex + 1} to {Math.min(endIndex, totalEntries)} of {totalEntries} entries
-            </div>
-            <div className="flex items-center gap-1 border rounded divide-x shadow-sm bg-white">
-              <button 
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                className="px-3 py-1.5 hover:bg-gray-50 text-gray-400 disabled:opacity-50"
-              >
-                «
-              </button>
-              <button className="px-3 py-1.5 bg-[#4D94FF] text-white">
-                1
-              </button>
-              <button className="px-3 py-1.5 hover:bg-gray-50">
-                2
-              </button>
-              <button className="px-3 py-1.5 hover:bg-gray-50">
-                3
-              </button>
-              <button className="px-3 py-1.5 hover:bg-gray-50">
-                4
-              </button>
-              <button className="px-3 py-1.5 hover:bg-gray-50">
-                5
-              </button>
-              <button className="px-3 py-1.5 hover:bg-gray-50 rounded-r border-l border-transparent">
-                ›
-              </button>
-              <button className="px-3 py-1.5 hover:bg-gray-50 text-gray-400">
-                »
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Legacy Transaction Details */}
-      <h3 className="text-xl font-semibold tracking-tight mt-8 mb-4">Transaction Details</h3>
-      <Card className="shadow-sm border-border/60">
-        <CardContent className="p-0">
-          <div className="p-4 border-b border-border/50 flex gap-4 items-center bg-gray-50/50">
-            <div className="relative max-w-sm w-full">
-              <Search className="absolute left-3 top-1.5 mt-1 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search transactions..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 bg-white"
-              />
-            </div>
-            
-            <Button variant="outline" className="ml-auto" onClick={() => window.print()}>
-              <Download className="h-4 w-4 mr-2" />
-              Download Report
-            </Button>
-          </div>
-
-          {filteredTransactions.length === 0 ? (
-            <div className="p-12 text-center text-gray-500 bg-gray-50/30">
-              <History className="h-10 w-10 mx-auto text-gray-300 mb-3" />
-              <p className="font-medium text-gray-900">No transactions found</p>
-              <p className="text-sm mt-1">Earnings and adjustments will appear here over time.</p>
+          {invoices.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <DollarSign className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p>No invoices yet</p>
+              <p className="text-xs mt-1">Invoices are generated monthly as you earn from conversions.</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="bg-gray-50/50">
-                  <TableRow>
-                    <TableHead className="w-[120px]">Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Status</TableHead>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Creation Date</TableHead>
+                  <TableHead>Billing Period</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Due On</TableHead>
+                  <TableHead>View</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.map(inv => (
+                  <TableRow key={inv._id} className={inv.status === "held" ? "bg-gray-50/50" : ""}>
+                    <TableCell>{getCreationDate(inv)}</TableCell>
+                    <TableCell>{formatBillingPeriod(inv.period_start, inv.period_end)}</TableCell>
+                    <TableCell>
+                      <div>
+                        <span className="font-medium">${inv.net_amount.toFixed(2)}</span>
+                        {inv.status === "held" && (
+                          <div className="mt-1 w-24">
+                            <Progress value={getThresholdProgress(inv)} className="h-1.5" />
+                          </div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>{getStatusBadge(inv.status)}</TableCell>
+                    <TableCell>{inv.paid_at ? formatDate(inv.paid_at) : "N/A"}</TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm" className="text-primary" onClick={() => setViewInvoice(inv)}>
+                        <Eye className="h-4 w-4 mr-1" />View
+                      </Button>
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTransactions.map((tx: any) => (
-                    <TableRow key={tx.id} className="hover:bg-gray-50/50">
-                      <TableCell className="text-gray-500 text-sm font-medium">{tx.date || 'N/A'}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="font-normal bg-white">{tx.type}</Badge>
-                      </TableCell>
-                      <TableCell className="max-w-[200px] truncate" title={tx.offer_name}>
-                        {tx.offer_name}
-                      </TableCell>
-                      <TableCell className={`text-right font-semibold ${tx.amount > 0 ? 'text-green-600' : tx.amount < 0 ? 'text-red-600' : ''}`}>
-                        {tx.amount > 0 ? '+' : ''}{formatCurrency(tx.amount)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant={getTxStatusColor(tx.status)}>
-                          {tx.status}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </Card>
+
+      {/* View Invoice Dialog */}
+      <Dialog open={!!viewInvoice} onOpenChange={() => setViewInvoice(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invoice Details</DialogTitle>
+          </DialogHeader>
+          {viewInvoice && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Billing Period</span>
+                  <p className="font-medium">{formatBillingPeriod(viewInvoice.period_start, viewInvoice.period_end)}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Created</span>
+                  <p className="font-medium">{getCreationDate(viewInvoice)}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Status</span>
+                  <div className="mt-1">{getStatusBadge(viewInvoice.status)}</div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Payment Terms</span>
+                  <p className="font-medium">Net {viewInvoice.net_terms || 30}</p>
+                </div>
+              </div>
+
+              <div className="border-t pt-3 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Gross Earnings</span>
+                  <span className="font-medium text-green-600">${viewInvoice.gross_amount.toFixed(2)}</span>
+                </div>
+                {viewInvoice.reversals_amount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span>Reversals</span>
+                    <span className="font-medium text-red-600">-${viewInvoice.reversals_amount.toFixed(2)}</span>
+                  </div>
+                )}
+                {viewInvoice.carry_forward > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span>Carry Forward (from prior month)</span>
+                    <span className="font-medium text-orange-600">-${viewInvoice.carry_forward.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm border-t pt-2 font-bold">
+                  <span>Net Amount</span>
+                  <span>${viewInvoice.net_amount.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {/* Threshold progress for held invoices */}
+              {viewInvoice.status === "held" && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+                  <div className="flex justify-between text-xs mb-1">
+                    <span>Threshold Progress</span>
+                    <span>${viewInvoice.net_amount.toFixed(2)} / ${(viewInvoice.threshold || summary?.threshold || 50).toFixed(2)}</span>
+                  </div>
+                  <Progress value={getThresholdProgress(viewInvoice)} className="h-2" />
+                  <p className="text-xs text-muted-foreground mt-2">This amount will carry forward and combine with next month's earnings until the threshold is reached.</p>
+                </div>
+              )}
+
+              {viewInvoice.status === "paid" && viewInvoice.paid_at && (
+                <div className="bg-green-50 border border-green-200 rounded-md p-3 text-sm">
+                  <CheckCircle className="h-4 w-4 text-green-600 inline mr-1" />
+                  Paid on {formatDate(viewInvoice.paid_at)}
+                </div>
+              )}
+
+              {viewInvoice.status === "eligible" && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm">
+                  <CreditCard className="h-4 w-4 text-blue-600 inline mr-1" />
+                  Payment is being processed. You'll be notified once it's completed.
+                </div>
+              )}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

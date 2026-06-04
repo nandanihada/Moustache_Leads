@@ -279,7 +279,7 @@ export function TopBar() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{notification.title}</p>
-                        <p className="text-xs text-muted-foreground line-clamp-2">{notification.message}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-3">{notification.message}</p>
                         <p className="text-xs text-muted-foreground mt-1">{notification.time_ago}</p>
                       </div>
                       <Button
