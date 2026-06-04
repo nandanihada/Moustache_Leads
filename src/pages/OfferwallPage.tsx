@@ -22,11 +22,14 @@ export const OfferwallPage: React.FC = () => {
 
   if (!params.placementId || !params.userId) {
     return (
-      <div className="w-full min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+      <div className="w-full min-h-screen flex items-center justify-center" style={{ background: '#fcf8ff', fontFamily: "'DM Sans', sans-serif" }}>
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-white mb-4">Offerwall</h1>
-          <p className="text-gray-400 mb-4">Missing required parameters</p>
-          <p className="text-gray-500 text-sm">
+          <div className="w-16 h-16 bg-gradient-to-br from-[#340075] to-[#4c1d95] rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-xl">
+            <span className="text-white font-black text-xl">ML</span>
+          </div>
+          <h1 className="text-3xl font-bold mb-4" style={{ color: '#181445' }}>Moustache Leads</h1>
+          <p className="mb-4" style={{ color: '#4a4452' }}>Missing required parameters</p>
+          <p className="text-sm" style={{ color: '#7b7483' }}>
             Please provide placement_id and user_id in the URL
           </p>
         </div>

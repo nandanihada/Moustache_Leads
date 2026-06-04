@@ -467,6 +467,42 @@ def register():
         # Log successful registration
         log_signup_attempt(data, 'success')
         
+        # Also write payout_details to payout_methods collection (single source of truth)
+        payout_details = data.get('payout_details', {})
+        if payout_details and any(payout_details.get(f) for f in ['account_name', 'bank_name', 'account_number', 'routing_number']):
+            try:
+                payout_methods_col = db_instance.get_collection('payout_methods')
+                if payout_methods_col is not None:
+                    from bson import ObjectId
+                    payout_methods_col.update_one(
+                        {'user_id': ObjectId(str(user_data['_id']))},
+                        {
+                            '$set': {
+                                'user_id': ObjectId(str(user_data['_id'])),
+                                'active_method': 'bank',
+                                'bank_details': {
+                                    'account_name': payout_details.get('account_name', ''),
+                                    'bank_name': payout_details.get('bank_name', ''),
+                                    'account_number': payout_details.get('account_number', ''),
+                                    'ifsc_swift': payout_details.get('routing_number', ''),
+                                    'country': '',
+                                    'currency': '',
+                                    'phone': '',
+                                    'address': '',
+                                    'upi': ''
+                                },
+                                'paypal_details': {},
+                                'crypto_details': {},
+                                'updated_at': datetime.utcnow()
+                            },
+                            '$setOnInsert': {'created_at': datetime.utcnow()}
+                        },
+                        upsert=True
+                    )
+                    logging.info(f"✅ Payout method created for new user {email}")
+            except Exception as e:
+                logging.warning(f"⚠️ Failed to create payout_methods entry for {email}: {e}")
+        
         # Generate verification token SYNCHRONOUSLY (before background thread)
         # This ensures the token is saved to DB before we return the response
         verification_service = get_email_verification_service()

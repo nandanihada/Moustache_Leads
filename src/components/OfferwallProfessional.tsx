@@ -1,1246 +1,504 @@
-import React, { useState, useEffect } from 'react';
-import { Search, X, TrendingUp, ChevronRight, Sparkles, Globe, Smartphone, Timer, Flame, Clock } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search, X, ChevronRight, Timer, Sparkles, Award, LayoutGrid, List } from 'lucide-react';
 import { OfferModal } from './OfferModal';
 import SurveyTemplateRenderer, { TemplateName } from './survey-templates/SurveyTemplateRenderer';
+import { getOfferImage } from '@/utils/categoryImages';
+import OfferwallPreloader from '@/components/ui/offerwall-preloader';
 
 interface Offer {
-  id: string;
-  title: string;
-  description: string;
-  reward_amount: number;
-  reward_currency: string;
-  category: string;
-  categories?: string[];  // Up to 3 categories per offer
-  difficulty: string;
-  estimated_time: string;
-  image_url: string;
-  click_url: string;
-  requirements: string[];
-  conversion_rate: number;
-  countries?: string[];
-  devices?: string[];
-  device_targeting?: string;
-  payout?: number;
-  star_rating?: number;
-  status?: string;
-  timer_enabled?: boolean;
-  timer_end_date?: string;
-  urgency?: {
-    type: string;
-    message: string;
-    expires_at?: string;
-    spots_left?: number;
-  };
-  urgency_type?: string;
-  tracking_params: {
-    placement_id: string;
-    user_id: string;
-    timestamp: string;
-  };
+  id: string; title: string; description: string; reward_amount: number; reward_currency: string;
+  category: string; categories?: string[]; difficulty: string; estimated_time: string;
+  image_url: string; click_url: string; requirements: string[]; conversion_rate: number;
+  countries?: string[]; devices?: string[]; device_targeting?: string; payout?: number;
+  payout_type?: string; star_rating?: number; status?: string; timer_enabled?: boolean;
+  timer_end_date?: string; urgency?: { type: string; message: string; }; urgency_type?: string;
+  is_locked?: boolean; has_access?: boolean; requires_approval?: boolean;
+  tracking_params: { placement_id: string; user_id: string; timestamp: string; };
 }
 
-// Helper: Convert payout to points (uses exchange rate from API, fallback $1 = 100 points)
-const payoutToPoints = (payout: number, exchangeRate: number = 1): number => Math.round(payout * exchangeRate);
+const CATEGORIES = [
+  { id: 'all', name: 'All' }, { id: 'HEALTH', name: 'Health' }, { id: 'SURVEY', name: 'Surveys' },
+  { id: 'SWEEPSTAKES', name: 'Sweepstakes' }, { id: 'EDUCATION', name: 'Education' },
+  { id: 'INSURANCE', name: 'Insurance' }, { id: 'LOAN', name: 'Loans' }, { id: 'FINANCE', name: 'Finance' },
+  { id: 'DATING', name: 'Dating' }, { id: 'FREE_TRIAL', name: 'Free Trials' },
+  { id: 'INSTALLS', name: 'Installs' }, { id: 'GAMES_INSTALL', name: 'Games' },
+];
 
-// Helper: Render star rating (1-5 stars)
-const renderStarRating = (rating: number = 5): JSX.Element => {
-  const stars = Math.min(5, Math.max(1, Math.round(rating)));
-  return (
-    <div className="flex items-center gap-0.5">
-      {[...Array(5)].map((_, i) => (
-        <span key={i} className={`text-sm ${i < stars ? 'text-yellow-400' : 'text-gray-500'}`}>
-          ★
-        </span>
-      ))}
-    </div>
-  );
+const SORT_OPTIONS = [
+  { id: 'trending', name: 'Trending' }, { id: 'points_high', name: 'Highest' },
+  { id: 'points_low', name: 'Lowest' }, { id: 'newest', name: 'Newest' }, { id: 'rating', name: 'Top Rated' },
+];
+
+const DEVICE_OPTIONS = [
+  { id: 'all', name: 'All Devices' }, { id: 'android', name: 'Android' },
+  { id: 'ios', name: 'iOS' }, { id: 'desktop', name: 'Desktop' },
+];
+
+const PAYOUT_TYPE_OPTIONS = [
+  { id: 'all', name: 'All Types' }, { id: 'cpa', name: 'CPA' }, { id: 'cpi', name: 'CPI' },
+  { id: 'cpl', name: 'CPL' }, { id: 'cps', name: 'CPS' }, { id: 'revshare', name: 'RevShare' },
+];
+
+// Helpers
+const cleanTitle = (title: string): string => {
+  const codes = ['US','GB','CA','AU','DE','FR','IT','ES','BR','IN','JP','NL','SG','AE','ZA','KR'];
+  let c = title;
+  c = c.replace(/[\s,\-]+([A-Z]{2}[\s,]*)+$/i, '');
+  codes.forEach(code => { c = c.replace(new RegExp(`\\b${code}\\b[,\\s]*`, 'gi'), ''); });
+  return c.replace(/[\s,\-]+$/, '').replace(/\s+/g, ' ').trim();
 };
 
-// Helper: Get device icon
-const getDeviceIcon = (device?: string): JSX.Element | null => {
-  if (!device) return null;
-  const d = device.toLowerCase();
-  if (d.includes('android')) return <span title="Android"><Smartphone className="h-4 w-4 text-green-400" /></span>;
-  if (d.includes('ios') || d.includes('iphone')) return <span title="iOS"><Smartphone className="h-4 w-4 text-gray-300" /></span>;
-  if (d.includes('web') || d.includes('desktop')) return <span title="Web"><Globe className="h-4 w-4 text-blue-400" /></span>;
-  return <span title="All Devices"><Globe className="h-4 w-4 text-blue-400" /></span>;
+const truncTitle = (title: string, max = 6): string => {
+  const w = cleanTitle(title).split(' ');
+  return w.length <= max ? cleanTitle(title) : w.slice(0, max).join(' ') + '…';
 };
 
-// Country flag mapping (comprehensive)
-const FLAG_MAP: Record<string, string> = {
-  'US': '🇺🇸', 'UK': '🇬🇧', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪', 
-  'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'BR': '🇧🇷', 'IN': '🇮🇳', 'JP': '🇯🇵',
-  'KR': '🇰🇷', 'CN': '🇨🇳', 'NL': '🇳🇱', 'BE': '🇧🇪', 'AT': '🇦🇹', 'CH': '🇨🇭',
-  'SE': '🇸🇪', 'NO': '🇳🇴', 'DK': '🇩🇰', 'FI': '🇫🇮', 'PL': '🇵🇱', 'PT': '🇵🇹',
-  'IE': '🇮🇪', 'NZ': '🇳🇿', 'MX': '🇲🇽', 'AR': '🇦🇷', 'CL': '🇨🇱', 'CO': '🇨🇴',
-  'TW': '🇹🇼', 'SG': '🇸🇬', 'MY': '🇲🇾', 'TH': '🇹🇭', 'PH': '🇵🇭', 'ID': '🇮🇩',
-  'ZA': '🇿🇦', 'AE': '🇦🇪', 'SA': '🇸🇦', 'IL': '🇮🇱', 'TR': '🇹🇷', 'RU': '🇷🇺',
-  'GR': '🇬🇷', 'CZ': '🇨🇿', 'HU': '🇭🇺', 'RO': '🇷🇴', 'UA': '🇺🇦', 'VN': '🇻🇳',
-  'PK': '🇵🇰', 'BD': '🇧🇩', 'EG': '🇪🇬', 'NG': '🇳🇬', 'KE': '🇰🇪', 'PE': '🇵🇪',
-  'VE': '🇻🇪', 'EC': '🇪🇨', 'CR': '🇨🇷', 'PA': '🇵🇦', 'PR': '🇵🇷', 'DO': '🇩🇴',
-  'HK': '🇭🇰', 'MO': '🇲🇴', 'LK': '🇱🇰', 'NP': '🇳🇵', 'MM': '🇲🇲', 'KH': '🇰🇭'
-};
+const getCatName = (cat: string) => CATEGORIES.find(c => c.id === cat?.toUpperCase())?.name || cat || 'Other';
 
-// Helper: Extract countries from title (e.g., "Opinion Router - Incent AU, BE, CA, DE")
-const extractCountriesFromTitle = (title: string): string[] => {
-  const countryCodes = Object.keys(FLAG_MAP);
-  const found: string[] = [];
-  
-  // Split by common delimiters and check each part
-  const parts = title.toUpperCase().split(/[\s,\-–—]+/);
-  for (const part of parts) {
-    const cleaned = part.trim();
-    if (cleaned.length === 2 && countryCodes.includes(cleaned) && !found.includes(cleaned)) {
-      found.push(cleaned);
-    }
-  }
-  
-  return found;
-};
-
-// Helper: Get countries - from offer.countries or extract from title
-const getOfferCountries = (offer: Offer): string[] => {
-  if (offer.countries && offer.countries.length > 0) {
-    return offer.countries;
-  }
-  // Extract from title if countries array is empty
-  return extractCountriesFromTitle(offer.title || '');
-};
-
-// Helper: Get country display with flags (show up to 6 flags, then +X more)
-const getCountryDisplay = (countries?: string[]): JSX.Element => {
-  if (!countries || countries.length === 0) {
-    return <span className="text-xs text-gray-500">🌍 Global</span>;
-  }
-  
-  const maxFlags = 6;
-  const displayCountries = countries.slice(0, maxFlags);
-  const remaining = countries.length - maxFlags;
-  
-  const flags = displayCountries.map(c => FLAG_MAP[c.toUpperCase()] || c).join(' ');
-  
-  if (remaining > 0) {
-    return (
-      <span className="text-xs font-semibold text-blue-400">
-        {flags} <span className="text-blue-300">+{remaining}</span>
-      </span>
-    );
-  }
-  
-  return (
-    <span className="text-xs font-semibold text-blue-400">
-      {flags}
-    </span>
-  );
-};
-
-// Helper: Remove country codes from title (e.g., "Opinion Router - Incent AU, BE, CA" -> "Opinion Router - Incent")
-const cleanTitleFromCountries = (title: string): string => {
-  const countryCodes = Object.keys(FLAG_MAP);
-  let cleaned = title;
-  
-  // Remove patterns like "AU, BE, CA, DE" at the end
-  cleaned = cleaned.replace(/[\s,\-]+([A-Z]{2}[\s,]*)+$/i, '');
-  
-  // Remove individual country codes
-  countryCodes.forEach(code => {
-    const regex = new RegExp(`\\b${code}\\b[,\\s]*`, 'gi');
-    cleaned = cleaned.replace(regex, '');
-  });
-  
-  // Clean up extra spaces, dashes, and commas
-  cleaned = cleaned.replace(/[\s,\-]+$/, '').replace(/\s+/g, ' ').trim();
-  
-  return cleaned;
-};
-
-// Helper: Truncate title
-const truncateTitle = (title: string, maxWords: number = 6): string => {
-  const cleanedTitle = cleanTitleFromCountries(title);
-  const words = cleanedTitle.split(' ');
-  if (words.length <= maxWords) return cleanedTitle;
-  return words.slice(0, maxWords).join(' ') + '...';
-};
-
-// Helper: Get urgency badge
-const getUrgencyBadge = (urgencyType?: string, urgency?: { type: string; message: string }): JSX.Element | null => {
-  const type = urgencyType || urgency?.type;
-  if (!type) return null;
-  const badges: Record<string, { text: string; icon: JSX.Element; color: string }> = {
-    'limited_slots': { text: 'Limited slots', icon: <Timer className="h-3 w-3" />, color: 'bg-red-500' },
-    'high_demand': { text: 'High demand', icon: <Flame className="h-3 w-3" />, color: 'bg-orange-500' },
-    'expires_soon': { text: 'Expires soon', icon: <Clock className="h-3 w-3" />, color: 'bg-yellow-500' }
-  };
-  const badge = badges[type];
-  if (!badge) return null;
-  return (
-    <div className={`absolute top-3 right-3 ${badge.color} px-2 py-1 rounded-full flex items-center gap-1 animate-pulse`}>
-      {badge.icon}
-      <span className="text-white text-xs font-bold">{badge.text}</span>
-    </div>
-  );
-};
-
-// Countdown Timer Component
+// Timer
 const CountdownTimer: React.FC<{ endDate: string }> = ({ endDate }) => {
-  const [timeLeft, setTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  const [isExpired, setIsExpired] = useState(false);
-
+  const [t, setT] = useState({ h: 0, m: 0, s: 0 });
+  const [expired, setExpired] = useState(false);
   useEffect(() => {
-    const calculateTimeLeft = () => {
-      const end = new Date(endDate).getTime();
-      const now = new Date().getTime();
-      const diff = end - now;
-
-      if (diff <= 0) {
-        setIsExpired(true);
-        return;
-      }
-
-      setTimeLeft({
-        hours: Math.floor(diff / (1000 * 60 * 60)),
-        minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
-        seconds: Math.floor((diff % (1000 * 60)) / 1000)
-      });
-    };
-
-    calculateTimeLeft();
-    const interval = setInterval(calculateTimeLeft, 1000);
-    return () => clearInterval(interval);
+    const calc = () => { const d = new Date(endDate).getTime() - Date.now(); if (d <= 0) { setExpired(true); return; } setT({ h: Math.floor(d/3600000), m: Math.floor((d%3600000)/60000), s: Math.floor((d%60000)/1000) }); };
+    calc(); const iv = setInterval(calc, 1000); return () => clearInterval(iv);
   }, [endDate]);
-
-  if (isExpired) return null;
-
-  return (
-    <div className="flex items-center gap-1 bg-red-500/90 text-white px-2 py-1 rounded-lg text-xs font-bold">
-      <Timer className="h-3 w-3" />
-      <span>{String(timeLeft.hours).padStart(2, '0')}:{String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}</span>
-    </div>
-  );
+  if (expired) return null;
+  return <span className="ow-badge-timer">{String(t.h).padStart(2,'0')}:{String(t.m).padStart(2,'0')}:{String(t.s).padStart(2,'0')}</span>;
 };
 
-interface OfferwallProfessionalProps {
-  placementId: string;
-  userId: string;
-  subId?: string;
-  country?: string;
-  baseUrl?: string;
-}
+interface Props { placementId: string; userId: string; subId?: string; country?: string; baseUrl?: string; }
 
-export const OfferwallProfessional: React.FC<OfferwallProfessionalProps> = ({
-  placementId,
-  userId,
-  subId,
-  country,
-  baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-}) => {
+export const OfferwallProfessional: React.FC<Props> = ({ placementId, userId, subId, country, baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000' }) => {
   const [offers, setOffers] = useState<Offer[]>([]);
-  const [filteredOffers, setFilteredOffers] = useState<Offer[]>([]);
+  const [filtered, setFiltered] = useState<Offer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
-  const [selectedCountry, setSelectedCountry] = useState('all');
-  const [selectedOffer, setSelectedOffer] = useState<Offer | null>(null);
+  const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('all');
+  const [device, setDevice] = useState('all');
+  const [payoutType, setPayoutType] = useState('all');
+  const [sort, setSort] = useState('trending');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [selOffer, setSelOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [currencyName, setCurrencyName] = useState('Points');
-  // Survey Funnel State
-  const [activeFunnel, setActiveFunnel] = useState<any>(null);
-  const [funnelSession, setFunnelSession] = useState('');
+  const [currency, setCurrency] = useState('LEaDS');
+
+  // Survey funnel
+  const [funnel, setFunnel] = useState<any>(null);
+  const [funnelSess, setFunnelSess] = useState('');
   const [funnelStep, setFunnelStep] = useState(0);
   const [funnelSurvey, setFunnelSurvey] = useState<any>(null);
-  const [funnelAnswers, setFunnelAnswers] = useState<Record<number, string>>({});
-  const [funnelResult, setFunnelResult] = useState<{type: 'pass' | 'fail'; message: string; redirect_url?: string; has_next?: boolean} | null>(null);
+  const [funnelAns, setFunnelAns] = useState<Record<number, string>>({});
+  const [funnelResult, setFunnelResult] = useState<any>(null);
   const [funnelSubmitting, setFunnelSubmitting] = useState(false);
-  const [funnelTemplate, setFunnelTemplate] = useState<TemplateName>('modern-card');
-  const [todayEarnings, setTodayEarnings] = useState(0);
-  const [displaySettings, setDisplaySettings] = useState<{
-    primary_color: string;
-    background_color: string;
-    layout: 'grid' | 'list' | 'table';
-    cards_per_row: number;
-    show_categories: boolean;
-    show_search: boolean;
-  }>({
-    primary_color: '#6366f1',
-    background_color: '#0f172a',
-    layout: 'grid',
-    cards_per_row: 3,
-    show_categories: true,
-    show_search: true
-  });
+  const [funnelTpl, setFunnelTpl] = useState<TemplateName>('modern-card');
+  const [earnings, setEarnings] = useState(0);
+  const [showPreloader, setShowPreloader] = useState(true);
+  const [displaySettings, setDisplaySettings] = useState({ primary_color: '#340075', background_color: '#fcf8ff', layout: 'grid' as string, cards_per_row: 3, show_categories: true, show_search: true });
   const [announcements, setAnnouncements] = useState<Array<{text: string; id: string}>>([]);
-  const [subWalls, setSubWalls] = useState<Array<{_id: string; name: string; slug: string; description: string; image_url: string; offer_count: number; theme_color?: string; heading_text?: string}>>([]);
+  const [subWalls, setSubWalls] = useState<Array<any>>([]);
+  const [isQualified, setIsQualified] = useState<boolean | null>(null);
+  const [qualSurvey, setQualSurvey] = useState<any>(null);
+  const [showQual, setShowQual] = useState(false);
+  const [qualSection, setQualSection] = useState(0);
+  const [qualAnswers, setQualAnswers] = useState<Record<string, any>>({});
+  const [newUserIds, setNewUserIds] = useState<string[]>([]);
 
-  // Qualification Survey State
-  const [isQualified, setIsQualified] = useState<boolean | null>(null); // null = loading, don't show anything yet
-  const [qualificationSurvey, setQualificationSurvey] = useState<any>(null);
-  const [showQualificationSurvey, setShowQualificationSurvey] = useState(false);
-  const [qualificationSection, setQualificationSection] = useState(0);
-  const [qualificationAnswers, setQualificationAnswers] = useState<Record<string, any>>({});
-  const [newUserOfferIds, setNewUserOfferIds] = useState<string[]>([]);
+  useEffect(() => { trackImpression(); loadOffers(); loadSettings(); loadSubWalls(); checkQual(); }, [placementId, userId]);
+  useEffect(() => { applyFilters(); }, [offers, search, category, device, payoutType, sort, isQualified, newUserIds]);
+  useEffect(() => { if (displaySettings.layout === 'table') setViewMode('table'); else setViewMode('grid'); }, [displaySettings.layout]);
 
-  // 11 predefined categories
-  const categories = [
-    { id: 'all', name: 'All Tasks', icon: '🎯' },
-    { id: 'HEALTH', name: 'Health', icon: '💊' },
-    { id: 'SURVEY', name: 'Surveys', icon: '📋' },
-    { id: 'EDUCATION', name: 'Education', icon: '📚' },
-    { id: 'INSURANCE', name: 'Insurance', icon: '🛡️' },
-    { id: 'LOAN', name: 'Loans', icon: '💳' },
-    { id: 'FINANCE', name: 'Finance', icon: '💰' },
-    { id: 'DATING', name: 'Dating', icon: '❤️' },
-    { id: 'FREE_TRIAL', name: 'Free Trials', icon: '🎁' },
-    { id: 'INSTALLS', name: 'Installs', icon: '📲' },
-    { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
-  ];
-
-  useEffect(() => {
-    trackImpression();
-    loadOffers();
-    loadDisplaySettings();
-    loadSubWalls();
-    checkQualification();
-  }, [placementId, userId]);
-
-  useEffect(() => {
-    filterOffers();
-  }, [offers, searchTerm, selectedCategory, selectedCountry, isQualified, newUserOfferIds]);
-
-  const checkQualification = async () => {
+  // === Backend Logic ===
+  const checkQual = async () => {
     try {
-      // ALWAYS check the API for qualification status — localStorage is only a cache hint
-      const res = await fetch(`${baseUrl}/api/admin/surveys/qualification/check?user_id=${encodeURIComponent(userId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.qualified) {
-          setIsQualified(true);
-          localStorage.setItem(`offerwall_qualified_${userId}`, 'true');
-        } else {
-          setIsQualified(false);
-          localStorage.removeItem(`offerwall_qualified_${userId}`);
-          // Fetch the qualification survey
-          const surveyRes = await fetch(`${baseUrl}/api/admin/surveys/qualification`);
-          if (surveyRes.ok) {
-            const surveyData = await surveyRes.json();
-            if (surveyData.survey) {
-              setQualificationSurvey(surveyData.survey);
-            }
-          }
-          // Fetch new user offer IDs (starter offers)
-          const offersRes = await fetch(`${baseUrl}/api/admin/offerwall-management/new-user-offers`);
-          if (offersRes.ok) {
-            const offersData = await offersRes.json();
-            setNewUserOfferIds(offersData.offer_ids || offersData.new_user_offer_ids || []);
-          }
-        }
-      } else {
-        // API error — check localStorage as fallback
-        const localKey = `offerwall_qualified_${userId}`;
-        const localValue = localStorage.getItem(localKey);
-        setIsQualified(localValue === 'true');
-      }
-    } catch (e) {
-      console.warn('Failed to check qualification:', e);
-      // On network error, use localStorage as fallback
-      const localKey = `offerwall_qualified_${userId}`;
-      const localValue = localStorage.getItem(localKey);
-      setIsQualified(localValue === 'true');
-    }
+      const r = await fetch(`${baseUrl}/api/admin/surveys/qualification/check?user_id=${encodeURIComponent(userId)}`);
+      if (r.ok) { const d = await r.json(); if (d.qualified) { setIsQualified(true); localStorage.setItem(`offerwall_qualified_${userId}`, 'true'); } else { setIsQualified(false); localStorage.removeItem(`offerwall_qualified_${userId}`); try { const sr = await fetch(`${baseUrl}/api/admin/surveys/qualification`); if (sr.ok) { const sd = await sr.json(); if (sd.survey) setQualSurvey(sd.survey); } } catch {} try { const or = await fetch(`${baseUrl}/api/admin/offerwall-management/new-user-offers`); if (or.ok) { const od = await or.json(); setNewUserIds(od.offer_ids || od.new_user_offer_ids || []); } } catch {} } }
+      else setIsQualified(localStorage.getItem(`offerwall_qualified_${userId}`) === 'true');
+    } catch { setIsQualified(localStorage.getItem(`offerwall_qualified_${userId}`) === 'true'); }
   };
 
-  const handleQualificationSubmit = async () => {
-    if (!qualificationSurvey) return;
-    try {
-      const answers = Object.entries(qualificationAnswers).map(([questionId, answer]) => ({
-        question_id: questionId,
-        answer: answer
-      }));
-
-      const res = await fetch(`${baseUrl}/api/admin/surveys/public/${qualificationSurvey._id}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: userId,
-          answers: answers,
-          time_spent_seconds: 0
-        })
-      });
-
-      if (res.ok) {
-        localStorage.setItem(`offerwall_qualified_${userId}`, 'true');
-        setIsQualified(true);
-        setShowQualificationSurvey(false);
-        setQualificationAnswers({});
-        setQualificationSection(0);
-        loadOffers();
-      }
-    } catch (e) {
-      console.error('Failed to submit qualification survey:', e);
-    }
+  const handleQualSubmit = async () => {
+    if (!qualSurvey) return;
+    try { const ans = Object.entries(qualAnswers).map(([qid, a]) => ({ question_id: qid, answer: a })); const r = await fetch(`${baseUrl}/api/admin/surveys/public/${qualSurvey._id}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: userId, answers: ans, time_spent_seconds: 0 }) }); if (r.ok) { localStorage.setItem(`offerwall_qualified_${userId}`, 'true'); setIsQualified(true); setShowQual(false); setQualAnswers({}); setQualSection(0); loadOffers(); } } catch {}
   };
 
   const trackImpression = async () => {
-    try {
-      // Generate or retrieve session ID for this offerwall visit
-      const sessionKey = `offerwall_session_${placementId}_${userId}`;
-      let sessionId = sessionStorage.getItem(sessionKey);
-      if (!sessionId) {
-        sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-        sessionStorage.setItem(sessionKey, sessionId);
-      }
-
-      await fetch(`${baseUrl}/api/offerwall/track/impression`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: sessionId,
-          placement_id: placementId,
-          user_id: userId,
-          user_agent: navigator.userAgent,
-          referrer: document.referrer
-        })
-      });
-    } catch (err) {
-      console.warn('Failed to track impression:', err);
-    }
+    try { const sk = `offerwall_session_${placementId}_${userId}`; let sid = sessionStorage.getItem(sk); if (!sid) { sid = `s_${Date.now()}_${Math.random().toString(36).slice(2,10)}`; sessionStorage.setItem(sk, sid); } await fetch(`${baseUrl}/api/offerwall/track/impression`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ session_id: sid, placement_id: placementId, user_id: userId, user_agent: navigator.userAgent, referrer: document.referrer }) }); } catch {}
   };
 
   const loadOffers = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetch(
-        `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000`
-      );
-
-      if (!response.ok) throw new Error('Failed to load offers');
-
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
-
-      // Store currency name from placement config
-      setCurrencyName(data.currency_name || 'Points');
-
-      // Also fetch active survey funnels and inject them as offer cards
-      let funnelOffers: any[] = [];
-      try {
-        const funnelRes = await fetch(`${baseUrl}/api/survey-funnel/active?placement=offerwall`);
-        if (funnelRes.ok) {
-          const funnelData = await funnelRes.json();
-          funnelOffers = funnelData.funnels || [];
-        }
-      } catch (e) {
-        console.warn('Failed to load survey funnels:', e);
-      }
-
-      // Merge: funnels at the top, then regular offers
-      setOffers([...funnelOffers, ...(data.offers || [])]);
-    } catch (err) {
-      console.error('Error loading offers:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load offers');
-    } finally {
-      setLoading(false);
-    }
+    try { setLoading(true); setError(null); const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000`); if (!r.ok) throw new Error('Failed'); const d = await r.json(); if (d.error) throw new Error(d.error); setCurrency(d.currency_name || 'LEaDS'); let funnels: any[] = []; try { const fr = await fetch(`${baseUrl}/api/survey-funnel/active?placement=offerwall`); if (fr.ok) funnels = (await fr.json()).funnels || []; } catch {} setOffers([...funnels, ...(d.offers || [])]); } catch (e) { setError(e instanceof Error ? e.message : 'Error'); } finally { setLoading(false); }
   };
 
-  const loadDisplaySettings = async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/admin/offerwall-management/display-settings`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.theme) setDisplaySettings(prev => ({ ...prev, ...data.theme }));
-        if (data.announcements) setAnnouncements(data.announcements);
-      }
-    } catch (e) {
-      // Silently fail - use defaults
-    }
+  const loadSettings = async () => { try { const r = await fetch(`${baseUrl}/api/admin/offerwall-management/display-settings`); if (r.ok) { const d = await r.json(); if (d.theme) setDisplaySettings(p => ({ ...p, ...d.theme })); if (d.announcements) setAnnouncements(d.announcements); } } catch {} };
+  const loadSubWalls = async () => { try { const r = await fetch(`${baseUrl}/api/admin/sub-walls/public/list?user_id=${encodeURIComponent(userId)}&placement_id=${encodeURIComponent(placementId)}`); if (r.ok) { const d = await r.json(); if (d.sub_walls) setSubWalls(d.sub_walls); } } catch {} };
+
+  const applyFilters = () => {
+    let f = [...offers];
+    if (isQualified === null) { setFiltered([]); return; }
+    if (!isQualified) { if (newUserIds.length > 0) f = f.filter(o => newUserIds.includes(o.id) || newUserIds.includes((o as any).offer_id) || newUserIds.includes((o as any)._id)); else f = []; }
+
+    const catMap: Record<string, string[]> = { 'HEALTH':['HEALTH','HEALTHCARE','MEDICAL'],'SURVEY':['SURVEY','SURVEYS'],'SWEEPSTAKES':['SWEEPSTAKES','SWEEPS','GIVEAWAY','PRIZE','LOTTERY','RAFFLE','CONTEST'],'EDUCATION':['EDUCATION','LEARNING'],'INSURANCE':['INSURANCE'],'LOAN':['LOAN','LOANS','LENDING'],'FINANCE':['FINANCE','FINANCIAL'],'DATING':['DATING','RELATIONSHIPS'],'FREE_TRIAL':['FREE_TRIAL','FREETRIAL','TRIAL'],'INSTALLS':['INSTALLS','INSTALL','APP','APPS'],'GAMES_INSTALL':['GAMES_INSTALL','GAMESINSTALL','GAME','GAMES','GAMING'] };
+    if (category !== 'all') { const m = catMap[category.toUpperCase()] || [category.toUpperCase()]; f = f.filter(o => { const cats = (o as any).categories; if (Array.isArray(cats) && cats.length) return cats.some((c:string) => m.includes(c.toUpperCase())); return m.includes((o.category||'').toUpperCase()); }); }
+    if (search) { const t = search.toLowerCase(); f = f.filter(o => o.title.toLowerCase().includes(t) || o.description.toLowerCase().includes(t)); }
+    if (device !== 'all') f = f.filter(o => { const ds = (o.device_targeting || o.devices?.join(' ') || '').toLowerCase(); if (device === 'android') return ds.includes('android'); if (device === 'ios') return ds.includes('ios') || ds.includes('iphone'); if (device === 'desktop') return ds.includes('web') || ds.includes('desktop'); return true; });
+    if (payoutType !== 'all') f = f.filter(o => ((o as any).payout_type || '').toLowerCase().includes(payoutType));
+
+    f.sort((a, b) => { switch (sort) { case 'points_high': return (b.reward_amount||0) - (a.reward_amount||0); case 'points_low': return (a.reward_amount||0) - (b.reward_amount||0); case 'newest': return new Date(b.estimated_time||0).getTime() - new Date(a.estimated_time||0).getTime(); case 'rating': return (b.star_rating||5) - (a.star_rating||5); default: return (b.star_rating||5)*(b.reward_amount||1) - (a.star_rating||5)*(a.reward_amount||1); } });
+    setFiltered(f);
   };
 
-  const loadSubWalls = async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/admin/sub-walls/public/list?user_id=${encodeURIComponent(userId)}&placement_id=${encodeURIComponent(placementId)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.sub_walls) setSubWalls(data.sub_walls);
-      }
-    } catch (e) {
-      // Silently fail - sub-walls are optional
-    }
-  };
+  const handleClick = (o: Offer) => { if ((o as any).is_funnel && (o as any).funnel_id) { startFunnel((o as any).funnel_id); return; } setSelOffer(o); setModalOpen(true); };
+  const startFunnel = async (id: string) => { try { const r = await fetch(`${baseUrl}/api/survey-funnel/${id}/start`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({user_id:userId}) }); if (r.ok) { const d = await r.json(); setFunnelSess(d.session_id); setFunnelStep(d.step_index); setFunnelSurvey(d.survey); setFunnel(id); setFunnelResult(null); setFunnelAns({}); setFunnelTpl((d.survey_template||'modern-card') as TemplateName); } } catch {} };
+  const submitFunnel = async () => { if (!funnel || !funnelSurvey) return; setFunnelSubmitting(true); try { const ans = Object.entries(funnelAns).map(([i,a])=>({question_index:Number(i),answer:a})); const r = await fetch(`${baseUrl}/api/survey-funnel/${funnel}/submit`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:funnelSess,step_index:funnelStep,answers:ans})}); if (r.ok) { const d = await r.json(); if (d.result==='passed') { setFunnelResult({type:'pass',message:d.message,redirect_url:d.redirect_url}); if (d.redirect_url) setTimeout(()=>window.open(d.redirect_url,'_blank'),2000); } else { if (d.has_next&&d.next_survey) { setFunnelResult({type:'fail',message:d.message,has_next:true}); setTimeout(()=>{setFunnelStep(d.next_step_index);setFunnelSurvey(d.next_survey);setFunnelResult(null);setFunnelAns({});},2000); } else setFunnelResult({type:'fail',message:d.message,has_next:false}); } } } catch {} finally { setFunnelSubmitting(false); } };
+  const closeFunnel = () => { setFunnel(null); setFunnelSess(''); setFunnelSurvey(null); setFunnelResult(null); setFunnelAns({}); setFunnelStep(0); };
 
-  const filterOffers = () => {
-    let filtered = offers;
+  if (loading && !showPreloader) return (
+    <div className="ow min-h-screen flex items-center justify-center"><div className="text-center"><div className="ow-spinner mx-auto mb-4"></div><p className="text-[#4a4452] text-sm">Loading…</p></div></div>
+  );
 
-    // If qualification status is still loading (null), show nothing yet
-    if (isQualified === null) {
-      setFilteredOffers([]);
-      return;
-    }
-
-    // If user is NOT qualified, ONLY show starter offers — no exceptions
-    if (!isQualified) {
-      if (newUserOfferIds.length > 0) {
-        filtered = filtered.filter(offer => 
-          newUserOfferIds.includes(offer.id) || 
-          newUserOfferIds.includes((offer as any).offer_id) ||
-          newUserOfferIds.includes((offer as any)._id)
-        );
-      } else {
-        filtered = []; // No offers for new users until admin sets starter offers
-      }
-    }
-
-    // Map category names for backward compatibility (all uppercase)
-    const categoryMappings: Record<string, string[]> = {
-      'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
-      'SURVEY': ['SURVEY', 'SURVEYS'],
-      'EDUCATION': ['EDUCATION', 'LEARNING'],
-      'INSURANCE': ['INSURANCE'],
-      'LOAN': ['LOAN', 'LOANS', 'LENDING'],
-      'FINANCE': ['FINANCE', 'FINANCIAL'],
-      'DATING': ['DATING', 'RELATIONSHIPS'],
-      'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
-      'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
-      'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-    };
-
-    if (selectedCategory !== 'all') {
-      const catUpper = selectedCategory.toUpperCase();
-      const matchingCategories = categoryMappings[catUpper] || [catUpper];
-      filtered = filtered.filter(offer => {
-        // Check categories array first (new multi-category system)
-        const cats = (offer as any).categories;
-        if (Array.isArray(cats) && cats.length > 0) {
-          return cats.some((c: string) => matchingCategories.includes(c.toUpperCase()));
-        }
-        // Fallback to old single category
-        return matchingCategories.includes((offer.category || '').toUpperCase());
-      });
-    }
-
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(offer =>
-        offer.title.toLowerCase().includes(term) ||
-        offer.description.toLowerCase().includes(term)
-      );
-    }
-
-    // Country filter
-    if (selectedCountry !== 'all') {
-      const countryUpper = selectedCountry.toUpperCase();
-      filtered = filtered.filter(offer => {
-        const countries = (offer as any).countries || [];
-        // If offer has no country restrictions, show it for all
-        if (!countries || countries.length === 0) return true;
-        // Check if selected country is in the offer's countries list
-        return countries.some((c: string) => c.toUpperCase() === countryUpper);
-      });
-    }
-
-    setFilteredOffers(filtered);
-  };
-
-  const handleOfferClick = (offer: Offer) => {
-    // Check if this is a survey funnel offer
-    if ((offer as any).is_funnel && (offer as any).funnel_id) {
-      startFunnel((offer as any).funnel_id);
-      return;
-    }
-    setSelectedOffer(offer);
-    setModalOpen(true);
-  };
-
-  const startFunnel = async (funnelId: string) => {
-    try {
-      const res = await fetch(`${baseUrl}/api/survey-funnel/${funnelId}/start`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: userId })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setFunnelSession(data.session_id);
-        setFunnelStep(data.step_index);
-        setFunnelSurvey(data.survey);
-        setActiveFunnel(funnelId);
-        setFunnelResult(null);
-        setFunnelAnswers({});
-        setFunnelTemplate((data.survey_template || 'modern-card') as TemplateName);
-      }
-    } catch (e) {
-      console.error('Failed to start funnel:', e);
-    }
-  };
-
-  const submitFunnelStep = async () => {
-    if (!activeFunnel || !funnelSurvey) return;
-    setFunnelSubmitting(true);
-    try {
-      const answers = Object.entries(funnelAnswers).map(([qIdx, answer]) => ({
-        question_index: Number(qIdx),
-        answer
-      }));
-
-      const res = await fetch(`${baseUrl}/api/survey-funnel/${activeFunnel}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          session_id: funnelSession,
-          step_index: funnelStep,
-          answers
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data.result === 'passed') {
-          setFunnelResult({ type: 'pass', message: data.message, redirect_url: data.redirect_url });
-          // Auto-redirect after 2 seconds
-          if (data.redirect_url) {
-            setTimeout(() => { window.open(data.redirect_url, '_blank'); }, 2000);
-          }
-        } else {
-          // Failed
-          if (data.has_next && data.next_survey) {
-            setFunnelResult({ type: 'fail', message: data.message, has_next: true });
-            // After showing fail message briefly, load next survey
-            setTimeout(() => {
-              setFunnelStep(data.next_step_index);
-              setFunnelSurvey(data.next_survey);
-              setFunnelResult(null);
-              setFunnelAnswers({});
-            }, 2000);
-          } else {
-            // Final fail — no more surveys
-            setFunnelResult({ type: 'fail', message: data.message, has_next: false });
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Failed to submit funnel step:', e);
-    } finally {
-      setFunnelSubmitting(false);
-    }
-  };
-
-  const closeFunnel = () => {
-    setActiveFunnel(null);
-    setFunnelSession('');
-    setFunnelSurvey(null);
-    setFunnelResult(null);
-    setFunnelAnswers({});
-    setFunnelStep(0);
-  };
-
-  const getDefaultImage = (category: string) => {
-    const gradients = {
-      survey: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      app: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-      game: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)',
-      video: 'linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)',
-      shopping: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)',
-      signup: 'linear-gradient(135deg, #30cfd0 0%, #330867 100%)',
-    };
-    return gradients[category.toLowerCase() as keyof typeof gradients] || gradients.survey;
-  };
-
-  const getCategoryEmoji = (category: string) => {
-    const emojis: Record<string, string> = {
-      survey: '📋',
-      app: '📱',
-      game: '🎮',
-      video: '🎬',
-      shopping: '🛍️',
-      signup: '✍️',
-      general: '⭐'
-    };
-    return emojis[category.toLowerCase()] || '⭐';
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-white text-lg">Loading amazing offers...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-8 max-w-md text-center">
-          <div className="text-red-500 text-5xl mb-4">⚠️</div>
-          <h2 className="text-white text-xl font-bold mb-2">Oops! Something went wrong</h2>
-          <p className="text-gray-400 mb-4">{error}</p>
-          <button
-            onClick={loadOffers}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
-          >
-            Try Again
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (error) return (
+    <div className="ow min-h-screen flex items-center justify-center p-4"><div className="bg-white rounded-2xl shadow-xl p-8 max-w-sm text-center border border-gray-100"><div className="text-4xl mb-3">⚠️</div><h2 className="text-lg font-bold text-gray-900 mb-2">Something went wrong</h2><p className="text-gray-500 text-sm mb-4">{error}</p><button onClick={loadOffers} className="ow-btn">Try Again</button></div></div>
+  );
 
   return (
-    <div className="min-h-screen" style={{ background: displaySettings.background_color || '#0f172a', '--primary-color': displaySettings.primary_color } as React.CSSProperties}>
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-slate-900/95 backdrop-blur-lg border-b border-slate-700/50">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between mb-4">
+    <div className="ow min-h-screen flex flex-col">
+      {/* === PRELOADER OVERLAY === */}
+      {showPreloader && (
+        <OfferwallPreloader
+          dataReady={!loading}
+          onComplete={() => setShowPreloader(false)}
+        />
+      )}
+      {/* === HERO BANNER (taller, with category buttons ON it) === */}
+      <div className="ow-hero relative overflow-hidden group">
+        {/* Background image - Alps snow mountains */}
+        <img src="https://i.postimg.cc/kMwzxqqW/alps-snow-mountains-7680x4320-25451.jpg" alt="" className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        {/* Lighter overlay - so image is more visible */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/40 z-[1]"></div>
+        {/* Floating blocks animation on hover */}
+        <div className="absolute inset-0 z-[2] pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+          <div className="ow-block ow-block-1"></div>
+          <div className="ow-block ow-block-2"></div>
+          <div className="ow-block ow-block-3"></div>
+          <div className="ow-block ow-block-4"></div>
+          <div className="ow-block ow-block-5"></div>
+        </div>
+        <div className="relative z-10 max-w-[1300px] mx-auto px-4 md:px-8 flex flex-col justify-between" style={{ minHeight: '280px', paddingTop: '24px', paddingBottom: '0' }}>
+          {/* Top row: Logo + Currency */}
+          <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-                <span className="text-xl font-black text-white">ML</span>
-              </div>
+              <img src="/logo.png" alt="Moustache Leads" className="h-14 md:h-16 w-auto drop-shadow-xl" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
               <div>
-                <h1 className="text-2xl font-bold text-white">Earn Rewards</h1>
-                <p className="text-sm text-gray-400">Complete tasks & earn instantly</p>
+                <h1 className="text-white font-black text-2xl md:text-3xl tracking-tight" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.7), 0 0 20px rgba(0,0,0,0.3)' }}>Moustache Leads</h1>
+                <p className="text-white font-semibold text-sm md:text-base mt-0.5" style={{ textShadow: '0 1px 6px rgba(0,0,0,0.6)' }}>Complete offers. Earn rewards instantly.</p>
               </div>
             </div>
-            <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-lg px-4 py-2">
-              <div className="text-xs text-gray-400 uppercase tracking-wide">Today's {currencyName}</div>
-              <div className="text-2xl font-bold text-green-400">{Math.round(todayEarnings).toLocaleString()}</div>
+            <div className="bg-white/20 backdrop-blur-sm border border-white/30 px-5 py-2.5 rounded-full shadow-lg">
+              <span className="text-white font-bold text-sm md:text-base" style={{ textShadow: '0 1px 4px rgba(0,0,0,0.5)' }}>{currency}: {earnings.toLocaleString()}</span>
             </div>
           </div>
 
-          {/* Search Bar */}
-          {displaySettings.show_search && (
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search offers by name or description..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-800/50 border border-slate-700 rounded-lg pl-12 pr-4 py-3 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white"
-              >
-                <X className="w-5 h-5" />
+          {/* Category buttons - at the BOTTOM edge of the banner */}
+          <div className="flex items-center gap-2 overflow-x-auto pt-6 pb-3 scrollbar-hide -mb-[1px]">
+            {CATEGORIES.map(cat => (
+              <button key={cat.id} onClick={() => setCategory(cat.id)}
+                className={`ow-cat-btn ${category === cat.id ? 'ow-cat-btn-active' : ''}`}>
+                {cat.name}
               </button>
-            )}
-          </div>
-          )}
-        </div>
-
-        {/* Category Filter Dropdown */}
-        {displaySettings.show_categories && (
-        <div className="border-t border-slate-700/50 bg-slate-800/30">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
-            <span className="text-gray-400 text-sm whitespace-nowrap">Filter by:</span>
-            <div className="relative w-full max-w-xs">
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full appearance-none bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer pr-8"
-              >
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                    {cat.icon} {cat.name}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
-
-            {/* Country Filter */}
-            <div className="relative w-full max-w-[180px]">
-              <select
-                value={selectedCountry}
-                onChange={(e) => setSelectedCountry(e.target.value)}
-                className="w-full appearance-none bg-slate-700/50 border border-slate-600 rounded-lg px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer pr-8"
-              >
-                <option value="all" className="bg-slate-800 text-white">🌍 All Countries</option>
-                <option value="US" className="bg-slate-800 text-white">🇺🇸 United States</option>
-                <option value="GB" className="bg-slate-800 text-white">🇬🇧 United Kingdom</option>
-                <option value="CA" className="bg-slate-800 text-white">🇨🇦 Canada</option>
-                <option value="AU" className="bg-slate-800 text-white">🇦🇺 Australia</option>
-                <option value="DE" className="bg-slate-800 text-white">🇩🇪 Germany</option>
-                <option value="FR" className="bg-slate-800 text-white">🇫🇷 France</option>
-                <option value="IN" className="bg-slate-800 text-white">🇮🇳 India</option>
-                <option value="BR" className="bg-slate-800 text-white">🇧🇷 Brazil</option>
-                <option value="MX" className="bg-slate-800 text-white">🇲🇽 Mexico</option>
-                <option value="ES" className="bg-slate-800 text-white">🇪🇸 Spain</option>
-                <option value="IT" className="bg-slate-800 text-white">🇮🇹 Italy</option>
-                <option value="NL" className="bg-slate-800 text-white">🇳🇱 Netherlands</option>
-                <option value="SE" className="bg-slate-800 text-white">🇸🇪 Sweden</option>
-                <option value="NO" className="bg-slate-800 text-white">🇳🇴 Norway</option>
-                <option value="DK" className="bg-slate-800 text-white">🇩🇰 Denmark</option>
-                <option value="PL" className="bg-slate-800 text-white">🇵🇱 Poland</option>
-                <option value="JP" className="bg-slate-800 text-white">🇯🇵 Japan</option>
-                <option value="KR" className="bg-slate-800 text-white">🇰🇷 South Korea</option>
-                <option value="SG" className="bg-slate-800 text-white">🇸🇬 Singapore</option>
-                <option value="AE" className="bg-slate-800 text-white">🇦🇪 UAE</option>
-                <option value="SA" className="bg-slate-800 text-white">🇸🇦 Saudi Arabia</option>
-                <option value="ZA" className="bg-slate-800 text-white">🇿🇦 South Africa</option>
-                <option value="NG" className="bg-slate-800 text-white">🇳🇬 Nigeria</option>
-                <option value="ID" className="bg-slate-800 text-white">🇮🇩 Indonesia</option>
-                <option value="TH" className="bg-slate-800 text-white">🇹🇭 Thailand</option>
-                <option value="PH" className="bg-slate-800 text-white">🇵🇭 Philippines</option>
-                <option value="VN" className="bg-slate-800 text-white">🇻🇳 Vietnam</option>
-                <option value="TR" className="bg-slate-800 text-white">🇹🇷 Turkey</option>
-                <option value="RU" className="bg-slate-800 text-white">🇷🇺 Russia</option>
-                <option value="AR" className="bg-slate-800 text-white">🇦🇷 Argentina</option>
-                <option value="CL" className="bg-slate-800 text-white">🇨🇱 Chile</option>
-                <option value="CO" className="bg-slate-800 text-white">🇨🇴 Colombia</option>
-                <option value="PE" className="bg-slate-800 text-white">🇵🇪 Peru</option>
-                <option value="EG" className="bg-slate-800 text-white">🇪🇬 Egypt</option>
-                <option value="IL" className="bg-slate-800 text-white">🇮🇱 Israel</option>
-                <option value="HK" className="bg-slate-800 text-white">🇭🇰 Hong Kong</option>
-                <option value="TW" className="bg-slate-800 text-white">🇹🇼 Taiwan</option>
-                <option value="MY" className="bg-slate-800 text-white">🇲🇾 Malaysia</option>
-                <option value="NZ" className="bg-slate-800 text-white">🇳🇿 New Zealand</option>
-                <option value="CH" className="bg-slate-800 text-white">🇨🇭 Switzerland</option>
-                <option value="AT" className="bg-slate-800 text-white">🇦🇹 Austria</option>
-                <option value="BE" className="bg-slate-800 text-white">🇧🇪 Belgium</option>
-                <option value="PT" className="bg-slate-800 text-white">🇵🇹 Portugal</option>
-                <option value="IE" className="bg-slate-800 text-white">🇮🇪 Ireland</option>
-                <option value="FI" className="bg-slate-800 text-white">🇫🇮 Finland</option>
-                <option value="CZ" className="bg-slate-800 text-white">🇨🇿 Czech Republic</option>
-                <option value="RO" className="bg-slate-800 text-white">🇷🇴 Romania</option>
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
-        )}
       </div>
 
-      {/* Announcements Banner */}
-      {announcements.length > 0 && (
-        <div className="max-w-7xl mx-auto px-4 pt-4">
-          {announcements.map(ann => (
-            <div key={ann.id} className="bg-blue-500/20 border border-blue-500/30 rounded-lg px-4 py-2 mb-2 text-blue-200 text-sm">
-              📢 {ann.text}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* === CONTROLS BAR === */}
+      <div className="bg-gray-50/80 border-b border-gray-100">
+        <div className="max-w-[1300px] mx-auto px-4 md:px-8 py-3 flex flex-wrap items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input type="text" placeholder="Search…" value={search} onChange={e => setSearch(e.target.value)}
+              className="w-full bg-white border border-gray-200 rounded-lg pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#340075]/20 focus:border-[#340075]/40" />
+            {search && <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"><X className="w-3.5 h-3.5" /></button>}
+          </div>
 
-      {/* Offers Grid */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Qualification Survey Card — always show for unqualified users */}
-        {!isQualified && qualificationSurvey && !searchTerm && (
-          <div
-            onClick={() => setShowQualificationSurvey(true)}
-            className="mb-6 group bg-white rounded-2xl overflow-hidden hover:shadow-2xl hover:shadow-purple-500/20 transition-all duration-300 cursor-pointer border-2 border-purple-200 hover:border-purple-400"
-          >
-            <div className="flex items-center gap-5 p-6">
-              <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-3xl bg-gradient-to-br from-purple-500 to-indigo-600 shadow-lg">
-                {qualificationSurvey.display_image_url ? (
-                  <img src={qualificationSurvey.display_image_url} alt="" className="w-full h-full object-cover rounded-2xl" />
-                ) : '📋'}
+          {/* Device */}
+          <select value={device} onChange={e => setDevice(e.target.value)} className="ow-select">{DEVICE_OPTIONS.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
+          {/* Payout Type */}
+          <select value={payoutType} onChange={e => setPayoutType(e.target.value)} className="ow-select">{PAYOUT_TYPE_OPTIONS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+          {/* Sort */}
+          <select value={sort} onChange={e => setSort(e.target.value)} className="ow-select">{SORT_OPTIONS.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+
+          {/* View Toggle */}
+          <div className="ml-auto flex items-center bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <button onClick={() => setViewMode('grid')} className={`p-2 ${viewMode === 'grid' ? 'bg-[#340075] text-white' : 'text-gray-500 hover:text-gray-700'}`}><LayoutGrid className="w-4 h-4" /></button>
+            <button onClick={() => setViewMode('table')} className={`p-2 ${viewMode === 'table' ? 'bg-[#340075] text-white' : 'text-gray-500 hover:text-gray-700'}`}><List className="w-4 h-4" /></button>
+          </div>
+        </div>
+      </div>
+
+      {/* === MAIN === */}
+      <main className="flex-1 max-w-[1300px] mx-auto w-full px-4 md:px-8 py-6">
+        {/* Announcements */}
+        {announcements.length > 0 && <div className="mb-5">{announcements.map(a => <div key={a.id} className="bg-purple-50 border border-purple-100 rounded-xl px-4 py-2.5 mb-2 text-[#340075] text-sm flex items-center gap-2"><Sparkles className="h-4 w-4 flex-shrink-0" />{a.text}</div>)}</div>}
+
+        {/* Qualification */}
+        {!isQualified && qualSurvey && !search && viewMode === 'grid' && (
+          <div onClick={() => setShowQual(true)} className="mb-6 bg-white rounded-2xl border-2 border-purple-200 hover:border-[#340075]/40 overflow-hidden cursor-pointer hover:shadow-lg transition-all group">
+            <div className="flex flex-col sm:flex-row">
+              {/* Image */}
+              <div className="relative w-full sm:w-48 h-36 sm:h-auto flex-shrink-0 overflow-hidden">
+                <img
+                  src={qualSurvey.display_image_url || 'https://images.unsplash.com/photo-1551434678-e076c223a692?w=400&h=300&fit=crop&q=80'}
+                  alt="Survey"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                />
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-white/20 sm:bg-gradient-to-t sm:from-transparent sm:to-transparent"></div>
               </div>
-              <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs bg-purple-100 text-purple-700 px-2.5 py-0.5 rounded-full font-semibold">⭐ Featured</span>
+              {/* Content */}
+              <div className="flex items-center gap-4 p-5 flex-1">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    {/* Blinking LIVE tag */}
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider text-white bg-red-500">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                      LIVE
+                    </span>
+                    <span className="text-[10px] font-bold tracking-wider uppercase text-red-600">Required</span>
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-base group-hover:text-[#340075] transition-colors">{qualSurvey.display_title || 'Qualification Survey'}</h3>
+                  <p className="text-gray-500 text-sm mt-0.5 truncate">{qualSurvey.display_description || 'Complete to unlock all offers and start earning'}</p>
                 </div>
-                <h3 className="text-gray-900 font-bold text-lg group-hover:text-purple-700 transition-colors">{qualificationSurvey.display_title || 'Qualification Survey'}</h3>
-                <p className="text-gray-500 text-sm">{qualificationSurvey.display_description || 'Complete this survey to unlock all offers and start earning'}</p>
-              </div>
-              <div className="bg-gradient-to-br from-purple-500 to-indigo-600 rounded-xl px-5 py-3 text-center shadow-lg">
-                <span className="text-white font-bold text-xl">+{qualificationSurvey.points || 6}</span>
-                <span className="text-purple-100 text-xs block">points</span>
+                <div className="bg-purple-50 px-3 py-2 rounded-xl flex-shrink-0 text-center">
+                  <span className="text-[#340075] font-bold text-lg block">+{qualSurvey.points || 6}</span>
+                  <span className="text-[#340075]/60 text-[10px] font-semibold uppercase">{currency}</span>
+                </div>
               </div>
             </div>
           </div>
         )}
 
-        {filteredOffers.length === 0 && isQualified ? (
-          <div className="text-center py-16">
-            <div className="text-6xl mb-4">🔍</div>
-            <h3 className="text-white text-xl font-bold mb-2">No offers found</h3>
-            <p className="text-gray-400">Try adjusting your search or filters</p>
-          </div>
-        ) : filteredOffers.length === 0 && !isQualified ? (
-          <div className="text-center py-8">
-            <p className="text-gray-400">Complete the qualification survey above to unlock all offers</p>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center justify-between mb-6">
-              <p className="text-gray-400">
-                Showing <span className="text-white font-semibold">{filteredOffers.length}</span> offers
-              </p>
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <TrendingUp className="w-4 h-4" />
-                <span>Sorted by highest payout</span>
+        {/* Qualification - Table/Row mode */}
+        {!isQualified && qualSurvey && !search && viewMode === 'table' && (
+          <div className="mb-4">
+            <div onClick={() => setShowQual(true)}
+              className="bg-white rounded-xl border-2 border-purple-200 hover:border-[#340075]/40 px-5 py-4 cursor-pointer transition-all group grid grid-cols-1 md:grid-cols-[1fr_140px_140px_120px] items-center gap-3 md:gap-0 hover:shadow-md">
+              {/* Offer info */}
+              <div className="flex items-center gap-4">
+                <img
+                  src={qualSurvey.display_image_url || 'https://images.unsplash.com/photo-1551434678-e076c223a692?w=100&h=100&fit=crop&q=80'}
+                  alt="Survey"
+                  className="w-12 h-12 rounded-xl object-cover flex-shrink-0 shadow-sm"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase text-white bg-red-500">
+                      <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                      LIVE
+                    </span>
+                  </div>
+                  <p className="font-semibold text-gray-900 text-sm group-hover:text-[#340075] transition-colors">{qualSurvey.display_title || 'Qualification Survey'}</p>
+                  <p className="text-gray-400 text-xs mt-0.5 truncate">{qualSurvey.display_description || 'Complete to unlock all offers'}</p>
+                </div>
+              </div>
+              {/* Category */}
+              <div className="md:text-center">
+                <span className="text-[10px] font-bold tracking-wider uppercase text-white bg-red-500 px-2.5 py-1 rounded-full">Required</span>
+              </div>
+              {/* Reward */}
+              <div className="md:text-center">
+                <span className="font-bold text-[#340075] text-sm">+{qualSurvey.points || 6} {currency}</span>
+              </div>
+              {/* Action */}
+              <div className="md:text-right">
+                <button className="text-xs font-semibold text-white bg-red-500 hover:bg-red-600 px-4 py-2 rounded-lg transition-all hover:shadow-md">
+                  Start Now
+                </button>
               </div>
             </div>
+          </div>
+        )}
 
-            {/* Sub-Wall Cards - rendered inside the grid below */}
+        {/* Count */}
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-gray-500 text-sm"><span className="text-gray-900 font-semibold">{filtered.length}</span> offers {category !== 'all' && `in ${getCatName(category)}`}</p>
+        </div>
 
-            {/* Table Layout */}
-            {displaySettings.layout === 'table' ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-700">
-                      <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Offer</th>
-                      <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Category</th>
-                      <th className="text-left text-gray-400 text-sm font-medium py-3 px-4">Countries</th>
-                      <th className="text-right text-gray-400 text-sm font-medium py-3 px-4">{currencyName}</th>
-                      <th className="text-right text-gray-400 text-sm font-medium py-3 px-4">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredOffers.map((offer) => {
-                      const points = Math.round(offer.reward_amount || 0);
-                      return (
-                        <tr
-                          key={offer.id}
-                          onClick={() => handleOfferClick(offer)}
-                          className="border-b border-slate-700/50 hover:bg-slate-800/50 cursor-pointer transition-colors"
-                        >
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-3">
-                              {offer.image_url && offer.image_url.startsWith('http') ? (
-                                <img 
-                                  src={offer.image_url} 
-                                  alt="" 
-                                  className="w-10 h-10 rounded-lg object-cover bg-slate-700"
-                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).style.background = getDefaultImage(offer.category); }}
-                                />
-                              ) : (
-                                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg" style={{ background: getDefaultImage(offer.category) }}>
-                                  {getCategoryEmoji(offer.category)}
-                                </div>
-                              )}
-                              <div className="min-w-0">
-                                <p className="text-white font-medium truncate max-w-[250px]">{truncateTitle(offer.title, 8)}</p>
-                                <p className="text-gray-500 text-xs truncate max-w-[250px]">{offer.description?.substring(0, 50)}</p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="text-xs bg-slate-700 text-gray-300 px-2 py-1 rounded">{offer.category}</span>
-                          </td>
-                          <td className="py-3 px-4">
-                            {getCountryDisplay(getOfferCountries(offer))}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <span className="text-green-400 font-bold">{points.toLocaleString()}</span>
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <button className="text-xs px-3 py-1.5 rounded-lg text-white font-medium" style={{ background: displaySettings.primary_color }}>
-                              Earn
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-            <div className="grid grid-cols-1 gap-6" style={{ gridTemplateColumns: displaySettings.layout === 'list' ? '1fr' : `repeat(auto-fill, minmax(${displaySettings.cards_per_row === 2 ? '400px' : displaySettings.cards_per_row === 4 ? '250px' : '300px'}, 1fr))` }}>
-              {/* Sub-Wall Cards inside the grid */}
-              {!searchTerm && subWalls.map((wall) => (
-                <div
-                  key={`wall-${wall._id}`}
-                  onClick={() => window.open(`https://walls.moustacheleads.com/wall/${wall.slug}`, '_blank')}
-                  className="group bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl overflow-hidden hover:border-blue-500/50 hover:shadow-xl hover:shadow-blue-500/10 transition-all duration-300 cursor-pointer"
-                >
-                  <div className="relative h-48 overflow-hidden">
-                    {wall.image_url ? (
-                      <img src={wall.image_url} alt={wall.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center" style={{ background: `linear-gradient(135deg, ${wall.theme_color || '#6366f1'}, #7c3aed)` }}>
-                        <span className="text-6xl">📦</span>
-                      </div>
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent"></div>
-                    <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-medium text-white">
-                      📦 COLLECTION
-                    </div>
-                  </div>
-                  <div className="p-5">
-                    <div className="mb-2">
-                      <div className="flex items-center gap-0.5">
-                        {[...Array(5)].map((_, i) => (
-                          <span key={i} className="text-sm text-yellow-400">★</span>
-                        ))}
-                      </div>
-                    </div>
-                    <h3 className="text-white font-bold text-lg mb-2 group-hover:text-blue-400 transition-colors">
-                      {wall.heading_text || wall.name}
-                    </h3>
-                    <p className="text-gray-400 text-sm mb-4 line-clamp-2">
-                      {wall.description || `${wall.offer_count} curated offers`}
-                    </p>
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-bold text-green-400">{wall.offer_count}</span>
-                        <span className="text-sm text-gray-400 uppercase">offers</span>
-                      </div>
-                    </div>
-                    <button className="w-full hover:opacity-90 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group-hover:shadow-lg" style={{ background: `linear-gradient(to right, ${wall.theme_color || displaySettings.primary_color}, #7c3aed)` }}>
-                      <span>View Collection</span>
-                      <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+        {/* Empty */}
+        {filtered.length === 0 && isQualified && (
+          <div className="text-center py-16"><p className="text-gray-400 text-lg mb-3">No offers match your filters</p><button onClick={() => { setSearch(''); setCategory('all'); setDevice('all'); setPayoutType('all'); }} className="ow-btn">Reset Filters</button></div>
+        )}
+        {filtered.length === 0 && !isQualified && <div className="text-center py-10 text-gray-500">Complete the qualification survey to unlock offers</div>}
 
-              {filteredOffers.map((offer) => {
-                const points = Math.round(offer.reward_amount || 0);
-                
+        {/* === TABLE VIEW (card-row style with gaps) === */}
+        {filtered.length > 0 && viewMode === 'table' && (
+          <div>
+            {/* Header row */}
+            <div className="hidden md:grid grid-cols-[1fr_140px_140px_120px] items-center px-5 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100 mb-3">
+              <span>Offer</span>
+              <span className="text-center">Category</span>
+              <span className="text-center">Reward</span>
+              <span className="text-right">Action</span>
+            </div>
+            {/* Offer rows with gaps */}
+            <div className="flex flex-col gap-3">
+              {filtered.map(offer => {
+                const pts = Math.round(offer.reward_amount || 0);
                 return (
-                  <div
-                    key={offer.id}
-                    onClick={() => handleOfferClick(offer)}
-                    className="group bg-slate-800/50 backdrop-blur-sm border border-slate-700/50 rounded-xl overflow-hidden hover:border-blue-500/50 hover:shadow-xl hover:shadow-blue-500/10 transition-all duration-300 cursor-pointer"
-                  >
-                    {/* Image */}
-                    <div className="relative h-48 overflow-hidden">
-                      {offer.image_url && offer.image_url.startsWith('http') ? (
-                        <img
-                          src={offer.image_url}
-                          alt={offer.title}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
-                      ) : (
-                        <div
-                          className="w-full h-full flex items-center justify-center text-6xl"
-                          style={{ background: getDefaultImage(offer.category) }}
-                        >
-                          {getCategoryEmoji(offer.category)}
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-transparent"></div>
-                      
-                      {/* Category Badge */}
-                      <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-medium text-white">
-                        {getCategoryEmoji(offer.category)} {offer.category}
+                  <div key={offer.id} onClick={() => handleClick(offer)}
+                    className="bg-white rounded-xl border border-gray-100 hover:border-purple-200 hover:shadow-md px-5 py-4 cursor-pointer transition-all group grid grid-cols-1 md:grid-cols-[1fr_140px_140px_120px] items-center gap-3 md:gap-0">
+                    {/* Offer info */}
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })}
+                        alt={offer.title}
+                        className="w-12 h-12 rounded-xl object-cover bg-gray-100 flex-shrink-0 shadow-sm"
+                        onError={(e) => { (e.target as HTMLImageElement).src = `/category-images/${(offer.category||'other').toLowerCase().replace(' ','_')}.png`; (e.target as HTMLImageElement).onerror = () => { (e.target as HTMLImageElement).src = '/category-images/other.png'; (e.target as HTMLImageElement).onerror = null; }; }}
+                      />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 8)}</p>
+                        <p className="text-gray-400 text-xs truncate mt-0.5">{offer.description?.substring(0, 70)}</p>
                       </div>
-
-                      {/* Urgency Badge */}
-                      {getUrgencyBadge(offer.urgency_type, offer.urgency)}
                     </div>
-
-                    {/* Content */}
-                    <div className="p-5">
-                      {/* Star Rating */}
-                      <div className="mb-2">
-                        {renderStarRating(offer.star_rating || 5)}
-                      </div>
-                      
-                      <h3 className="text-white font-bold text-lg mb-2 group-hover:text-blue-400 transition-colors">
-                        {truncateTitle(offer.title, 6)}
-                      </h3>
-                      
-                      {/* Country & Device Row */}
-                      <div className="flex items-center justify-between mb-3">
-                        {getCountryDisplay(getOfferCountries(offer))}
-                        <div className="flex items-center gap-1">
-                          {getDeviceIcon(offer.device_targeting || (offer.devices && offer.devices[0]))}
-                        </div>
-                      </div>
-                      
-                      <p className="text-gray-400 text-sm mb-4 line-clamp-2">
-                        {offer.description && offer.description.length > 80 
-                          ? offer.description.substring(0, 80) + '...' 
-                          : offer.description}
-                      </p>
-
-                      {/* Points Display */}
-                      <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-baseline gap-1">
-                          <span className="text-3xl font-bold text-green-400">
-                            {points.toLocaleString()}
-                          </span>
-                          <span className="text-sm text-gray-400 uppercase">
-                            {currencyName}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Action Button */}
-                      <button className="w-full hover:opacity-90 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 flex items-center justify-center gap-2 group-hover:shadow-lg" style={{ background: `linear-gradient(to right, ${displaySettings.primary_color}, #7c3aed)` }}>
-                        <span>Click to Earn</span>
-                        <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    {/* Category */}
+                    <div className="md:text-center">
+                      <span className="text-[10px] font-bold tracking-wider uppercase text-white bg-[#340075] px-2.5 py-1 rounded-full">{getCatName(offer.category)}</span>
+                    </div>
+                    {/* Reward */}
+                    <div className="md:text-center">
+                      <span className="font-bold text-[#340075] text-sm">+{pts.toLocaleString()} {currency}</span>
+                    </div>
+                    {/* Action */}
+                    <div className="md:text-right">
+                      <button className="text-xs font-semibold text-white bg-[#340075] hover:bg-[#4c1d95] px-4 py-2 rounded-lg transition-all hover:shadow-md">
+                        Start Offer
                       </button>
                     </div>
                   </div>
                 );
               })}
             </div>
-            )}
-          </>
+          </div>
         )}
-      </div>
 
-      {/* Survey Funnel Overlay — FULL SCREEN */}
-      {activeFunnel && (
-        <div className="fixed inset-0 z-50 bg-white flex flex-col">
-          {funnelResult ? (
-            <div className="flex-1 flex items-center justify-center bg-gradient-to-b from-slate-50 to-white">
-              <div className="text-center max-w-md p-8">
-                {funnelResult.type === 'pass' ? (
-                  <>
-                    <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-green-100 flex items-center justify-center">
-                      <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                    </div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Congratulations!</h2>
-                    <p className="text-gray-600 mb-6">{funnelResult.message}</p>
-                    {funnelResult.redirect_url && <p className="text-sm text-green-600 animate-pulse mb-4">Redirecting to your offer...</p>}
-                    <button onClick={closeFunnel} className="px-8 py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600">Done</button>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-orange-100 flex items-center justify-center">
-                      <span className="text-3xl">{funnelResult.has_next ? '🔄' : '😔'}</span>
-                    </div>
-                    <h2 className="text-xl font-bold text-gray-900 mb-2">{funnelResult.has_next ? "Not quite..." : "Sorry!"}</h2>
-                    <p className="text-gray-600 mb-6">{funnelResult.message}</p>
-                    {funnelResult.has_next ? (
-                      <p className="text-sm text-blue-500 animate-pulse">Loading next survey...</p>
-                    ) : (
-                      <button onClick={closeFunnel} className="px-8 py-3 bg-gray-700 text-white rounded-xl font-semibold hover:bg-gray-800">Back to Offers</button>
-                    )}
-                  </>
-                )}
+        {/* === GRID VIEW === */}
+        {filtered.length > 0 && viewMode === 'grid' && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {/* Sub-walls */}
+            {!search && subWalls.map(w => (
+              <div key={`sw-${w._id}`} onClick={() => window.open(`https://walls.moustacheleads.com/wall/${w.slug}`, '_blank')}
+                className="ow-card group cursor-pointer">
+                <div className="relative h-44 overflow-hidden rounded-t-2xl">
+                  {w.image_url ? <img src={w.image_url} alt={w.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /> : <div className="w-full h-full bg-gradient-to-br from-purple-100 to-indigo-100 flex items-center justify-center"><Award className="h-10 w-10 text-purple-300" /></div>}
+                  <div className="absolute top-3 right-3 bg-white/95 px-2.5 py-1 rounded-full shadow-sm text-xs font-bold text-[#340075]">{w.offer_count} offers</div>
+                </div>
+                <div className="p-4"><p className="text-[10px] font-bold tracking-wider uppercase text-teal-700 mb-1">Collection</p><h3 className="font-bold text-gray-900 text-sm mb-1">{w.heading_text || w.name}</h3><p className="text-gray-500 text-xs line-clamp-2 mb-3">{w.description}</p><button className="ow-btn w-full">View Collection</button></div>
               </div>
-            </div>
-          ) : funnelSurvey ? (
-            <div className="flex-1 relative">
-              <button onClick={closeFunnel} className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500 text-sm">✕</button>
-              <SurveyTemplateRenderer
-                template={funnelTemplate}
-                title={funnelSurvey.title || 'Survey'}
-                description={`Step ${funnelStep + 1} — Answer to qualify`}
-                questions={(funnelSurvey.questions || []).map((q: any) => ({ text: q.text, options: q.options || [] }))}
-                answers={funnelAnswers}
-                onAnswer={(qIdx, answer) => setFunnelAnswers(prev => ({ ...prev, [qIdx]: answer }))}
-                onSubmit={submitFunnelStep}
-                submitting={funnelSubmitting}
-                brandColor="#6366f1"
-              />
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center"><p className="text-gray-500">Loading survey...</p></div>
-          )}
-        </div>
-      )}
+            ))}
 
-      {/* Qualification Survey — Full Screen with Template */}
-      {showQualificationSurvey && qualificationSurvey && (
-        <div className="fixed inset-0 z-[9999]" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}>
-          {/* Close button */}
-          <button
-            onClick={() => setShowQualificationSurvey(false)}
-            className="fixed top-4 right-4 z-[10000] w-10 h-10 rounded-full bg-white/90 hover:bg-white shadow-lg flex items-center justify-center text-gray-600 hover:text-gray-900 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-          <QualificationSurveyWithTemplate
-            survey={qualificationSurvey}
-            onSubmit={handleQualificationSubmit}
-            onAnswer={(questionId, answer) => setQualificationAnswers(prev => ({ ...prev, [questionId]: answer }))}
-            answers={qualificationAnswers}
-          />
-        </div>
-      )}
+            {/* Offers */}
+            {filtered.map(offer => {
+              const pts = Math.round(offer.reward_amount || 0);
+              return (
+                <div key={offer.id} onClick={() => handleClick(offer)} className="ow-card group cursor-pointer">
+                  {/* Image - ALWAYS visible */}
+                  <div className="relative h-44 overflow-hidden rounded-t-2xl bg-gradient-to-br from-gray-100 to-gray-50">
+                    <img
+                      src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })}
+                      alt={offer.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      onError={(e) => {
+                        // Fallback: show category gradient instead of hiding
+                        const target = e.target as HTMLImageElement;
+                        target.src = `/category-images/${(offer.category || 'other').toLowerCase().replace(' ', '_')}.png`;
+                        target.onerror = () => { target.src = '/category-images/other.png'; target.onerror = null; };
+                      }}
+                    />
+                    {/* Points badge */}
+                    <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm">
+                      <span className="text-[#340075] font-bold text-xs">+{pts.toLocaleString()} {currency}</span>
+                    </div>
+                    {/* Timer */}
+                    {offer.timer_enabled && offer.timer_end_date && <div className="absolute top-3 left-3"><CountdownTimer endDate={offer.timer_end_date} /></div>}
+                    {/* Gradient overlay at bottom */}
+                    <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/20 to-transparent"></div>
+                  </div>
 
-      {/* Offer Modal */}
-      {selectedOffer && (
-        <OfferModal
-          offer={{...selectedOffer, status: selectedOffer.status || 'active'}}
-          open={modalOpen}
-          onClose={() => setModalOpen(false)}
-          currencyName={currencyName}
-          onStartOffer={async (offer) => {
-            try {
-              await fetch(`${baseUrl}/api/offerwall/track/click`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  placement_id: placementId,
-                  user_id: userId,
-                  offer_id: offer.id,
-                  offer_name: offer.title,
-                  user_agent: navigator.userAgent
-                })
-              });
-              window.open(offer.click_url, '_blank');
-            } catch (err) {
-              console.error('Error tracking click:', err);
-              window.open(offer.click_url, '_blank');
-            }
-          }}
-        />
-      )}
+                  {/* Body */}
+                  <div className="p-4 flex flex-col flex-grow">
+                    <p className="text-[10px] font-bold tracking-wider uppercase text-teal-700 mb-1">{getCatName(offer.category)}</p>
+                    <h3 className="font-bold text-gray-900 text-sm leading-snug mb-1.5 line-clamp-2 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title)}</h3>
+                    <p className="text-gray-500 text-xs line-clamp-2 mb-4">{offer.description?.substring(0, 85)}{(offer.description?.length||0) > 85 ? '…' : ''}</p>
+                    <button className="ow-btn w-full mt-auto">
+                      Start Offer <ChevronRight className="w-4 h-4 opacity-60" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </main>
+
+      {/* === FOOTER === */}
+      <footer className="border-t border-gray-100 py-6 mt-auto bg-white">
+        <div className="max-w-[1300px] mx-auto px-4 md:px-8 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2"><img src="/logo.png" alt="" className="h-6 w-auto" onError={e=>{(e.target as HTMLImageElement).style.display='none'}} /><span className="font-bold text-[#340075] text-sm">Moustache Leads</span></div>
+          <p className="text-gray-400 text-xs">© 2024 Moustache Leads. All rights reserved.</p>
+          <div className="flex gap-4 text-xs text-gray-400"><a href="#" className="hover:text-[#340075]">Privacy</a><a href="#" className="hover:text-[#340075]">Terms</a><a href="#" className="hover:text-[#340075]">Contact</a></div>
+        </div>
+      </footer>
+
+      {/* === OVERLAYS === */}
+      {funnel && <div className="fixed inset-0 z-[100] bg-white flex flex-col">{funnelResult ? <div className="flex-1 flex items-center justify-center"><div className="text-center max-w-sm p-6">{funnelResult.type==='pass'?<><div className="text-5xl mb-4">🎉</div><h2 className="text-xl font-bold mb-2">Congratulations!</h2><p className="text-gray-500 mb-4">{funnelResult.message}</p><button onClick={closeFunnel} className="ow-btn px-8 py-3">Done</button></>:<><div className="text-5xl mb-4">{funnelResult.has_next?'🔄':'😔'}</div><h2 className="text-xl font-bold mb-2">{funnelResult.has_next?'Not quite…':'Sorry!'}</h2><p className="text-gray-500 mb-4">{funnelResult.message}</p>{!funnelResult.has_next&&<button onClick={closeFunnel} className="ow-btn px-8 py-3">Back</button>}</>}</div></div> : funnelSurvey ? <div className="flex-1 relative"><button onClick={closeFunnel} className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500">✕</button><SurveyTemplateRenderer template={funnelTpl} title={funnelSurvey.title||'Survey'} description={`Step ${funnelStep+1}`} questions={(funnelSurvey.questions||[]).map((q:any)=>({text:q.text,options:q.options||[]}))} answers={funnelAns} onAnswer={(i,a)=>setFunnelAns(p=>({...p,[i]:a}))} onSubmit={submitFunnel} submitting={funnelSubmitting} brandColor="#340075" /></div> : <div className="flex-1 flex items-center justify-center"><p className="text-gray-400">Loading…</p></div>}</div>}
+
+      {showQual && qualSurvey && <div className="fixed inset-0 z-[9999]"><button onClick={()=>setShowQual(false)} className="fixed top-4 right-4 z-[10000] w-10 h-10 rounded-full bg-white shadow-lg flex items-center justify-center"><X className="w-5 h-5 text-gray-600" /></button><QualSurveyTpl survey={qualSurvey} onSubmit={handleQualSubmit} onAnswer={(qid,a)=>setQualAnswers(p=>({...p,[qid]:a}))} answers={qualAnswers} /></div>}
+
+      {selOffer && <OfferModal offer={{...selOffer, status: selOffer.status||'active'}} open={modalOpen} onClose={()=>setModalOpen(false)} currencyName={currency} onStartOffer={async o => { try { await fetch(`${baseUrl}/api/offerwall/track/click`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({placement_id:placementId,user_id:userId,offer_id:o.id,offer_name:o.title,user_agent:navigator.userAgent})}); window.open(o.click_url,'_blank'); } catch { window.open(o.click_url,'_blank'); } }} />}
+
+      {/* === STYLES === */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+        .ow { background: #fafafa; font-family: 'DM Sans', system-ui, sans-serif; color: #1a1a2e; }
+        .ow-hero { background: linear-gradient(135deg, #1a0040 0%, #340075 40%, #5b21b6 100%); position: relative; min-height: 300px; }
+        .ow-hero-overlay { display: none; }
+        .ow-block { position: absolute; border: 2px solid rgba(255,255,255,0.3); border-radius: 8px; animation: floatBlock 6s ease-in-out infinite; }
+        .ow-block-1 { width: 40px; height: 40px; top: 20%; left: 10%; animation-delay: 0s; background: rgba(255,255,255,0.08); }
+        .ow-block-2 { width: 25px; height: 25px; top: 40%; right: 15%; animation-delay: 1s; background: rgba(255,255,255,0.06); border-radius: 50%; }
+        .ow-block-3 { width: 50px; height: 50px; bottom: 30%; left: 30%; animation-delay: 2s; background: rgba(255,255,255,0.05); }
+        .ow-block-4 { width: 30px; height: 30px; top: 25%; right: 30%; animation-delay: 3s; background: rgba(255,255,255,0.07); border-radius: 4px; }
+        .ow-block-5 { width: 20px; height: 20px; bottom: 40%; right: 10%; animation-delay: 4s; background: rgba(255,255,255,0.1); border-radius: 50%; }
+        @keyframes floatBlock { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-15px) rotate(10deg); } }
+        .ow-cat-btn { padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: all 0.15s ease; border: 1.5px solid rgba(255,255,255,0.3); background: rgba(255,255,255,0.12); backdrop-filter: blur(4px); color: white; flex-shrink: 0; }
+        .ow-cat-btn:hover { background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.5); transform: translateY(-1px); }
+        .ow-cat-btn:active { transform: translateY(2px) scale(0.95); box-shadow: inset 0 2px 6px rgba(0,0,0,0.3); }
+        .ow-cat-btn-active { background: white; color: #340075; border-color: white; box-shadow: 0 4px 12px rgba(0,0,0,0.2); font-weight: 700; }
+        .ow-cat-btn-active:hover { background: white; color: #340075; }
+        .ow-cat-btn-active:active { transform: translateY(1px) scale(0.97); box-shadow: inset 0 2px 4px rgba(52,0,117,0.2), 0 1px 3px rgba(0,0,0,0.1); }
+        .ow-card { background: white; border-radius: 16px; border: 1px solid #f0f0f0; overflow: hidden; display: flex; flex-direction: column; transition: all 0.25s ease; }
+        .ow-card:hover { box-shadow: 0 12px 40px -12px rgba(52,0,117,0.12); transform: translateY(-3px); border-color: #e0d4f5; }
+        .ow-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #340075; color: white; font-weight: 600; font-size: 13px; padding: 10px 16px; border-radius: 10px; border: none; cursor: pointer; transition: all 0.15s; }
+        .ow-btn:hover { background: #4c1d95; box-shadow: 0 4px 12px rgba(52,0,117,0.2); }
+        .ow-btn:active { transform: scale(0.97); }
+        .ow-select { appearance: none; background: white url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 28px 8px 12px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; transition: all 0.15s; }
+        .ow-select:focus { outline: none; border-color: #340075; box-shadow: 0 0 0 3px rgba(52,0,117,0.08); }
+        .ow-spinner { width: 36px; height: 36px; border: 3px solid #e5e7eb; border-top-color: #340075; border-radius: 50%; animation: spin 0.7s linear infinite; }
+        .ow-badge-timer { display: inline-flex; align-items: center; gap: 3px; background: #dc2626; color: white; padding: 3px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .animate-pulse { animation: blink 1.5s ease-in-out infinite; }
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </div>
   );
 };
 
-
-// ==================== QUALIFICATION SURVEY WITH TEMPLATE ====================
-// Bridges the question-ID-based answers with the numeric-index-based template renderer
-
-function QualificationSurveyWithTemplate({ survey, onSubmit, onAnswer, answers }: {
-  survey: any;
-  onSubmit: () => void;
-  onAnswer: (questionId: string, answer: string) => void;
-  answers: Record<string, any>;
-}) {
-  // Filter to only MCQ/yes_no questions (template only supports option-based questions)
-  const mcqQuestions = (survey.questions || []).filter(
-    (q: any) => q.type === 'mcq' || q.type === 'yes_no' || q.type === 'mcq_multi'
-  );
-
-  // Convert to template format
-  const templateQuestions = mcqQuestions.map((q: any) => ({
-    text: q.text,
-    options: q.type === 'yes_no' ? ['Yes', 'No'] : (q.options || []),
-  }));
-
-  // Convert ID-based answers to numeric-index-based answers for the template
-  const templateAnswers: Record<number, string> = {};
-  mcqQuestions.forEach((q: any, idx: number) => {
-    if (answers[q.id]) {
-      templateAnswers[idx] = answers[q.id];
-    }
-  });
-
-  // Get template from survey data
-  const templateName = (survey.template || 'moustache-default') as TemplateName;
-
-  return (
-    <SurveyTemplateRenderer
-      template={templateName}
-      title={survey.name || 'Qualification Survey'}
-      description="Complete to unlock all offers"
-      questions={templateQuestions}
-      answers={templateAnswers}
-      onAnswer={(qIdx, answer) => {
-        const questionId = mcqQuestions[qIdx]?.id;
-        if (questionId) {
-          onAnswer(questionId, answer);
-        }
-      }}
-      onSubmit={onSubmit}
-      submitting={false}
-      questionsPerPage={survey.questions_per_page || 3}
-    />
-  );
+function QualSurveyTpl({ survey, onSubmit, onAnswer, answers }: { survey: any; onSubmit: () => void; onAnswer: (qid: string, a: string) => void; answers: Record<string, any>; }) {
+  const qs = (survey.questions||[]).filter((q:any) => q.type==='mcq'||q.type==='yes_no'||q.type==='mcq_multi');
+  const tqs = qs.map((q:any) => ({ text: q.text, options: q.type==='yes_no'?['Yes','No']:(q.options||[]) }));
+  const ta: Record<number,string> = {}; qs.forEach((q:any,i:number) => { if (answers[q.id]) ta[i] = answers[q.id]; });
+  return <SurveyTemplateRenderer template={(survey.template||'moustache-default') as TemplateName} title={survey.name||'Qualification Survey'} description="Complete to unlock all offers" questions={tqs} answers={ta} onAnswer={(i,a)=>{const qid=qs[i]?.id;if(qid)onAnswer(qid,a);}} onSubmit={onSubmit} submitting={false} questionsPerPage={survey.questions_per_page||3} />;
 }

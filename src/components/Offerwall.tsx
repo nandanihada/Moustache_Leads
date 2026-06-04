@@ -1,5 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { ChevronRight, Sparkles, AlertCircle, Gift, Zap, Globe, Smartphone, Monitor, Timer, Flame, Clock as ClockIcon, Search, X, Lock } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  ChevronRight, Sparkles, AlertCircle, Gift, Zap, Globe, Smartphone, Monitor, 
+  Timer, Flame, Clock as ClockIcon, Search, X, Lock, Filter, Star, TrendingUp,
+  ChevronDown, SlidersHorizontal, ArrowUpDown, Coins, Award
+} from 'lucide-react';
 import { OfferModal } from './OfferModal';
 import { getOfferImage } from '@/utils/categoryImages';
 
@@ -10,7 +14,7 @@ interface Offer {
   reward_amount: number;
   reward_currency: string;
   category: string;
-  categories?: string[];  // Up to 3 categories per offer
+  categories?: string[];
   status: string;
   estimated_time: string;
   image_url: string;
@@ -28,7 +32,6 @@ interface Offer {
   urgency_message?: string;
   timer_enabled?: boolean;
   timer_end_date?: string;
-  // Approval/Lock fields
   is_locked?: boolean;
   has_access?: boolean;
   lock_reason?: string;
@@ -38,99 +41,74 @@ interface Offer {
   requires_approval?: boolean;
 }
 
-// Category definitions (12 predefined categories)
+// Category definitions
 const CATEGORIES = [
-  { id: 'all', name: 'All Offers', icon: '🎯' },
-  { id: 'HEALTH', name: 'Health', icon: '💊' },
-  { id: 'SURVEY', name: 'Surveys', icon: '📋' },
-  { id: 'SWEEPSTAKES', name: 'Sweepstakes', icon: '🎰' },
-  { id: 'EDUCATION', name: 'Education', icon: '📚' },
-  { id: 'INSURANCE', name: 'Insurance', icon: '🛡️' },
-  { id: 'LOAN', name: 'Loans', icon: '💳' },
-  { id: 'FINANCE', name: 'Finance', icon: '💰' },
-  { id: 'DATING', name: 'Dating', icon: '❤️' },
-  { id: 'FREE_TRIAL', name: 'Free Trials', icon: '🎁' },
-  { id: 'INSTALLS', name: 'Installs', icon: '📲' },
-  { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮' },
-  { id: 'OTHER', name: 'Other', icon: '📦' },
+  { id: 'all', name: 'All Offers', icon: '🎯', color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  { id: 'HEALTH', name: 'Health', icon: '💊', color: 'bg-rose-50 text-rose-700 border-rose-200' },
+  { id: 'SURVEY', name: 'Surveys', icon: '📋', color: 'bg-blue-50 text-blue-700 border-blue-200' },
+  { id: 'SWEEPSTAKES', name: 'Sweepstakes', icon: '🎰', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+  { id: 'EDUCATION', name: 'Education', icon: '📚', color: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  { id: 'INSURANCE', name: 'Insurance', icon: '🛡️', color: 'bg-teal-50 text-teal-700 border-teal-200' },
+  { id: 'LOAN', name: 'Loans', icon: '💳', color: 'bg-orange-50 text-orange-700 border-orange-200' },
+  { id: 'FINANCE', name: 'Finance', icon: '💰', color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  { id: 'DATING', name: 'Dating', icon: '❤️', color: 'bg-pink-50 text-pink-700 border-pink-200' },
+  { id: 'FREE_TRIAL', name: 'Free Trials', icon: '🎁', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
+  { id: 'INSTALLS', name: 'Installs', icon: '📲', color: 'bg-green-50 text-green-700 border-green-200' },
+  { id: 'GAMES_INSTALL', name: 'Games', icon: '🎮', color: 'bg-violet-50 text-violet-700 border-violet-200' },
+  { id: 'OTHER', name: 'Other', icon: '📦', color: 'bg-gray-50 text-gray-700 border-gray-200' },
 ];
 
-// Helper: Convert payout to points (uses exchange rate from API, fallback $1 = 100 points)
-const payoutToPoints = (payout: number, exchangeRate: number = 1): number => Math.round(payout * exchangeRate);
-
-// Helper: Render star rating (1-5 stars)
-const renderStarRating = (rating: number = 5): JSX.Element => {
-  const stars = Math.min(5, Math.max(1, Math.round(rating)));
-  return (
-    <div className="flex items-center gap-0.5">
-      {[...Array(5)].map((_, i) => (
-        <span key={i} className={`text-sm ${i < stars ? 'text-yellow-400' : 'text-gray-400'}`}>
-          ★
-        </span>
-      ))}
-    </div>
-  );
-};
-
-// Helper: Get device icon based on targeting
-const getDeviceIcon = (device?: string): JSX.Element | null => {
-  if (!device) return null;
-  const d = device.toLowerCase();
-  if (d.includes('android')) return <span title="Android"><Smartphone className="h-4 w-4 text-green-400" /></span>;
-  if (d.includes('ios') || d.includes('iphone') || d.includes('ipad')) return <span title="iOS"><Monitor className="h-4 w-4 text-gray-300" /></span>;
-  if (d.includes('web') || d.includes('desktop')) return <span title="Web"><Globe className="h-4 w-4 text-blue-400" /></span>;
-  return <span title="All Devices"><Globe className="h-4 w-4 text-blue-400" /></span>;
-};
-
-// Country flag mapping (comprehensive)
+// Country flag mapping
 const FLAG_MAP: Record<string, string> = {
   'US': '🇺🇸', 'UK': '🇬🇧', 'GB': '🇬🇧', 'CA': '🇨🇦', 'AU': '🇦🇺', 'DE': '🇩🇪', 
   'FR': '🇫🇷', 'IT': '🇮🇹', 'ES': '🇪🇸', 'BR': '🇧🇷', 'IN': '🇮🇳', 'JP': '🇯🇵',
   'KR': '🇰🇷', 'CN': '🇨🇳', 'NL': '🇳🇱', 'BE': '🇧🇪', 'AT': '🇦🇹', 'CH': '🇨🇭',
   'SE': '🇸🇪', 'NO': '🇳🇴', 'DK': '🇩🇰', 'FI': '🇫🇮', 'PL': '🇵🇱', 'PT': '🇵🇹',
-  'IE': '🇮🇪', 'NZ': '🇳🇿', 'MX': '🇲🇽', 'AR': '🇦🇷', 'CL': '🇨�', 'CO': '🇨🇴',
+  'IE': '🇮🇪', 'NZ': '🇳🇿', 'MX': '🇲🇽', 'AR': '🇦🇷', 'CL': '🇨🇱', 'CO': '🇨🇴',
   'TW': '🇹🇼', 'SG': '🇸🇬', 'MY': '🇲🇾', 'TH': '🇹🇭', 'PH': '🇵🇭', 'ID': '🇮🇩',
-  'ZA': '🇿🇦', 'AE': '🇦🇪', 'SA': '🇸🇦', 'IL': '🇮🇱', 'TR': '��', 'RU': '��',
-  'GR': '🇬�', 'CZ': '🇨🇿', 'HU': '🇭🇺', 'RO': '🇷�', 'UA': '🇺🇦', 'VN': '🇻🇳',
-  'PK': '🇵�', 'BD': '🇧🇩', 'EG': '🇪🇬', 'NG': '🇳🇬', 'KE': '🇰🇪', 'PE': '��',
-  'VE': '��', 'EC': '🇪�', 'CR': '�🇷', 'PA': '��', 'PR': '🇵🇷', 'DO': '��',
-  'HK': '🇭🇰', 'MO': '��', 'LK': '🇱🇰', 'NP': '��', 'MM': '��', 'KH': '�🇭'
+  'ZA': '🇿🇦', 'AE': '🇦🇪', 'SA': '🇸🇦', 'IL': '🇮🇱', 'TR': '🇹🇷', 'RU': '🇷🇺',
+  'GR': '🇬🇷', 'CZ': '🇨🇿', 'HU': '🇭🇺', 'RO': '🇷🇴', 'UA': '🇺🇦', 'VN': '🇻🇳',
+  'PK': '🇵🇰', 'BD': '🇧🇩', 'EG': '🇪🇬', 'NG': '🇳🇬', 'KE': '🇰🇪', 'PE': '🇵🇪',
+  'VE': '🇻🇪', 'EC': '🇪🇨', 'CR': '🇨🇷', 'PA': '🇵🇦', 'PR': '🇵🇷', 'DO': '🇩🇴',
+  'HK': '🇭🇰', 'MO': '🇲🇴', 'LK': '🇱🇰', 'NP': '🇳🇵', 'MM': '🇲🇲', 'KH': '🇰🇭'
 };
 
-// Helper: Get country display with flags (show up to 6 flags, then +X more)
+// Device filter options
+const DEVICE_FILTERS = [
+  { id: 'all', name: 'All Devices', icon: Globe },
+  { id: 'android', name: 'Android', icon: Smartphone },
+  { id: 'ios', name: 'iOS', icon: Smartphone },
+  { id: 'desktop', name: 'Desktop', icon: Monitor },
+];
+
+// Points range filter options
+const POINTS_RANGES = [
+  { id: 'all', name: 'Any Points', min: 0, max: Infinity },
+  { id: 'low', name: '1 - 100', min: 1, max: 100 },
+  { id: 'medium', name: '101 - 500', min: 101, max: 500 },
+  { id: 'high', name: '501 - 2000', min: 501, max: 2000 },
+  { id: 'premium', name: '2000+', min: 2000, max: Infinity },
+];
+
+// Helper functions
 const getCountryDisplay = (countries?: string[]): JSX.Element => {
   if (!countries || countries.length === 0) {
-    return <span className="text-xs text-gray-400">� Global</span>;
+    return <span className="text-xs text-gray-400 flex items-center gap-1"><Globe className="h-3 w-3" /> Global</span>;
   }
-  
-  // Show up to 6 flags
-  const maxFlags = 6;
+  const maxFlags = 4;
   const displayCountries = countries.slice(0, maxFlags);
   const remaining = countries.length - maxFlags;
-  
   const flags = displayCountries.map(c => FLAG_MAP[c.toUpperCase()] || c).join(' ');
   
   if (remaining > 0) {
-    return (
-      <span className="text-xs font-semibold text-purple-300">
-        {flags} <span className="text-purple-400">+{remaining}</span>
-      </span>
-    );
+    return <span className="text-xs text-gray-600">{flags} <span className="text-purple-600 font-medium">+{remaining}</span></span>;
   }
-  
-  return (
-    <span className="text-xs font-semibold text-purple-300">
-      {flags}
-    </span>
-  );
+  return <span className="text-xs text-gray-600">{flags}</span>;
 };
 
-// Helper: Extract countries from title (e.g., "Opinion Router - Incent AU, BE, CA, DE")
 const extractCountriesFromTitle = (title: string): string[] => {
   const countryCodes = Object.keys(FLAG_MAP);
   const found: string[] = [];
-  
-  // Split by common delimiters and check each part
   const parts = title.toUpperCase().split(/[\s,\-]+/);
   for (const part of parts) {
     const cleaned = part.trim();
@@ -138,40 +116,36 @@ const extractCountriesFromTitle = (title: string): string[] => {
       found.push(cleaned);
     }
   }
-  
   return found;
 };
 
-// Helper: Get countries - from offer.countries or extract from title
 const getOfferCountries = (offer: Offer): string[] => {
-  if (offer.countries && offer.countries.length > 0) {
-    return offer.countries;
-  }
-  // Extract from title if countries array is empty
+  if (offer.countries && offer.countries.length > 0) return offer.countries;
   return extractCountriesFromTitle(offer.title || '');
 };
 
-// Helper: Truncate title with word limit
-const truncateTitle = (title: string, maxWords: number = 6): string => {
+const truncateTitle = (title: string, maxWords: number = 7): string => {
   const words = title.split(' ');
   if (words.length <= maxWords) return title;
   return words.slice(0, maxWords).join(' ') + '...';
 };
 
-// Helper: Get urgency badge
-const getUrgencyBadge = (urgencyType?: string): JSX.Element | null => {
-  if (!urgencyType) return null;
-  const badges: Record<string, { text: string; icon: JSX.Element; color: string }> = {
-    'limited_slots': { text: 'Limited slots today', icon: <Timer className="h-3 w-3" />, color: 'bg-red-500/80' },
-    'high_demand': { text: 'High demand', icon: <Flame className="h-3 w-3" />, color: 'bg-orange-500/80' },
-    'expires_soon': { text: 'Expires soon', icon: <ClockIcon className="h-3 w-3" />, color: 'bg-yellow-500/80' }
-  };
-  const badge = badges[urgencyType];
-  if (!badge) return null;
+const getDeviceIcon = (device?: string): JSX.Element | null => {
+  if (!device) return null;
+  const d = device.toLowerCase();
+  if (d.includes('android')) return <Smartphone className="h-3.5 w-3.5 text-green-600" />;
+  if (d.includes('ios') || d.includes('iphone') || d.includes('ipad')) return <Smartphone className="h-3.5 w-3.5 text-gray-500" />;
+  if (d.includes('web') || d.includes('desktop')) return <Monitor className="h-3.5 w-3.5 text-blue-600" />;
+  return <Globe className="h-3.5 w-3.5 text-purple-500" />;
+};
+
+const renderStarRating = (rating: number = 5): JSX.Element => {
+  const stars = Math.min(5, Math.max(1, Math.round(rating)));
   return (
-    <div className={`absolute top-3 right-3 ${badge.color} backdrop-blur-sm px-2 py-1 rounded-full flex items-center gap-1`}>
-      {badge.icon}
-      <span className="text-white text-xs font-bold">{badge.text}</span>
+    <div className="flex items-center gap-0.5">
+      {[...Array(5)].map((_, i) => (
+        <Star key={i} className={`h-3.5 w-3.5 ${i < stars ? 'text-amber-400 fill-amber-400' : 'text-gray-300'}`} />
+      ))}
     </div>
   );
 };
@@ -186,19 +160,13 @@ const CountdownTimer: React.FC<{ endDate: string }> = ({ endDate }) => {
       const end = new Date(endDate).getTime();
       const now = new Date().getTime();
       const diff = end - now;
-
-      if (diff <= 0) {
-        setIsExpired(true);
-        return;
-      }
-
+      if (diff <= 0) { setIsExpired(true); return; }
       setTimeLeft({
         hours: Math.floor(diff / (1000 * 60 * 60)),
         minutes: Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
         seconds: Math.floor((diff % (1000 * 60)) / 1000)
       });
     };
-
     calculateTimeLeft();
     const interval = setInterval(calculateTimeLeft, 1000);
     return () => clearInterval(interval);
@@ -207,9 +175,27 @@ const CountdownTimer: React.FC<{ endDate: string }> = ({ endDate }) => {
   if (isExpired) return null;
 
   return (
-    <div className="flex items-center gap-1 bg-red-500/90 text-white px-2 py-1 rounded-lg text-xs font-bold">
+    <div className="flex items-center gap-1 bg-red-500 text-white px-2 py-0.5 rounded-full text-xs font-bold shadow-sm">
       <Timer className="h-3 w-3" />
       <span>{String(timeLeft.hours).padStart(2, '0')}:{String(timeLeft.minutes).padStart(2, '0')}:{String(timeLeft.seconds).padStart(2, '0')}</span>
+    </div>
+  );
+};
+
+// Urgency badge
+const getUrgencyBadge = (urgencyType?: string): JSX.Element | null => {
+  if (!urgencyType) return null;
+  const badges: Record<string, { text: string; icon: JSX.Element; color: string }> = {
+    'limited_slots': { text: 'Limited', icon: <Timer className="h-3 w-3" />, color: 'bg-red-500' },
+    'high_demand': { text: 'Hot', icon: <Flame className="h-3 w-3" />, color: 'bg-orange-500' },
+    'expires_soon': { text: 'Expiring', icon: <ClockIcon className="h-3 w-3" />, color: 'bg-yellow-500' }
+  };
+  const badge = badges[urgencyType];
+  if (!badge) return null;
+  return (
+    <div className={`${badge.color} text-white px-2 py-0.5 rounded-full flex items-center gap-1 text-xs font-bold shadow-sm`}>
+      {badge.icon}
+      <span>{badge.text}</span>
     </div>
   );
 };
@@ -245,24 +231,22 @@ const Offerwall: React.FC<OfferwallProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>(['all']);
   const [sortBy, setSortBy] = useState<'points_high' | 'points_low' | 'newest' | 'rating'>('points_high');
+  const [selectedDevice, setSelectedDevice] = useState('all');
+  const [selectedPointsRange, setSelectedPointsRange] = useState('all');
+  const [showFilters, setShowFilters] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  // Toggle category selection (multi-select)
+  // Toggle category selection
   const toggleCategory = (categoryId: string) => {
     if (categoryId === 'all') {
-      // If "All" is clicked, reset to only "All"
       setSelectedCategories(['all']);
     } else {
       setSelectedCategories(prev => {
-        // Remove 'all' if it was selected
         const withoutAll = prev.filter(c => c !== 'all');
-        
         if (withoutAll.includes(categoryId)) {
-          // Remove category if already selected
           const newSelection = withoutAll.filter(c => c !== categoryId);
-          // If nothing selected, default back to 'all'
           return newSelection.length === 0 ? ['all'] : newSelection;
         } else {
-          // Add category
           return [...withoutAll, categoryId];
         }
       });
@@ -274,11 +258,10 @@ const Offerwall: React.FC<OfferwallProps> = ({
     loadOffers();
   }, [placementId, userId]);
 
-  // Apply filters whenever offers or filter states change
+  // Apply filters
   useEffect(() => {
     let result = [...offers];
 
-    // Map category names for backward compatibility (all uppercase)
     const categoryMappings: Record<string, string[]> = {
       'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
       'SURVEY': ['SURVEY', 'SURVEYS'],
@@ -293,18 +276,16 @@ const Offerwall: React.FC<OfferwallProps> = ({
       'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
     };
 
-    // Category filter (multi-select) - supports new categories array
+    // Category filter
     if (!selectedCategories.includes('all')) {
       result = result.filter(offer => {
         return selectedCategories.some(cat => {
           const catUpper = cat.toUpperCase();
           const matchingCategories = categoryMappings[catUpper] || [catUpper];
-          // Check categories array first (new multi-category system)
-          const cats = (offer as any).categories;
+          const cats = offer.categories;
           if (Array.isArray(cats) && cats.length > 0) {
             return cats.some((c: string) => matchingCategories.includes(c.toUpperCase()));
           }
-          // Fallback to old single category
           const offerCategory = (offer.category || '').toUpperCase();
           return matchingCategories.includes(offerCategory);
         });
@@ -320,35 +301,49 @@ const Offerwall: React.FC<OfferwallProps> = ({
       );
     }
 
+    // Device filter
+    if (selectedDevice !== 'all') {
+      result = result.filter(offer => {
+        const deviceStr = (offer.device_targeting || offer.devices?.join(' ') || '').toLowerCase();
+        if (selectedDevice === 'android') return deviceStr.includes('android');
+        if (selectedDevice === 'ios') return deviceStr.includes('ios') || deviceStr.includes('iphone') || deviceStr.includes('ipad');
+        if (selectedDevice === 'desktop') return deviceStr.includes('web') || deviceStr.includes('desktop');
+        return true;
+      });
+    }
+
+    // Points range filter
+    if (selectedPointsRange !== 'all') {
+      const range = POINTS_RANGES.find(r => r.id === selectedPointsRange);
+      if (range) {
+        result = result.filter(offer => {
+          const points = offer.reward_amount || 0;
+          return points >= range.min && points <= range.max;
+        });
+      }
+    }
+
     // Sorting
     result.sort((a, b) => {
       const pointsA = a.reward_amount || 0;
       const pointsB = b.reward_amount || 0;
-      
       switch (sortBy) {
-        case 'points_high':
-          return pointsB - pointsA;
-        case 'points_low':
-          return pointsA - pointsB;
-        case 'newest':
-          return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
-        case 'rating':
-          return (b.star_rating || 5) - (a.star_rating || 5);
-        default:
-          return 0;
+        case 'points_high': return pointsB - pointsA;
+        case 'points_low': return pointsA - pointsB;
+        case 'newest': return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+        case 'rating': return (b.star_rating || 5) - (a.star_rating || 5);
+        default: return 0;
       }
     });
 
     setFilteredOffers(result);
-  }, [offers, selectedCategories, searchTerm, sortBy]);
+  }, [offers, selectedCategories, searchTerm, sortBy, selectedDevice, selectedPointsRange]);
 
   const trackImpression = async () => {
     try {
       await fetch(`${baseUrl}/api/offerwall/track/impression`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           placement_id: placementId,
           user_id: userId,
@@ -363,27 +358,17 @@ const Offerwall: React.FC<OfferwallProps> = ({
 
   const loadOffers = async (page = 1, append = false) => {
     try {
-      if (append) {
-        setLoadingMore(true);
-      } else {
-        setLoading(true);
-      }
+      if (append) { setLoadingMore(true); } else { setLoading(true); }
       setError(null);
 
-      // Load offers with pagination (backend defaults to 100 per page, max 500)
       const offersResponse = await fetch(
         `${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&page=${page}&limit=200`
       );
       
-      if (!offersResponse.ok) {
-        throw new Error('Failed to load offers');
-      }
+      if (!offersResponse.ok) throw new Error('Failed to load offers');
 
       const offersData = await offersResponse.json();
-      
-      if (offersData.error) {
-        throw new Error(offersData.error);
-      }
+      if (offersData.error) throw new Error(offersData.error);
 
       const newOffers = offersData.offers || [];
       
@@ -403,18 +388,15 @@ const Offerwall: React.FC<OfferwallProps> = ({
         console.warn(`⚠️ ${offersData.skipped_count} offers skipped due to bad data:`, offersData.skipped_offers);
       }
       
-      // Try to get placement data for branding
       try {
         const placementResponse = await fetch(`${baseUrl}/offerwall?placement_id=${placementId}&user_id=${userId}&api_key=${apiKey}`);
         if (placementResponse.ok) {
-          // Extract placement data from the HTML response if needed
           setPlacementData({ offerwallTitle: 'Offerwall', currencyName: 'Points' });
         }
       } catch (err) {
         console.warn('Failed to load placement data:', err);
         setPlacementData({ offerwallTitle: 'Offerwall', currencyName: 'Points' });
       }
-
     } catch (err) {
       console.error('Error loading offers:', err);
       setError(err instanceof Error ? err.message : 'Failed to load offers');
@@ -435,73 +417,54 @@ const Offerwall: React.FC<OfferwallProps> = ({
     setModalOpen(true);
   };
 
-  const getCategoryIcon = (category: string) => {
-    const emojis: Record<string, string> = {
-      survey: '📋',
-      app: '📱',
-      game: '🎮',
-      video: '🎬',
-      shopping: '🛍️',
-      signup: '✍️',
-      finance: '💰',
-      lifestyle: '🌟',
-      health: '💪',
-      education: '📚',
-      entertainment: '🎭',
-      travel: '✈️',
-      general: '⭐'
-    };
-    return emojis[category.toLowerCase()] || '⭐';
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (!selectedCategories.includes('all')) count++;
+    if (selectedDevice !== 'all') count++;
+    if (selectedPointsRange !== 'all') count++;
+    return count;
+  }, [selectedCategories, selectedDevice, selectedPointsRange]);
+
+  const clearAllFilters = () => {
+    setSelectedCategories(['all']);
+    setSelectedDevice('all');
+    setSelectedPointsRange('all');
+    setSearchTerm('');
+    setSortBy('points_high');
   };
 
-  const getCategoryColor = (category: string) => {
-    switch (category.toLowerCase()) {
-      case 'survey': return 'from-blue-500 to-blue-600';
-      case 'app': return 'from-green-500 to-green-600';
-      case 'shopping': return 'from-purple-500 to-purple-600';
-      case 'video': return 'from-orange-500 to-orange-600';
-      case 'quiz': return 'from-pink-500 to-pink-600';
-      case 'trial': return 'from-indigo-500 to-indigo-600';
-      case 'newsletter': return 'from-yellow-500 to-yellow-600';
-      case 'game': return 'from-cyan-500 to-cyan-600';
-      case 'signup': return 'from-teal-500 to-teal-600';
-      case 'finance': return 'from-emerald-500 to-emerald-600';
-      case 'lifestyle': return 'from-rose-500 to-rose-600';
-      case 'health': return 'from-red-500 to-red-600';
-      case 'education': return 'from-violet-500 to-violet-600';
-      case 'entertainment': return 'from-fuchsia-500 to-fuchsia-600';
-      case 'travel': return 'from-sky-500 to-sky-600';
-      default: return 'from-gray-500 to-gray-600';
-    }
-  };
-
+  // ======================== LOADING STATE ========================
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <div className="text-center text-white">
-          <div className="relative w-16 h-16 mx-auto mb-6">
-            <div className="absolute inset-0 border-4 border-purple-500/30 rounded-full"></div>
-            <div className="absolute inset-0 border-4 border-t-purple-500 rounded-full animate-spin"></div>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="relative w-20 h-20 mx-auto mb-6">
+            <div className="absolute inset-0 border-4 border-purple-200 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-t-purple-600 rounded-full animate-spin"></div>
+            <div className="absolute inset-2 bg-white rounded-full flex items-center justify-center">
+              <span className="text-lg font-black text-purple-600">M</span>
+            </div>
           </div>
-          <h2 className="text-2xl font-bold mb-2 bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Loading Offers
-          </h2>
-          <p className="text-purple-300">Finding the best opportunities for you...</p>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Loading Offers</h2>
+          <p className="text-purple-600">Finding the best opportunities for you...</p>
         </div>
       </div>
     );
   }
 
+  // ======================== ERROR STATE ========================
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-red-900 to-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 max-w-md w-full text-center border border-red-500/20">
-          <AlertCircle className="h-16 w-16 text-red-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-2">Unable to Load Offers</h2>
-          <p className="text-red-200 mb-6">{error}</p>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-xl border border-red-100">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="h-8 w-8 text-red-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">Unable to Load Offers</h2>
+          <p className="text-gray-500 mb-6">{error}</p>
           <button
             onClick={() => loadOffers()}
-            className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white px-8 py-3 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-semibold transition-all shadow-lg shadow-purple-200 hover:shadow-purple-300"
           >
             Try Again
           </button>
@@ -510,16 +473,19 @@ const Offerwall: React.FC<OfferwallProps> = ({
     );
   }
 
+  // ======================== EMPTY STATE ========================
   if (offers.length === 0) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-gray-900 to-slate-900 flex items-center justify-center p-4">
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 max-w-md w-full text-center border border-gray-500/20">
-          <Gift className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-white mb-2">No Offers Available</h2>
-          <p className="text-gray-300 mb-6">Check back soon for new opportunities!</p>
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-xl border border-gray-100">
+          <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Gift className="h-8 w-8 text-purple-500" />
+          </div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">No Offers Available</h2>
+          <p className="text-gray-500 mb-6">Check back soon for new opportunities!</p>
           <button
             onClick={() => loadOffers()}
-            className="bg-gradient-to-r from-gray-600 to-gray-700 hover:from-gray-700 hover:to-gray-800 text-white px-8 py-3 rounded-xl font-semibold transition-all transform hover:scale-105 shadow-lg"
+            className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-3 rounded-xl font-semibold transition-all shadow-lg shadow-purple-200"
           >
             Refresh
           </button>
@@ -528,261 +494,316 @@ const Offerwall: React.FC<OfferwallProps> = ({
     );
   }
 
+  // ======================== MAIN OFFERWALL ========================
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-        {/* Header */}
-        <div className="text-center mb-10 animate-fade-in">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-purple-500 to-pink-500 rounded-3xl mb-5 shadow-2xl">
-            <span className="text-3xl font-black text-white">ML</span>
-          </div>
-          <h1 className="text-5xl font-black mb-3 bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-clip-text text-transparent">
-            {placementData?.offerwallTitle || 'Earn Rewards'}
-          </h1>
-          <p className="text-xl text-purple-200 mb-2">Complete tasks & earn instantly!</p>
-          <p className="text-sm text-purple-400">Powered by Moustache Leads</p>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50">
+      {/* ===== HEADER / NAVBAR ===== */}
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-purple-100 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
+          <div className="flex items-center justify-between gap-4">
+            {/* Logo & Brand */}
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-200">
+                <span className="text-white font-black text-sm">ML</span>
+              </div>
+              <div className="hidden sm:block">
+                <h1 className="text-lg font-bold text-gray-900 leading-tight">Moustache Leads</h1>
+                <p className="text-xs text-purple-600 font-medium">Earn Rewards</p>
+              </div>
+            </div>
 
-        {/* Search Bar */}
-        <div className="mb-8">
-          <div className="relative max-w-2xl mx-auto">
-            <Search className="absolute left-5 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search offers..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-2xl pl-14 pr-12 py-4 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200"
-            />
-            {searchTerm && (
-              <button
-                onClick={() => setSearchTerm('')}
-                className="absolute right-5 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            )}
-          </div>
-        </div>
+            {/* Search Bar - Center */}
+            <div className="flex-1 max-w-lg mx-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+                <input
+                  type="text"
+                  placeholder="Search offers..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-10 pr-10 py-2.5 text-sm text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-400 focus:border-transparent transition-all"
+                />
+                {searchTerm && (
+                  <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
 
-        {/* Category Filter Dropdown */}
-        <div className="mb-8 flex justify-center px-4">
-          <div className="relative w-full max-w-xs">
-            <select
-              value={selectedCategories.includes('all') ? 'all' : selectedCategories[0]}
-              onChange={(e) => toggleCategory(e.target.value)}
-              className="w-full appearance-none bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-2xl px-5 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer pr-10"
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat.id} value={cat.id} className="bg-slate-800 text-white">
-                  {cat.icon} {cat.name}
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-4 flex items-center text-purple-300">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+            {/* Stats Badge */}
+            <div className="hidden md:flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-xl px-4 py-2">
+              <Coins className="h-4 w-4 text-purple-600" />
+              <span className="text-sm font-bold text-purple-700">{filteredOffers.length}</span>
+              <span className="text-xs text-purple-500">offers</span>
             </div>
           </div>
         </div>
+      </header>
 
-        {/* Sort & Results Count */}
-        <div className="flex items-center justify-between mb-8 flex-wrap gap-4 px-4">
-          <div className="flex items-center gap-3 bg-white/10 backdrop-blur-lg rounded-2xl px-5 py-3 border border-purple-500/30">
-            <Zap className="h-5 w-5 text-yellow-400" />
-            <span className="font-bold text-white text-lg">{filteredOffers.length}</span>
-            <span className="text-purple-200">offers available</span>
+      {/* ===== FILTERS BAR ===== */}
+      <div className="sticky top-[65px] z-40 bg-white/70 backdrop-blur-lg border-b border-purple-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
+          {/* Category Pills - Scrollable */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+            {CATEGORIES.map((cat) => {
+              const isActive = selectedCategories.includes(cat.id);
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => toggleCategory(cat.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all border ${
+                    isActive
+                      ? 'bg-purple-600 text-white border-purple-600 shadow-md shadow-purple-200'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:text-purple-600'
+                  }`}
+                >
+                  <span>{cat.icon}</span>
+                  <span>{cat.name}</span>
+                </button>
+              );
+            })}
           </div>
-          
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="bg-white/10 backdrop-blur-lg border border-purple-500/30 rounded-2xl px-5 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500 cursor-pointer"
-          >
-            <option value="points_high" className="bg-slate-800">Highest Points</option>
-            <option value="points_low" className="bg-slate-800">Lowest Points</option>
-            <option value="rating" className="bg-slate-800">Best Rated</option>
-            <option value="newest" className="bg-slate-800">Newest</option>
-          </select>
-        </div>
 
+          {/* Filter Controls Row */}
+          <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Device Filter */}
+              <div className="relative">
+                <select
+                  value={selectedDevice}
+                  onChange={(e) => setSelectedDevice(e.target.value)}
+                  className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-7 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer"
+                >
+                  {DEVICE_FILTERS.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+              </div>
+
+              {/* Points Range */}
+              <div className="relative">
+                <select
+                  value={selectedPointsRange}
+                  onChange={(e) => setSelectedPointsRange(e.target.value)}
+                  className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-7 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer"
+                >
+                  {POINTS_RANGES.map(r => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+              </div>
+
+              {/* Clear Filters */}
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={clearAllFilters}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                  Clear ({activeFilterCount})
+                </button>
+              )}
+            </div>
+
+            {/* Sort */}
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-1.5 pr-7 text-xs font-medium text-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-400 cursor-pointer"
+              >
+                <option value="points_high">Highest Points</option>
+                <option value="points_low">Lowest Points</option>
+                <option value="rating">Best Rated</option>
+                <option value="newest">Newest</option>
+              </select>
+              <ArrowUpDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== MAIN CONTENT ===== */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
         {/* No Results */}
         {filteredOffers.length === 0 && (
-          <div className="text-center py-16">
-            <div className="text-6xl mb-4">🔍</div>
-            <h3 className="text-white text-xl font-bold mb-2">No offers found</h3>
-            <p className="text-gray-400 mb-4">Try adjusting your search or filters</p>
+          <div className="text-center py-20">
+            <div className="w-20 h-20 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Search className="h-8 w-8 text-purple-400" />
+            </div>
+            <h3 className="text-gray-800 text-xl font-bold mb-2">No offers found</h3>
+            <p className="text-gray-500 mb-4">Try adjusting your search or filters</p>
             <button
-              onClick={() => { setSearchTerm(''); setSelectedCategories(['all']); }}
-              className="bg-purple-500 hover:bg-purple-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+              onClick={clearAllFilters}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2.5 rounded-xl font-medium transition-colors shadow-lg shadow-purple-200"
             >
-              Clear Filters
+              Clear All Filters
             </button>
           </div>
         )}
 
         {/* Offers Grid */}
         {filteredOffers.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 px-4">
-          {filteredOffers.map((offer, index) => {
-            // Points already converted by backend using placement exchange rate
-            const points = Math.round(offer.reward_amount || 0);
-            const isLocked = offer.is_locked || (offer.requires_approval && !offer.has_access);
-            
-            return (
-              <div
-                key={offer.id}
-                className={`group bg-white/10 backdrop-blur-lg rounded-3xl overflow-hidden transition-all duration-300 border border-white/10 animate-slide-up relative ${
-                  isLocked 
-                    ? 'cursor-not-allowed opacity-90' 
-                    : 'hover:bg-white/15 hover:scale-[1.03] hover:shadow-2xl cursor-pointer'
-                }`}
-                style={{ animationDelay: `${index * 50}ms` }}
-                onClick={() => !isLocked && handleOfferClick(offer)}
-              >
-                {/* 🔒 LOCK OVERLAY for locked offers */}
-                {isLocked && (
-                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
-                    <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-6 text-center border border-white/20 mx-4">
-                      <Lock className="h-12 w-12 text-yellow-400 mx-auto mb-3" />
-                      <h4 className="text-white font-bold text-lg mb-2">Offer Locked</h4>
-                      <p className="text-gray-300 text-sm mb-3">
-                        {offer.lock_reason || 'This offer requires approval'}
-                      </p>
-                      {offer.estimated_approval_time && (
-                        <div className="flex items-center justify-center gap-2 text-yellow-400 text-sm">
-                          <ClockIcon className="h-4 w-4" />
-                          <span>{offer.estimated_approval_time}</span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {filteredOffers.map((offer, index) => {
+              const points = Math.round(offer.reward_amount || 0);
+              const isLocked = offer.is_locked || (offer.requires_approval && !offer.has_access);
+              
+              return (
+                <div
+                  key={offer.id}
+                  className={`group bg-white rounded-2xl overflow-hidden transition-all duration-300 border border-gray-100 relative shadow-sm hover:shadow-xl ${
+                    isLocked 
+                      ? 'cursor-not-allowed opacity-90' 
+                      : 'hover:border-purple-200 hover:-translate-y-1 cursor-pointer'
+                  }`}
+                  style={{ animationDelay: `${index * 30}ms` }}
+                  onClick={() => !isLocked && handleOfferClick(offer)}
+                >
+                  {/* Lock Overlay */}
+                  {isLocked && (
+                    <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
+                      <div className="text-center px-6">
+                        <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                          <Lock className="h-7 w-7 text-amber-600" />
                         </div>
-                      )}
-                      {offer.request_status === 'pending' && (
-                        <div className="mt-3 bg-yellow-500/20 text-yellow-300 px-3 py-1 rounded-full text-xs font-semibold">
-                          Request Pending
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Offer Image */}
-                <div className="relative h-48 overflow-hidden">
-                  <img 
-                    src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} 
-                    alt={offer.title}
-                    className={`w-full h-full object-cover transition-transform duration-300 ${isLocked ? 'blur-sm' : 'group-hover:scale-110'}`}
-                    onError={(e) => {
-                      const target = e.target as HTMLImageElement;
-                      target.style.display = 'none';
-                      target.nextElementSibling?.classList.remove('hidden');
-                    }}
-                  />
-                  <div className="hidden absolute inset-0 bg-gradient-to-br ${getCategoryColor(offer.category)} flex items-center justify-center ${isLocked ? 'blur-sm' : ''}">
-                    <span className="text-6xl">{getCategoryIcon(offer.category)}</span>
-                  </div>
-                  
-                  {/* Category Badge - Top Left */}
-                  <div className="absolute top-3 left-3 bg-black/50 backdrop-blur-sm px-3 py-1 rounded-full flex items-center gap-2 z-10">
-                    <span className="text-lg">{getCategoryIcon(offer.category)}</span>
-                    <span className="text-white text-xs font-bold uppercase">{offer.category}</span>
-                  </div>
-                  
-                  {/* Lock Badge - Top Right (for locked offers) */}
-                  {isLocked ? (
-                    <div className="absolute top-3 right-3 bg-yellow-500/90 backdrop-blur-sm px-3 py-1 rounded-full flex items-center gap-1 z-10">
-                      <Lock className="h-3 w-3 text-white" />
-                      <span className="text-white text-xs font-bold">LOCKED</span>
-                    </div>
-                  ) : (
-                    /* Urgency Badge OR Timer - Top Right */
-                    offer.timer_enabled && offer.timer_end_date ? (
-                      <div className="absolute top-3 right-3">
-                        <CountdownTimer endDate={offer.timer_end_date} />
+                        <h4 className="text-gray-800 font-bold text-base mb-1">Locked Offer</h4>
+                        <p className="text-gray-500 text-xs mb-2">
+                          {offer.lock_reason || 'Requires approval'}
+                        </p>
+                        {offer.estimated_approval_time && (
+                          <div className="flex items-center justify-center gap-1 text-amber-600 text-xs">
+                            <ClockIcon className="h-3 w-3" />
+                            <span>{offer.estimated_approval_time}</span>
+                          </div>
+                        )}
+                        {offer.request_status === 'pending' && (
+                          <div className="mt-2 bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-semibold inline-block">
+                            Request Pending
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      getUrgencyBadge(offer.urgency_type)
-                    )
-                  )}
-                </div>
-
-                {/* Content */}
-                <div className={`p-6 ${isLocked ? 'blur-[2px]' : ''}`}>
-                  {/* Star Rating */}
-                  <div className="mb-3">
-                    {renderStarRating(offer.star_rating || 5)}
-                  </div>
-                  
-                  {/* Title - Truncated */}
-                  <h3 className="font-bold text-white text-xl mb-3 leading-tight">
-                    {truncateTitle(offer.title, 6)}
-                  </h3>
-                  
-                  {/* Country & Device Row */}
-                  <div className="flex items-center justify-between mb-4">
-                    {getCountryDisplay(getOfferCountries(offer))}
-                    <div className="flex items-center gap-1">
-                      {getDeviceIcon(offer.device_targeting || (offer.devices && offer.devices[0]))}
                     </div>
-                  </div>
-                  
-                  {/* Description - Truncated with ... */}
-                  {offer.description && (
-                    <p className="text-purple-200 text-sm mb-4 line-clamp-2 leading-relaxed">
-                      {offer.description.length > 80 ? offer.description.substring(0, 80) + '...' : offer.description}
-                    </p>
                   )}
 
-                  {/* Points Display (not dollars) */}
-                  <div className="flex items-center justify-between mb-4 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-xl p-3 border border-green-500/30">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-3xl font-black text-green-400">
-                        {points.toLocaleString()}
-                      </span>
-                      <span className="text-xs text-green-300 font-semibold uppercase">
-                        {currencyName}
-                      </span>
+                  {/* Offer Image */}
+                  <div className="relative h-40 overflow-hidden bg-gradient-to-br from-purple-100 to-indigo-100">
+                    <img 
+                      src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} 
+                      alt={offer.title}
+                      className={`w-full h-full object-cover transition-transform duration-500 ${isLocked ? 'blur-[2px]' : 'group-hover:scale-110'}`}
+                      onError={(e) => {
+                        const target = e.target as HTMLImageElement;
+                        target.style.display = 'none';
+                        if (target.nextElementSibling) target.nextElementSibling.classList.remove('hidden');
+                      }}
+                    />
+                    <div className="hidden absolute inset-0 bg-gradient-to-br from-purple-200 to-indigo-200 flex items-center justify-center">
+                      <Award className="h-12 w-12 text-purple-400" />
                     </div>
-                    <Sparkles className="h-5 w-5 text-yellow-400 animate-pulse" />
+                    
+                    {/* Top Badges */}
+                    <div className="absolute top-2 left-2 right-2 flex items-start justify-between">
+                      {/* Category */}
+                      <span className="bg-white/90 backdrop-blur-sm text-gray-700 px-2 py-0.5 rounded-md text-xs font-semibold shadow-sm">
+                        {CATEGORIES.find(c => c.id === offer.category?.toUpperCase())?.icon || '📦'} {offer.category}
+                      </span>
+                      
+                      {/* Urgency / Timer / Lock */}
+                      <div className="flex items-center gap-1">
+                        {isLocked ? (
+                          <span className="bg-amber-500 text-white px-2 py-0.5 rounded-md text-xs font-bold flex items-center gap-1">
+                            <Lock className="h-3 w-3" /> Locked
+                          </span>
+                        ) : offer.timer_enabled && offer.timer_end_date ? (
+                          <CountdownTimer endDate={offer.timer_end_date} />
+                        ) : (
+                          getUrgencyBadge(offer.urgency_type)
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Action Button - "Click to Earn" or "Locked" */}
-                  <button 
-                    className={`w-full font-bold py-3 px-4 rounded-xl transition-all duration-200 shadow-lg flex items-center justify-center gap-2 ${
-                      isLocked 
-                        ? 'bg-gray-500/50 text-gray-300 cursor-not-allowed' 
-                        : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white transform group-hover:scale-105 hover:shadow-xl'
-                    }`}
-                    disabled={isLocked}
-                  >
-                    {isLocked ? (
-                      <>
-                        <Lock className="h-4 w-4" />
-                        <span>Locked</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Click to Earn</span>
-                        <ChevronRight className="h-4 w-4" />
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                  {/* Card Content */}
+                  <div className={`p-4 ${isLocked ? 'blur-[1px]' : ''}`}>
+                    {/* Rating & Device Row */}
+                    <div className="flex items-center justify-between mb-2">
+                      {renderStarRating(offer.star_rating || 5)}
+                      <div className="flex items-center gap-1">
+                        {getDeviceIcon(offer.device_targeting || (offer.devices && offer.devices[0]))}
+                      </div>
+                    </div>
 
+                    {/* Title */}
+                    <h3 className="font-bold text-gray-800 text-sm mb-1.5 leading-snug line-clamp-2">
+                      {truncateTitle(offer.title, 7)}
+                    </h3>
+                    
+                    {/* Countries */}
+                    <div className="mb-3">
+                      {getCountryDisplay(getOfferCountries(offer))}
+                    </div>
+
+                    {/* Points Display */}
+                    <div className="flex items-center justify-between bg-gradient-to-r from-purple-50 to-indigo-50 rounded-xl p-3 border border-purple-100 mb-3">
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-2xl font-black text-purple-700">
+                          {points.toLocaleString()}
+                        </span>
+                        <span className="text-xs text-purple-500 font-semibold uppercase">
+                          {currencyName}
+                        </span>
+                      </div>
+                      <Sparkles className="h-5 w-5 text-amber-400" />
+                    </div>
+
+                    {/* CTA Button */}
+                    <button 
+                      className={`w-full font-semibold py-2.5 px-4 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 text-sm ${
+                        isLocked 
+                          ? 'bg-gray-100 text-gray-400 cursor-not-allowed' 
+                          : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white shadow-md shadow-purple-200 group-hover:shadow-lg group-hover:shadow-purple-300'
+                      }`}
+                      disabled={isLocked}
+                    >
+                      {isLocked ? (
+                        <>
+                          <Lock className="h-3.5 w-3.5" />
+                          <span>Locked</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Earn Now</span>
+                          <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
 
-        {/* Load More Button */}
+        {/* Load More */}
         {currentPage < totalPages && (
           <div className="text-center mt-10">
             <button
               onClick={loadMoreOffers}
               disabled={loadingMore}
-              className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white px-10 py-4 rounded-2xl font-bold transition-all transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-white border-2 border-purple-200 hover:border-purple-400 text-purple-700 hover:text-purple-800 px-8 py-3 rounded-xl font-bold transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loadingMore ? 'Loading...' : `Load More (${totalCount - offers.length} remaining)`}
+              {loadingMore ? (
+                <span className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin"></div>
+                  Loading...
+                </span>
+              ) : (
+                `Load More (${totalCount - offers.length} remaining)`
+              )}
             </button>
           </div>
         )}
@@ -790,19 +811,29 @@ const Offerwall: React.FC<OfferwallProps> = ({
         {/* Skipped offers warning */}
         {skippedCount > 0 && (
           <div className="text-center mt-4">
-            <p className="text-yellow-400 text-sm">
+            <p className="text-amber-600 text-sm">
               ⚠️ {skippedCount} offer{skippedCount > 1 ? 's' : ''} couldn't be loaded due to data issues
             </p>
           </div>
         )}
+      </main>
 
-        {/* Footer */}
-        <div className="text-center text-purple-300 mt-16 text-sm">
-          <p>Complete offers to earn rewards • All offers are provided by trusted partners</p>
+      {/* ===== FOOTER ===== */}
+      <footer className="border-t border-purple-100 bg-white/50 mt-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-md flex items-center justify-center">
+                <span className="text-white font-black text-[8px]">ML</span>
+              </div>
+              <span className="text-sm text-gray-500">Powered by <span className="font-semibold text-purple-600">Moustache Leads</span></span>
+            </div>
+            <p className="text-xs text-gray-400">Complete offers to earn rewards • All offers provided by trusted partners</p>
+          </div>
         </div>
-      </div>
+      </footer>
 
-      {/* Offer Modal */}
+      {/* ===== OFFER MODAL ===== */}
       {selectedOffer && (
         <OfferModal
           offer={selectedOffer}
@@ -831,36 +862,20 @@ const Offerwall: React.FC<OfferwallProps> = ({
         />
       )}
 
+      {/* ===== ANIMATIONS & CUSTOM SCROLLBAR ===== */}
       <style>{`
-        @keyframes fade-in {
-          from {
-            opacity: 0;
-            transform: translateY(-20px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        .scrollbar-hide::-webkit-scrollbar {
+          display: none;
         }
-
-        @keyframes slide-up {
-          from {
-            opacity: 0;
-            transform: translateY(30px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        .scrollbar-hide {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
         }
-
-        .animate-fade-in {
-          animation: fade-in 0.6s ease-out;
-        }
-
-        .animate-slide-up {
-          animation: slide-up 0.5s ease-out forwards;
-          opacity: 0;
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
       `}</style>
     </div>

@@ -7,6 +7,8 @@ from flask import Blueprint, request, jsonify
 from utils.auth import token_required
 from models.payout_method import PayoutMethod
 from models.monthly_earnings import MonthlyEarnings
+from database import db_instance
+from bson import ObjectId
 from datetime import datetime
 import logging
 
@@ -30,6 +32,44 @@ def get_payout_method():
             return jsonify({'error': error}), 500
 
         if not method:
+            # Fallback: check if user has payout_details from registration
+            users_col = db_instance.get_collection('users')
+            if users_col is not None:
+                user_doc = users_col.find_one(
+                    {'_id': ObjectId(user_id)},
+                    {'payout_details': 1}
+                )
+                payout_details = user_doc.get('payout_details', {}) if user_doc else {}
+                
+                # Check if there's any meaningful bank data from registration
+                has_registration_data = any(
+                    payout_details.get(f) for f in ['account_name', 'bank_name', 'account_number', 'routing_number']
+                )
+                
+                if has_registration_data:
+                    # Return registration data mapped to payout_methods format
+                    fallback_method = {
+                        'active_method': 'bank',
+                        'bank_details': {
+                            'account_name': payout_details.get('account_name', ''),
+                            'bank_name': payout_details.get('bank_name', ''),
+                            'account_number': payout_details.get('account_number', ''),
+                            'ifsc_swift': payout_details.get('routing_number', ''),
+                            'country': '',
+                            'currency': '',
+                            'phone': '',
+                            'address': '',
+                            'upi': ''
+                        },
+                        'paypal_details': {},
+                        'crypto_details': {},
+                        'from_registration': True  # Flag so frontend knows this is legacy data
+                    }
+                    return jsonify({
+                        'has_method': True,
+                        'method': fallback_method
+                    }), 200
+
             return jsonify({
                 'message': 'No payout method configured',
                 'has_method': False
