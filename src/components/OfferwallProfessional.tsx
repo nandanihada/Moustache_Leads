@@ -407,7 +407,14 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
   useEffect(() => { trackImpression(); loadOffers(); loadSettings(); loadSubWalls(); checkQual(); }, [placementId, userId]);
   
-  // Reapply filters when country is detected
+  // Reload offers when country is detected (after initial load)
+  useEffect(() => {
+    if (userCountry) {
+      loadOffers();
+    }
+  }, [userCountry]);
+
+  // Reapply filters when other filter params change
   useEffect(() => { applyFilters(); }, [allOffers, search, category, device, payoutType, sort, isQualified, newUserIds, userCountry]);
   
   // Update visible offers when page changes
@@ -449,7 +456,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const loadOffers = async () => {
     try {
       setLoading(true); setError(null);
-      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000`);
+      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}`);
       if (!r.ok) throw new Error('Failed'); const d = await r.json(); if (d.error) throw new Error(d.error);
       setCurrency(d.currency_name || 'LEaDS');
       let funnels: any[] = [];

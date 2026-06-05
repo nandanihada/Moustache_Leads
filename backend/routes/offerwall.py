@@ -1968,8 +1968,30 @@ def get_offers():
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
         
-        # Country filter: use query param if provided (from frontend dropdown), skip ipinfo lookup to save memory
+        # Country filter: use query param first, then auto-detect from IP
         user_country_code = request.args.get('country', '').upper().strip()
+        if not user_country_code:
+            try:
+                # Get real client IP
+                x_forwarded_for = request.headers.get('X-Forwarded-For', '')
+                client_ip = x_forwarded_for.split(',')[0].strip() if x_forwarded_for else request.remote_addr
+                # Skip local IPs
+                is_local = (not client_ip or
+                            client_ip in ('127.0.0.1', '::1', 'localhost') or
+                            client_ip.startswith('192.168.') or
+                            client_ip.startswith('10.') or
+                            client_ip.startswith('172.16.'))
+                if not is_local:
+                    from services.ipinfo_service import get_ipinfo_service
+                    geo = get_ipinfo_service()
+                    ip_data = geo.lookup_ip(client_ip)
+                    if ip_data:
+                        detected = ip_data.get('country_code', ip_data.get('country', '')).upper().strip()
+                        if detected and len(detected) == 2:
+                            user_country_code = detected
+                            logger.info(f"🌍 Auto-detected country {user_country_code} from IP {client_ip}")
+            except Exception as geo_err:
+                logger.warning(f"Country auto-detection failed: {geo_err}")
         
         # Fetch placement exchange rate, currency name, and publisher ID
         placement_exchange_rate = 100  # Default: $1 = 100 points
