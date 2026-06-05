@@ -178,6 +178,7 @@ class OfferwallTracking:
                 'session_id': session_id,
                 'offer_id': offer_id,
                 'offer_name': click_data.get('offer_name', 'Unknown Offer'),
+                'reward_amount': click_data.get('reward_amount', 0),
                 'placement_id': placement_id,
                 'publisher_id': publisher_id,
                 'user_id': user_id,

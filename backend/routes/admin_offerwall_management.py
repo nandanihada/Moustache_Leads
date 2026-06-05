@@ -585,3 +585,156 @@ def get_stats():
     except Exception as e:
         logger.error(f"Error getting offerwall stats: {str(e)}")
         return jsonify({'error': 'Failed to fetch stats'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/tracking-logs', methods=['GET'])
+@token_required
+def get_tracking_logs():
+    """
+    Admin: Get all offerwall tracking logs across all placements/users.
+    Includes: iframe (placement), publisher, end_user, offer, status, time.
+    Filterable by status: clicked | pending | completed | all
+    """
+    try:
+        current_user = request.current_user
+        if current_user.get('role') not in ('admin', 'subadmin'):
+            return jsonify({'error': 'Admin access required'}), 403
+
+        status_filter = request.args.get('status', 'all')  # all | clicked | pending | completed
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        search = request.args.get('search', '').strip()
+
+        clicks_col = db_instance.get_collection('offerwall_clicks')
+        conversions_col = db_instance.get_collection('offerwall_conversions')
+        placements_col = db_instance.get_collection('placements')
+
+        logs = []
+
+        # Build placement lookup cache for iframe/publisher info
+        placement_cache = {}
+        try:
+            if placements_col:
+                for p in placements_col.find({}, {'placementIdentifier': 1, 'publisherId': 1, 'offerwallTitle': 1, 'publisher_name': 1}):
+                    pid = p.get('placementIdentifier', '')
+                    if pid:
+                        placement_cache[pid] = {
+                            'placement_id': pid,
+                            'publisher_id': str(p.get('publisherId', p.get('publisher_id', ''))),
+                            'publisher_name': p.get('publisher_name', p.get('offerwallTitle', 'Unknown')),
+                            'iframe_title': p.get('offerwallTitle', pid)
+                        }
+        except Exception as pe:
+            logger.warning(f"Could not load placement cache: {pe}")
+
+        # 1. Pull clicks (status: clicked or pending — both live in offerwall_clicks)
+        if status_filter in ('all', 'clicked', 'pending'):
+            try:
+                click_query = {}
+                if status_filter == 'clicked':
+                    # 'valid' is the fraud-check status stored by OfferwallTracking.record_click
+                    # Map valid → clicked for display
+                    click_query['status'] = {'$in': ['clicked', 'valid', None]}
+                elif status_filter == 'pending':
+                    click_query['status'] = 'pending'
+                if search:
+                    click_query['$or'] = [
+                        {'offer_name': {'$regex': search, '$options': 'i'}},
+                        {'data.offer_name': {'$regex': search, '$options': 'i'}},
+                        {'user_id': {'$regex': search, '$options': 'i'}},
+                        {'placement_id': {'$regex': search, '$options': 'i'}}
+                    ]
+
+                for c in clicks_col.find(click_query).sort('timestamp', -1).limit(500):
+                    pid = c.get('placement_id', '')
+                    pinfo = placement_cache.get(pid, {})
+                    ts = c.get('timestamp') or c.get('started_at')
+                    raw_status = c.get('status') or ''
+                    # Map fraud-check 'valid' to display 'clicked'; keep 'pending' as is
+                    display_status = 'pending' if raw_status == 'pending' else 'clicked'
+                    # offer_name may be at root or nested under 'data'
+                    offer_name = c.get('offer_name') or c.get('data', {}).get('offer_name', 'Unknown Offer')
+                    logs.append({
+                        'id': str(c.get('_id', '')),
+                        'offer_name': offer_name,
+                        'offer_id': c.get('offer_id', ''),
+                        'user_id': c.get('user_id', ''),
+                        'placement_id': pid,
+                        'publisher_id': pinfo.get('publisher_id', c.get('publisher_id', '')),
+                        'publisher_name': pinfo.get('publisher_name', ''),
+                        'iframe_title': pinfo.get('iframe_title', pid),
+                        'status': display_status,
+                        'reward': 0,
+                        'timestamp': ts.isoformat() if isinstance(ts, datetime) else str(ts or ''),
+                        'user_agent': c.get('user_agent', '') or c.get('data', {}).get('user_agent', ''),
+                    })
+            except Exception as ce:
+                logger.warning(f"Error fetching clicks: {ce}")
+
+        # 2. Pull conversions (status: completed or pending)
+        if status_filter in ('all', 'completed', 'pending'):
+            try:
+                conv_query = {}
+                if status_filter == 'completed':
+                    conv_query['status'] = {'$in': ['credited', 'approved', 'completed']}
+                elif status_filter == 'pending':
+                    conv_query['status'] = {'$in': ['pending', 'processing']}
+                if search:
+                    conv_query['$or'] = [
+                        {'offer_name': {'$regex': search, '$options': 'i'}},
+                        {'user_id': {'$regex': search, '$options': 'i'}},
+                        {'placement_id': {'$regex': search, '$options': 'i'}}
+                    ]
+
+                for c in conversions_col.find(conv_query).sort('timestamp', -1).limit(500):
+                    pid = c.get('placement_id', '')
+                    pinfo = placement_cache.get(pid, {})
+                    ts = c.get('timestamp')
+                    raw_status = c.get('status', 'pending')
+                    display_status = 'completed' if raw_status in ('credited', 'approved', 'completed') else 'pending'
+                    logs.append({
+                        'id': str(c.get('_id', '')),
+                        'offer_name': c.get('offer_name', 'Unknown Offer'),
+                        'offer_id': c.get('offer_id', ''),
+                        'user_id': c.get('user_id', ''),
+                        'placement_id': pid,
+                        'publisher_id': pinfo.get('publisher_id', c.get('publisher_id', '')),
+                        'publisher_name': pinfo.get('publisher_name', ''),
+                        'iframe_title': pinfo.get('iframe_title', pid),
+                        'status': display_status,
+                        'reward': c.get('payout_amount', c.get('reward', 0)),
+                        'timestamp': ts.isoformat() if isinstance(ts, datetime) else str(ts or ''),
+                        'user_agent': c.get('user_agent', ''),
+                    })
+            except Exception as cve:
+                logger.warning(f"Error fetching conversions: {cve}")
+
+        # Sort all by timestamp desc, then paginate
+        logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        total = len(logs)
+        skip = (page - 1) * per_page
+        paginated = logs[skip:skip + per_page]
+
+        # Summary counts
+        all_statuses = [l['status'] for l in logs]
+        summary = {
+            'total': total,
+            'clicked': sum(1 for s in all_statuses if s == 'clicked'),
+            'pending': sum(1 for s in all_statuses if s == 'pending'),
+            'completed': sum(1 for s in all_statuses if s == 'completed'),
+        }
+
+        return jsonify({
+            'logs': paginated,
+            'summary': summary,
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total,
+                'pages': max(1, (total + per_page - 1) // per_page)
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting tracking logs: {e}", exc_info=True)
+        return jsonify({'error': 'Internal server error'}), 500

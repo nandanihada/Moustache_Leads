@@ -3649,3 +3649,188 @@ def apply_rotation_rules(offer, request_data):
         return offer.get('target_url', 'https://example.com')
 
 
+
+
+@offerwall_bp.route('/api/geo/detect', methods=['GET'])
+def detect_user_country():
+    """Detect user's country from IP address"""
+    try:
+        # Get client IP
+        ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if ip and ',' in ip:
+            ip = ip.split(',')[0].strip()
+
+        # Skip private/local IPs
+        if not ip or ip in ('127.0.0.1', 'localhost') or ip.startswith('192.168.') or ip.startswith('10.'):
+            return jsonify({'country_code': '', 'country': 'Unknown'}), 200
+
+        try:
+            from services.ipinfo_service import get_ipinfo_service
+            geo = get_ipinfo_service()
+            ip_data = geo.lookup_ip(ip)
+            if ip_data:
+                country_code = ip_data.get('country_code', ip_data.get('country', ''))
+                country_name = ip_data.get('country_name', ip_data.get('country', 'Unknown'))
+                return jsonify({
+                    'country_code': country_code.upper() if country_code else '',
+                    'country': country_name,
+                    'ip': ip
+                }), 200
+        except Exception as geo_err:
+            logger.warning(f"Geo detection failed: {geo_err}")
+
+        return jsonify({'country_code': '', 'country': 'Unknown'}), 200
+
+    except Exception as e:
+        logger.error(f"Error detecting country: {e}")
+        return jsonify({'country_code': '', 'country': 'Unknown'}), 200
+
+
+@offerwall_bp.route('/api/offerwall/user/recent-activity', methods=['GET'])
+def get_user_recent_activity():
+    """Get user's recent offer activity (clicks + completions) for tracking panel"""
+    try:
+        user_id = request.args.get('user_id')
+        placement_id = request.args.get('placement_id')
+        limit = int(request.args.get('limit', 50))
+
+        if not user_id:
+            return jsonify({'error': 'user_id required'}), 400
+
+        items = []
+
+        # Helper: look up offer payout and return 80% of it
+        offers_col = db_instance.get_collection('offers')
+        payout_cache = {}
+
+        def get_user_reward(offer_id, stored_reward=0):
+            """Return stored reward_amount (already 80%) or look up 80% of admin payout."""
+            if stored_reward and stored_reward > 0:
+                return stored_reward
+            if not offer_id:
+                return 0
+            if offer_id in payout_cache:
+                return payout_cache[offer_id]
+            try:
+                offer = offers_col.find_one({'offer_id': offer_id}, {'payout': 1, 'reward_amount': 1}) if offers_col else None
+                if offer:
+                    admin_payout = offer.get('payout') or offer.get('reward_amount') or 0
+                    user_reward = round(float(admin_payout) * 0.8, 2)
+                    payout_cache[offer_id] = user_reward
+                    return user_reward
+            except Exception:
+                pass
+            payout_cache[offer_id] = 0
+            return 0
+
+        # 1. Get clicks
+        try:
+            clicks_col = db_instance.get_collection('offerwall_clicks')
+            query = {'user_id': user_id}
+            if placement_id:
+                query['placement_id'] = placement_id
+            clicks = list(clicks_col.find(query).sort('timestamp', -1).limit(limit))
+            for c in clicks:
+                c['_id'] = str(c.get('_id', ''))
+                ts = c.get('timestamp')
+                raw_status = c.get('status', '')
+                display_status = 'pending' if raw_status == 'pending' else 'clicked'
+                offer_name = c.get('offer_name') or c.get('data', {}).get('offer_name', 'Unknown Offer')
+                offer_id = c.get('offer_id', '')
+                # Use stored reward_amount first (set when click was tracked), fall back to DB lookup
+                stored_reward = c.get('reward_amount') or c.get('data', {}).get('reward_amount', 0)
+                reward = get_user_reward(offer_id, stored_reward)
+                items.append({
+                    'offer_id': offer_id,
+                    'offer_name': offer_name,
+                    'status': display_status,
+                    'reward': reward,
+                    'timestamp': ts.isoformat() if isinstance(ts, datetime) else str(ts or ''),
+                })
+        except Exception as ce:
+            logger.warning(f"Could not fetch clicks: {ce}")
+
+        # 2. Get conversions/completions
+        try:
+            conv_col = db_instance.get_collection('offerwall_conversions')
+            query2 = {'user_id': user_id}
+            if placement_id:
+                query2['placement_id'] = placement_id
+            convs = list(conv_col.find(query2).sort('timestamp', -1).limit(limit))
+            for c in convs:
+                c['_id'] = str(c.get('_id', ''))
+                ts = c.get('timestamp')
+                status = 'completed' if c.get('status') in ('credited', 'approved', 'completed') else 'pending'
+                offer_id = c.get('offer_id', '')
+                stored_reward = c.get('payout_amount', 0) or c.get('reward', 0)
+                reward = get_user_reward(offer_id, stored_reward)
+                items.append({
+                    'offer_name': c.get('offer_name', 'Unknown Offer'),
+                    'status': status,
+                    'reward': reward,
+                    'timestamp': ts.isoformat() if isinstance(ts, datetime) else str(ts or ''),
+                })
+        except Exception as cv:
+            logger.warning(f"Could not fetch conversions: {cv}")
+
+        # Sort by timestamp desc, take top N
+        def safe_ts(item):
+            try:
+                return item.get('timestamp', '') or ''
+            except:
+                return ''
+
+        items.sort(key=safe_ts, reverse=True)
+        items = items[:limit]
+
+        return jsonify({'activities': items, 'total': len(items)}), 200
+
+    except Exception as e:
+        logger.error(f"Error getting recent activity: {e}")
+        return jsonify({'activities': [], 'total': 0}), 200
+
+
+@offerwall_bp.route('/api/offerwall/track/offer-start', methods=['POST'])
+def track_offer_start():
+    """Track when user clicks 'Start Offer' button — marks status as pending"""
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id', '')
+        placement_id = data.get('placement_id', '')
+        offer_id = data.get('offer_id', '')
+        offer_name = data.get('offer_name', '')
+
+        if not user_id or not offer_id:
+            return jsonify({'error': 'user_id and offer_id required'}), 400
+
+        # Record in offerwall_clicks with status pending
+        clicks_col = db_instance.get_collection('offerwall_clicks')
+        if clicks_col:
+            # Check if already exists as clicked, update to pending
+            existing = clicks_col.find_one({'user_id': user_id, 'offer_id': offer_id, 'placement_id': placement_id})
+            if existing:
+                clicks_col.update_one(
+                    {'_id': existing['_id']},
+                    {'$set': {'status': 'pending', 'started_at': datetime.utcnow()}}
+                )
+            else:
+                # New record
+                clicks_col.insert_one({
+                    'user_id': user_id,
+                    'placement_id': placement_id,
+                    'offer_id': offer_id,
+                    'offer_name': offer_name,
+                    'status': 'pending',
+                    'timestamp': datetime.utcnow(),
+                    'started_at': datetime.utcnow(),
+                    'user_agent': data.get('user_agent', ''),
+                    'is_duplicate': False,
+                    'is_invalid': False,
+                })
+
+        logger.info(f"✅ Offer start tracked: user={user_id}, offer={offer_id}, status=pending")
+        return jsonify({'success': True, 'status': 'pending'}), 200
+
+    except Exception as e:
+        logger.error(f"Error tracking offer start: {e}")
+        return jsonify({'error': 'Internal server error'}), 500

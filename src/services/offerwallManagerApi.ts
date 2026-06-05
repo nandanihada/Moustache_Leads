@@ -109,6 +109,17 @@ class OfferwallManagerApi {
     if (!res.ok) throw new Error('Failed to fetch offerwall offers');
     return res.json();
   }
+
+  async getTrackingLogs(params?: {status?: string; page?: number; per_page?: number; search?: string}): Promise<any> {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.page) query.set('page', String(params.page));
+    if (params?.per_page) query.set('per_page', String(params.per_page));
+    if (params?.search) query.set('search', params.search);
+    const res = await fetch(`${API_BASE_URL}/tracking-logs?${query.toString()}`, { headers: this.getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch tracking logs');
+    return res.json();
+  }
 }
 
 export const offerwallManagerApi = new OfferwallManagerApi();

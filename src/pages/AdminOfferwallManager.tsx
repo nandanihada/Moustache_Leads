@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { offerwallManagerApi, OfferwallSettings, OfferwallStats } from "@/services/offerwallManagerApi";
 import { useToast } from "@/hooks/use-toast";
@@ -25,8 +25,168 @@ import {
 } from "@/components/ui/dialog";
 import {
   Star, Eye, EyeOff, Sparkles, Plus, Trash2, Save,
-  BarChart3, Pin, Layout, Monitor, X, ChevronLeft, ChevronRight
+  BarChart3, Pin, Layout, Monitor, X, ChevronLeft, ChevronRight,
+  Activity, CheckCircle, Clock, AlertCircle, Search, RefreshCw
 } from "lucide-react";
+
+// ===================== TRACKING TAB COMPONENT =====================
+const TrackingTab: React.FC = () => {
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [summary, setSummary] = useState({ total: 0, clicked: 0, pending: 0, completed: 0 });
+  const [pagination, setPagination] = useState({ page: 1, total: 0, pages: 1 });
+  const [loading, setLoading] = useState(false);
+
+  const fetchLogs = async (newPage = 1) => {
+    setLoading(true);
+    try {
+      const data = await offerwallManagerApi.getTrackingLogs({ status: statusFilter, page: newPage, per_page: 50, search });
+      setLogs(data.logs || []);
+      setSummary(data.summary || { total: 0, clicked: 0, pending: 0, completed: 0 });
+      setPagination(data.pagination || { page: 1, total: 0, pages: 1 });
+    } catch (e) {
+      console.error('Failed to load tracking logs:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchLogs(1); setPage(1); }, [statusFilter]);
+
+  const formatTime = (ts: string) => {
+    try {
+      const d = new Date(ts);
+      return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' }) +
+        ' ' + d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true }) + ' IST';
+    } catch { return ts; }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'completed': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200"><CheckCircle className="h-3 w-3" />Completed</span>;
+      case 'pending': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200"><Clock className="h-3 w-3" />Pending</span>;
+      default: return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200"><Activity className="h-3 w-3" />Clicked</span>;
+    }
+  };
+
+  return (
+    <TabsContent value="tracking">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Activity className="h-5 w-5 text-purple-600" />
+            Offerwall Tracking Logs
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+            {[
+              { label: 'Total', value: summary.total, color: 'text-gray-700 bg-gray-100', icon: <Activity className="h-4 w-4" /> },
+              { label: 'Clicked', value: summary.clicked, color: 'text-blue-700 bg-blue-100', icon: <Activity className="h-4 w-4" /> },
+              { label: 'Pending', value: summary.pending, color: 'text-amber-700 bg-amber-100', icon: <Clock className="h-4 w-4" /> },
+              { label: 'Completed', value: summary.completed, color: 'text-green-700 bg-green-100', icon: <CheckCircle className="h-4 w-4" /> },
+            ].map(s => (
+              <div key={s.label} className={`rounded-xl p-3 flex items-center gap-3 ${s.color}`}>
+                {s.icon}
+                <div>
+                  <p className="text-xs font-semibold opacity-70">{s.label}</p>
+                  <p className="text-xl font-black">{s.value}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Filters Row */}
+          <div className="flex flex-wrap items-center gap-3 mb-4">
+            <div className="flex gap-1">
+              {['all', 'clicked', 'pending', 'completed'].map(s => (
+                <Button key={s} size="sm" variant={statusFilter === s ? 'default' : 'outline'}
+                  className={statusFilter === s ? 'bg-purple-600 text-white' : ''}
+                  onClick={() => setStatusFilter(s)}>
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </Button>
+              ))}
+            </div>
+            <div className="flex-1 flex items-center gap-2 max-w-xs">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <Input placeholder="Search offer, user, placement…" value={search} onChange={e => setSearch(e.target.value)}
+                  className="pl-8 h-8 text-sm" onKeyDown={e => { if (e.key === 'Enter') fetchLogs(1); }} />
+              </div>
+              <Button size="sm" variant="outline" onClick={() => fetchLogs(1)}><RefreshCw className="h-4 w-4" /></Button>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="border rounded-lg overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-gray-50">
+                  <TableHead className="text-xs">Offer</TableHead>
+                  <TableHead className="text-xs">End User</TableHead>
+                  <TableHead className="text-xs">Publisher</TableHead>
+                  <TableHead className="text-xs">Iframe</TableHead>
+                  <TableHead className="text-xs">Status</TableHead>
+                  <TableHead className="text-xs text-right">Reward</TableHead>
+                  <TableHead className="text-xs">Time (IST)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <div className="flex items-center justify-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Loading…</div>
+                  </TableCell></TableRow>
+                ) : logs.length === 0 ? (
+                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                    No tracking logs found
+                  </TableCell></TableRow>
+                ) : logs.map((log, i) => (
+                  <TableRow key={`${log.id}-${i}`} className="hover:bg-purple-50/30">
+                    <TableCell className="max-w-[200px]">
+                      <p className="font-medium text-sm truncate">{log.offer_name || 'Unknown'}</p>
+                      <p className="text-xs text-muted-foreground truncate font-mono">{log.offer_id}</p>
+                    </TableCell>
+                    <TableCell className="text-xs font-mono text-muted-foreground truncate max-w-[100px]">{log.user_id || '—'}</TableCell>
+                    <TableCell className="text-xs truncate max-w-[120px]">
+                      <p className="font-medium">{log.publisher_name || '—'}</p>
+                      <p className="text-muted-foreground font-mono text-[10px]">{log.publisher_id || ''}</p>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground truncate max-w-[100px]">{log.iframe_title || log.placement_id || '—'}</TableCell>
+                    <TableCell>{getStatusBadge(log.status)}</TableCell>
+                    <TableCell className="text-right text-sm font-semibold text-purple-700">
+                      {log.reward > 0 ? `+${log.reward}` : '—'}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatTime(log.timestamp)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Pagination */}
+          {pagination.pages > 1 && (
+            <div className="flex items-center justify-between mt-4">
+              <p className="text-xs text-muted-foreground">Showing {logs.length} of {pagination.total} records</p>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => { const np = page - 1; setPage(np); fetchLogs(np); }}>
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <span className="text-sm font-medium">{page} / {pagination.pages}</span>
+                <Button size="sm" variant="outline" disabled={page >= pagination.pages} onClick={() => { const np = page + 1; setPage(np); fetchLogs(np); }}>
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </TabsContent>
+  );
+};
 
 const AdminOfferwallManager = () => {
   const { toast } = useToast();
@@ -321,6 +481,7 @@ const AdminOfferwallManager = () => {
           <TabsTrigger value="qualification">Qualification Survey</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="announcements">Announcements</TabsTrigger>
+          <TabsTrigger value="tracking">Tracking</TabsTrigger>
         </TabsList>
 
         {/* Preview Tab */}
@@ -906,6 +1067,10 @@ const AdminOfferwallManager = () => {
             </DialogContent>
           </Dialog>
         </TabsContent>
+
+        {/* ===== TRACKING TAB ===== */}
+        <TrackingTab />
+
       </Tabs>
     </div>
   );
