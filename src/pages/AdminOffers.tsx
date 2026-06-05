@@ -116,7 +116,7 @@ const AdminOffers = () => {
   const [carouselViewOpen, setCarouselViewOpen] = useState(false);
   const [carouselIndex, setCarouselIndex] = useState(0);
   const [sortBy, setSortBy] = useState<string>('newest');
-  const [countryFilter, setCountryFilter] = useState<string>('all');
+  const [countryFilter, setCountryFilter] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string>('all');
   const [pagination, setPagination] = useState({
     page: 1,
@@ -167,7 +167,7 @@ const AdminOffers = () => {
   const [runningSubcategory, setRunningSubcategory] = useState<string>('all');
   const [runningStatusFilter, setRunningStatusFilter] = useState<string>('all');
   const [runningCategoryFilter, setRunningCategoryFilter] = useState<string>('all');
-  const [runningCountryFilter, setRunningCountryFilter] = useState<string>('all');
+  const [runningCountryFilter, setRunningCountryFilter] = useState<string[]>([]);
   const [runningNetworkFilter, setRunningNetworkFilter] = useState<string>('all');
   const [runningSortBy, setRunningSortBy] = useState<string>('newest');
   const [subcategoryCounts, setSubcategoryCounts] = useState<Record<string, number>>({});
@@ -264,8 +264,10 @@ const AdminOffers = () => {
         ...(!resetFilters && statusFilter !== 'all' && { status: statusFilter }),
         ...(!resetFilters && searchTerm && { search: searchTerm }),
         ...(!resetFilters && sortBy && { sort: sortBy }),
-        ...(!resetFilters && countryFilter !== 'all' && { country: countryFilter }),
+        ...(!resetFilters && countryFilter.length > 0 && { country: countryFilter.join(',') }),
         ...(!resetFilters && networkFilter !== 'all' && { network: networkFilter }),
+        ...(!resetFilters && selectedCategories !== 'all' && { categories: selectedCategories }),
+        ...(!resetFilters && healthFilter !== 'all' && { health: healthFilter }),
         ...(resetFilters && { sort: 'newest' })
       };
 
@@ -328,82 +330,14 @@ const AdminOffers = () => {
     setSortBy('newest');
     setSearchTerm('');
     setStatusFilter('all');
-    setCountryFilter('all');
+    setCountryFilter([]);
     setNetworkFilter('all');
     fetchOffers(1, true);
   };
 
-  // Category mappings for client-side filtering
-  const categoryMappings: Record<string, string[]> = {
-    'HEALTH': ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
-    'SURVEY': ['SURVEY', 'SURVEYS'],
-    'SWEEPSTAKES': ['SWEEPSTAKES', 'SWEEPS', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
-    'EDUCATION': ['EDUCATION', 'LEARNING'],
-    'INSURANCE': ['INSURANCE'],
-    'LOAN': ['LOAN', 'LOANS', 'LENDING'],
-    'FINANCE': ['FINANCE', 'FINANCIAL'],
-    'DATING': ['DATING', 'RELATIONSHIPS'],
-    'FREE_TRIAL': ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
-    'INSTALLS': ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
-    'GAMES_INSTALL': ['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
-  };
-
-  // Client-side filtering via useMemo — no re-fetch needed
-  const offers = useMemo(() => {
-    let filtered = [...rawOffers];
-
-    // Apply country filter
-    if (countryFilter !== 'all') {
-      filtered = filtered.filter(offer =>
-        Array.isArray(offer.countries) && offer.countries.some(c => c.toUpperCase() === countryFilter.toUpperCase())
-      );
-    }
-
-    // Apply category filter (supports new categories array)
-    if (selectedCategories !== 'all') {
-      filtered = filtered.filter(offer => {
-        const catUpper = selectedCategories.toUpperCase();
-        const matching = categoryMappings[catUpper] || [catUpper];
-        
-        // Check categories array first (new multi-category system)
-        const cats = (offer as any).categories;
-        if (Array.isArray(cats) && cats.length > 0) {
-          return cats.some((c: string) => matching.includes(c.toUpperCase()));
-        }
-        // Fallback to old single vertical/category
-        const offerVertical = (offer.vertical || offer.category || '').toUpperCase();
-        return matching.includes(offerVertical);
-      });
-    }
-
-    // Apply health filter
-    if (healthFilter !== 'all') {
-      if (healthFilter === 'healthy') {
-        filtered = filtered.filter(o => o.health?.status === 'healthy');
-      } else if (healthFilter === 'unhealthy') {
-        filtered = filtered.filter(o => (o.health?.status || 'unhealthy') === 'unhealthy');
-      } else {
-        // Specific criterion filters (no_image, no_partner, etc.)
-        const criterionMap: Record<string, string> = {
-          no_tracking_url: 'tracking_url',
-          no_upward_partner: 'upward_partner',
-          no_image: 'image',
-          no_country: 'country',
-          no_payout: 'payout',
-          no_payout_model: 'payout_model',
-        };
-        const criterion = criterionMap[healthFilter];
-        if (criterion) {
-          filtered = filtered.filter(o => {
-            const failures = o.health?.failures || [];
-            return failures.some((f: { criterion: string }) => f.criterion === criterion);
-          });
-        }
-      }
-    }
-
-    return filtered;
-  }, [rawOffers, selectedCategories, healthFilter]);
+  // All filters (country, categories, health, status, network) are now handled server-side.
+  // The offers array is the direct result from the API response.
+  const offers = useMemo(() => [...rawOffers], [rawOffers]);
 
   const handleDeleteOffer = async (offerId: string, offerName?: string) => {
     // Check if this offer is running before deleting
@@ -504,7 +438,7 @@ const AdminOffers = () => {
         subcategory: runningSubcategory,
         status: runningStatusFilter,
         category: runningCategoryFilter,
-        country: runningCountryFilter,
+        country: runningCountryFilter.length > 0 ? runningCountryFilter.join(',') : undefined,
         network: runningNetworkFilter,
         sort: runningSortBy,
       });
@@ -1350,7 +1284,7 @@ const AdminOffers = () => {
         subcategory: runningSubcategory,
         status: runningStatusFilter === 'all' ? undefined : runningStatusFilter,
         category: runningCategoryFilter === 'all' ? undefined : runningCategoryFilter,
-        country: runningCountryFilter === 'all' ? undefined : runningCountryFilter,
+        country: runningCountryFilter.length > 0 ? runningCountryFilter.join(',') : undefined,
         network: runningNetworkFilter === 'all' ? undefined : runningNetworkFilter,
         sort: runningSortBy,
       });
@@ -1632,7 +1566,7 @@ const AdminOffers = () => {
         status: statusFilter === 'all' ? undefined : statusFilter,
         search: searchTerm || undefined,
         sort: sortBy,
-        country: countryFilter === 'all' ? undefined : countryFilter,
+        country: countryFilter.length > 0 ? countryFilter.join(',') : undefined,
         categories: selectedCategories === 'all' ? undefined : selectedCategories
       });
 
@@ -1838,7 +1772,7 @@ const AdminOffers = () => {
 
   useEffect(() => {
     fetchOffers();
-  }, [pagination.page, pagination.per_page, statusFilter, sortBy, countryFilter, networkFilter]);
+  }, [pagination.page, pagination.per_page, statusFilter, sortBy, countryFilter, networkFilter, selectedCategories, healthFilter]);
 
   useEffect(() => {
     const delayedSearch = setTimeout(() => {
@@ -2092,7 +2026,7 @@ const AdminOffers = () => {
                 className="relative shrink-0"
               >
                 <SlidersHorizontal className="h-4 w-4" />
-                {(statusFilter !== 'all' || selectedCategories !== 'all' || sortBy !== 'newest' || countryFilter !== 'all' || networkFilter !== 'all' || healthFilter !== 'all') && (
+                {(statusFilter !== 'all' || selectedCategories !== 'all' || sortBy !== 'newest' || countryFilter.length > 0 || networkFilter !== 'all' || healthFilter !== 'all') && (
                   <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary" />
                 )}
               </Button>
@@ -2222,17 +2156,17 @@ const AdminOffers = () => {
       {offersSubView !== 'running' && (
       <FilterPanel
         statusFilter={statusFilter}
-        onStatusChange={setStatusFilter}
+        onStatusChange={(v) => { setStatusFilter(v); setPagination(prev => ({ ...prev, page: 1 })); }}
         categoryFilter={selectedCategories}
-        onCategoryChange={setSelectedCategories}
+        onCategoryChange={(v) => { setSelectedCategories(v); setPagination(prev => ({ ...prev, page: 1 })); }}
         sortBy={sortBy}
-        onSortChange={setSortBy}
+        onSortChange={(v) => { setSortBy(v); setPagination(prev => ({ ...prev, page: 1 })); }}
         countryFilter={countryFilter}
-        onCountryChange={setCountryFilter}
+        onCountryChange={(v) => { setCountryFilter(v); setPagination(prev => ({ ...prev, page: 1 })); }}
         networkFilter={networkFilter}
-        onNetworkChange={setNetworkFilter}
+        onNetworkChange={(v) => { setNetworkFilter(v); setPagination(prev => ({ ...prev, page: 1 })); }}
         healthFilter={healthFilter}
-        onHealthChange={setHealthFilter}
+        onHealthChange={(v) => { setHealthFilter(v); setPagination(prev => ({ ...prev, page: 1 })); }}
         networks={networks}
         open={filterPanelOpen}
       />
@@ -2921,11 +2855,11 @@ const AdminOffers = () => {
           ) : offers.length === 0 ? (
             <div className="text-center py-8">
               <p className="text-muted-foreground">
-                {(healthFilter !== 'all' || selectedCategories !== 'all' || statusFilter !== 'all' || countryFilter !== 'all' || networkFilter !== 'all')
+                {(healthFilter !== 'all' || selectedCategories !== 'all' || statusFilter !== 'all' || countryFilter.length > 0 || networkFilter !== 'all')
                   ? 'No offers match the current filters'
                   : 'No offers found'}
               </p>
-              {(healthFilter !== 'all' || selectedCategories !== 'all' || statusFilter !== 'all' || countryFilter !== 'all' || networkFilter !== 'all') ? (
+              {(healthFilter !== 'all' || selectedCategories !== 'all' || statusFilter !== 'all' || countryFilter.length > 0 || networkFilter !== 'all') ? (
                 <Button
                   className="mt-4"
                   variant="outline"
@@ -2933,8 +2867,9 @@ const AdminOffers = () => {
                     setHealthFilter('all');
                     setSelectedCategories('all');
                     setStatusFilter('all');
-                    setCountryFilter('all');
+                    setCountryFilter([]);
                     setNetworkFilter('all');
+                    setPagination(prev => ({ ...prev, page: 1 }));
                   }}
                 >
                   Clear All Filters

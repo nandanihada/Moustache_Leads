@@ -27,11 +27,12 @@ interface ActivityItem {
 
 // ===================== CONSTANTS =====================
 const CATEGORIES = [
-  { id: 'all', name: 'All' }, { id: 'HEALTH', name: 'Health' }, { id: 'SURVEY', name: 'Surveys' },
-  { id: 'SWEEPSTAKES', name: 'Sweepstakes' }, { id: 'EDUCATION', name: 'Education' },
-  { id: 'INSURANCE', name: 'Insurance' }, { id: 'LOAN', name: 'Loans' }, { id: 'FINANCE', name: 'Finance' },
-  { id: 'DATING', name: 'Dating' }, { id: 'FREE_TRIAL', name: 'Free Trials' },
-  { id: 'INSTALLS', name: 'Installs' }, { id: 'GAMES_INSTALL', name: 'Games' },
+  { id: 'all', name: 'All' },
+  { id: 'SWEEPSTAKES', name: 'Sweepstakes' },
+  { id: 'SURVEY', name: 'Surveys' },
+  { id: 'FREE_TRIAL', name: 'Free Trials' },
+  { id: 'INSTALLS', name: 'Installs' },
+  { id: 'GAMES_INSTALL', name: 'Games' },
 ];
 const SORT_OPTIONS = [
   { id: 'trending', name: 'Trending' }, { id: 'points_high', name: 'Highest' },
@@ -339,11 +340,11 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const [currency, setCurrency] = useState('LEaDS');
   // Track which offers have been clicked/started locally for immediate UI feedback
   const [offerStatuses, setOfferStatuses] = useState<Record<string, 'clicked' | 'pending'>>(() => {
-    try { return JSON.parse(localStorage.getItem(`ow_statuses_${userId}`) || '{}'); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(`ow_statuses_${userId}_${placementId}`) || '{}'); } catch { return {}; }
   });
   // Store reward_amount per offer for activity display
   const [offerRewards, setOfferRewards] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(`ow_rewards_${userId}`) || '{}'); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem(`ow_rewards_${userId}_${placementId}`) || '{}'); } catch { return {}; }
   });
   const [qrOffer, setQrOffer] = useState<Offer | null>(null);
   const [showSupport, setShowSupport] = useState(false);
@@ -358,7 +359,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const [funnelSess, setFunnelSess] = useState('');
   const [funnelStep, setFunnelStep] = useState(0);
   const [funnelSurvey, setFunnelSurvey] = useState<any>(null);
-  const [funnelAns, setFunnelAns] = useState<Record<number, string>>({});
+  const [funnelAns, setFunnelAns] = useState<Record<number, string | string[]>>({});
   const [funnelResult, setFunnelResult] = useState<any>(null);
   const [funnelSubmitting, setFunnelSubmitting] = useState(false);
   const [funnelTpl, setFunnelTpl] = useState<TemplateName>('modern-card');
@@ -549,11 +550,11 @@ export const OfferwallProfessional: React.FC<Props> = ({
     if (!offerStatuses[realId]) {
       const updated = { ...offerStatuses, [realId]: 'clicked' as const };
       setOfferStatuses(updated);
-      localStorage.setItem(`ow_statuses_${userId}`, JSON.stringify(updated));
+      localStorage.setItem(`ow_statuses_${userId}_${placementId}`, JSON.stringify(updated));
       // Store reward for activity display
       const rewardUpdated = { ...offerRewards, [realId]: Math.round(o.reward_amount || 0) };
       setOfferRewards(rewardUpdated);
-      localStorage.setItem(`ow_rewards_${userId}`, JSON.stringify(rewardUpdated));
+      localStorage.setItem(`ow_rewards_${userId}_${placementId}`, JSON.stringify(rewardUpdated));
       // Record click in backend
       fetch(`${baseUrl}/api/offerwall/track/click`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -706,36 +707,21 @@ export const OfferwallProfessional: React.FC<Props> = ({
         {/* ===== TABLE VIEW ===== */}
         {filteredOffers.length > 0 && viewMode === 'table' && (
           <div>
-            <div className="hidden md:grid grid-cols-[1fr_140px_140px_80px_120px] items-center px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100 mb-2">
-              <span>Offer</span><span className="text-center">Category</span><span className="text-center">Reward</span><span className="text-center">QR</span><span className="text-right">Action</span>
+            <div className="hidden md:grid grid-cols-[1fr_140px_80px_120px] items-center px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-100 mb-2">
+              <span>Offer</span><span className="text-center">Reward</span><span className="text-center">QR</span><span className="text-right">Action</span>
             </div>
             <div className="flex flex-col gap-2.5">
               {visibleOffers.map(offer => {
                 const pts = Math.round(offer.reward_amount || 0);
                 const realId = offer.id.replace(/__cat\d+$/, '');
                 return (
-                  <div key={offer.id} className="bg-white rounded-xl border border-gray-100 hover:border-purple-200 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-1 md:grid-cols-[1fr_140px_140px_80px_120px] items-center gap-3 md:gap-0">
+                  <div key={offer.id} className="bg-white rounded-xl border border-gray-100 hover:border-purple-200 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-1 md:grid-cols-[1fr_140px_80px_120px] items-center gap-3 md:gap-0">
                     <div className="flex items-center gap-3" onClick={() => handleClick(offer)}>
                       <div className="w-11 h-11 rounded-xl bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
                         <img src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} alt={offer.title} className="w-full h-full object-contain p-1" onError={e => { (e.target as HTMLImageElement).src = '/category-images/other.png'; }} />
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 8)}</p>
-                          {offerStatuses[realId] && (
-                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${offerStatuses[realId] === 'pending' ? 'text-amber-700 bg-amber-100' : 'text-blue-700 bg-blue-100'}`}>
-                              {offerStatuses[realId] === 'pending' ? 'Pending' : 'Clicked'}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-gray-400 text-xs truncate mt-0.5">{offer.description?.substring(0,65)}</p>
-                      </div>
-                    </div>
-                    <div className="md:text-center" onClick={() => handleClick(offer)}>
-                      <div className="flex flex-wrap gap-1 justify-center">
-                        {(offer.category || '').split('/').map((cat, ci) => (
-                          <span key={ci} className="text-[9px] font-bold tracking-wider uppercase text-white bg-[#340075] px-2 py-0.5 rounded-full whitespace-nowrap">{cat.trim()}</span>
-                        ))}
+                        <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 8)}</p>
                       </div>
                     </div>
                     <div className="md:text-center" onClick={() => handleClick(offer)}><span className="font-bold text-[#340075] text-sm">+{pts.toLocaleString()} {currency}</span></div>
@@ -747,9 +733,8 @@ export const OfferwallProfessional: React.FC<Props> = ({
                 );
               })}
               {loadingMore && viewMode === 'table' && Array.from({ length: 4 }).map((_, i) => (
-                <div key={`sk-t-${i}`} className="bg-white rounded-xl border border-gray-100 px-4 py-3 grid grid-cols-1 md:grid-cols-[1fr_140px_140px_80px_120px] items-center gap-3 md:gap-0 animate-pulse">
+                <div key={`sk-t-${i}`} className="bg-white rounded-xl border border-gray-100 px-4 py-3 grid grid-cols-1 md:grid-cols-[1fr_140px_80px_120px] items-center gap-3 md:gap-0 animate-pulse">
                   <div className="flex items-center gap-3"><div className="w-11 h-11 rounded-xl bg-gray-200 flex-shrink-0"></div><div className="flex-1"><div className="h-3.5 bg-gray-200 rounded w-3/4 mb-2"></div><div className="h-2.5 bg-gray-200 rounded w-1/2"></div></div></div>
-                  <div className="md:text-center"><div className="h-6 bg-gray-200 rounded-full w-20 mx-auto"></div></div>
                   <div className="md:text-center"><div className="h-4 bg-gray-200 rounded w-16 mx-auto"></div></div>
                   <div className="md:text-center"><div className="h-8 w-8 bg-gray-200 rounded-lg mx-auto"></div></div>
                   <div className="md:text-right"><div className="h-8 bg-gray-200 rounded-lg w-20 ml-auto"></div></div>
@@ -761,7 +746,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
         {/* ===== GRID VIEW ===== */}
         {filteredOffers.length > 0 && viewMode === 'grid' && (
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 px-2">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 px-2">
             {/* Sub-walls */}
             {!search && subWalls.map(w => (
               <div key={`sw-${w._id}`} onClick={() => window.open(`https://walls.moustacheleads.com/wall/${w.slug}`, '_blank')} className="ow-card group cursor-pointer">
@@ -777,9 +762,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
               return (
                 <div key={offer.id} className="ow-card group cursor-pointer">
                   {/* Image */}
-                  <div className="relative h-28 overflow-hidden rounded-t-2xl bg-white border-b border-gray-100 flex items-center justify-center" onClick={() => handleClick(offer)}>
+                  <div className="relative h-40 overflow-hidden rounded-t-2xl bg-white border-b border-gray-100 flex items-center justify-center" onClick={() => handleClick(offer)}>
                     <img src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} alt={offer.title}
-                      className="w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-105"
+                      className="w-full h-full object-contain p-3 transition-transform duration-500 group-hover:scale-105"
                       onError={e => { (e.target as HTMLImageElement).src = '/category-images/other.png'; }} />
                     <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm"><span className="text-[#340075] font-bold text-xs">+{pts.toLocaleString()} {currency}</span></div>
                     {offer.timer_enabled && offer.timer_end_date && <div className="absolute top-3 left-3"><CountdownTimer endDate={offer.timer_end_date} /></div>}
@@ -788,17 +773,8 @@ export const OfferwallProfessional: React.FC<Props> = ({
                   </div>
 
                   {/* Content */}
-                  <div className="p-3 flex flex-col flex-grow" onClick={() => handleClick(offer)}>
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[9px] font-bold tracking-wider uppercase text-teal-700">{getCatName(offer.category)}</p>
-                      {offerStatuses[realId] && (
-                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${offerStatuses[realId] === 'pending' ? 'text-amber-700 bg-amber-100' : 'text-blue-700 bg-blue-100'}`}>
-                          {offerStatuses[realId] === 'pending' ? 'Pending' : 'Clicked'}
-                        </span>
-                      )}
-                    </div>
-                    <h3 className="font-bold text-gray-900 text-sm leading-snug mb-1.5 line-clamp-2 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title)}</h3>
-                    <p className="text-gray-500 text-xs line-clamp-2 mb-3">{offer.description?.substring(0,85)}{(offer.description?.length||0)>85?'…':''}</p>
+                  <div className="p-4 flex flex-col flex-grow" onClick={() => handleClick(offer)}>
+                    <h3 className="font-bold text-gray-900 text-sm leading-snug mb-3 line-clamp-2 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title)}</h3>
                     <button className="ow-btn w-full mt-auto group-hover:shadow-lg group-hover:shadow-[#340075]/15 transition-shadow">
                       <span>Start Offer</span><ChevronRight className="w-4 h-4 opacity-60 group-hover:translate-x-0.5 transition-transform" />
                     </button>
@@ -831,7 +807,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
       <footer className="border-t border-gray-100 py-6 mt-auto bg-white">
         <div className="max-w-[1300px] mx-auto px-4 md:px-6 flex flex-col sm:flex-row justify-between items-center gap-3">
           <div className="flex items-center gap-2"><img src="/logo.png" alt="" className="h-6 w-auto" onError={e=>{(e.target as HTMLImageElement).style.display='none'}} /><span className="font-bold text-[#340075] text-sm">Moustache Leads</span></div>
-          <p className="text-gray-400 text-xs">© 2024 Moustache Leads. All rights reserved.</p>
+          <p className="text-gray-400 text-xs">© 2026 Moustache Leads. All rights reserved.</p>
           <div className="flex gap-4 text-xs text-gray-400"><a href="#" className="hover:text-[#340075]">Privacy</a><a href="#" className="hover:text-[#340075]">Terms</a></div>
         </div>
       </footer>
@@ -866,7 +842,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
             // Upgrade status to "pending" when Start Offer is clicked
             const updated = { ...offerStatuses, [realId]: 'pending' as const };
             setOfferStatuses(updated);
-            localStorage.setItem(`ow_statuses_${userId}`, JSON.stringify(updated));
+            localStorage.setItem(`ow_statuses_${userId}_${placementId}`, JSON.stringify(updated));
             try {
               await fetch(`${baseUrl}/api/offerwall/track/offer-start`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -884,7 +860,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
         .ow-header { background: white; border-bottom: 1px solid #f0f0f5; box-shadow: 0 1px 8px rgba(52,0,117,0.04); }
         .ow-card { background: white; border-radius: 16px; border: 1px solid #f0f0f5; overflow: hidden; display: flex; flex-direction: column; transition: all 0.25s ease; }
         .ow-card:hover { box-shadow: 0 8px 32px -8px rgba(52,0,117,0.12); transform: translateY(-2px); border-color: #e0d4f5; }
-        .ow-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; background: #340075; color: white; font-weight: 700; font-size: 13px; padding: 11px 18px; border-radius: 11px; border: none; cursor: pointer; transition: all 0.15s; }
+        .ow-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; background: #340075; color: white; font-weight: 700; font-size: 12px; padding: 9px 14px; border-radius: 10px; border: none; cursor: pointer; transition: all 0.15s; }
         .ow-btn:hover { background: #4c1d95; }
         .ow-btn:active { transform: scale(0.97); }
         .ow-select { appearance: none; background: white url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center; border: 1px solid #e5e7eb; border-radius: 8px; padding: 7px 28px 7px 11px; font-size: 13px; font-weight: 500; color: #374151; cursor: pointer; }
@@ -906,9 +882,27 @@ export const OfferwallProfessional: React.FC<Props> = ({
 };
 
 // ===================== QUAL SURVEY =====================
-function QualSurveyTpl({ survey, onSubmit, onAnswer, answers }: { survey:any; onSubmit:()=>void; onAnswer:(qid:string,a:string)=>void; answers:Record<string,any>; }) {
+function QualSurveyTpl({ survey, onSubmit, onAnswer, answers }: { survey:any; onSubmit:()=>void; onAnswer:(qid:string,a:string|string[])=>void; answers:Record<string,any>; }) {
   const qs = (survey.questions||[]).filter((q:any) => q.type==='mcq'||q.type==='yes_no'||q.type==='mcq_multi');
-  const tqs = qs.map((q:any) => ({ text:q.text, options:q.type==='yes_no'?['Yes','No']:(q.options||[]) }));
-  const ta: Record<number,string> = {}; qs.forEach((q:any,i:number) => { if (answers[q.id]) ta[i]=answers[q.id]; });
-  return <SurveyTemplateRenderer template={(survey.template||'moustache-default') as TemplateName} title={survey.name||'Qualification Survey'} description="Complete to unlock all offers" questions={tqs} answers={ta} onAnswer={(i,a)=>{const qid=qs[i]?.id;if(qid)onAnswer(qid,a);}} onSubmit={onSubmit} submitting={false} questionsPerPage={survey.questions_per_page||3} />;
+  const tqs = qs.map((q:any) => ({
+    text: q.text,
+    options: q.type==='yes_no' ? ['Yes','No'] : (q.options||[]),
+    allowMultiple: q.type==='mcq_multi',
+  }));
+  // Build template answers: for mcq_multi keep as array, others as string
+  const ta: Record<number, string|string[]> = {};
+  qs.forEach((q:any, i:number) => {
+    if (answers[q.id] !== undefined) ta[i] = answers[q.id];
+  });
+  return <SurveyTemplateRenderer
+    template={(survey.template||'moustache-default') as TemplateName}
+    title={survey.name||'Qualification Survey'}
+    description="Complete to unlock all offers"
+    questions={tqs}
+    answers={ta}
+    onAnswer={(i, a) => { const qid = qs[i]?.id; if (qid) onAnswer(qid, a); }}
+    onSubmit={onSubmit}
+    submitting={false}
+    questionsPerPage={survey.questions_per_page||3}
+  />;
 }

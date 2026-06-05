@@ -29,6 +29,7 @@ export interface SurveyQuestion {
   options: string[];
   icon?: string;
   page?: number;
+  allowMultiple?: boolean; // true = user can select multiple options
 }
 
 export interface SurveyTemplateProps {
@@ -36,8 +37,8 @@ export interface SurveyTemplateProps {
   title: string;
   description?: string;
   questions: SurveyQuestion[];
-  answers: Record<number, string>;
-  onAnswer: (questionIndex: number, answer: string) => void;
+  answers: Record<number, string | string[]>;
+  onAnswer: (questionIndex: number, answer: string | string[]) => void;
   onSubmit: () => void;
   submitting?: boolean;
   brandColor?: string;
@@ -312,7 +313,14 @@ const TEMPLATE_ICONS: Record<TemplateName, JSX.Element> = {
 function UnifiedTemplate({ title, description, questions, answers, onAnswer, onSubmit, submitting, themeName, questionsPerPage }: SurveyTemplateProps & { themeName: TemplateName }) {
   const theme = THEMES[themeName];
   const totalQuestions = questions.length;
-  const answeredCount = Object.keys(answers).length;
+  // A question is answered if its answer is a non-empty string or a non-empty array
+  const isQuestionAnswered = (idx: number) => {
+    const ans = answers[idx];
+    if (ans === undefined || ans === null) return false;
+    if (Array.isArray(ans)) return ans.length > 0;
+    return ans !== '';
+  };
+  const answeredCount = questions.filter((_, idx) => isQuestionAnswered(idx)).length;
   const allAnswered = answeredCount >= totalQuestions;
 
   // Per-page pagination support
@@ -349,7 +357,7 @@ function UnifiedTemplate({ title, description, questions, answers, onAnswer, onS
   const { questions: visibleQuestions, totalPages } = getVisibleQuestions();
   const isMultiPage = totalPages > 1;
   const isLastPage = currentPage >= totalPages - 1;
-  const pageAllAnswered = visibleQuestions.every(q => answers[q._origIdx] !== undefined);
+  const pageAllAnswered = visibleQuestions.every(q => isQuestionAnswered(q._origIdx));
 
   return (
     <div style={{ fontFamily: theme.fontFamily }} className="h-screen flex flex-col md:flex-row overflow-hidden">
@@ -426,7 +434,29 @@ function UnifiedTemplate({ title, description, questions, answers, onAnswer, onS
             <div className="px-8 py-6 space-y-6">
               {visibleQuestions.map((q) => {
                 const qIdx = q._origIdx;
-                const isAnswered = answers[qIdx] !== undefined;
+                const isAnswered = isQuestionAnswered(qIdx);
+                // Normalise current answer for this question
+                const rawAnswer = answers[qIdx];
+                const selectedOpts: string[] = q.allowMultiple
+                  ? (Array.isArray(rawAnswer) ? rawAnswer : rawAnswer ? [rawAnswer as string] : [])
+                  : [];
+
+                const handleOptionClick = (opt: string) => {
+                  if (q.allowMultiple) {
+                    // Toggle the option in the selected array
+                    const current: string[] = Array.isArray(rawAnswer) ? [...rawAnswer] : (rawAnswer ? [rawAnswer as string] : []);
+                    const idx = current.indexOf(opt);
+                    if (idx >= 0) {
+                      current.splice(idx, 1);
+                    } else {
+                      current.push(opt);
+                    }
+                    onAnswer(qIdx, current);
+                  } else {
+                    onAnswer(qIdx, opt);
+                  }
+                };
+
                 return (
                   <div
                     key={qIdx}
@@ -450,21 +480,28 @@ function UnifiedTemplate({ title, description, questions, answers, onAnswer, onS
                     {/* Question content */}
                     <div className="flex-1 pt-0.5">
                       <p
-                        className="font-semibold text-[15px] leading-snug mb-3"
+                        className="font-semibold text-[15px] leading-snug mb-1"
                         style={{ color: theme.textPrimary, fontFamily: theme.fontFamily }}
                       >
                         {q.text}
                       </p>
+                      {q.allowMultiple && (
+                        <p className="text-[11px] mb-2" style={{ color: theme.textMuted }}>
+                          Select all that apply
+                        </p>
+                      )}
 
                       {/* Options as pill buttons */}
                       <div className="flex flex-wrap gap-2">
                         {q.options.map((opt, optIdx) => {
-                          const isSelected = answers[qIdx] === opt;
+                          const isSelected = q.allowMultiple
+                            ? selectedOpts.includes(opt)
+                            : rawAnswer === opt;
                           return (
                             <button
                               key={optIdx}
-                              onClick={() => onAnswer(qIdx, opt)}
-                              className="px-4 py-2 rounded-xl text-[13px] font-medium transition-all duration-200 border-2 hover:scale-[1.02] active:scale-[0.98]"
+                              onClick={() => handleOptionClick(opt)}
+                              className="px-4 py-2 rounded-xl text-[13px] font-medium transition-all duration-200 border-2 hover:scale-[1.02] active:scale-[0.98] flex items-center gap-1.5"
                               style={{
                                 borderColor: isSelected ? theme.optionSelectedBorder : theme.optionBorder,
                                 backgroundColor: isSelected ? theme.optionSelectedBg : theme.cardBg,
@@ -473,7 +510,21 @@ function UnifiedTemplate({ title, description, questions, answers, onAnswer, onS
                                 boxShadow: isSelected ? `0 2px 8px ${theme.accentGlow}` : 'none',
                               }}
                             >
-                              {isSelected && <span className="mr-1">●</span>}
+                              {q.allowMultiple ? (
+                                /* Checkbox indicator for multi-select */
+                                <span
+                                  className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border-2 text-[10px]"
+                                  style={{
+                                    borderColor: isSelected ? theme.accent : theme.textMuted,
+                                    backgroundColor: isSelected ? theme.accent : 'transparent',
+                                    color: '#fff',
+                                  }}
+                                >
+                                  {isSelected ? '✓' : ''}
+                                </span>
+                              ) : (
+                                isSelected && <span>●</span>
+                              )}
                               {opt}
                             </button>
                           );
@@ -607,7 +658,7 @@ export function TemplatePicker({ value, onChange, questions, onQuestionsPageChan
   onQuestionsPageChange?: (questions: SurveyQuestion[]) => void;
 }) {
   const [previewTemplate, setPreviewTemplate] = useState<TemplateName | null>(null);
-  const [previewAnswers, setPreviewAnswers] = useState<Record<number, string>>({});
+  const [previewAnswers, setPreviewAnswers] = useState<Record<number, string | string[]>>({});
   const [showDropdown, setShowDropdown] = useState(false);
 
   // Use actual questions or sample questions for preview

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -7,6 +7,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { X, ChevronDown, Globe } from 'lucide-react';
 
 const CATEGORIES = [
   { id: 'all', name: 'All Verticals', icon: '🎯' },
@@ -24,8 +26,8 @@ const CATEGORIES = [
   { id: 'OTHER', name: 'Other', icon: '📦' },
 ];
 
-const COUNTRIES = [
-  { code: 'all', label: 'All Countries' },
+export const COUNTRIES = [
+  { code: 'WW', label: '🌍 Worldwide (WW)' },
   { code: 'US', label: '🇺🇸 United States' },
   { code: 'GB', label: '🇬🇧 United Kingdom' },
   { code: 'CA', label: '🇨🇦 Canada' },
@@ -38,7 +40,128 @@ const COUNTRIES = [
   { code: 'IT', label: '🇮🇹 Italy' },
   { code: 'ES', label: '🇪🇸 Spain' },
   { code: 'MX', label: '🇲🇽 Mexico' },
+  { code: 'NL', label: '🇳🇱 Netherlands' },
+  { code: 'SE', label: '🇸🇪 Sweden' },
+  { code: 'NO', label: '🇳🇴 Norway' },
+  { code: 'DK', label: '🇩🇰 Denmark' },
+  { code: 'FI', label: '🇫🇮 Finland' },
+  { code: 'PL', label: '🇵🇱 Poland' },
+  { code: 'ZA', label: '🇿🇦 South Africa' },
+  { code: 'SG', label: '🇸🇬 Singapore' },
+  { code: 'NZ', label: '🇳🇿 New Zealand' },
 ];
+
+// ─── Multi-select Country Dropdown ────────────────────────────────────────────
+
+interface MultiCountrySelectProps {
+  selected: string[];
+  onChange: (value: string[]) => void;
+}
+
+const MultiCountrySelect: React.FC<MultiCountrySelectProps> = ({ selected, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const toggle = (code: string) => {
+    if (selected.includes(code)) {
+      onChange(selected.filter(c => c !== code));
+    } else {
+      onChange([...selected, code]);
+    }
+  };
+
+  const remove = (code: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange(selected.filter(c => c !== code));
+  };
+
+  const clearAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange([]);
+  };
+
+  const displayLabel = () => {
+    if (selected.length === 0) return <span className="text-muted-foreground text-sm">All Countries</span>;
+    if (selected.length <= 2) {
+      return (
+        <div className="flex items-center gap-1 flex-wrap">
+          {selected.map(code => {
+            const c = COUNTRIES.find(x => x.code === code);
+            return (
+              <Badge key={code} variant="secondary" className="text-xs px-1.5 py-0 h-5 flex items-center gap-0.5">
+                {c?.label.split(' ')[0]} {code}
+                <X className="h-3 w-3 cursor-pointer ml-0.5" onClick={e => remove(code, e)} />
+              </Badge>
+            );
+          })}
+        </div>
+      );
+    }
+    return (
+      <div className="flex items-center gap-1">
+        <Badge variant="secondary" className="text-xs px-1.5 py-0 h-5">{selected.length} countries</Badge>
+        <X className="h-3 w-3 cursor-pointer text-muted-foreground" onClick={clearAll} />
+      </div>
+    );
+  };
+
+  return (
+    <div ref={ref} className="relative">
+      {/* Trigger */}
+      <button
+        type="button"
+        onClick={() => setOpen(prev => !prev)}
+        className="flex h-9 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <div className="flex-1 min-w-0 overflow-hidden">{displayLabel()}</div>
+        <ChevronDown className={`h-4 w-4 shrink-0 opacity-50 ml-1 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div className="absolute z-50 mt-1 w-full min-w-[180px] rounded-md border bg-popover shadow-md">
+          {/* Clear all */}
+          {selected.length > 0 && (
+            <div
+              className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground cursor-pointer hover:bg-accent border-b"
+              onClick={clearAll}
+            >
+              <X className="h-3 w-3" /> Clear all
+            </div>
+          )}
+          <div className="max-h-60 overflow-y-auto">
+            {COUNTRIES.map(c => {
+              const isSelected = selected.includes(c.code);
+              return (
+                <div
+                  key={c.code}
+                  onClick={() => toggle(c.code)}
+                  className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-accent ${isSelected ? 'bg-accent/60 font-medium' : ''}`}
+                >
+                  <div className={`h-4 w-4 rounded border flex items-center justify-center shrink-0 ${isSelected ? 'bg-primary border-primary' : 'border-input'}`}>
+                    {isSelected && <span className="text-primary-foreground text-xs leading-none">✓</span>}
+                  </div>
+                  {c.label}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── FilterPanel ──────────────────────────────────────────────────────────────
 
 interface FilterPanelProps {
   statusFilter: string;
@@ -47,8 +170,8 @@ interface FilterPanelProps {
   onCategoryChange: (value: string) => void;
   sortBy: string;
   onSortChange: (value: string) => void;
-  countryFilter: string;
-  onCountryChange: (value: string) => void;
+  countryFilter: string[];
+  onCountryChange: (value: string[]) => void;
   networkFilter: string;
   onNetworkChange: (value: string) => void;
   healthFilter: string;
@@ -115,21 +238,12 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
           </Select>
         </div>
 
-        {/* Country */}
+        {/* Country — multi-select */}
         <div className="space-y-1.5">
-          <Label>Country</Label>
-          <Select value={countryFilter} onValueChange={onCountryChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Country" />
-            </SelectTrigger>
-            <SelectContent>
-              {COUNTRIES.map((c) => (
-                <SelectItem key={c.code} value={c.code}>
-                  {c.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label className="flex items-center gap-1">
+            <Globe className="h-3 w-3" /> Country
+          </Label>
+          <MultiCountrySelect selected={countryFilter} onChange={onCountryChange} />
         </div>
 
         {/* Network */}

@@ -394,6 +394,7 @@ class AdminOfferApi {
     sort?: string;
     country?: string;
     categories?: string;
+    health?: string;
   }): Promise<OffersResponse> {
     const searchParams = new URLSearchParams();
     
@@ -405,6 +406,7 @@ class AdminOfferApi {
     if (params?.sort) searchParams.append('sort', params.sort);
     if (params?.country) searchParams.append('country', params.country);
     if (params?.categories) searchParams.append('categories', params.categories);
+    if (params?.health) searchParams.append('health', params.health);
 
     const response = await fetch(`${API_BASE_URL}/offers?${searchParams}`, {
       method: 'GET',

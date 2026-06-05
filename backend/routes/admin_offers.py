@@ -1192,6 +1192,9 @@ def get_offers():
         status = request.args.get('status')
         network = request.args.get('network')
         search = request.args.get('search')
+        categories = request.args.get('categories')  # e.g. "GAMES_INSTALL"
+        country = request.args.get('country')         # e.g. "US"
+        health_filter = request.args.get('health')    # healthy / unhealthy / no_image / etc.
         
         # Build filters
         filters = {}
@@ -1201,6 +1204,12 @@ def get_offers():
             filters['network'] = network
         if search:
             filters['search'] = search
+        if categories and categories != 'all':
+            filters['categories'] = categories
+        if country and country != 'all':
+            filters['country'] = country
+        if health_filter and health_filter != 'all':
+            filters['health'] = health_filter
         
         # Calculate skip
         skip = (page - 1) * per_page
@@ -1213,6 +1222,32 @@ def get_offers():
         # Run expired pin cleanup first
         run_expired_pin_cleanup(offers_col)
 
+        # Category mappings — each key maps to a list of accepted values in DB
+        CATEGORY_MAPPINGS = {
+            'HEALTH':       ['HEALTH', 'HEALTHCARE', 'MEDICAL'],
+            'SURVEY':       ['SURVEY', 'SURVEYS'],
+            'SWEEPSTAKES':  ['SWEEPSTAKES', 'SWEEPS', 'GIVEAWAY', 'PRIZE', 'LOTTERY', 'RAFFLE', 'CONTEST'],
+            'EDUCATION':    ['EDUCATION', 'LEARNING'],
+            'INSURANCE':    ['INSURANCE'],
+            'LOAN':         ['LOAN', 'LOANS', 'LENDING'],
+            'FINANCE':      ['FINANCE', 'FINANCIAL'],
+            'DATING':       ['DATING', 'RELATIONSHIPS'],
+            'FREE_TRIAL':   ['FREE_TRIAL', 'FREETRIAL', 'TRIAL'],
+            'INSTALLS':     ['INSTALLS', 'INSTALL', 'APP', 'APPS'],
+            'GAMES_INSTALL':['GAMES_INSTALL', 'GAMESINSTALL', 'GAME', 'GAMES', 'GAMING'],
+        }
+
+        def build_category_condition(cat_key):
+            """Build a MongoDB $or condition matching any alias of the category."""
+            import re as _re
+            aliases = CATEGORY_MAPPINGS.get(cat_key.upper(), [cat_key.upper()])
+            pattern = '|'.join(f'^{a}$' for a in aliases)
+            return {'$or': [
+                {'categories': {'$elemMatch': {'$in': [_re.compile(f'^{a}$', _re.IGNORECASE) for a in aliases]}}},
+                {'vertical':   {'$regex': pattern, '$options': 'i'}},
+                {'category':   {'$regex': pattern, '$options': 'i'}},
+            ]}
+
         # Build mongo query matches from filters
         query = {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
         if filters:
@@ -1220,11 +1255,25 @@ def get_offers():
                 query['status'] = filters['status']
             if filters.get('network'):
                 query['network'] = {'$regex': filters['network'], '$options': 'i'}
+            if filters.get('categories'):
+                cat_cond = build_category_condition(filters['categories'])
+                existing = dict(query)
+                query = {'$and': [existing, cat_cond]}
+            if filters.get('country'):
+                country_codes = [c.strip().upper() for c in filters['country'].split(',') if c.strip()]
+                if country_codes:
+                    country_conditions = []
+                    for cc in country_codes:
+                        country_conditions.append({'countries': {'$regex': f'^{cc}$', '$options': 'i'}})
+                        country_conditions.append({'allowed_countries': {'$regex': f'^{cc}$', '$options': 'i'}})
+                    existing = dict(query)
+                    query = {'$and': [existing, {'$or': country_conditions}]}
             if filters.get('search'):
                 search_regex = {'$regex': filters['search'], '$options': 'i'}
+                existing = dict(query)
                 query = {
                     '$and': [
-                        {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+                        existing,
                         {'$or': [
                             {'name': search_regex},
                             {'campaign_id': search_regex},
@@ -1242,6 +1291,63 @@ def get_offers():
         pinned_query = dict(query)
         pinned_query['is_pinned'] = True
         pinned_offers = list(offers_col.find(pinned_query))
+
+        # --- Health filter requires fetching all matches, evaluating, then paginating ---
+        if filters.get('health'):
+            # Fetch ALL matching offers (no pagination yet)
+            all_organic_query = dict(query)
+            all_organic_query['is_pinned'] = {'$ne': True}
+            all_organic = list(offers_col.find(all_organic_query).sort('created_at', -1))
+            all_offers = pinned_offers + all_organic
+
+            # Convert ObjectIds
+            for o in all_offers:
+                o['_id'] = str(o['_id'])
+
+            # Attach health to all
+            try:
+                health_service = HealthCheckService()
+                health_results = health_service.evaluate_offers_batch(all_offers)
+                for o in all_offers:
+                    o['health'] = health_results.get(o.get('offer_id'), {"status": "unknown", "failures": []})
+            except Exception as e:
+                logging.warning(f"Health check failed: {e}")
+                for o in all_offers:
+                    o['health'] = {"status": "unknown", "failures": []}
+
+            # Apply health filter
+            health_val = filters['health']
+            CRITERION_MAP = {
+                'no_tracking_url': 'tracking_url',
+                'no_upward_partner': 'upward_partner',
+                'no_image': 'image',
+                'no_country': 'country',
+                'no_payout': 'payout',
+                'no_payout_model': 'payout_model',
+            }
+            if health_val == 'healthy':
+                all_offers = [o for o in all_offers if o['health']['status'] == 'healthy']
+            elif health_val == 'unhealthy':
+                all_offers = [o for o in all_offers if o['health']['status'] == 'unhealthy']
+            elif health_val in CRITERION_MAP:
+                criterion = CRITERION_MAP[health_val]
+                all_offers = [o for o in all_offers if any(
+                    f['criterion'] == criterion for f in o['health'].get('failures', [])
+                )]
+
+            # Paginate in Python
+            total = len(all_offers)
+            offers = all_offers[skip: skip + per_page]
+
+            return safe_json_response({
+                'offers': offers,
+                'pagination': {
+                    'page': page,
+                    'per_page': per_page,
+                    'total': total,
+                    'pages': (total + per_page - 1) // per_page if per_page else 1
+                }
+            })
 
         # Merge them
         offers = merge_pinned_and_organic_offers(
