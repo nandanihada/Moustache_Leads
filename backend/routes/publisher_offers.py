@@ -219,6 +219,10 @@ def get_available_offers():
                     ]
                 }
         
+        # Exclude offerwall-exclusive offers from publisher view — DISABLED
+        # Offerwall exclusive is just a tag/marker, not a visibility restriction.
+        # Offers marked as offerwall_exclusive still remain visible on publisher offers page.
+
         # OPTIMIZATION: Only fetch fields we actually need (not all 100+ fields)
         projection = {
             'offer_id': 1, 'name': 1, 'description': 1, 'category': 1, 'vertical': 1, 'categories': 1,

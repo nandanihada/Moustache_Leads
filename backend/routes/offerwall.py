@@ -2085,7 +2085,8 @@ def get_offers():
             'show_in_iframe': 1, 'campaign_id': 1, 'offer_type': 1,
             'conversion_flow': 1, 'payout_type': 1,
             'affiliates': 1, 'approval_settings': 1, 'offer_id': 1,
-            'partner_id': 1, 'payout_model': 1
+            'partner_id': 1, 'payout_model': 1,
+            'refined_description': 1
         }
         
         # === STARTER OFFERS: Fetch unconditionally (bypass ALL filters) ===
@@ -2282,6 +2283,23 @@ def get_offers():
                     logger.warning(f"Batch visibility query failed: {e}")
         
         # Transform offers — per-offer try/except so one bad offer doesn't kill the whole response
+        # BATCH: fetch global click counts for all offers from the 'clicks' collection
+        # (real tracking link clicks via /track/<offer_id>)
+        offer_click_counts = {}
+        try:
+            offer_ids_for_clicks = [o.get('offer_id') for o in offers_list if o.get('offer_id')]
+            if offer_ids_for_clicks:
+                clicks_col = db_instance.get_collection('clicks')
+                if clicks_col is not None:
+                    pipeline = [
+                        {'$match': {'offer_id': {'$in': offer_ids_for_clicks}}},
+                        {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}}
+                    ]
+                    for doc in clicks_col.aggregate(pipeline):
+                        offer_click_counts[doc['_id']] = doc['count']
+        except Exception as cc_err:
+            logger.warning(f"⚠️ Could not fetch click counts: {cc_err}")
+
         transformed_offers = []
         skipped_offers = []
         for idx, offer in enumerate(offers_list):
@@ -2379,7 +2397,35 @@ def get_offers():
                     'offer_type': offer.get('offer_type', 'standard'),
                     'conversion_flow': offer.get('conversion_flow', 'single_opt_in'),
                     'payout_type': offer.get('payout_type', 'cpa'),
+                    'click_count': offer_click_counts.get(offer.get('offer_id'), 0),
+                    'refined_description': offer.get('refined_description'),
                 }
+                
+                # Level payouts for offerwall: apply 80% rule, then convert to points/coins
+                raw_level_payouts = offer.get('level_payouts', {})
+                if raw_level_payouts and raw_level_payouts.get('enabled') and raw_level_payouts.get('levels'):
+                    offerwall_levels = []
+                    for lvl in raw_level_payouts.get('levels', []):
+                        try:
+                            lvl_payout = float(lvl.get('payout', 0))
+                            publisher_lvl_payout = round(lvl_payout * 0.8, 2)
+                            lvl_points = round(publisher_lvl_payout * placement_exchange_rate, 2)
+                            offerwall_levels.append({
+                                'level': lvl.get('level', 0),
+                                'name': lvl.get('name', ''),
+                                'reward_amount': lvl_points,
+                                'reward_currency': placement_currency_name,
+                                'payout': publisher_lvl_payout,
+                                'type': lvl.get('type', 'CPA'),
+                            })
+                        except (ValueError, TypeError):
+                            pass
+                    transformed_offer['level_payouts'] = {
+                        'enabled': True,
+                        'levels': offerwall_levels,
+                    }
+                else:
+                    transformed_offer['level_payouts'] = {'enabled': False, 'levels': []}
                 
                 # OPTIMIZATION: Visibility check without N+1 queries
                 affiliates = offer.get('affiliates', 'all')

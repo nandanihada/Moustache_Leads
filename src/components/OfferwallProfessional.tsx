@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, X, ChevronRight, Timer, Sparkles, Award, LayoutGrid, List, QrCode, Headphones, Activity, Clock, CheckCircle, AlertCircle, ChevronDown, Mail, ExternalLink } from 'lucide-react';
+import { Search, X, ChevronRight, Timer, Sparkles, Award, LayoutGrid, List, QrCode, Headphones, Activity, Clock, CheckCircle, AlertCircle, ChevronDown, Mail, ExternalLink, MousePointerClick, Smartphone, Monitor, Globe } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { OfferModal } from './OfferModal';
 import SurveyTemplateRenderer, { TemplateName } from './survey-templates/SurveyTemplateRenderer';
@@ -15,6 +15,16 @@ interface Offer {
   payout_type?: string; star_rating?: number; status?: string; timer_enabled?: boolean;
   timer_end_date?: string; urgency?: { type: string; message: string; }; urgency_type?: string;
   is_locked?: boolean; has_access?: boolean; requires_approval?: boolean;
+  click_count?: number;
+  refined_description?: {
+    summary?: string;
+    steps?: string[];
+    payout_levels?: Array<{ event: string; payout: string }>;
+    traffic_sources?: { allowed?: string[]; restricted?: string[] };
+    restrictions?: string[];
+    difficulty?: string;
+    estimated_time?: string;
+  };
   tracking_params: { placement_id: string; user_id: string; timestamp: string; };
 }
 
@@ -81,6 +91,23 @@ const truncTitle = (title: string, max = 6): string => {
 };
 
 const getCatName = (cat: string) => CATEGORIES.find(c => c.id === cat?.toUpperCase())?.name || cat || 'Other';
+
+// Device targeting display helpers
+const getDeviceLabel = (offer: Offer): string => {
+  const d = (offer.device_targeting || offer.devices?.join(',') || '').toLowerCase();
+  if (d.includes('android') && d.includes('ios')) return 'Android & iOS';
+  if (d.includes('android')) return 'Android';
+  if (d.includes('ios') || d.includes('iphone')) return 'iOS';
+  if (d.includes('web') || d.includes('desktop')) return 'Desktop';
+  if (d.length > 0) return offer.device_targeting || '';
+  return 'All Devices';
+};
+const getDeviceIcon = (offer: Offer) => {
+  const d = (offer.device_targeting || offer.devices?.join(',') || '').toLowerCase();
+  if (d.includes('android') || d.includes('ios') || d.includes('iphone')) return <Smartphone className="h-3 w-3" />;
+  if (d.includes('web') || d.includes('desktop')) return <Monitor className="h-3 w-3" />;
+  return <Globe className="h-3 w-3" />;
+};
 
 /**
  * Extract country codes from offer data — checks:
@@ -714,14 +741,26 @@ export const OfferwallProfessional: React.FC<Props> = ({
               {visibleOffers.map(offer => {
                 const pts = Math.round(offer.reward_amount || 0);
                 const realId = offer.id.replace(/__cat\d+$/, '');
+                const displayClicks = offer.click_count || 0;
+                const deviceLabel = getDeviceLabel(offer);
                 return (
                   <div key={offer.id} className="bg-white rounded-xl border border-gray-100 hover:border-purple-200 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-1 md:grid-cols-[1fr_140px_80px_120px] items-center gap-3 md:gap-0">
                     <div className="flex items-center gap-3" onClick={() => handleClick(offer)}>
-                      <div className="w-11 h-11 rounded-xl bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
-                        <img src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} alt={offer.title} className="w-full h-full object-contain p-1" onError={e => { (e.target as HTMLImageElement).src = '/category-images/other.png'; }} />
+                      <div className="w-20 h-20 rounded-xl bg-white border border-gray-100 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                        <img src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} alt={offer.title} className="w-full h-full object-contain p-2" onError={e => { (e.target as HTMLImageElement).src = '/category-images/other.png'; }} />
                       </div>
                       <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 8)}</p>
+                        <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 6)}</p>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">
+                            {getDeviceIcon(offer)}{deviceLabel}
+                          </span>
+                          {displayClicks > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">
+                              <MousePointerClick className="h-3 w-3" />{displayClicks.toLocaleString()} clicks
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="md:text-center" onClick={() => handleClick(offer)}><span className="font-bold text-[#340075] text-sm">+{pts.toLocaleString()} {currency}</span></div>
@@ -759,6 +798,8 @@ export const OfferwallProfessional: React.FC<Props> = ({
             {visibleOffers.map(offer => {
               const pts = Math.round(offer.reward_amount || 0);
               const realId = offer.id.replace(/__cat\d+$/, '');
+              const displayClicks = offer.click_count || 0;
+              const deviceLabel = getDeviceLabel(offer);
               return (
                 <div key={offer.id} className="ow-card group cursor-pointer">
                   {/* Image */}
@@ -774,7 +815,18 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
                   {/* Content */}
                   <div className="p-4 flex flex-col flex-grow" onClick={() => handleClick(offer)}>
-                    <h3 className="font-bold text-gray-900 text-sm leading-snug mb-3 line-clamp-2 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title)}</h3>
+                    <h3 className="font-bold text-gray-900 text-sm leading-snug mb-2 line-clamp-1 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 5)}</h3>
+                    {/* Meta row: device + clicks */}
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
+                        {getDeviceIcon(offer)}{deviceLabel}
+                      </span>
+                      {displayClicks > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                          <MousePointerClick className="h-3 w-3" />{displayClicks.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
                     <button className="ow-btn w-full mt-auto group-hover:shadow-lg group-hover:shadow-[#340075]/15 transition-shadow">
                       <span>Start Offer</span><ChevronRight className="w-4 h-4 opacity-60 group-hover:translate-x-0.5 transition-transform" />
                     </button>

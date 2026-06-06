@@ -681,25 +681,35 @@ class NetworkFieldMapper:
             # Extract relationship object (contains payouts, countries, category, etc.)
             relationship = offer_data.get('relationship', {}) or {}
             
-            # Extract payout from relationship.payouts.entries[0].payout_amount
+            # Extract payout from relationship.payouts.entries
+            # For offers with multiple levels/events, use the highest non-zero payout as the main payout
             payout = 0.0
             payouts_data = relationship.get('payouts', {})
             if isinstance(payouts_data, dict):
                 entries = payouts_data.get('entries', [])
                 if entries and isinstance(entries, list):
-                    # Find default payout or first entry
+                    # First try: find default payout with a non-zero amount
                     for entry in entries:
                         if entry.get('is_default', False):
                             try:
-                                payout = float(entry.get('payout_amount', 0) or 0)
+                                default_payout = float(entry.get('payout_amount', 0) or 0)
+                                if default_payout > 0:
+                                    payout = default_payout
                             except (ValueError, TypeError):
-                                payout = 0
+                                pass
                             break
-                    if payout == 0 and entries:
-                        try:
-                            payout = float(entries[0].get('payout_amount', 0) or 0)
-                        except (ValueError, TypeError):
-                            payout = 0
+                    
+                    # If default payout is 0, use the highest non-zero payout from all entries
+                    if payout == 0:
+                        max_payout = 0
+                        for entry in entries:
+                            try:
+                                entry_amt = float(entry.get('payout_amount', 0) or 0)
+                                if entry_amt > max_payout:
+                                    max_payout = entry_amt
+                            except (ValueError, TypeError):
+                                pass
+                        payout = max_payout
             
             # Try payout_amount field directly (Everflow provides this as numeric)
             if payout == 0:
@@ -868,7 +878,7 @@ class NetworkFieldMapper:
             mapped['daily_cap'] = int(offer_data.get('daily_conversion_cap', 0) or 0)
             mapped['monthly_cap'] = int(offer_data.get('monthly_conversion_cap', 0) or 0)
             
-            # Device/Platform targeting — from relationship.ruleset.platforms[]
+            # Device/Platform targeting — from relationship.ruleset.platforms[] or device_types[]
             platforms = []
             if isinstance(ruleset, dict):
                 platform_entries = ruleset.get('platforms', [])
@@ -876,6 +886,16 @@ class NetworkFieldMapper:
                     for p in platform_entries:
                         if isinstance(p, dict) and p.get('label'):
                             platforms.append(p['label'])
+                
+                # Fallback: Everflow also uses device_types[] with label field
+                if not platforms:
+                    device_type_entries = ruleset.get('device_types', [])
+                    if isinstance(device_type_entries, list):
+                        for dt in device_type_entries:
+                            if isinstance(dt, dict) and dt.get('label'):
+                                targeting_type = dt.get('targeting_type', 'include')
+                                if targeting_type == 'include':
+                                    platforms.append(dt['label'])
             mapped['device_targeting'] = ', '.join(platforms) if platforms else self._detect_device_from_name(offer_data.get('name', '') or offer_data.get('offer_name', ''))
             mapped['allowed_traffic_sources'] = []
             mapped['blocked_traffic_sources'] = []
@@ -931,26 +951,28 @@ class NetworkFieldMapper:
                     mapped['incentive_type'] = self._extract_incentive_type(raw_name)
             
             # LEVEL-BASED PAYOUTS: Detect multiple payout entries from Everflow
-            # Everflow can have multiple payout entries with different goals
+            # Everflow can have multiple payout entries with different goals/events
+            # Field mapping: entry_name (event name), payout_amount, payout_type, is_default
             level_payouts = {'enabled': False, 'levels': []}
             if isinstance(payouts_data, dict):
                 entries = payouts_data.get('entries', [])
                 if isinstance(entries, list) and len(entries) > 1:
-                    # Multiple payout entries = level-based payouts
+                    # Multiple payout entries = level-based payouts (events)
                     level_num = 1
                     for entry in entries:
                         if isinstance(entry, dict):
-                            entry_name = entry.get('name', '') or entry.get('goal_name', '') or f'Level {level_num}'
+                            # Everflow uses 'entry_name' for the event/level name
+                            entry_name = entry.get('entry_name', '') or entry.get('name', '') or entry.get('goal_name', '') or f'Level {level_num}'
                             entry_payout = float(entry.get('payout_amount', 0) or 0)
                             entry_type = entry.get('payout_type', 'CPA') or 'CPA'
-                            if entry_payout > 0:
-                                level_payouts['levels'].append({
-                                    'level': level_num,
-                                    'name': entry_name,
-                                    'payout': entry_payout,
-                                    'type': entry_type.upper() if entry_type else 'CPA'
-                                })
-                                level_num += 1
+                            # Include ALL entries as levels, even $0 ones (they represent events/steps)
+                            level_payouts['levels'].append({
+                                'level': level_num,
+                                'name': entry_name,
+                                'payout': entry_payout,
+                                'type': entry_type.upper() if entry_type else 'CPA'
+                            })
+                            level_num += 1
                     if level_payouts['levels']:
                         level_payouts['enabled'] = True
             # Also check goals from relationship
@@ -961,17 +983,17 @@ class NetworkFieldMapper:
                     level_num = 1
                     for goal in goal_entries:
                         if isinstance(goal, dict):
-                            goal_name = goal.get('name', '') or goal.get('description', '') or f'Goal {level_num}'
+                            goal_name = goal.get('entry_name', '') or goal.get('name', '') or goal.get('description', '') or f'Goal {level_num}'
                             goal_payout = float(goal.get('payout_amount', 0) or goal.get('payout', 0) or 0)
                             goal_type = goal.get('payout_type', 'CPA') or 'CPA'
-                            if goal_payout > 0:
-                                level_payouts['levels'].append({
-                                    'level': level_num,
-                                    'name': goal_name,
-                                    'payout': goal_payout,
-                                    'type': goal_type.upper() if goal_type else 'CPA'
-                                })
-                                level_num += 1
+                            # Include all goals as levels
+                            level_payouts['levels'].append({
+                                'level': level_num,
+                                'name': goal_name,
+                                'payout': goal_payout,
+                                'type': goal_type.upper() if goal_type else 'CPA'
+                            })
+                            level_num += 1
                     if level_payouts['levels']:
                         level_payouts['enabled'] = True
             mapped['level_payouts'] = level_payouts
@@ -1008,6 +1030,12 @@ class NetworkFieldMapper:
                             if cc and len(cc) == 2 and amt > 0:
                                 geo_payouts.append({'country': cc.upper(), 'payout': amt, 'type': gp.get('type', 'CPA')})
             mapped['geo_payouts'] = geo_payouts
+            
+            # Debug logging for level payouts and geo extraction
+            if level_payouts.get('enabled'):
+                logger.info(f"  → Offer '{formatted_name}' (ID: {offer_id}): {len(level_payouts['levels'])} level payouts detected: {[l['name'] for l in level_payouts['levels']]}")
+            if countries and countries != ['WW']:
+                logger.info(f"  → Offer '{formatted_name}' (ID: {offer_id}): {len(countries)} countries: {countries[:10]}{'...' if len(countries) > 10 else ''}")
             
             # Process tracking link for special networks
             mapped = process_offer_tracking_link(mapped, network_identifier=network_id)

@@ -52,6 +52,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -1170,6 +1171,29 @@ const AdminOffers = () => {
     }
   };
 
+  const handleBulkOfferwallExclusive = async (action: 'activate' | 'deactivate') => {
+    if (selectedOffers.size === 0) return;
+    const offerIds = Array.from(selectedOffers);
+    try {
+      const token = localStorage.getItem('token') || document.cookie.split('auth_token=')[1]?.split(';')[0] || '';
+      const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offers/offerwall-exclusive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ offer_ids: offerIds, action }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast({ title: 'Success', description: data.message });
+        setSelectedOffers(new Set());
+        fetchOffers();
+      } else {
+        toast({ title: 'Error', description: data.error || 'Failed', variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to update offers', variant: 'destructive' });
+    }
+  };
+
   const handleApplyRenames = async (renames: Array<{ offer_id: string; new_name: string; original_name: string }>, imageUrl?: string, perOfferImages?: Record<string, string>, perOfferDescs?: Record<string, string>, perOfferVerticals?: Record<string, string>) => {
     const result = await adminOfferApi.bulkRenameOffers(renames);
     toast({ title: "Renamed", description: result.message });
@@ -2106,6 +2130,13 @@ const AdminOffers = () => {
                   <DropdownMenuItem onClick={handleBulkMarkStarter}>
                     <span className="mr-2">🌟</span> Mark as Starter Offer
                   </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => handleBulkOfferwallExclusive('activate')}>
+                    <span className="mr-2">🖼️</span> Make Offerwall Exclusive
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleBulkOfferwallExclusive('deactivate')}>
+                    <span className="mr-2">🚫</span> Remove Offerwall Exclusive
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
               <Button
@@ -2420,6 +2451,7 @@ const AdminOffers = () => {
                             </TableCell>
                             <TableCell>
                               <Badge className={getStatusColor(offer.status)}>{offer.status}</Badge>
+                              {(offer as any).offerwall_exclusive && <Badge className="bg-purple-100 text-purple-800 ml-1">🖼️ Offerwall</Badge>}
                             </TableCell>
                             <TableCell>
                               <div className="flex gap-1 flex-wrap">
@@ -2631,7 +2663,7 @@ const AdminOffers = () => {
                                 <span className="font-medium">{offer.name}</span>
                               </div>
                             </TableCell>
-                            <TableCell><Badge className={getStatusColor(offer.status)}>{offer.status}</Badge></TableCell>
+                            <TableCell><Badge className={getStatusColor(offer.status)}>{offer.status}</Badge>{(offer as any).offerwall_exclusive && <Badge className="bg-purple-100 text-purple-800 ml-1">🖼️ Offerwall</Badge>}</TableCell>
                             <TableCell className="font-medium text-green-600">${offer.payout?.toFixed(2)}</TableCell>
                             <TableCell className="text-sm">{offer.network}</TableCell>
                             <TableCell>
@@ -3093,6 +3125,7 @@ const AdminOffers = () => {
                       <Badge className={getStatusColor(offer.status)}>
                         {offer.status}
                       </Badge>
+                      {(offer as any).offerwall_exclusive && <Badge className="bg-purple-100 text-purple-800 ml-1">🖼️ Offerwall</Badge>}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">

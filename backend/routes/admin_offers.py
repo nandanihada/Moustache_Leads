@@ -1292,6 +1292,59 @@ def get_offers():
         pinned_query['is_pinned'] = True
         pinned_offers = list(offers_col.find(pinned_query))
 
+        # --- "Has Levels" filter: direct DB query, no health evaluation needed ---
+        if filters.get('health') == 'has_levels':
+            # Add level_payouts.enabled condition to query
+            level_condition = {'level_payouts.enabled': True}
+            if '$and' in query:
+                query['$and'].append(level_condition)
+            else:
+                existing = dict(query)
+                query = {'$and': [existing, level_condition]}
+            
+            # Remove health from filters so it doesn't go into the health pipeline
+            del filters['health']
+            
+            # Re-fetch pinned with level condition
+            pinned_query = dict(query)
+            pinned_query['is_pinned'] = True
+            pinned_offers = list(offers_col.find(pinned_query))
+
+        # --- "In Offerwall" filter: matches the exact offerwall query logic ---
+        if filters.get('health') == 'in_offerwall':
+            # Match the same conditions as the offerwall route uses
+            offerwall_conditions = [
+                {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]},
+                {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}]},
+                {'status': {'$in': ['active', 'running', 'rotating']}}
+            ]
+            if '$and' in query:
+                query['$and'].extend(offerwall_conditions)
+            else:
+                existing = dict(query)
+                query = {'$and': [existing] + offerwall_conditions}
+            
+            del filters['health']
+            
+            pinned_query = dict(query)
+            pinned_query['is_pinned'] = True
+            pinned_offers = list(offers_col.find(pinned_query))
+
+        # --- "Offerwall Exclusive" filter: direct DB query ---
+        if filters.get('health') == 'offerwall_exclusive':
+            exclusive_condition = {'offerwall_exclusive': True}
+            if '$and' in query:
+                query['$and'].append(exclusive_condition)
+            else:
+                existing = dict(query)
+                query = {'$and': [existing, exclusive_condition]}
+            
+            del filters['health']
+            
+            pinned_query = dict(query)
+            pinned_query['is_pinned'] = True
+            pinned_offers = list(offers_col.find(pinned_query))
+
         # --- Health filter requires fetching all matches, evaluating, then paginating ---
         if filters.get('health'):
             # Fetch ALL matching offers (no pagination yet)
@@ -6454,3 +6507,148 @@ def classify_offer_images():
     except Exception as e:
         logging.error(f"Classify images error: {str(e)}", exc_info=True)
         return jsonify({'error': f'Failed: {str(e)}'}), 500
+
+
+@admin_offers_bp.route('/offers/offerwall-exclusive', methods=['POST'])
+@token_required
+@subadmin_or_admin_required('offers')
+def set_offerwall_exclusive():
+    """Bulk set/unset offers as offerwall-exclusive (visible only on offerwall, hidden from publisher offers page)"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        offer_ids = data.get('offer_ids', [])
+        action = data.get('action', 'activate')  # 'activate' or 'deactivate'
+        
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+        
+        offers_col = db_instance.get_collection('offers')
+        log_col = db_instance.get_collection('offerwall_exclusive_log')
+        
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        current_user = request.current_user
+        admin_id = str(current_user.get('_id', ''))
+        admin_username = current_user.get('username', 'admin')
+        now = datetime.utcnow()
+        
+        is_exclusive = action == 'activate'
+        
+        # Update offers
+        update_fields = {
+            'offerwall_exclusive': is_exclusive,
+            'updated_at': now
+        }
+        if is_exclusive:
+            update_fields['offerwall_exclusive_since'] = now
+        else:
+            update_fields['offerwall_exclusive_since'] = None
+        
+        result = offers_col.update_many(
+            {'offer_id': {'$in': offer_ids}},
+            {'$set': update_fields}
+        )
+        
+        # Log history
+        if log_col is not None:
+            # Get offer names for the log
+            offer_docs = list(offers_col.find(
+                {'offer_id': {'$in': offer_ids}},
+                {'offer_id': 1, 'name': 1}
+            ))
+            name_map = {doc['offer_id']: doc.get('name', 'Unknown') for doc in offer_docs}
+            
+            log_entries = []
+            for oid in offer_ids:
+                log_entries.append({
+                    'offer_id': oid,
+                    'offer_name': name_map.get(oid, 'Unknown'),
+                    'action': action,
+                    'admin_id': admin_id,
+                    'admin_username': admin_username,
+                    'timestamp': now
+                })
+            if log_entries:
+                log_col.insert_many(log_entries)
+        
+        return jsonify({
+            'success': True,
+            'modified': result.modified_count,
+            'action': action,
+            'message': f'{result.modified_count} offers {"marked as offerwall exclusive" if is_exclusive else "removed from offerwall exclusive"}'
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Offerwall exclusive error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/offerwall-exclusive/history', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_offerwall_exclusive_history():
+    """Get history of offerwall-exclusive actions"""
+    try:
+        page = int(request.args.get('page', 1))
+        per_page = int(request.args.get('per_page', 50))
+        
+        log_col = db_instance.get_collection('offerwall_exclusive_log')
+        if log_col is None:
+            return jsonify({'success': True, 'history': [], 'total': 0}), 200
+        
+        total = log_col.count_documents({})
+        skip = (page - 1) * per_page
+        
+        logs = list(log_col.find({}).sort('timestamp', -1).skip(skip).limit(per_page))
+        
+        for log in logs:
+            log['_id'] = str(log['_id'])
+            if isinstance(log.get('timestamp'), datetime):
+                log['timestamp'] = log['timestamp'].isoformat() + 'Z'
+        
+        return jsonify({
+            'success': True,
+            'history': logs,
+            'total': total,
+            'page': page,
+            'per_page': per_page
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Offerwall exclusive history error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+
+@admin_offers_bp.route('/offers/offerwall-exclusive/active', methods=['GET'])
+@token_required
+@subadmin_or_admin_required('offers')
+def get_offerwall_exclusive_offers():
+    """Get all currently offerwall-exclusive offers"""
+    try:
+        offers_col = db_instance.get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+        
+        offers = list(offers_col.find(
+            {'offerwall_exclusive': True, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]},
+            {'offer_id': 1, 'name': 1, 'payout': 1, 'network': 1, 'status': 1, 'countries': 1, 'image_url': 1, 'offerwall_exclusive_since': 1, 'category': 1, 'vertical': 1}
+        ).sort('offerwall_exclusive_since', -1))
+        
+        for o in offers:
+            o['_id'] = str(o['_id'])
+            if isinstance(o.get('offerwall_exclusive_since'), datetime):
+                o['offerwall_exclusive_since'] = o['offerwall_exclusive_since'].isoformat() + 'Z'
+        
+        return jsonify({
+            'success': True,
+            'offers': offers,
+            'total': len(offers)
+        }), 200
+        
+    except Exception as e:
+        logging.error(f"Get offerwall exclusive offers error: {str(e)}", exc_info=True)
+        return jsonify({'error': str(e)}), 500

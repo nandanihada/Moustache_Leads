@@ -231,16 +231,18 @@ class NetworkAPIService:
     # ==================== Everflow Implementation ====================
     
     def _test_everflow_connection(self, api_url: str, api_key: str, fetch_mode: str = 'my_offers') -> Tuple[bool, Optional[int], Optional[str]]:
-        """Test Everflow API connection using header-based auth"""
+        """Test Everflow API connection using header-based auth
+        Uses offersrunnable (GET) endpoint which returns full relationship data including payouts and geo targeting.
+        """
         try:
             # Normalize the API URL
             base_url = api_url.rstrip('/')
             if not base_url.startswith('http'):
                 base_url = f"https://{base_url}"
             
-            # If user provided just the domain, append the appropriate endpoint
+            # Use offersrunnable endpoint (GET) which returns full offer data with relationships
             if '/v1/' not in base_url:
-                base_url = f"{base_url}/v1/affiliates/offerstable"
+                base_url = f"{base_url}/v1/affiliates/offersrunnable"
             
             logger.info(f"Testing Everflow connection: {base_url}")
             
@@ -249,25 +251,26 @@ class NetworkAPIService:
                 'x-eflow-api-key': api_key
             }
             
-            # Everflow uses POST with JSON body for offer listing
-            payload = {
-                'filters': {'affiliate_status': '__all'} if fetch_mode == 'all_offers' else {},
-                'search_terms': []
-            }
+            # offersrunnable uses GET with query params
             params = {
                 'page': 1,
                 'page_size': 1  # Just test with 1 to get total count
             }
             
-            response = self.session.post(base_url, headers=headers, params=params, json=payload, timeout=self.timeout)
+            response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
             
             if response.status_code == 401:
                 return False, None, "Invalid API key. Please check your Everflow API key."
             elif response.status_code == 403:
                 return False, None, "Access denied. Your API key may not have affiliate permissions."
             elif response.status_code == 405:
-                # Try GET as fallback (some Everflow versions use GET)
-                response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
+                # Try POST as fallback (offerstable endpoint)
+                fallback_url = base_url.replace('offersrunnable', 'offerstable')
+                payload = {
+                    'filters': {'affiliate_status': '__all'} if fetch_mode == 'all_offers' else {},
+                    'search_terms': []
+                }
+                response = self.session.post(fallback_url, headers=headers, params=params, json=payload, timeout=self.timeout)
                 if response.status_code != 200:
                     return False, None, f"API returned status {response.status_code}. Check your API URL."
             
@@ -275,9 +278,8 @@ class NetworkAPIService:
             
             data = response.json()
             
-            # Everflow returns offers array and pagination info
-            # Response format: { "offers": [...], "paging": { "total_count": N, ... } }
-            # OR it could be a direct array
+            # offersrunnable returns a direct array of offers
+            # OR it could be { "offers": [...], "paging": { "total_count": N } }
             if isinstance(data, dict):
                 total_count = 0
                 if 'paging' in data:
@@ -309,25 +311,23 @@ class NetworkAPIService:
                                filters: Optional[Dict] = None,
                                limit: Optional[int] = None,
                                fetch_mode: str = 'my_offers') -> Tuple[List[Dict], Optional[str]]:
-        """Fetch offers from Everflow API with pagination"""
+        """Fetch offers from Everflow API with pagination.
+        Uses offersrunnable (GET) endpoint which returns full offer data with relationship objects
+        (payouts, ruleset with countries, category, etc.)
+        """
         try:
             # Normalize the API URL
             base_url = api_url.rstrip('/')
             if not base_url.startswith('http'):
                 base_url = f"https://{base_url}"
             
+            # Use offersrunnable (GET) which returns full relationship data
             if '/v1/' not in base_url:
-                base_url = f"{base_url}/v1/affiliates/offerstable"
+                base_url = f"{base_url}/v1/affiliates/offersrunnable"
             
             headers = {
                 'Content-Type': 'application/json',
                 'x-eflow-api-key': api_key
-            }
-            
-            # POST body for Everflow offerstable endpoint
-            payload = {
-                'filters': {'affiliate_status': '__all'} if fetch_mode == 'all_offers' else {},
-                'search_terms': []
             }
             
             page_size = min(limit or 100, 100)  # Everflow max page size is typically 100
@@ -335,24 +335,44 @@ class NetworkAPIService:
             
             all_offers = []
             page = 1
+            use_get = True  # offersrunnable uses GET
             
             logger.info(f"Fetching Everflow offers from {base_url} (limit: {max_offers})")
             
             while len(all_offers) < max_offers:
                 params = {
                     'page': page,
-                    'page_size': page_size,
-                    'order_field': 'id',
-                    'order_direction': 'desc'
+                    'page_size': page_size
                 }
                 
-                response = self.session.post(base_url, headers=headers, params=params, json=payload, timeout=self.timeout)
+                if use_get:
+                    response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
+                    
+                    if response.status_code == 405:
+                        # offersrunnable not available, fallback to offerstable (POST)
+                        use_get = False
+                        fallback_url = base_url.replace('offersrunnable', 'offerstable')
+                        logger.info(f"Falling back to offerstable endpoint: {fallback_url}")
+                        base_url = fallback_url
+                        payload = {
+                            'filters': {'affiliate_status': '__all'} if fetch_mode == 'all_offers' else {},
+                            'search_terms': []
+                        }
+                        params['order_field'] = 'id'
+                        params['order_direction'] = 'desc'
+                        response = self.session.post(base_url, headers=headers, params=params, json=payload, timeout=self.timeout)
+                else:
+                    # POST to offerstable (fallback)
+                    payload = {
+                        'filters': {'affiliate_status': '__all'} if fetch_mode == 'all_offers' else {},
+                        'search_terms': []
+                    }
+                    params['order_field'] = 'id'
+                    params['order_direction'] = 'desc'
+                    response = self.session.post(base_url, headers=headers, params=params, json=payload, timeout=self.timeout)
                 
                 if response.status_code == 401:
                     return [], "Invalid API key"
-                elif response.status_code == 405:
-                    # Fallback to GET for older Everflow versions
-                    response = self.session.get(base_url, headers=headers, params=params, timeout=self.timeout)
                 
                 response.raise_for_status()
                 data = response.json()
@@ -379,6 +399,7 @@ class NetworkAPIService:
                         # No paging info — check if we got a full page (means more might exist)
                         has_more = len(offers_batch) == page_size
                 elif isinstance(data, list):
+                    # offersrunnable returns a direct array
                     offers_batch = data
                     has_more = len(data) == page_size  # If full page, might be more
                 
