@@ -698,6 +698,13 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Invoice scheduler service failed to start: {str(e)}")
         
+        try:
+            from services.telegram_trending_bot import start_scheduler as start_telegram_scheduler
+            start_telegram_scheduler()
+            logging.info("✅ Telegram trending bot scheduler started (every 7 hours)")
+        except Exception as e:
+            logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
+        
         logging.info("Background services initialization completed")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")

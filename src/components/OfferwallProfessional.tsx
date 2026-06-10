@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Search, X, ChevronRight, Timer, Sparkles, Award, LayoutGrid, List, QrCode, Headphones, Activity, Clock, CheckCircle, AlertCircle, ChevronDown, Mail, ExternalLink, MousePointerClick, Smartphone, Monitor, Globe } from 'lucide-react';
+import { Search, X, ChevronRight, Timer, Sparkles, Award, LayoutGrid, List, QrCode, Headphones, Activity, Clock, CheckCircle, AlertCircle, ChevronDown, Mail, ExternalLink, Users, Smartphone, Monitor, Globe } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { OfferModal } from './OfferModal';
 import SurveyTemplateRenderer, { TemplateName } from './survey-templates/SurveyTemplateRenderer';
@@ -16,6 +16,7 @@ interface Offer {
   timer_end_date?: string; urgency?: { type: string; message: string; }; urgency_type?: string;
   is_locked?: boolean; has_access?: boolean; requires_approval?: boolean;
   click_count?: number;
+  pick_count?: number;
   refined_description?: {
     summary?: string;
     steps?: string[];
@@ -49,8 +50,8 @@ const SORT_OPTIONS = [
   { id: 'points_low', name: 'Lowest' }, { id: 'newest', name: 'Newest' }, { id: 'rating', name: 'Top Rated' },
 ];
 const DEVICE_OPTIONS = [
-  { id: 'all', name: 'All Devices' }, { id: 'android', name: 'Android' },
-  { id: 'ios', name: 'iOS' }, { id: 'desktop', name: 'Desktop' },
+  { id: 'all', name: '🌐 All Devices' }, { id: 'android', name: '📱 Android' },
+  { id: 'ios', name: '🍎 iOS' }, { id: 'desktop', name: '🖥️ Desktop' },
 ];
 const PAYOUT_TYPE_OPTIONS = [
   { id: 'all', name: 'All Types' }, { id: 'cpa', name: 'CPA' }, { id: 'cpi', name: 'CPI' },
@@ -104,7 +105,8 @@ const getDeviceLabel = (offer: Offer): string => {
 };
 const getDeviceIcon = (offer: Offer) => {
   const d = (offer.device_targeting || offer.devices?.join(',') || '').toLowerCase();
-  if (d.includes('android') || d.includes('ios') || d.includes('iphone')) return <Smartphone className="h-3 w-3" />;
+  if (d.includes('android')) return <Smartphone className="h-3 w-3 text-green-600" />;
+  if (d.includes('ios') || d.includes('iphone')) return <Smartphone className="h-3 w-3 text-gray-700" />;
   if (d.includes('web') || d.includes('desktop')) return <Monitor className="h-3 w-3" />;
   return <Globe className="h-3 w-3" />;
 };
@@ -226,6 +228,7 @@ const TrackingPanel: React.FC<{ items: ActivityItem[]; loading: boolean; onClose
       case 'completed': return <CheckCircle className="h-4 w-4 text-green-500" />;
       case 'pending': return <Clock className="h-4 w-4 text-amber-500" />;
       case 'clicked': return <Activity className="h-4 w-4 text-blue-500" />;
+      case 'picked': return <Users className="h-4 w-4 text-purple-500" />;
       default: return <AlertCircle className="h-4 w-4 text-gray-400" />;
     }
   };
@@ -234,6 +237,7 @@ const TrackingPanel: React.FC<{ items: ActivityItem[]; loading: boolean; onClose
       case 'completed': return 'text-green-700 bg-green-50 border border-green-200';
       case 'pending': return 'text-amber-700 bg-amber-50 border border-amber-200';
       case 'clicked': return 'text-blue-700 bg-blue-50 border border-blue-200';
+      case 'picked': return 'text-purple-700 bg-purple-50 border border-purple-200';
       default: return 'text-gray-600 bg-gray-50 border border-gray-200';
     }
   };
@@ -271,6 +275,7 @@ const TrackingPanel: React.FC<{ items: ActivityItem[]; loading: boolean; onClose
         {!loading && items.length > 0 && (
           <div className="px-6 py-3 bg-purple-50 border-b border-purple-100 flex items-center gap-4 flex-shrink-0 overflow-x-auto">
             {[
+              { label: 'Picked', color: 'text-purple-700 bg-purple-100', count: items.filter(i => i.status?.toLowerCase() === 'picked').length },
               { label: 'Clicked', color: 'text-blue-700 bg-blue-100', count: items.filter(i => i.status?.toLowerCase() === 'clicked').length },
               { label: 'Pending', color: 'text-amber-700 bg-amber-100', count: items.filter(i => i.status?.toLowerCase() === 'pending').length },
               { label: 'Completed', color: 'text-green-700 bg-green-100', count: items.filter(i => i.status?.toLowerCase() === 'completed').length },
@@ -343,10 +348,10 @@ const TrackingPanel: React.FC<{ items: ActivityItem[]; loading: boolean; onClose
 };
 
 // ===================== MAIN COMPONENT =====================
-interface Props { placementId: string; userId: string; subId?: string; country?: string; baseUrl?: string; }
+interface Props { placementId: string; userId: string; subId?: string; country?: string; baseUrl?: string; apiKey?: string; }
 
 export const OfferwallProfessional: React.FC<Props> = ({
-  placementId, userId, subId, country,
+  placementId, userId, subId, country, apiKey,
   baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000'
 }) => {
   const [allOffers, setAllOffers] = useState<Offer[]>([]);
@@ -433,7 +438,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
     } catch { /* keep empty = show all */ }
   };
 
-  useEffect(() => { trackImpression(); loadOffers(); loadSettings(); loadSubWalls(); checkQual(); }, [placementId, userId]);
+  useEffect(() => { trackImpression(); loadOffers(); loadSettings(); loadSubWalls(); if (apiKey) { setIsQualified(true); } else { checkQual(); } }, [placementId, userId]);
   
   // Reload offers when country is detected (after initial load)
   useEffect(() => {
@@ -519,15 +524,21 @@ export const OfferwallProfessional: React.FC<Props> = ({
 
   const applyFilters = () => {
     let f = [...allOffers];
-    if (isQualified === null) { setFilteredOffers([]); return; }
-    if (!isQualified) {
-      if (newUserIds.length > 0) f = f.filter(o => newUserIds.includes(o.id) || newUserIds.includes((o as any).offer_id) || newUserIds.includes((o as any)._id));
-      else f = [];
-    }
+    
+    // ADMIN MODE: if api_key present, skip qualification and country filtering
+    const isAdminMode = !!apiKey;
+    
+    if (!isAdminMode) {
+      if (isQualified === null) { setFilteredOffers([]); return; }
+      if (!isQualified) {
+        if (newUserIds.length > 0) f = f.filter(o => newUserIds.includes(o.id) || newUserIds.includes((o as any).offer_id) || newUserIds.includes((o as any)._id));
+        else f = [];
+      }
 
-    // ===== STRONG COUNTRY FILTERING =====
-    if (userCountry && userCountry !== 'UNKNOWN') {
-      f = f.filter(o => isOfferAvailableForCountry(o, userCountry));
+      // ===== STRONG COUNTRY FILTERING =====
+      if (userCountry && userCountry !== 'UNKNOWN') {
+        f = f.filter(o => isOfferAvailableForCountry(o, userCountry));
+      }
     }
 
     const catMap: Record<string, string[]> = {
@@ -573,7 +584,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
     // Strip virtual category-expansion suffix to get real offer id
     const realId = o.id.replace(/__cat\d+$/, '');
     const realOffer = { ...o, id: realId };
-    // Mark as "clicked" when card is opened
+    // Mark as "picked" when card is opened (viewed)
     if (!offerStatuses[realId]) {
       const updated = { ...offerStatuses, [realId]: 'clicked' as const };
       setOfferStatuses(updated);
@@ -582,12 +593,12 @@ export const OfferwallProfessional: React.FC<Props> = ({
       const rewardUpdated = { ...offerRewards, [realId]: Math.round(o.reward_amount || 0) };
       setOfferRewards(rewardUpdated);
       localStorage.setItem(`ow_rewards_${userId}_${placementId}`, JSON.stringify(rewardUpdated));
-      // Record click in backend
-      fetch(`${baseUrl}/api/offerwall/track/click`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ placement_id: placementId, user_id: userId, offer_id: realId, offer_name: o.title, reward_amount: o.reward_amount || 0, user_agent: navigator.userAgent })
-      }).catch(() => {});
     }
+    // Record pick in backend (every time card is opened)
+    fetch(`${baseUrl}/api/offerwall/track/pick`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ placement_id: placementId, user_id: userId, offer_id: realId, offer_name: o.title, image_url: o.image_url, country: userCountry })
+    }).catch(() => {});
     setSelOffer(realOffer); setModalOpen(true);
   };
 
@@ -742,6 +753,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
                 const pts = Math.round(offer.reward_amount || 0);
                 const realId = offer.id.replace(/__cat\d+$/, '');
                 const displayClicks = offer.click_count || 0;
+                const displayPicks = offer.pick_count || 0;
                 const deviceLabel = getDeviceLabel(offer);
                 return (
                   <div key={offer.id} className="bg-white rounded-xl border border-gray-100 hover:border-purple-200 hover:shadow-md px-4 py-3 cursor-pointer transition-all group grid grid-cols-1 md:grid-cols-[1fr_140px_80px_120px] items-center gap-3 md:gap-0">
@@ -753,11 +765,11 @@ export const OfferwallProfessional: React.FC<Props> = ({
                         <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 6)}</p>
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">
-                            {getDeviceIcon(offer)}{deviceLabel}
+                            {getDeviceIcon(offer)}
                           </span>
-                          {displayClicks > 0 && (
+                          {displayPicks > 0 && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">
-                              <MousePointerClick className="h-3 w-3" />{displayClicks.toLocaleString()} clicks
+                              <Users className="h-3 w-3" />{displayPicks.toLocaleString()}
                             </span>
                           )}
                         </div>
@@ -799,6 +811,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
               const pts = Math.round(offer.reward_amount || 0);
               const realId = offer.id.replace(/__cat\d+$/, '');
               const displayClicks = offer.click_count || 0;
+              const displayPicks = offer.pick_count || 0;
               const deviceLabel = getDeviceLabel(offer);
               return (
                 <div key={offer.id} className="ow-card group cursor-pointer">
@@ -816,14 +829,14 @@ export const OfferwallProfessional: React.FC<Props> = ({
                   {/* Content */}
                   <div className="p-4 flex flex-col flex-grow" onClick={() => handleClick(offer)}>
                     <h3 className="font-bold text-gray-900 text-sm leading-snug mb-2 line-clamp-1 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 5)}</h3>
-                    {/* Meta row: device + clicks */}
+                    {/* Meta row: device + picks */}
                     <div className="flex items-center justify-between mb-3">
                       <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
-                        {getDeviceIcon(offer)}{deviceLabel}
+                        {getDeviceIcon(offer)}
                       </span>
-                      {displayClicks > 0 && (
+                      {displayPicks > 0 && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-medium text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
-                          <MousePointerClick className="h-3 w-3" />{displayClicks.toLocaleString()}
+                          <Users className="h-3 w-3" />{displayPicks.toLocaleString()}
                         </span>
                       )}
                     </div>

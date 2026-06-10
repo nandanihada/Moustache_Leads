@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Globe, Smartphone, Monitor, Star, ChevronRight, Clock, AlertTriangle, Sparkles, Shield, QrCode } from 'lucide-react';
+import { X, Globe, Smartphone, Monitor, Star, ChevronRight, Clock, AlertTriangle, Sparkles, Shield, QrCode, Users } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { getOfferImage } from '@/utils/categoryImages';
 
@@ -144,7 +144,6 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
             {/* Device chip — always show */}
             <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
               {getDeviceIcon(offer.device_targeting || '')}
-              {offer.device_targeting || 'All Devices'}
             </span>
             {offer.estimated_time && (
               <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
@@ -152,30 +151,12 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
               </span>
             )}
             {/* Click count chip */}
-            {(offer.click_count || 0) > 0 && (
+            {((offer as any).pick_count || offer.click_count || 0) > 0 && (
               <span className="text-xs font-medium text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg flex items-center gap-1">
-                🖱 {(offer.click_count || 0).toLocaleString()} clicks
+                <Users className="h-3 w-3" /> {((offer as any).pick_count || offer.click_count || 0).toLocaleString()}
               </span>
             )}
           </div>
-          {/* Countries */}
-          <div className="mb-3 p-3 bg-gray-50 rounded-xl border border-gray-100">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <Globe className="h-3.5 w-3.5 text-gray-400" />
-              <span className="text-xs font-semibold text-gray-500">
-                {isWW || countries.length === 0 ? 'Worldwide' : `${countries.length} ${countries.length === 1 ? 'Country' : 'Countries'}`}
-              </span>
-            </div>
-            {countries.length > 0 && (
-              <div className="flex flex-wrap gap-1">
-                {countries.slice(0, 14).map((c, i) => (
-                  <span key={i} className="text-base" title={c}>{FLAG_MAP[c.toUpperCase()] || c}</span>
-                ))}
-                {countries.length > 14 && <span className="text-xs text-gray-400 self-center">+{countries.length - 14} more</span>}
-              </div>
-            )}
-          </div>
-
           {/* Description — structured if refined, raw if not */}
           {offer.refined_description?.summary ? (
             <div className="mb-3 space-y-3">

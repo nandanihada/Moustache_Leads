@@ -136,7 +136,6 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
     { id: 'payout', label: 'Payout' },
     { id: 'tracking_link', label: 'Tracking Link' },
     { id: 'target_url', label: 'Target URL' },
-    { id: 'network', label: 'Network' },
     { id: 'vertical', label: 'Vertical' },
     { id: 'device', label: 'Device Targeting' },
     { id: 'description', label: 'Description' },
@@ -186,7 +185,6 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
     if (selectedFields.has('payout')) fields.push(`Payout: $${offer.payout?.toFixed(2) || '0.00'}`);
     if (selectedFields.has('tracking_link') && trackingLink) fields.push(`Tracking Link: ${trackingLink}`);
     if (selectedFields.has('target_url') && offer.target_url) fields.push(`Target URL: ${offer.target_url}`);
-    if (selectedFields.has('network') && offer.network) fields.push(`Network: ${offer.network}`);
     if (selectedFields.has('vertical')) fields.push(`Category: ${(offer as any).vertical || 'OTHER'}`);
     if (selectedFields.has('device') && offer.device_targeting) fields.push(`Device: ${offer.device_targeting}`);
     if (selectedFields.has('description') && offer.description) fields.push(`Description: ${offer.description}`);
@@ -344,7 +342,6 @@ export const OfferDetailsModal: React.FC<OfferDetailsModalProps> = ({
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3 text-sm pt-2 border-t">
-                  <div><span className="text-muted-foreground">Network:</span><div className="font-medium">{offer.network}</div></div>
                   <div>
                     <span className="text-muted-foreground">Expires:</span>
                     <div className="flex items-center gap-1">

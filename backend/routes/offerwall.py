@@ -1965,8 +1965,14 @@ def get_offers():
         page = int(request.args.get('page', 1))
         limit = min(int(request.args.get('limit', 100)), 500)  # Max 500, default 100
         skip = (page - 1) * limit
+        api_key = request.args.get('api_key', '')  # Admin mode: bypass all filters
+        is_admin_mode = bool(api_key)
         
-        logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}")
+        if is_admin_mode:
+            limit = 10000  # Show all offers in admin mode
+            skip = 0
+        
+        logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}, admin_mode: {is_admin_mode}")
         
         # Country filter: use query param first, then auto-detect from IP
         user_country_code = request.args.get('country', '').upper().strip()
@@ -2034,29 +2040,40 @@ def get_offers():
             logger.warning(f"Failed to fetch starter offer IDs: {e}")
         
         # Build query filter for REGULAR offers (excludes starter offers — they're fetched separately)
-        query_filter = {
-            '$and': [
-                {'$or': [
+        if is_admin_mode:
+            # Admin mode: show ALL offers (only exclude deleted)
+            query_filter = {
+                '$or': [
                     {'deleted': {'$exists': False}},
                     {'deleted': False},
                     {'deleted': None}
-                ]},
-                {'$or': [
-                    {'is_active': True},
-                    {'is_active': {'$exists': False}}
-                ]},
-                {'$or': [
-                    {'show_in_offerwall': True},
-                    {'show_in_offerwall': {'$exists': False}}
-                ]}
-            ]
-        }
+                ]
+            }
+        else:
+            query_filter = {
+                '$and': [
+                    {'$or': [
+                        {'deleted': {'$exists': False}},
+                        {'deleted': False},
+                        {'deleted': None}
+                    ]},
+                    {'$or': [
+                        # Standard path: active + shown in offerwall
+                        {'$and': [
+                            {'$or': [{'is_active': True}, {'is_active': {'$exists': False}}, {'status': 'running'}]},
+                            {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]}
+                        ]},
+                        # Offerwall exclusive: always show regardless of other flags
+                        {'offerwall_exclusive': True}
+                    ]}
+                ]
+            }
         
         # Exclude starter offers from the regular query (they'll be added unconditionally)
-        if starter_offer_ids:
+        if starter_offer_ids and not is_admin_mode:
             query_filter['offer_id'] = {'$nin': starter_offer_ids}
         
-        if status and status != 'all':
+        if status and status != 'all' and not is_admin_mode:
             query_filter['status'] = status.lower()
         
         if category:
@@ -2215,7 +2232,7 @@ def get_offers():
         # OPTIMIZATION: Compute tracking base URL ONCE (not per-offer)
         
         # === COUNTRY FILTER: Only show offers available in user's country ===
-        if user_country_code:
+        if user_country_code and not is_admin_mode:
             before_geo_filter = len(offers_list)
             offers_list = [
                 o for o in offers_list
@@ -2299,6 +2316,20 @@ def get_offers():
                         offer_click_counts[doc['_id']] = doc['count']
         except Exception as cc_err:
             logger.warning(f"⚠️ Could not fetch click counts: {cc_err}")
+
+        # BATCH: fetch global pick counts for all offers from 'offer_picks' collection
+        offer_pick_counts = {}
+        try:
+            picks_col = db_instance.get_collection('offer_picks')
+            if picks_col is not None:
+                pipeline = [
+                    {'$match': {'offer_id': {'$in': offer_ids_for_clicks}}},
+                    {'$group': {'_id': '$offer_id', 'count': {'$sum': 1}}}
+                ]
+                for doc in picks_col.aggregate(pipeline):
+                    offer_pick_counts[doc['_id']] = doc['count']
+        except Exception as pc_err:
+            logger.warning(f"Could not fetch pick counts: {pc_err}")
 
         transformed_offers = []
         skipped_offers = []
@@ -2398,6 +2429,7 @@ def get_offers():
                     'conversion_flow': offer.get('conversion_flow', 'single_opt_in'),
                     'payout_type': offer.get('payout_type', 'cpa'),
                     'click_count': offer_click_counts.get(offer.get('offer_id'), 0),
+                    'pick_count': offer_pick_counts.get(offer.get('offer_id'), 0),
                     'refined_description': offer.get('refined_description'),
                 }
                 
@@ -3841,6 +3873,28 @@ def get_user_recent_activity():
         except Exception as cv:
             logger.warning(f"Could not fetch conversions: {cv}")
 
+        # 3. Get picks from offer_picks (user viewing/picking offers)
+        try:
+            picks_col = db_instance.get_collection('offer_picks')
+            query3 = {'user_id': user_id}
+            if placement_id:
+                query3['placement_id'] = placement_id
+            picks = list(picks_col.find(query3).sort('picked_at', -1).limit(limit))
+            for p in picks:
+                ts = p.get('picked_at')
+                offer_id = p.get('offer_id', '')
+                pick_status = p.get('status', 'picked')  # 'picked' or 'clicked'
+                reward = get_user_reward(offer_id, 0)
+                items.append({
+                    'offer_id': offer_id,
+                    'offer_name': p.get('offer_name', 'Unknown Offer'),
+                    'status': pick_status,
+                    'reward': reward,
+                    'timestamp': ts.isoformat() if isinstance(ts, datetime) else str(ts or ''),
+                })
+        except Exception as pe:
+            logger.warning(f"Could not fetch picks: {pe}")
+
         # Sort by timestamp desc, take top N
         def safe_ts(item):
             try:
@@ -3896,9 +3950,58 @@ def track_offer_start():
                     'is_invalid': False,
                 })
 
+        # Update pick status to clicked
+        picks_col = db_instance.get_collection('offer_picks')
+        if picks_col:
+            picks_col.update_one(
+                {'offer_id': offer_id, 'user_id': user_id},
+                {'$set': {'status': 'clicked', 'clicked_at': datetime.utcnow()}}
+            )
+
         logger.info(f"✅ Offer start tracked: user={user_id}, offer={offer_id}, status=pending")
         return jsonify({'success': True, 'status': 'pending'}), 200
 
     except Exception as e:
         logger.error(f"Error tracking offer start: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@offerwall_bp.route('/api/offerwall/track/pick', methods=['POST'])
+def track_offer_pick():
+    """Record when a user views/picks an offer (opens the card modal).
+    Every pick is counted (not deduplicated) — pick_count shows total views across all users."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data'}), 400
+        
+        offer_id = data.get('offer_id')
+        user_id = data.get('user_id')
+        placement_id = data.get('placement_id')
+        offer_name = data.get('offer_name', '')
+        image_url = data.get('image_url', '')
+        country = data.get('country', '')
+        
+        if not offer_id or not user_id:
+            return jsonify({'error': 'offer_id and user_id required'}), 400
+        
+        picks_col = db_instance.get_collection('offer_picks')
+        if picks_col is None:
+            return jsonify({'error': 'DB unavailable'}), 503
+        
+        # Insert every pick — counts accumulate for the pick_count on cards
+        picks_col.insert_one({
+            'offer_id': offer_id,
+            'user_id': user_id,
+            'placement_id': placement_id,
+            'offer_name': offer_name,
+            'image_url': image_url,
+            'country': country,
+            'status': 'picked',
+            'picked_at': datetime.utcnow(),
+            'created_at': datetime.utcnow()
+        })
+        
+        return jsonify({'success': True, 'status': 'picked'}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

@@ -6541,6 +6541,8 @@ def set_offerwall_exclusive():
         # Update offers
         update_fields = {
             'offerwall_exclusive': is_exclusive,
+            'show_in_offerwall': True,  # Always ensure it shows in offerwall when marked exclusive
+            'is_active': True,  # Ensure offer is active so it passes the offerwall query
             'updated_at': now
         }
         if is_exclusive:

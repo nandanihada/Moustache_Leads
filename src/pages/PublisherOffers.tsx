@@ -1350,7 +1350,7 @@ const PublisherOffersContent = () => {
                               <div className="flex-1 min-w-0">
                                 <button onClick={() => handleViewDetails(offer)} className="font-semibold text-sm text-gray-900 truncate block hover:text-purple-600 text-left">{offer.name}</button>
                                 <div className="flex items-center gap-2 mt-0.5">
-                                  <span className="text-[10px] text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded">{(offer as any).category || 'OTHER'}</span>
+                                  <span className="text-[10px] text-purple-500 bg-purple-50 px-1.5 py-0.5 rounded">{(() => { const cats = (offer as any).categories; if (Array.isArray(cats) && cats.length > 0 && cats[0].toLowerCase() !== 'general') return cats[0]; const v = (offer as any).vertical; if (v && v.toLowerCase() !== 'general') return v; return 'OTHER'; })()}</span>
                                   {renderFlags(offer.countries)}
                                 </div>
                               </div>
@@ -1442,7 +1442,13 @@ const PublisherOffersContent = () => {
                           {/* Category */}
                           <TableCell className="py-2.5">
                             <span className="text-xs capitalize text-muted-foreground">
-                              {(offer as any).category || (offer as any).vertical || '—'}
+                              {(() => {
+                                const cats = (offer as any).categories;
+                                if (Array.isArray(cats) && cats.length > 0 && cats[0].toLowerCase() !== 'general') return cats[0];
+                                const v = (offer as any).vertical;
+                                if (v && v.toLowerCase() !== 'general') return v;
+                                return '—';
+                              })()}
                             </span>
                           </TableCell>
 

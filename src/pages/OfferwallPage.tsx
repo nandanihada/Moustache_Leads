@@ -7,6 +7,7 @@ export const OfferwallPage: React.FC = () => {
     userId: '',
     subId: '',
     country: '',
+    apiKey: '',
   });
 
   useEffect(() => {
@@ -17,6 +18,7 @@ export const OfferwallPage: React.FC = () => {
       userId: searchParams.get('user_id') || '',
       subId: searchParams.get('sub_id') || '',
       country: searchParams.get('country') || '',
+      apiKey: searchParams.get('api_key') || '',
     });
   }, []);
 
@@ -43,6 +45,7 @@ export const OfferwallPage: React.FC = () => {
       userId={params.userId}
       subId={params.subId}
       country={params.country}
+      apiKey={params.apiKey}
     />
   );
 };

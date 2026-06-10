@@ -381,12 +381,6 @@ const OfferDetailsModalNew: React.FC<OfferDetailsModalProps> = ({
                     {(offer as any).incentive_allowed !== false ? 'Incent OK' : 'Non-Incent'}
                   </span>
                 </div>
-                {(offer as any).network_name && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-white/50">Network</span>
-                    <span className="text-sm text-white/80">{(offer as any).network_name}</span>
-                  </div>
-                )}
               </div>
             </GlassCard>
 

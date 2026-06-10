@@ -649,7 +649,6 @@ export default function PublisherOfferDetail() {
                 { label: 'Offer ID', value: offer.offer_id },
                 { label: 'Offer Type', value: (offer as any).offer_type || 'CPA' },
                 { label: 'Vertical', value: offer.vertical || 'N/A' },
-                { label: 'Network', value: offer.network },
                 { label: 'Currency', value: offer.currency || 'USD' },
                 { label: 'Payout Type', value: ((offer as any).payout_type || 'fixed').charAt(0).toUpperCase() + ((offer as any).payout_type || 'fixed').slice(1) },
                 { label: 'Incentive', value: (offer as any).incentive_type || 'Incent' },

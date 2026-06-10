@@ -1172,20 +1172,21 @@ const AdminOffers = () => {
   };
 
   const handleBulkOfferwallExclusive = async (action: 'activate' | 'deactivate') => {
-    if (selectedOffers.size === 0) return;
-    const offerIds = Array.from(selectedOffers);
+    const isRunningView = offersSubView === 'running';
+    const ids = Array.from(isRunningView ? selectedRunningOffers : selectedOffers);
+    if (ids.length === 0) return;
     try {
       const token = localStorage.getItem('token') || document.cookie.split('auth_token=')[1]?.split(';')[0] || '';
       const res = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/admin/offers/offerwall-exclusive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ offer_ids: offerIds, action }),
+        body: JSON.stringify({ offer_ids: ids, action }),
       });
       const data = await res.json();
       if (data.success) {
         toast({ title: 'Success', description: data.message });
-        setSelectedOffers(new Set());
-        fetchOffers();
+        if (isRunningView) { setSelectedRunningOffers(new Set()); fetchRunningOffers(); }
+        else { setSelectedOffers(new Set()); fetchOffers(); }
       } else {
         toast({ title: 'Error', description: data.error || 'Failed', variant: 'destructive' });
       }
@@ -2337,6 +2338,13 @@ const AdminOffers = () => {
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleBulkPin(false)}>
                         <span className="mr-2">❌</span> Unpin
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => handleBulkOfferwallExclusive('activate')}>
+                        <span className="mr-2">🖼️</span> Make Offerwall Exclusive
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleBulkOfferwallExclusive('deactivate')}>
+                        <span className="mr-2">🚫</span> Remove Offerwall Exclusive
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
