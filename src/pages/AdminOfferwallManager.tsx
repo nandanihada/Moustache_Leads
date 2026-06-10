@@ -26,8 +26,32 @@ import {
 import {
   Star, Eye, EyeOff, Sparkles, Plus, Trash2, Save,
   BarChart3, Pin, Layout, Monitor, X, ChevronLeft, ChevronRight,
-  Activity, CheckCircle, Clock, AlertCircle, Search, RefreshCw
+  Activity, CheckCircle, Clock, AlertCircle, Search, RefreshCw,
+  Flame, TrendingUp, TrendingDown, Hash, Wand2, Globe, Loader2
 } from "lucide-react";
+
+// ===================== BOOST COUNTDOWN COMPONENT =====================
+const BoostTimer: React.FC<{ expiresAt: string }> = ({ expiresAt }) => {
+  const [timeLeft, setTimeLeft] = useState('');
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    const calc = () => {
+      const diff = new Date(expiresAt).getTime() - Date.now();
+      if (diff <= 0) { setExpired(true); setTimeLeft('Expired'); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`);
+    };
+    calc();
+    const iv = setInterval(calc, 1000);
+    return () => clearInterval(iv);
+  }, [expiresAt]);
+
+  if (expired) return <span className="text-[10px] text-red-500 font-medium">Expired</span>;
+  return <span className="text-[10px] font-mono text-orange-600 font-bold">{timeLeft}</span>;
+};
 
 // ===================== TRACKING TAB COMPONENT =====================
 const TrackingTab: React.FC = () => {
@@ -199,6 +223,23 @@ const AdminOfferwallManager = () => {
   const [starterOfferIds, setStarterOfferIds] = useState<string[]>([]);
   const [qualSurveySettings, setQualSurveySettings] = useState<{points: number; display_title: string; display_description: string; display_image_url: string; template: string} | null>(null);
   const [qualSaving, setQualSaving] = useState(false);
+  // Price Boost state
+  const [showBoostDialog, setShowBoostDialog] = useState(false);
+  const [boostPercentage, setBoostPercentage] = useState(10);
+  const [boostDirection, setBoostDirection] = useState<'increase' | 'decrease'>('increase');
+  const [boostDuration, setBoostDuration] = useState(24);
+  const [boostMinutes, setBoostMinutes] = useState(0);
+  const [showBoostedOnly, setShowBoostedOnly] = useState(false);
+  const [boostedOffers, setBoostedOffers] = useState<any[]>([]);
+  // Position state
+  const [positionInputs, setPositionInputs] = useState<Record<string, string>>({});
+  // AI Description Refiner state
+  const [refineDialogOpen, setRefineDialogOpen] = useState(false);
+  const [refiningOfferId, setRefiningOfferId] = useState<string | null>(null);
+  const [refineLoading, setRefineLoading] = useState(false);
+  const [refinedResult, setRefinedResult] = useState<any>(null);
+  const [refineUpdateCountries, setRefineUpdateCountries] = useState(true);
+  const [refineSaving, setRefineSaving] = useState(false);
 
   // Fetch starter offers
   useEffect(() => {
@@ -223,6 +264,15 @@ const AdminOfferwallManager = () => {
       .catch(() => {});
   }, []);
 
+  // Fetch boosted offers
+  const loadBoostedOffers = async () => {
+    try {
+      const data = await offerwallManagerApi.getActiveBoostedOffers();
+      setBoostedOffers(data.boosted_offers || []);
+    } catch { setBoostedOffers([]); }
+  };
+  useEffect(() => { loadBoostedOffers(); }, []);
+
   // Fetch settings
   const { data: settings, isLoading: settingsLoading } = useQuery<OfferwallSettings>({
     queryKey: ['offerwall-management-settings'],
@@ -240,6 +290,23 @@ const AdminOfferwallManager = () => {
     queryKey: ['offerwall-management-offers', search, offerwallPage],
     queryFn: () => offerwallManagerApi.getOfferwallOffers({ search, page: offerwallPage, per_page: 30 }),
   });
+
+  // Pre-populate position inputs from offers data
+  useEffect(() => {
+    if (offersData) {
+      const offersList = offersData?.offers || offersData?.data || [];
+      const positions: Record<string, string> = {};
+      for (const offer of offersList) {
+        const id = offer.offer_id || offer._id;
+        if (offer.offerwall_position != null && offer.offerwall_position !== undefined) {
+          positions[id] = String(offer.offerwall_position);
+        }
+      }
+      if (Object.keys(positions).length > 0) {
+        setPositionInputs(prev => ({ ...positions, ...prev }));
+      }
+    }
+  }, [offersData]);
 
   // Mutations
   const updateSettingsMutation = useMutation({
@@ -369,6 +436,71 @@ const AdminOfferwallManager = () => {
     });
   };
 
+  // Bulk remove from offerwall (sets show_in_offerwall: false)
+  const handleBulkRemoveFromOfferwall = async () => {
+    if (selectedOffers.size === 0) return;
+    try {
+      await offerwallManagerApi.bulkRemoveFromOfferwall(Array.from(selectedOffers));
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-stats'] });
+      setSelectedOffers(new Set());
+      toast({ title: "Removed", description: `${selectedOffers.size} offers removed from offerwall` });
+    } catch {
+      toast({ title: "Error", description: "Failed to remove offers", variant: "destructive" });
+    }
+  };
+
+  // Price Boost handlers
+  const handleApplyBoost = async () => {
+    if (selectedOffers.size === 0) return;
+    try {
+      const result = await offerwallManagerApi.applyPriceBoost(
+        Array.from(selectedOffers), boostPercentage, boostDirection, boostDuration, boostMinutes
+      );
+      toast({ title: "Boost Applied", description: `${result.success_count} offers boosted (${boostDirection === 'increase' ? '+' : '-'}${boostPercentage}% for ${boostDuration}h ${boostMinutes}m)` });
+      setShowBoostDialog(false);
+      setSelectedOffers(new Set());
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+      loadBoostedOffers();
+    } catch {
+      toast({ title: "Error", description: "Failed to apply boost", variant: "destructive" });
+    }
+  };
+
+  const handleRemoveBoost = async (offerIds: string[]) => {
+    try {
+      await offerwallManagerApi.removePriceBoost(offerIds);
+      toast({ title: "Boost Removed" });
+      loadBoostedOffers();
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+    } catch {
+      toast({ title: "Error", description: "Failed to remove boost", variant: "destructive" });
+    }
+  };
+
+  // Position handler
+  const handleSetPosition = async (offerId: string, position: string) => {
+    const posNum = parseInt(position);
+    if (position.trim() === '' || position === '0') {
+      // Remove position
+      try {
+        await offerwallManagerApi.removePosition([offerId]);
+        setPositionInputs(prev => { const next = { ...prev }; delete next[offerId]; return next; });
+        toast({ title: "Position Removed" });
+      } catch {
+        toast({ title: "Error", description: "Failed to remove position", variant: "destructive" });
+      }
+      return;
+    }
+    if (isNaN(posNum) || posNum < 1) return;
+    try {
+      await offerwallManagerApi.setPositions([{ offer_id: offerId, position: posNum }]);
+      toast({ title: "Position Set", description: `Position set to ${posNum}` });
+    } catch {
+      toast({ title: "Error", description: "Failed to set position", variant: "destructive" });
+    }
+  };
+
   const handleToggleStarter = async (offerId: string) => {
     const isStarter = starterOfferIds.includes(offerId);
     const newIds = isStarter 
@@ -414,6 +546,40 @@ const AdminOfferwallManager = () => {
   };
 
   const allSelected = offers.length > 0 && offers.every((o: any) => selectedOffers.has(o.offer_id || o._id));
+
+  // AI Description Refiner handlers
+  const handleRefineOffer = async (offerId: string) => {
+    setRefiningOfferId(offerId);
+    setRefinedResult(null);
+    setRefineLoading(true);
+    setRefineDialogOpen(true);
+    setRefineUpdateCountries(true);
+    try {
+      const data = await offerwallManagerApi.refineDescription(offerId);
+      setRefinedResult(data);
+    } catch (e: any) {
+      toast({ title: "Refine Failed", description: e.message || "Failed to refine description", variant: "destructive" });
+      setRefineDialogOpen(false);
+    } finally {
+      setRefineLoading(false);
+    }
+  };
+
+  const handleSaveRefined = async () => {
+    if (!refinedResult?.refined || !refiningOfferId) return;
+    setRefineSaving(true);
+    try {
+      await offerwallManagerApi.saveRefinedDescription(refiningOfferId, refinedResult.refined, refineUpdateCountries);
+      toast({ title: "Saved!", description: "Refined description saved successfully" });
+      setRefineDialogOpen(false);
+      setRefinedResult(null);
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+    } catch {
+      toast({ title: "Error", description: "Failed to save", variant: "destructive" });
+    } finally {
+      setRefineSaving(false);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -513,28 +679,45 @@ const AdminOfferwallManager = () => {
               <p className="text-sm text-muted-foreground">
                 Showing only offers currently visible on the offerwall ({pagination.total} total)
               </p>
-              <div className="mt-2">
+              <div className="mt-2 flex items-center gap-3">
                 <Input
                   placeholder="Search offers..."
                   value={search}
                   onChange={(e) => { setSearch(e.target.value); setOfferwallPage(1); setSelectedOffers(new Set()); }}
                   className="max-w-sm"
                 />
+                <Button
+                  variant={showBoostedOnly ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setShowBoostedOnly(!showBoostedOnly)}
+                  className={showBoostedOnly ? "bg-orange-600 hover:bg-orange-700" : ""}
+                >
+                  <Flame className="h-4 w-4 mr-1" />
+                  Show Boosted ({boostedOffers.length})
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
               {/* Bulk Action Bar */}
               {selectedOffers.size > 0 && (
-                <div className="flex items-center gap-4 mb-4 p-3 bg-muted rounded-lg border">
+                <div className="flex items-center gap-3 mb-4 p-3 bg-muted rounded-lg border flex-wrap">
                   <span className="text-sm font-medium">{selectedOffers.size} selected</span>
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={handleBulkRemove}
-                    disabled={visibilityMutation.isPending}
+                    onClick={handleBulkRemoveFromOfferwall}
                   >
                     <EyeOff className="h-4 w-4 mr-2" />
                     Remove from Offerwall
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setShowBoostDialog(true)}
+                    className="bg-orange-600 hover:bg-orange-700"
+                  >
+                    <Flame className="h-4 w-4 mr-2" />
+                    Price Boost
                   </Button>
                   <Button
                     variant="default"
@@ -572,22 +755,26 @@ const AdminOfferwallManager = () => {
                         <TableHead>Offer</TableHead>
                         <TableHead>Network</TableHead>
                         <TableHead>Payout</TableHead>
+                        <TableHead className="text-center w-20">Position</TableHead>
                         <TableHead className="text-center">Pin</TableHead>
                         <TableHead className="text-center">Visible</TableHead>
                         <TableHead className="text-center">Featured</TableHead>
                         <TableHead className="text-center">Starter</TableHead>
+                        <TableHead className="text-center w-24">Added</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {offers.map((offer: any) => {
+                      {(showBoostedOnly ? boostedOffers : offers).map((offer: any) => {
                         const offerId = offer.offer_id || offer._id;
                         const isPinned = settings?.pinned_offers?.includes(offerId);
                         const isHidden = settings?.hidden_offers?.includes(offerId);
                         const isFeatured = settings?.featured_offers?.includes(offerId);
                         const isSelected = selectedOffers.has(offerId);
+                        const isBoosted = boostedOffers.some((b: any) => b.offer_id === offerId);
+                        const boostInfo = boostedOffers.find((b: any) => b.offer_id === offerId);
 
                         return (
-                          <TableRow key={offerId} className={isSelected ? 'bg-muted/50' : ''}>
+                          <TableRow key={offerId} className={`${isSelected ? 'bg-muted/50' : ''} ${isBoosted ? 'border-l-4 border-l-orange-400' : ''}`}>
                             <TableCell>
                               <Checkbox
                                 checked={isSelected}
@@ -597,7 +784,24 @@ const AdminOfferwallManager = () => {
                             </TableCell>
                             <TableCell>
                               <div>
-                                <p className="font-medium">{offer.name}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium">{offer.name}</p>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-purple-500 hover:text-purple-700 hover:bg-purple-50"
+                                    title="AI Refine Description"
+                                    onClick={() => handleRefineOffer(offerId)}
+                                  >
+                                    <Wand2 className="h-3.5 w-3.5" />
+                                  </Button>
+                                  {isBoosted && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">
+                                      🔥 {boostInfo?.direction === 'increase' ? '+' : '-'}{boostInfo?.percentage}%
+                                      {boostInfo?.expires_at && <> · <BoostTimer expiresAt={boostInfo.expires_at} /></>}
+                                    </span>
+                                  )}
+                                </div>
                                 <p className="text-xs text-muted-foreground">{offerId}</p>
                               </div>
                             </TableCell>
@@ -605,7 +809,34 @@ const AdminOfferwallManager = () => {
                               <span className="text-sm">{offer.network || '—'}</span>
                             </TableCell>
                             <TableCell>
-                              <span className="text-sm font-medium">${offer.payout || 0}</span>
+                              <div>
+                                <span className="text-sm font-medium">${offer.payout || offer.boosted_payout || 0}</span>
+                                {isBoosted && boostInfo && (
+                                  <p className="text-[10px] text-muted-foreground line-through">${boostInfo.original_payout}</p>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              <Input
+                                type="number"
+                                min={0}
+                                className="w-16 h-7 text-xs text-center mx-auto"
+                                placeholder="—"
+                                value={positionInputs[offerId] ?? ''}
+                                onChange={(e) => setPositionInputs(prev => ({ ...prev, [offerId]: e.target.value }))}
+                                onBlur={() => {
+                                  const val = positionInputs[offerId];
+                                  if (val === '' || val === '0') handleSetPosition(offerId, '');
+                                  else if (val && val.trim() !== '') handleSetPosition(offerId, val);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const val = positionInputs[offerId];
+                                    if (val === '' || val === '0') handleSetPosition(offerId, '');
+                                    else if (val && val.trim() !== '') handleSetPosition(offerId, val);
+                                  }
+                                }}
+                              />
                             </TableCell>
                             <TableCell className="text-center">
                               <Button
@@ -648,13 +879,18 @@ const AdminOfferwallManager = () => {
                                 <Pin className="h-4 w-4" fill={starterOfferIds.includes(offerId) ? 'currentColor' : 'none'} />
                               </Button>
                             </TableCell>
+                            <TableCell className="text-center">
+                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                {offer.created_at ? new Date(offer.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
+                              </span>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
-                      {offers.length === 0 && (
+                      {(showBoostedOnly ? boostedOffers : offers).length === 0 && (
                         <TableRow>
-                          <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
-                            No offers found
+                          <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                            {showBoostedOnly ? 'No boosted offers' : 'No offers found'}
                           </TableCell>
                         </TableRow>
                       )}
@@ -1072,6 +1308,274 @@ const AdminOfferwallManager = () => {
         <TrackingTab />
 
       </Tabs>
+
+      {/* ===== PRICE BOOST DIALOG ===== */}
+      <Dialog open={showBoostDialog} onOpenChange={setShowBoostDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Flame className="h-5 w-5 text-orange-500" />
+              Apply Price Boost ({selectedOffers.size} offers)
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label>Direction</Label>
+              <div className="flex gap-2">
+                <Button
+                  variant={boostDirection === 'increase' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setBoostDirection('increase')}
+                  className={boostDirection === 'increase' ? 'bg-green-600 hover:bg-green-700' : ''}
+                >
+                  <TrendingUp className="h-4 w-4 mr-1" />
+                  Increase
+                </Button>
+                <Button
+                  variant={boostDirection === 'decrease' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setBoostDirection('decrease')}
+                  className={boostDirection === 'decrease' ? 'bg-red-600 hover:bg-red-700' : ''}
+                >
+                  <TrendingDown className="h-4 w-4 mr-1" />
+                  Decrease
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Percentage ({boostDirection === 'increase' ? '+' : '-'}{boostPercentage}%)</Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={boostPercentage}
+                  onChange={(e) => setBoostPercentage(Number(e.target.value))}
+                  className="w-24"
+                />
+                <div className="flex gap-1">
+                  {[5, 10, 15, 20, 25].map(p => (
+                    <Button key={p} size="sm" variant={boostPercentage === p ? 'default' : 'outline'}
+                      onClick={() => setBoostPercentage(p)} className="text-xs px-2">
+                      {p}%
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Duration</Label>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={720}
+                    value={boostDuration}
+                    onChange={(e) => setBoostDuration(Number(e.target.value))}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">hrs</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={boostMinutes}
+                    onChange={(e) => setBoostMinutes(Number(e.target.value))}
+                    className="w-20"
+                  />
+                  <span className="text-xs text-muted-foreground">min</span>
+                </div>
+              </div>
+              <div className="flex gap-1 mt-1">
+                {[
+                  { label: '15m', h: 0, m: 15 },
+                  { label: '30m', h: 0, m: 30 },
+                  { label: '1h', h: 1, m: 0 },
+                  { label: '6h', h: 6, m: 0 },
+                  { label: '12h', h: 12, m: 0 },
+                  { label: '24h', h: 24, m: 0 },
+                  { label: '48h', h: 48, m: 0 },
+                ].map(p => (
+                  <Button key={p.label} size="sm" variant={boostDuration === p.h && boostMinutes === p.m ? 'default' : 'outline'}
+                    onClick={() => { setBoostDuration(p.h); setBoostMinutes(p.m); }} className="text-xs px-2">
+                    {p.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="bg-muted rounded-lg p-3 text-sm">
+              <p className="font-medium">Summary:</p>
+              <p className="text-muted-foreground">
+                {boostDirection === 'increase' ? 'Boost' : 'Reduce'} publisher payout by {boostPercentage}% for {boostDuration > 0 ? `${boostDuration}h` : ''}{boostMinutes > 0 ? ` ${boostMinutes}m` : ''} on {selectedOffers.size} offer(s).
+                The boost will expire automatically and price will revert to default 80%.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowBoostDialog(false)}>Cancel</Button>
+              <Button onClick={handleApplyBoost} className="bg-orange-600 hover:bg-orange-700">
+                <Flame className="h-4 w-4 mr-2" />
+                Apply Boost
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== AI DESCRIPTION REFINE DIALOG ===== */}
+      <Dialog open={refineDialogOpen} onOpenChange={(open) => { if (!open) { setRefineDialogOpen(false); setRefinedResult(null); } }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Wand2 className="h-5 w-5 text-purple-500" />
+              AI Description Refiner
+            </DialogTitle>
+          </DialogHeader>
+
+          {refineLoading && (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
+              <p className="text-sm text-muted-foreground">Analyzing description with AI...</p>
+            </div>
+          )}
+
+          {refinedResult?.refined && !refineLoading && (
+            <div className="space-y-4">
+              {/* Offer Name */}
+              <div className="bg-muted/50 rounded-lg p-3">
+                <p className="text-xs text-muted-foreground font-medium">Offer</p>
+                <p className="font-semibold">{refinedResult.offer_name}</p>
+              </div>
+
+              {/* Event Flow - Subtitle Preview */}
+              {refinedResult.refined.event_flow && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                  <p className="text-xs text-purple-600 font-medium mb-1">✨ Event Flow (shows as subtitle)</p>
+                  <p className="text-sm font-medium text-purple-900">{refinedResult.refined.event_flow}</p>
+                </div>
+              )}
+
+              {/* Summary */}
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Summary</p>
+                <p className="text-sm">{refinedResult.refined.summary}</p>
+              </div>
+
+              {/* Conversion Events */}
+              {refinedResult.refined.steps?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Conversion Events</p>
+                  <ol className="list-decimal list-inside space-y-1">
+                    {refinedResult.refined.steps.map((step: string, i: number) => (
+                      <li key={i} className="text-sm text-gray-700">{step}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {/* Countries Extracted */}
+              {refinedResult.refined.countries?.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-xs text-blue-600 font-medium flex items-center gap-1">
+                      <Globe className="h-3.5 w-3.5" />
+                      Countries Extracted from Description
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {refinedResult.refined.countries.map((c: string) => (
+                      <span key={c} className="px-2 py-0.5 bg-blue-100 text-blue-800 text-xs rounded-full font-medium">{c}</span>
+                    ))}
+                  </div>
+                  {refinedResult.refined.existing_countries?.length > 0 && (
+                    <p className="text-[10px] text-blue-500">
+                      Current countries: {refinedResult.refined.existing_countries.join(', ')}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2 mt-2">
+                    <Checkbox
+                      id="update-countries"
+                      checked={refineUpdateCountries}
+                      onCheckedChange={(checked) => setRefineUpdateCountries(!!checked)}
+                    />
+                    <Label htmlFor="update-countries" className="text-xs cursor-pointer">
+                      Save extracted countries to this offer
+                    </Label>
+                  </div>
+                </div>
+              )}
+
+              {/* Restrictions */}
+              {refinedResult.refined.restrictions?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Restrictions</p>
+                  <div className="flex flex-wrap gap-1">
+                    {refinedResult.refined.restrictions.map((r: string, i: number) => (
+                      <span key={i} className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full border border-red-200">{r}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Difficulty + Time */}
+              <div className="flex items-center gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground">Difficulty</p>
+                  <span className={`text-sm font-medium px-2 py-0.5 rounded-full ${
+                    refinedResult.refined.difficulty === 'Easy' ? 'bg-green-100 text-green-700' :
+                    refinedResult.refined.difficulty === 'Hard' ? 'bg-red-100 text-red-700' :
+                    'bg-yellow-100 text-yellow-700'
+                  }`}>{refinedResult.refined.difficulty}</span>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Est. Time</p>
+                  <span className="text-sm font-medium">{refinedResult.refined.estimated_time}</span>
+                </div>
+              </div>
+
+              {/* Payout Levels */}
+              {refinedResult.refined.payout_levels?.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground mb-1">Payout Levels</p>
+                  <div className="space-y-1">
+                    {refinedResult.refined.payout_levels.map((lvl: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between text-sm bg-muted/50 px-3 py-1.5 rounded">
+                        <span>{lvl.event}</span>
+                        <span className="font-medium text-green-700">{lvl.payout}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Preview Card */}
+              <div className="border-t pt-4">
+                <p className="text-xs font-medium text-muted-foreground mb-2">📱 Offerwall Card Preview</p>
+                <div className="border rounded-xl p-4 bg-white shadow-sm max-w-xs">
+                  <h3 className="font-bold text-gray-900 text-sm leading-snug">{refinedResult.offer_name}</h3>
+                  {refinedResult.refined.event_flow && (
+                    <p className="text-xs text-purple-600 mt-0.5 font-medium">{refinedResult.refined.event_flow}</p>
+                  )}
+                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">{refinedResult.refined.summary}</p>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <Button variant="outline" onClick={() => { setRefineDialogOpen(false); setRefinedResult(null); }}>
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveRefined} disabled={refineSaving} className="bg-purple-600 hover:bg-purple-700">
+                  {refineSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+                  Save Refined Description
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

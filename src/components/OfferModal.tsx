@@ -9,6 +9,7 @@ interface Offer {
   network?: string; countries?: string[]; devices?: string[]; device_targeting?: string;
   created_at?: string; payout_type?: string; payout?: number; star_rating?: number; click_count?: number;
   refined_description?: {
+    event_flow?: string;
     summary?: string;
     steps?: string[];
     payout_levels?: Array<{ event: string; payout: string }>;
@@ -136,7 +137,11 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
           </div>
 
           {/* Title */}
-          <h2 className="font-bold text-gray-900 text-lg leading-snug mb-2">{offer.title}</h2>
+          <h2 className="font-bold text-gray-900 text-lg leading-snug mb-1">{offer.title}</h2>
+          {/* Event flow subtitle */}
+          {offer.refined_description?.event_flow && (
+            <p className="text-sm text-purple-600 font-medium mb-2">{offer.refined_description.event_flow}</p>
+          )}
 
           {/* Chips row */}
           <div className="flex flex-wrap gap-2 mb-3">
@@ -145,11 +150,6 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
             <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
               {getDeviceIcon(offer.device_targeting || '')}
             </span>
-            {offer.estimated_time && (
-              <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-lg flex items-center gap-1">
-                <Clock className="h-3 w-3" />{offer.estimated_time}
-              </span>
-            )}
             {/* Click count chip */}
             {((offer as any).pick_count || offer.click_count || 0) > 0 && (
               <span className="text-xs font-medium text-purple-600 bg-purple-50 px-2.5 py-1 rounded-lg flex items-center gap-1">
@@ -247,13 +247,36 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
             </div>
           ) : null}
 
-          {/* Info grid */}
-          <div className="grid grid-cols-2 gap-2 mb-3">
+          {/* Info grid — reward, difficulty, time, status */}
+          <div className={`grid ${offer.refined_description?.difficulty || offer.refined_description?.estimated_time ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-2'} gap-2 mb-3`}>
             <div className="bg-purple-50 rounded-xl p-3 text-center">
               <Sparkles className="h-4 w-4 text-[#340075] mx-auto mb-1" />
               <p className="text-[10px] text-gray-500 uppercase font-semibold">Reward</p>
               <p className="text-sm font-bold text-[#340075]">{points.toLocaleString()} {currencyName}</p>
             </div>
+            {offer.refined_description?.difficulty && (
+              <div className={`rounded-xl p-3 text-center ${
+                offer.refined_description.difficulty === 'Easy' ? 'bg-green-50' :
+                offer.refined_description.difficulty === 'Hard' ? 'bg-red-50' : 'bg-yellow-50'
+              }`}>
+                <Star className={`h-4 w-4 mx-auto mb-1 ${
+                  offer.refined_description.difficulty === 'Easy' ? 'text-green-600' :
+                  offer.refined_description.difficulty === 'Hard' ? 'text-red-600' : 'text-yellow-600'
+                }`} />
+                <p className="text-[10px] text-gray-500 uppercase font-semibold">Difficulty</p>
+                <p className={`text-sm font-bold ${
+                  offer.refined_description.difficulty === 'Easy' ? 'text-green-600' :
+                  offer.refined_description.difficulty === 'Hard' ? 'text-red-600' : 'text-yellow-600'
+                }`}>{offer.refined_description.difficulty}</p>
+              </div>
+            )}
+            {(offer.refined_description?.estimated_time || offer.estimated_time) && (
+              <div className="bg-blue-50 rounded-xl p-3 text-center">
+                <Clock className="h-4 w-4 text-blue-600 mx-auto mb-1" />
+                <p className="text-[10px] text-gray-500 uppercase font-semibold">Est. Time</p>
+                <p className="text-sm font-bold text-blue-600">{offer.refined_description?.estimated_time || offer.estimated_time}</p>
+              </div>
+            )}
             <div className="bg-green-50 rounded-xl p-3 text-center">
               <Shield className="h-4 w-4 text-green-600 mx-auto mb-1" />
               <p className="text-[10px] text-gray-500 uppercase font-semibold">Status</p>

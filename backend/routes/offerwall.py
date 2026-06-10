@@ -1969,7 +1969,7 @@ def get_offers():
         is_admin_mode = bool(api_key)
         
         if is_admin_mode:
-            limit = 10000  # Show all offers in admin mode
+            limit = 0  # No limit in admin mode — fetch all matching offers
             skip = 0
         
         logger.info(f"📥 Fetching offers - placement_id: {placement_id}, user_id: {user_id}, page: {page}, limit: {limit}, admin_mode: {is_admin_mode}")
@@ -2041,12 +2041,24 @@ def get_offers():
         
         # Build query filter for REGULAR offers (excludes starter offers — they're fetched separately)
         if is_admin_mode:
-            # Admin mode: show ALL offers (only exclude deleted)
+            # Admin mode: show offerwall-visible offers (active + show_in_offerwall) but skip health check
             query_filter = {
-                '$or': [
-                    {'deleted': {'$exists': False}},
-                    {'deleted': False},
-                    {'deleted': None}
+                '$and': [
+                    {'$or': [
+                        {'deleted': {'$exists': False}},
+                        {'deleted': False},
+                        {'deleted': None}
+                    ]},
+                    {'$or': [
+                        {'is_active': True},
+                        {'is_active': {'$exists': False}},
+                        {'status': 'running'}
+                    ]},
+                    {'$or': [
+                        {'show_in_offerwall': True},
+                        {'show_in_offerwall': {'$exists': False}}
+                    ]},
+                    {'status': {'$in': ['active', 'running']}}
                 ]
             }
         else:
@@ -2103,7 +2115,8 @@ def get_offers():
             'conversion_flow': 1, 'payout_type': 1,
             'affiliates': 1, 'approval_settings': 1, 'offer_id': 1,
             'partner_id': 1, 'payout_model': 1,
-            'refined_description': 1
+            'refined_description': 1,
+            'price_boost': 1, 'offerwall_position': 1
         }
         
         # === STARTER OFFERS: Fetch unconditionally (bypass ALL filters) ===
@@ -2187,21 +2200,36 @@ def get_offers():
                 logger.warning(f"Failed to pre-fetch approved offers: {e}")
         
         # Filter out unhealthy REGULAR offers (starter offers and publisher-approved offers bypass health check)
-        try:
-            health_service = HealthCheckService()
-            health_results = health_service.evaluate_offers_batch(regular_offers_list)
-            regular_offers_list = [
-                o for o in regular_offers_list 
-                if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy'
-                or o.get('offer_id') in publisher_approved_offer_ids  # Approved offers bypass health check
-            ]
-            logger.info(f"✅ Health filter: {len(regular_offers_list)} offers remaining (includes approved bypasses)")
-        except Exception as e:
-            logger.warning(f"Offerwall health check failed, returning all offers: {e}")
+        # ADMIN MODE: Skip health check entirely — admin wants to see ALL offers
+        if not is_admin_mode:
+            try:
+                health_service = HealthCheckService()
+                health_results = health_service.evaluate_offers_batch(regular_offers_list)
+                regular_offers_list = [
+                    o for o in regular_offers_list 
+                    if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy'
+                    or o.get('offer_id') in publisher_approved_offer_ids  # Approved offers bypass health check
+                ]
+                logger.info(f"✅ Health filter: {len(regular_offers_list)} offers remaining (includes approved bypasses)")
+            except Exception as e:
+                logger.warning(f"Offerwall health check failed, returning all offers: {e}")
         
         # Merge: starter offers first, then regular offers
         offers_list = starter_offers_list + regular_offers_list
         total_count += len(starter_offers_list)  # Include starter offers in total
+        
+        # === POSITION-BASED SORTING ===
+        # Sort by offerwall_position ASC (lower = higher priority), offers without position go last
+        def _position_sort_key(o):
+            pos = o.get('offerwall_position')
+            if pos is not None:
+                try:
+                    return (0, int(pos))  # Has position: sort first, by position value
+                except (ValueError, TypeError):
+                    pass
+            return (1, 0)  # No position: sort after positioned offers
+        
+        offers_list.sort(key=_position_sort_key)
         
         # === USER-SPECIFIC GRANTED OFFERS: Include offers approved via access requests ===
         # Use publisher ID (from placement) for access checks, not end-user ID
@@ -2378,6 +2406,20 @@ def get_offers():
                 else:
                     publisher_payout = round(original_payout * 0.8, 2)
                 
+                # Check for active price boost
+                _price_boost = offer.get('price_boost')
+                _is_boosted = False
+                _boost_percentage = 0
+                _boost_direction = None
+                _boost_expires_at = None
+                if _price_boost and isinstance(_price_boost, dict):
+                    boost_expires = _price_boost.get('expires_at')
+                    if boost_expires and isinstance(boost_expires, datetime) and boost_expires > datetime.utcnow():
+                        _is_boosted = True
+                        _boost_percentage = _price_boost.get('percentage', 0)
+                        _boost_direction = _price_boost.get('direction', 'increase')
+                        _boost_expires_at = boost_expires.isoformat() + 'Z'
+                
                 # Revenue share percentage (90% of admin percentage)
                 try:
                     original_revenue_share = float(offer.get('revenue_share_percent', 0) or 0)
@@ -2431,6 +2473,11 @@ def get_offers():
                     'click_count': offer_click_counts.get(offer.get('offer_id'), 0),
                     'pick_count': offer_pick_counts.get(offer.get('offer_id'), 0),
                     'refined_description': offer.get('refined_description'),
+                    'is_boosted': _is_boosted,
+                    'boost_percentage': _boost_percentage,
+                    'boost_direction': _boost_direction,
+                    'boost_expires_at': _boost_expires_at,
+                    'offerwall_position': offer.get('offerwall_position'),
                 }
                 
                 # Level payouts for offerwall: apply 80% rule, then convert to points/coins
@@ -2518,7 +2565,7 @@ def get_offers():
             'total_count': total_count,
             'page': page,
             'per_page': limit,
-            'total_pages': (total_count + limit - 1) // limit,
+            'total_pages': (total_count + limit - 1) // limit if limit > 0 else 1,
             'placement_id': placement_id,
             'user_id': user_id,
             'exchange_rate': placement_exchange_rate,

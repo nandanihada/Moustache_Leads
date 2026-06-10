@@ -39,6 +39,14 @@ interface Offer {
   request_status?: string;
   estimated_approval_time?: string;
   requires_approval?: boolean;
+  refined_description?: {
+    event_flow?: string;
+    summary?: string;
+    steps?: string[];
+    restrictions?: string[];
+    difficulty?: string;
+    estimated_time?: string;
+  };
 }
 
 // Category definitions
@@ -741,6 +749,9 @@ const Offerwall: React.FC<OfferwallProps> = ({
                     <h3 className="font-bold text-gray-800 text-sm mb-1.5 leading-snug line-clamp-2">
                       {truncateTitle(offer.title, 7)}
                     </h3>
+                    {offer.refined_description?.event_flow && (
+                      <p className="text-[11px] text-purple-600 font-medium truncate -mt-0.5 mb-1.5">{offer.refined_description.event_flow}</p>
+                    )}
                     
                     {/* Countries */}
                     <div className="mb-3">

@@ -120,6 +120,89 @@ class OfferwallManagerApi {
     if (!res.ok) throw new Error('Failed to fetch tracking logs');
     return res.json();
   }
+
+  // ===== Price Boost =====
+  async applyPriceBoost(offer_ids: string[], percentage: number, direction: 'increase' | 'decrease', duration_hours: number, duration_minutes: number = 0): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/price-boost`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids, percentage, direction, duration_hours, duration_minutes })
+    });
+    if (!res.ok) throw new Error('Failed to apply price boost');
+    return res.json();
+  }
+
+  async getActiveBoostedOffers(): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/price-boost/active`, { headers: this.getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch boosted offers');
+    return res.json();
+  }
+
+  async removePriceBoost(offer_ids: string[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/price-boost/remove`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids })
+    });
+    if (!res.ok) throw new Error('Failed to remove price boost');
+    return res.json();
+  }
+
+  // ===== Position Ordering =====
+  async setPositions(positions: Array<{offer_id: string; position: number}>): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/set-positions`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ positions })
+    });
+    if (!res.ok) throw new Error('Failed to set positions');
+    return res.json();
+  }
+
+  async removePosition(offer_ids: string[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/remove-position`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids })
+    });
+    if (!res.ok) throw new Error('Failed to remove position');
+    return res.json();
+  }
+
+  // ===== Bulk Remove from Offerwall =====
+  async bulkRemoveFromOfferwall(offer_ids: string[]): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/bulk-remove`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_ids })
+    });
+    if (!res.ok) throw new Error('Failed to bulk remove');
+    return res.json();
+  }
+
+  // ===== AI Description Refiner =====
+  async refineDescription(offer_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/refine-description`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to refine' }));
+      throw new Error(err.error || 'Failed to refine description');
+    }
+    return res.json();
+  }
+
+  async saveRefinedDescription(offer_id: string, refined: any, update_countries: boolean): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/save-refined-description`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id, refined, update_countries })
+    });
+    if (!res.ok) throw new Error('Failed to save refined description');
+    return res.json();
+  }
 }
 
 export const offerwallManagerApi = new OfferwallManagerApi();

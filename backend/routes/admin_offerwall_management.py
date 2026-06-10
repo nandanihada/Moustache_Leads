@@ -438,7 +438,8 @@ def get_offerwall_offers():
         projection = {
             'offer_id': 1, 'name': 1, 'status': 1, 'category': 1, 'vertical': 1,
             'payout': 1, 'network': 1, 'image_url': 1, 'countries': 1, 'allowed_countries': 1,
-            'created_at': 1, 'target_url': 1, 'payout_model': 1, 'offer_type': 1
+            'created_at': 1, 'target_url': 1, 'payout_model': 1, 'offer_type': 1,
+            'offerwall_position': 1, 'price_boost': 1, 'publisher_payout_override': 1
         }
 
         all_offers = list(offers_collection.find(query_filter, projection).sort('created_at', -1))
@@ -460,15 +461,36 @@ def get_offerwall_offers():
         # Serialize
         serialized = []
         for offer in paginated_offers:
+            boost = offer.get('price_boost')
+            is_boosted = False
+            if boost and isinstance(boost, dict):
+                expires_at = boost.get('expires_at')
+                if expires_at and isinstance(expires_at, datetime) and expires_at > datetime.utcnow():
+                    is_boosted = True
+
+            created_at = offer.get('created_at')
+            created_at_str = created_at.isoformat() + 'Z' if isinstance(created_at, datetime) else str(created_at or '')
+
             serialized.append({
                 'offer_id': offer.get('offer_id', ''),
                 'name': offer.get('name', ''),
                 'status': offer.get('status', 'active'),
                 'category': offer.get('vertical') or offer.get('category', 'OTHER'),
                 'payout': offer.get('payout', 0),
+                'publisher_payout_override': offer.get('publisher_payout_override'),
                 'network': offer.get('network', ''),
                 'image_url': offer.get('image_url', ''),
                 'countries': offer.get('countries', []),
+                'offerwall_position': offer.get('offerwall_position'),
+                'created_at': created_at_str,
+                'is_boosted': is_boosted,
+                'price_boost': {
+                    'percentage': boost.get('percentage', 0),
+                    'direction': boost.get('direction', 'increase'),
+                    'expires_at': boost['expires_at'].isoformat() + 'Z' if isinstance(boost.get('expires_at'), datetime) else str(boost.get('expires_at', '')),
+                    'original_payout': boost.get('original_payout', 0),
+                    'boosted_payout': boost.get('boosted_payout', 0),
+                } if is_boosted and boost else None,
             })
 
         return jsonify({
@@ -738,3 +760,440 @@ def get_tracking_logs():
     except Exception as e:
         logger.error(f"Error getting tracking logs: {e}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
+
+
+# ===================== PRICE BOOST ENDPOINTS =====================
+
+@admin_offerwall_management_bp.route('/offerwall-management/price-boost', methods=['POST'])
+@token_required
+def apply_price_boost():
+    """Apply a time-limited price boost to selected offers."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        percentage = data.get('percentage', 10)
+        direction = data.get('direction', 'increase')  # 'increase' or 'decrease'
+        duration_hours = data.get('duration_hours', 0)
+        duration_minutes = data.get('duration_minutes', 0)
+
+        # At least one of hours/minutes must be provided
+        if not duration_hours and not duration_minutes:
+            duration_hours = 24  # Default to 24 hours if nothing specified
+
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+        if direction not in ('increase', 'decrease'):
+            return jsonify({'error': 'direction must be increase or decrease'}), 400
+        if not isinstance(percentage, (int, float)) or percentage <= 0 or percentage > 100:
+            return jsonify({'error': 'percentage must be between 1 and 100'}), 400
+
+        from services.price_boost_service import price_boost_service
+        result = price_boost_service.apply_boost(offer_ids, percentage, direction, duration_hours, duration_minutes)
+
+        return jsonify({
+            'message': f'Price boost applied to {result["success"]} offers',
+            'success_count': result['success'],
+            'errors': result['errors'],
+            'expires_at': result['expires_at']
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error applying price boost: {e}")
+        return jsonify({'error': 'Failed to apply price boost'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/price-boost/active', methods=['GET'])
+@token_required
+def get_active_boosts():
+    """Get all offers with currently active price boosts."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        from services.price_boost_service import price_boost_service
+        boosted = price_boost_service.get_boosted_offers()
+
+        return jsonify({'boosted_offers': boosted, 'count': len(boosted)}), 200
+
+    except Exception as e:
+        logger.error(f"Error getting active boosts: {e}")
+        return jsonify({'error': 'Failed to get active boosts'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/price-boost/remove', methods=['POST'])
+@token_required
+def remove_price_boost():
+    """Remove active price boost from selected offers (revert immediately)."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        reverted = 0
+        for offer_id in offer_ids:
+            offer = offers_col.find_one({'offer_id': offer_id}, {'price_boost': 1})
+            if offer and offer.get('price_boost'):
+                original = offer['price_boost'].get('original_payout')
+                update = {'$unset': {'price_boost': ''}}
+                if original is not None:
+                    update['$set'] = {'publisher_payout_override': original}
+                offers_col.update_one({'offer_id': offer_id}, update)
+                reverted += 1
+
+        return jsonify({'message': f'Removed boost from {reverted} offers', 'reverted': reverted}), 200
+
+    except Exception as e:
+        logger.error(f"Error removing price boost: {e}")
+        return jsonify({'error': 'Failed to remove price boost'}), 500
+
+
+# ===================== POSITION ORDERING ENDPOINTS =====================
+
+@admin_offerwall_management_bp.route('/offerwall-management/set-positions', methods=['POST'])
+@token_required
+def set_positions():
+    """Set manual position ordering for offers on the offerwall."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        positions = data.get('positions', [])
+        if not positions:
+            return jsonify({'error': 'positions array required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        updated = 0
+        for item in positions:
+            offer_id = item.get('offer_id')
+            position = item.get('position')
+            if offer_id and position is not None:
+                offers_col.update_one(
+                    {'offer_id': offer_id},
+                    {'$set': {'offerwall_position': int(position)}}
+                )
+                updated += 1
+
+        return jsonify({'message': f'Updated positions for {updated} offers', 'updated': updated}), 200
+
+    except Exception as e:
+        logger.error(f"Error setting positions: {e}")
+        return jsonify({'error': 'Failed to set positions'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/remove-position', methods=['POST'])
+@token_required
+def remove_position():
+    """Remove position ordering from an offer (revert to default sort)."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        offers_col.update_many(
+            {'offer_id': {'$in': offer_ids}},
+            {'$unset': {'offerwall_position': ''}}
+        )
+
+        return jsonify({'message': f'Removed positions from {len(offer_ids)} offers'}), 200
+
+    except Exception as e:
+        logger.error(f"Error removing positions: {e}")
+        return jsonify({'error': 'Failed to remove positions'}), 500
+
+
+# ===================== BULK REMOVE FROM OFFERWALL =====================
+
+@admin_offerwall_management_bp.route('/offerwall-management/bulk-remove', methods=['POST'])
+@token_required
+def bulk_remove_from_offerwall():
+    """Bulk remove offers from the offerwall by setting show_in_offerwall: false."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_ids = data.get('offer_ids', [])
+        if not offer_ids:
+            return jsonify({'error': 'offer_ids required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Set show_in_offerwall: false on selected offers
+        result = offers_col.update_many(
+            {'offer_id': {'$in': offer_ids}},
+            {'$set': {'show_in_offerwall': False}}
+        )
+
+        # Also add them to hidden_offers in settings for the admin view
+        settings_col = get_collection('offerwall_settings')
+        if settings_col:
+            settings_col.update_one(
+                {},
+                {
+                    '$addToSet': {'hidden_offers': {'$each': offer_ids}},
+                    '$set': {
+                        'updated_at': datetime.utcnow(),
+                        'updated_by': str(current_user.get('_id', current_user.get('user_id', '')))
+                    }
+                },
+                upsert=True
+            )
+
+        return jsonify({
+            'message': f'Removed {result.modified_count} offers from offerwall',
+            'removed_count': result.modified_count
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error bulk removing offers: {e}")
+        return jsonify({'error': 'Failed to remove offers from offerwall'}), 500
+
+
+# ===================== AI DESCRIPTION REFINER =====================
+
+@admin_offerwall_management_bp.route('/offerwall-management/refine-description', methods=['POST'])
+@token_required
+def refine_offer_description_endpoint():
+    """
+    AI-powered description refiner for a single offer.
+    Sends the raw description to Groq, which parses and structures:
+    - event_flow: first-line subtitle (e.g. "Register → Deposit → Trade")
+    - steps: detailed step list
+    - countries: extracted country codes from description
+    - restrictions: rules/limitations
+    - difficulty: Easy/Medium/Hard
+    - estimated_time
+    Admin can preview the result before saving.
+    """
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_id = data.get('offer_id')
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        offer = offers_col.find_one({'offer_id': offer_id})
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        name = offer.get('name', '')
+        description = offer.get('description', '')
+        payout = float(offer.get('payout', 0) or 0)
+        payout_type = offer.get('payout_type', 'cpa')
+        existing_countries = offer.get('countries', []) or offer.get('allowed_countries', []) or []
+
+        if not description or len(description.strip()) < 5:
+            return jsonify({'error': 'Offer has no description to refine'}), 400
+
+        # Call Groq AI
+        from config import Config
+        from groq import Groq
+        import json as json_module
+
+        api_key = Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        client = Groq(api_key=api_key)
+
+        prompt = f"""You are an offer description refiner for an affiliate marketing platform.
+Given a raw offer description (often messy with campaign/tracking data), produce a clean structured JSON output.
+
+RULES:
+- Write for END USERS who will complete the offer (not advertisers)
+- Keep it simple, friendly, professional
+- "event_flow" is a SHORT subtitle showing the conversion flow, e.g. "Register → Deposit $25 → Get Bonus" or "Install → Open App → Complete Tutorial". Max 60 chars.
+- "steps" should list the CONVERSION EVENTS (what actions trigger payout), not generic instructions. E.g. "Registration", "First Deposit", "App Activation" — not "Sign up for the app".
+- Extract COUNTRY CODES (ISO 2-letter) mentioned in the description (e.g. US, UK, CA, DE, AU). Look for country names, GEO mentions, geo-targeting info. Return as array of uppercase 2-letter codes.
+- Extract any restrictions (device, VPN, new users only, age, etc.)
+- Estimate difficulty and time based on the conversion events
+- If the description mentions multiple payout levels/events, extract them into payout_levels
+
+OFFER NAME: {name}
+OFFER PAYOUT: ${payout} ({payout_type})
+RAW DESCRIPTION:
+{description}
+
+Return ONLY valid JSON (no markdown, no explanation):
+{{
+  "event_flow": "Short flow subtitle max 60 chars",
+  "summary": "1-2 sentence user-friendly description",
+  "steps": ["Event 1: Registration", "Event 2: First Deposit $25"],
+  "countries": ["US", "UK"],
+  "payout_levels": [{{"event": "Event Name", "payout": "$X.XX"}}],
+  "restrictions": ["restriction 1", "restriction 2"],
+  "difficulty": "Easy|Medium|Hard",
+  "estimated_time": "X min"
+}}"""
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=800,
+            response_format={"type": "json_object"}
+        )
+
+        result_text = response.choices[0].message.content.strip()
+        result = json_module.loads(result_text)
+
+        # Validate and clean
+        refined = {
+            "event_flow": str(result.get("event_flow", "")).strip()[:60] or None,
+            "summary": str(result.get("summary", "")).strip() or description[:200],
+            "steps": result.get("steps", []) if isinstance(result.get("steps"), list) else [],
+            "countries": [],
+            "payout_levels": [],
+            "restrictions": result.get("restrictions", []) if isinstance(result.get("restrictions"), list) else [],
+            "difficulty": result.get("difficulty", "Medium") if result.get("difficulty") in ("Easy", "Medium", "Hard") else "Medium",
+            "estimated_time": str(result.get("estimated_time", "5 min")).strip()
+        }
+
+        # Validate countries - must be 2-letter uppercase codes
+        raw_countries = result.get("countries", [])
+        if isinstance(raw_countries, list):
+            valid_countries = []
+            for c in raw_countries:
+                code = str(c).strip().upper()
+                if len(code) == 2 and code.isalpha():
+                    valid_countries.append(code)
+            refined["countries"] = valid_countries
+
+        # Validate payout_levels
+        raw_levels = result.get("payout_levels", [])
+        if isinstance(raw_levels, list):
+            for level in raw_levels:
+                if isinstance(level, dict) and "event" in level and "payout" in level:
+                    refined["payout_levels"].append({"event": str(level["event"]), "payout": str(level["payout"])})
+
+        # Include existing countries for comparison
+        refined["existing_countries"] = existing_countries
+
+        return jsonify({
+            'success': True,
+            'refined': refined,
+            'offer_id': offer_id,
+            'offer_name': name
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error refining description: {e}", exc_info=True)
+        return jsonify({'error': f'Failed to refine description: {str(e)}'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/save-refined-description', methods=['POST'])
+@token_required
+def save_refined_description():
+    """Save the refined description and optionally update the offer's countries field."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_id = data.get('offer_id')
+        refined = data.get('refined')
+        update_countries = data.get('update_countries', False)
+
+        if not offer_id or not refined:
+            return jsonify({'error': 'offer_id and refined data required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Build update
+        update_fields = {
+            'refined_description': {
+                'event_flow': refined.get('event_flow'),
+                'summary': refined.get('summary', ''),
+                'steps': refined.get('steps', []),
+                'payout_levels': refined.get('payout_levels', []),
+                'restrictions': refined.get('restrictions', []),
+                'difficulty': refined.get('difficulty', 'Medium'),
+                'estimated_time': refined.get('estimated_time', '5 min'),
+            },
+            'refined_at': datetime.utcnow()
+        }
+
+        # Optionally update countries from AI extraction
+        if update_countries and refined.get('countries'):
+            update_fields['countries'] = refined['countries']
+            update_fields['allowed_countries'] = refined['countries']
+
+        result = offers_col.update_one(
+            {'offer_id': offer_id},
+            {'$set': update_fields}
+        )
+
+        if result.modified_count == 0:
+            return jsonify({'error': 'Offer not found or not modified'}), 404
+
+        return jsonify({
+            'success': True,
+            'message': 'Refined description saved successfully',
+            'countries_updated': update_countries and bool(refined.get('countries'))
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error saving refined description: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to save refined description'}), 500

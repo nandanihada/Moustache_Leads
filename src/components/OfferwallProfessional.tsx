@@ -17,7 +17,12 @@ interface Offer {
   is_locked?: boolean; has_access?: boolean; requires_approval?: boolean;
   click_count?: number;
   pick_count?: number;
+  is_boosted?: boolean;
+  boost_percentage?: number;
+  boost_direction?: string;
+  boost_expires_at?: string;
   refined_description?: {
+    event_flow?: string;
     summary?: string;
     steps?: string[];
     payout_levels?: Array<{ event: string; payout: string }>;
@@ -39,6 +44,7 @@ interface ActivityItem {
 // ===================== CONSTANTS =====================
 const CATEGORIES = [
   { id: 'all', name: 'All' },
+  { id: 'BOOSTED', name: '🔥 Boosted' },
   { id: 'SWEEPSTAKES', name: 'Sweepstakes' },
   { id: 'SURVEY', name: 'Surveys' },
   { id: 'FREE_TRIAL', name: 'Free Trials' },
@@ -163,6 +169,22 @@ const CountdownTimer: React.FC<{ endDate: string }> = ({ endDate }) => {
   }, [endDate]);
   if (exp) return null;
   return <span className="ow-badge-timer"><Timer className="h-3 w-3" />{String(t.h).padStart(2,'0')}:{String(t.m).padStart(2,'0')}:{String(t.s).padStart(2,'0')}</span>;
+};
+
+// Boost Countdown Timer (shows remaining time for price boost)
+const BoostCountdown: React.FC<{ endDate: string }> = ({ endDate }) => {
+  const [t, setT] = useState({ h: 0, m: 0, s: 0 });
+  const [exp, setExp] = useState(false);
+  useEffect(() => {
+    const calc = () => { const d = new Date(endDate).getTime() - Date.now(); if (d <= 0) { setExp(true); return; } setT({ h: Math.floor(d/3600000), m: Math.floor((d%3600000)/60000), s: Math.floor((d%60000)/1000) }); };
+    calc(); const iv = setInterval(calc, 1000); return () => clearInterval(iv);
+  }, [endDate]);
+  if (exp) return null;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-orange-500 text-white shadow-sm">
+      🔥 {String(t.h).padStart(2,'0')}:{String(t.m).padStart(2,'0')}:{String(t.s).padStart(2,'0')}
+    </span>
+  );
 };
 
 // Skeleton card for loading effect
@@ -489,7 +511,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const loadOffers = async () => {
     try {
       setLoading(true); setError(null);
-      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}`);
+      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`);
       if (!r.ok) throw new Error('Failed'); const d = await r.json(); if (d.error) throw new Error(d.error);
       setCurrency(d.currency_name || 'LEaDS');
       let funnels: any[] = [];
@@ -549,11 +571,25 @@ export const OfferwallProfessional: React.FC<Props> = ({
       'FREE_TRIAL':['FREE_TRIAL','FREETRIAL','TRIAL'],'INSTALLS':['INSTALLS','INSTALL','APP','APPS'],
       'GAMES_INSTALL':['GAMES_INSTALL','GAMESINSTALL','GAME','GAMES','GAMING'],
     };
-    if (category !== 'all') { const m = catMap[category.toUpperCase()] || [category.toUpperCase()]; f = f.filter(o => { const cats = (o as any).categories; if (Array.isArray(cats) && cats.length) return cats.some((c:string) => m.includes(c.toUpperCase())); return m.includes((o.category||'').toUpperCase()); }); }
+    if (category === 'BOOSTED') {
+      // Special filter: only show boosted offers
+      f = f.filter(o => (o as any).is_boosted === true);
+    } else if (category !== 'all') { const m = catMap[category.toUpperCase()] || [category.toUpperCase()]; f = f.filter(o => { const cats = (o as any).categories; if (Array.isArray(cats) && cats.length) return cats.some((c:string) => m.includes(c.toUpperCase())); return m.includes((o.category||'').toUpperCase()); }); }
     if (search) { const t = search.toLowerCase(); f = f.filter(o => o.title.toLowerCase().includes(t) || o.description.toLowerCase().includes(t)); }
     if (device !== 'all') f = f.filter(o => { const ds = (o.device_targeting || o.devices?.join(' ') || '').toLowerCase(); if (device==='android') return ds.includes('android'); if (device==='ios') return ds.includes('ios') || ds.includes('iphone'); if (device==='desktop') return ds.includes('web') || ds.includes('desktop'); return true; });
     if (payoutType !== 'all') f = f.filter(o => ((o as any).payout_type || '').toLowerCase().includes(payoutType));
-    f.sort((a,b) => { switch(sort) { case 'points_high': return (b.reward_amount||0)-(a.reward_amount||0); case 'points_low': return (a.reward_amount||0)-(b.reward_amount||0); case 'newest': return new Date(b.estimated_time||0).getTime()-new Date(a.estimated_time||0).getTime(); case 'rating': return (b.star_rating||5)-(a.star_rating||5); default: return (b.star_rating||5)*(b.reward_amount||1)-(a.star_rating||5)*(a.reward_amount||1); } });
+    f.sort((a,b) => {
+      // Position-ordered offers always come first (lower position = higher priority)
+      const aPos = (a as any).offerwall_position;
+      const bPos = (b as any).offerwall_position;
+      const aHasPos = aPos !== undefined && aPos !== null;
+      const bHasPos = bPos !== undefined && bPos !== null;
+      if (aHasPos && bHasPos) return aPos - bPos;
+      if (aHasPos && !bHasPos) return -1;
+      if (!aHasPos && bHasPos) return 1;
+      // For non-positioned offers, use the selected sort
+      switch(sort) { case 'points_high': return (b.reward_amount||0)-(a.reward_amount||0); case 'points_low': return (a.reward_amount||0)-(b.reward_amount||0); case 'newest': return new Date(b.estimated_time||0).getTime()-new Date(a.estimated_time||0).getTime(); case 'rating': return (b.star_rating||5)-(a.star_rating||5); default: return (b.star_rating||5)*(b.reward_amount||1)-(a.star_rating||5)*(a.reward_amount||1); }
+    });
 
     // ===== MULTI-CATEGORY EXPANSION =====
     // If offer.category contains "/" (e.g. "CREDIT / DEBT / LOANS"), expand into
@@ -763,10 +799,21 @@ export const OfferwallProfessional: React.FC<Props> = ({
                       </div>
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 6)}</p>
+                        {offer.refined_description?.event_flow && (
+                          <p className="text-[11px] text-purple-600 font-medium truncate mt-0.5">{offer.refined_description.event_flow}</p>
+                        )}
                         <div className="flex items-center gap-2 mt-1 flex-wrap">
                           <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">
                             {getDeviceIcon(offer)}
                           </span>
+                          {offer.is_boosted && offer.boost_expires_at && (
+                            <BoostCountdown endDate={offer.boost_expires_at} />
+                          )}
+                          {offer.is_boosted && !offer.boost_expires_at && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded-full border border-orange-200">
+                              🔥 Boosted
+                            </span>
+                          )}
                           {displayPicks > 0 && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">
                               <Users className="h-3 w-3" />{displayPicks.toLocaleString()}
@@ -775,7 +822,16 @@ export const OfferwallProfessional: React.FC<Props> = ({
                         </div>
                       </div>
                     </div>
-                    <div className="md:text-center" onClick={() => handleClick(offer)}><span className="font-bold text-[#340075] text-sm">+{pts.toLocaleString()} {currency}</span></div>
+                    <div className="md:text-center" onClick={() => handleClick(offer)}>
+                      {offer.is_boosted && offer.boost_percentage ? (
+                        <div className="flex flex-col items-center">
+                          <span className="text-red-400 text-xs line-through decoration-red-500 decoration-2 font-medium">{Math.round(pts / (1 + (offer.boost_direction === 'increase' ? 1 : -1) * (offer.boost_percentage || 0) / 100)).toLocaleString()} {currency}</span>
+                          <span className="font-bold text-orange-600 text-sm">+{pts.toLocaleString()} {currency}</span>
+                        </div>
+                      ) : (
+                        <span className="font-bold text-[#340075] text-sm">+{pts.toLocaleString()} {currency}</span>
+                      )}
+                    </div>
                     <div className="md:text-center">
                       <button onClick={e => { e.stopPropagation(); setQrOffer(offer); }} className="p-2 rounded-lg hover:bg-purple-50 text-gray-400 hover:text-[#340075] transition-colors" title="QR Code"><QrCode className="h-4 w-4" /></button>
                     </div>
@@ -813,6 +869,12 @@ export const OfferwallProfessional: React.FC<Props> = ({
               const displayClicks = offer.click_count || 0;
               const displayPicks = offer.pick_count || 0;
               const deviceLabel = getDeviceLabel(offer);
+              // Calculate original (non-boosted) points for strikethrough display
+              const originalPts = offer.is_boosted && offer.boost_percentage
+                ? Math.round(offer.boost_direction === 'increase'
+                  ? pts / (1 + offer.boost_percentage / 100)
+                  : pts / (1 - offer.boost_percentage / 100))
+                : pts;
               return (
                 <div key={offer.id} className="ow-card group cursor-pointer">
                   {/* Image */}
@@ -820,17 +882,30 @@ export const OfferwallProfessional: React.FC<Props> = ({
                     <img src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })} alt={offer.title}
                       className="w-full h-full object-contain p-3 transition-transform duration-500 group-hover:scale-105"
                       onError={e => { (e.target as HTMLImageElement).src = '/category-images/other.png'; }} />
-                    <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm"><span className="text-[#340075] font-bold text-xs">+{pts.toLocaleString()} {currency}</span></div>
+                    {offer.is_boosted ? (
+                      <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1.5 rounded-xl shadow-md border border-orange-200 flex flex-col items-end">
+                        <span className="text-red-400 font-semibold text-xs line-through decoration-red-500 decoration-2">{originalPts.toLocaleString()} {currency}</span>
+                        <span className="text-orange-600 font-bold text-sm">+{pts.toLocaleString()} {currency}</span>
+                      </div>
+                    ) : (
+                      <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-2.5 py-1 rounded-full shadow-sm"><span className="text-[#340075] font-bold text-xs">+{pts.toLocaleString()} {currency}</span></div>
+                    )}
                     {offer.timer_enabled && offer.timer_end_date && <div className="absolute top-3 left-3"><CountdownTimer endDate={offer.timer_end_date} /></div>}
+                    {/* Boosted badge with countdown */}
+                    {offer.is_boosted && offer.boost_expires_at && <div className="absolute top-3 left-3"><BoostCountdown endDate={offer.boost_expires_at} /></div>}
+                    {offer.is_boosted && !offer.boost_expires_at && <div className="absolute top-3 left-3 bg-orange-500 text-white px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-sm">🔥 Boosted</div>}
                     {/* QR button on image */}
                     <button onClick={e => { e.stopPropagation(); setQrOffer(offer); }} className="absolute bottom-3 right-3 bg-white/90 hover:bg-white p-1.5 rounded-lg shadow-md text-[#340075] transition-all hover:scale-110" title="QR Code"><QrCode className="h-4 w-4" /></button>
                   </div>
 
                   {/* Content */}
                   <div className="p-4 flex flex-col flex-grow" onClick={() => handleClick(offer)}>
-                    <h3 className="font-bold text-gray-900 text-sm leading-snug mb-2 line-clamp-1 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 5)}</h3>
+                    <h3 className="font-bold text-gray-900 text-sm leading-snug mb-1 line-clamp-1 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 5)}</h3>
+                    {offer.refined_description?.event_flow && (
+                      <p className="text-[11px] text-purple-600 font-medium truncate mb-2">{offer.refined_description.event_flow}</p>
+                    )}
                     {/* Meta row: device + picks */}
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-1.5 flex-wrap mb-3">
                       <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
                         {getDeviceIcon(offer)}
                       </span>

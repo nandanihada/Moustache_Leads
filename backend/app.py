@@ -705,6 +705,13 @@ def start_background_services():
         except Exception as e:
             logging.warning(f"⚠️ Telegram trending bot failed to start: {str(e)}")
         
+        try:
+            from services.price_boost_service import price_boost_service
+            price_boost_service.start()
+            logging.info("✅ Price boost expiration service started (checks every 60s)")
+        except Exception as e:
+            logging.warning(f"⚠️ Price boost service failed to start: {str(e)}")
+        
         logging.info("Background services initialization completed")
     except Exception as e:
         logging.error(f"Error in background services initialization: {str(e)}")
