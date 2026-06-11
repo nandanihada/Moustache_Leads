@@ -402,7 +402,7 @@ def reorder_offers():
 @admin_offerwall_management_bp.route('/offerwall-management/offerwall-offers', methods=['GET'])
 @token_required
 def get_offerwall_offers():
-    """Get only the offers that are currently visible on the offerwall (with health check)."""
+    """Get all offers that have show_in_offerwall=True (admin view — not filtered by status/health)."""
     try:
         current_user = request.current_user
         if current_user.get('role') != 'admin':
@@ -411,6 +411,7 @@ def get_offerwall_offers():
         search = request.args.get('search', '')
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 50))
+        refined_filter = request.args.get('refined', '')  # 'yes', 'no', or ''
 
         offers_collection = get_collection('offers')
         settings_collection = get_collection('offerwall_settings')
@@ -422,8 +423,17 @@ def get_offerwall_offers():
         settings = settings_collection.find_one({}) if settings_collection is not None else None
         hidden_offers = (settings or {}).get('hidden_offers', [])
 
-        # Same filter as the actual offerwall uses
-        query_filter = get_offerwall_base_query(hidden_offers)
+        # Admin view: show ALL offers with show_in_offerwall=True (not just active ones)
+        # This allows admins to see and manage offers that were set to show_in_offerwall
+        # regardless of their current status
+        query_filter = {
+            '$and': [
+                {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]},
+                {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]},
+            ]
+        }
+        if hidden_offers:
+            query_filter['$and'].append({'offer_id': {'$nin': hidden_offers}})
 
         # Add search filter
         if search:
@@ -434,29 +444,31 @@ def get_offerwall_offers():
                 ]
             })
 
-        # Fetch ALL matching offers (we need to health-check them before paginating)
+        # Add refined filter — only match offers refined via admin dialog
+        if refined_filter == 'yes':
+            query_filter['$and'].append({'refined_via_admin': True})
+        elif refined_filter == 'no':
+            query_filter['$and'].append({'$or': [
+                {'refined_via_admin': {'$exists': False}},
+                {'refined_via_admin': False},
+                {'refined_via_admin': None},
+            ]})
+
+        # Fetch ALL matching offers (no health check — admin needs to see ALL show_in_offerwall offers)
         projection = {
             'offer_id': 1, 'name': 1, 'status': 1, 'category': 1, 'vertical': 1,
             'payout': 1, 'network': 1, 'image_url': 1, 'countries': 1, 'allowed_countries': 1,
             'created_at': 1, 'target_url': 1, 'payout_model': 1, 'offer_type': 1,
-            'offerwall_position': 1, 'price_boost': 1, 'publisher_payout_override': 1
+            'offerwall_position': 1, 'price_boost': 1, 'publisher_payout_override': 1,
+            'refined_description': 1, 'refined_at': 1
         }
 
         all_offers = list(offers_collection.find(query_filter, projection).sort('created_at', -1))
 
-        # Apply health check filter (same as offerwall does)
-        try:
-            health_service = HealthCheckService()
-            health_results = health_service.evaluate_offers_batch(all_offers)
-            healthy_offers = [o for o in all_offers if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
-        except Exception as e:
-            logger.warning(f"Health check failed, returning all matching offers: {e}")
-            healthy_offers = all_offers
-
-        # Now paginate the healthy offers
-        total = len(healthy_offers)
+        # Paginate directly — no health filter so admins can see and manage all show_in_offerwall offers
+        total = len(all_offers)
         skip = (page - 1) * per_page
-        paginated_offers = healthy_offers[skip:skip + per_page]
+        paginated_offers = all_offers[skip:skip + per_page]
 
         # Serialize
         serialized = []
@@ -484,6 +496,7 @@ def get_offerwall_offers():
                 'offerwall_position': offer.get('offerwall_position'),
                 'created_at': created_at_str,
                 'is_boosted': is_boosted,
+                'has_refined': bool(offer.get('refined_via_admin')),
                 'price_boost': {
                     'percentage': boost.get('percentage', 0),
                     'direction': boost.get('direction', 'increase'),
@@ -1172,7 +1185,8 @@ def save_refined_description():
                 'difficulty': refined.get('difficulty', 'Medium'),
                 'estimated_time': refined.get('estimated_time', '5 min'),
             },
-            'refined_at': datetime.utcnow()
+            'refined_at': datetime.utcnow(),
+            'refined_via_admin': True  # Marker: refined from admin dialog
         }
 
         # Optionally update countries from AI extraction
@@ -1271,3 +1285,62 @@ def get_offer_description():
     except Exception as e:
         logger.error(f"Error getting offer description: {e}", exc_info=True)
         return jsonify({'error': 'Failed to get offer description'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/hide-by-id', methods=['POST'])
+@token_required
+def hide_offer_by_id():
+    """Force-hide any offer from the offerwall by offer_id, regardless of status."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        offer_id = data.get('offer_id', '').strip()
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        # Try to find by offer_id OR campaign_id (handles network-imported offers)
+        offer = offers_col.find_one({'$or': [
+            {'offer_id': offer_id},
+            {'campaign_id': offer_id}
+        ]})
+
+        if not offer:
+            return jsonify({'error': f'No offer found with id: {offer_id}'}), 404
+
+        # Hide from offerwall and mark deleted
+        result = offers_col.update_one(
+            {'_id': offer['_id']},
+            {'$set': {
+                'show_in_offerwall': False,
+                'deleted': True,
+                'deleted_at': datetime.utcnow(),
+                'deleted_reason': f'Force-hidden by admin (duplicate/cleanup)'
+            }}
+        )
+
+        # Also add to hidden_offers in settings
+        settings_col = get_collection('offerwall_settings')
+        if settings_col:
+            settings_col.update_one(
+                {},
+                {'$addToSet': {'hidden_offers': offer_id}},
+                upsert=True
+            )
+
+        return jsonify({
+            'success': True,
+            'message': f'Offer {offer_id} hidden from offerwall and deleted',
+            'offer_name': offer.get('name', ''),
+            'modified': result.modified_count
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error hiding offer: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to hide offer'}), 500

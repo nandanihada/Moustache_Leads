@@ -125,16 +125,19 @@ def merge_pinned_and_organic_offers(pinned_offers, organic_query, skip_original,
     """
     Seamlessly merges pinned offers and organic offers using a cinema-seat style
     fixed-position placement. Pinned offers are placed exactly at pinnedPosition (1-indexed).
-    Organic offers occupy the remaining vacant slots.
+    Offers without a pinnedPosition are prepended before organic results.
     """
     pinned_by_pos = {}
+    pinned_no_pos = []  # Pinned offers without a specific position
     for po in pinned_offers:
         pos = po.get('pinnedPosition')
         if pos is not None:
             try:
                 pinned_by_pos[int(pos)] = po
             except (ValueError, TypeError):
-                pass
+                pinned_no_pos.append(po)
+        else:
+            pinned_no_pos.append(po)
 
     start_idx = skip_original
     end_idx = skip_original + limit_original
@@ -173,6 +176,10 @@ def merge_pinned_and_organic_offers(pinned_offers, organic_query, skip_original,
             organic_docs = list(offers_col.find(organic_query).skip(organic_skip).limit(organic_limit))
 
     final_offers = []
+    # Prepend pinned-without-position on page 1 only
+    if skip_original == 0:
+        final_offers.extend(pinned_no_pos)
+
     organic_iter = iter(organic_docs)
     for slot in page_slots:
         if slot is not None:
@@ -1400,6 +1407,40 @@ def get_offers():
             pinned_query['is_pinned'] = True
             pinned_offers = list(offers_col.find(pinned_query))
 
+        # --- "AI Refined" filter: offers refined via admin dialog ---
+        if filters.get('health') == 'ai_refined':
+            refined_condition = {'refined_via_admin': True}
+            if '$and' in query:
+                query['$and'].append(refined_condition)
+            else:
+                existing = dict(query)
+                query = {'$and': [existing, refined_condition]}
+            
+            del filters['health']
+            
+            pinned_query = dict(query)
+            pinned_query['is_pinned'] = True
+            pinned_offers = list(offers_col.find(pinned_query))
+
+        # --- "Not Refined" filter: offers not refined via admin ---
+        if filters.get('health') == 'not_refined':
+            not_refined_condition = {'$or': [
+                {'refined_via_admin': {'$exists': False}},
+                {'refined_via_admin': False},
+                {'refined_via_admin': None},
+            ]}
+            if '$and' in query:
+                query['$and'].append(not_refined_condition)
+            else:
+                existing = dict(query)
+                query = {'$and': [existing, not_refined_condition]}
+            
+            del filters['health']
+            
+            pinned_query = dict(query)
+            pinned_query['is_pinned'] = True
+            pinned_offers = list(offers_col.find(pinned_query))
+
         # --- Health filter requires fetching all matches, evaluating, then paginating ---
         if filters.get('health'):
             # Fetch ALL matching offers (no pagination yet)
@@ -1673,6 +1714,12 @@ def update_offer(offer_id):
                 data['promo_code_assigned_by'] = None
                 logging.info(f"🗑️ Promo code removed from offer {offer_id}")
         
+        # Sync show_in_offerwall when status becomes inactive/paused/hidden
+        if 'status' in data and data['status'] in ('inactive', 'paused', 'hidden'):
+            if 'show_in_offerwall' not in data:  # Only auto-set if admin didn't explicitly set it
+                data['show_in_offerwall'] = False
+                logging.info(f"🔒 Auto-setting show_in_offerwall=False for offer {offer_id} (status→{data['status']})")
+
         # Use extended model if schedule/smart rules data is present
         if 'schedule' in data or 'smartRules' in data:
             success, error = extended_offer_model.update_offer(offer_id, data, str(user['_id']))
@@ -1983,9 +2030,14 @@ def bulk_update_status():
         # Update specific offers only
         query = {'offer_id': {'$in': offer_ids}, '$or': [{'deleted': {'$exists': False}}, {'deleted': False}]}
 
+        update_set = {'status': new_status, 'updated_at': datetime.utcnow()}
+        # When deactivating, automatically remove from offerwall to prevent ghost offers
+        if new_status in ('inactive', 'paused', 'hidden'):
+            update_set['show_in_offerwall'] = False
+
         result = offers_collection.update_many(
             query,
-            {'$set': {'status': new_status, 'updated_at': datetime.utcnow()}}
+            {'$set': update_set}
         )
 
         # Log activity

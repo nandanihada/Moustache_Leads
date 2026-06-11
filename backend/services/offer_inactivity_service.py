@@ -153,6 +153,7 @@ class OfferInactivityService:
                         {'offer_id': offer['offer_id'], 'status': 'active'},
                         {'$set': {
                             'status': 'inactive',
+                            'show_in_offerwall': False,  # Remove from offerwall when auto-deactivated
                             'auto_deactivated': True,
                             'auto_deactivated_at': datetime.utcnow(),
                             'auto_deactivation_reason': f'No clicks in {INACTIVITY_DAYS} days',

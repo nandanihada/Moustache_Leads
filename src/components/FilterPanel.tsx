@@ -349,6 +349,8 @@ const FilterPanel: React.FC<FilterPanelProps> = ({
               <SelectItem value="no_country">🌍 No Country Set</SelectItem>
               <SelectItem value="no_payout">💸 Missing Payout</SelectItem>
               <SelectItem value="no_payout_model">📋 No Payout Model</SelectItem>
+              <SelectItem value="ai_refined">✨ AI Refined</SelectItem>
+              <SelectItem value="not_refined">📝 Not Refined (Raw Desc)</SelectItem>
             </SelectContent>
           </Select>
         </div>

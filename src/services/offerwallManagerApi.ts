@@ -100,11 +100,12 @@ class OfferwallManagerApi {
     return res.json();
   }
 
-  async getOfferwallOffers(params?: {search?: string; page?: number; per_page?: number}): Promise<any> {
+  async getOfferwallOffers(params?: {search?: string; page?: number; per_page?: number; refined?: string}): Promise<any> {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
     if (params?.page) query.set('page', String(params.page));
     if (params?.per_page) query.set('per_page', String(params.per_page));
+    if (params?.refined) query.set('refined', params.refined);
     const res = await fetch(`${API_BASE_URL}/offerwall-offers?${query.toString()}`, { headers: this.getHeaders() });
     if (!res.ok) throw new Error('Failed to fetch offerwall offers');
     return res.json();
@@ -219,6 +220,16 @@ class OfferwallManagerApi {
       headers: this.getHeaders()
     });
     if (!res.ok) throw new Error('Failed to get offer description');
+    return res.json();
+  }
+
+  async hideOfferById(offer_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/hide-by-id`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id })
+    });
+    if (!res.ok) throw new Error('Failed to hide offer');
     return res.json();
   }
 }

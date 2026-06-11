@@ -158,12 +158,14 @@ export const OfferModal: React.FC<OfferModalProps> = ({ offer, open, onClose, on
             )}
           </div>
           {/* Description — structured if refined, raw if not */}
-          {offer.refined_description?.summary ? (
+          {offer.refined_description && (offer.refined_description.summary || offer.refined_description.steps?.length || offer.refined_description.event_flow) ? (
             <div className="mb-3 space-y-3">
               {/* AI Summary */}
-              <div>
-                <p className="text-sm text-gray-700 leading-relaxed">{offer.refined_description.summary}</p>
-              </div>
+              {offer.refined_description.summary && (
+                <div>
+                  <p className="text-sm text-gray-700 leading-relaxed">{offer.refined_description.summary}</p>
+                </div>
+              )}
 
               {/* Steps */}
               {offer.refined_description.steps && offer.refined_description.steps.length > 0 && (

@@ -2458,7 +2458,7 @@ def get_offers():
                     created_at_str = ''
                 
                 transformed_offer = {
-                    'id': offer.get('offer_id', str(offer.get('_id'))),
+                    'id': offer.get('offer_id') or offer.get('campaign_id') or str(offer.get('_id')),
                     'title': offer.get('name', 'Untitled Offer'),
                     'description': offer.get('description', 'No description available'),
                     'reward_amount': round(publisher_payout * placement_exchange_rate, 2),

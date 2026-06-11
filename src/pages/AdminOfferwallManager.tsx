@@ -241,6 +241,11 @@ const AdminOfferwallManager = () => {
   const [refineUpdateCountries, setRefineUpdateCountries] = useState(true);
   const [refineSaving, setRefineSaving] = useState(false);
   const [refineEditMode, setRefineEditMode] = useState(false);
+  // Refined filter for offerwall manager
+  const [refinedFilter, setRefinedFilter] = useState<string>('');
+  // Force-hide by offer ID
+  const [forceHideId, setForceHideId] = useState('');
+  const [forceHiding, setForceHiding] = useState(false);
 
   // Fetch starter offers
   useEffect(() => {
@@ -288,8 +293,8 @@ const AdminOfferwallManager = () => {
 
   // Fetch offers (only those visible on the offerwall)
   const { data: offersData, isLoading: offersLoading } = useQuery({
-    queryKey: ['offerwall-management-offers', search, offerwallPage],
-    queryFn: () => offerwallManagerApi.getOfferwallOffers({ search, page: offerwallPage, per_page: 30 }),
+    queryKey: ['offerwall-management-offers', search, offerwallPage, refinedFilter],
+    queryFn: () => offerwallManagerApi.getOfferwallOffers({ search, page: offerwallPage, per_page: 30, refined: refinedFilter || undefined }),
   });
 
   // Pre-populate position inputs from offers data
@@ -639,6 +644,23 @@ const AdminOfferwallManager = () => {
     }));
   };
 
+  const handleForceHide = async () => {
+    const id = forceHideId.trim();
+    if (!id) return;
+    setForceHiding(true);
+    try {
+      const result = await offerwallManagerApi.hideOfferById(id);
+      toast({ title: "Hidden!", description: `"${result.offer_name || id}" removed from offerwall` });
+      setForceHideId('');
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-stats'] });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Failed to hide offer", variant: "destructive" });
+    } finally {
+      setForceHiding(false);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -735,7 +757,7 @@ const AdminOfferwallManager = () => {
             <CardHeader>
               <CardTitle>Offer Controls</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Showing only offers currently visible on the offerwall ({pagination.total} total)
+                Showing all offers with "Show in Offerwall" enabled ({pagination.total} total — includes inactive)
               </p>
               <div className="mt-2 flex items-center gap-3">
                 <Input
@@ -752,6 +774,42 @@ const AdminOfferwallManager = () => {
                 >
                   <Flame className="h-4 w-4 mr-1" />
                   Show Boosted ({boostedOffers.length})
+                </Button>
+                <Button
+                  variant={refinedFilter === 'yes' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => { setRefinedFilter(refinedFilter === 'yes' ? '' : 'yes'); setOfferwallPage(1); }}
+                  className={refinedFilter === 'yes' ? "bg-purple-600 hover:bg-purple-700" : ""}
+                >
+                  <Wand2 className="h-4 w-4 mr-1" />
+                  AI Refined
+                </Button>
+                <Button
+                  variant={refinedFilter === 'no' ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => { setRefinedFilter(refinedFilter === 'no' ? '' : 'no'); setOfferwallPage(1); }}
+                  className={refinedFilter === 'no' ? "bg-gray-600 hover:bg-gray-700" : ""}
+                >
+                  Not Refined
+                </Button>
+              </div>
+              {/* Force-hide by offer ID (for orphan/duplicate offers not showing in admin) */}
+              <div className="mt-2 flex items-center gap-2">
+                <Input
+                  placeholder="Force-hide by offer ID (e.g. ML-2645036)..."
+                  value={forceHideId}
+                  onChange={(e) => setForceHideId(e.target.value)}
+                  className="max-w-xs text-xs"
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleForceHide(); }}
+                />
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleForceHide}
+                  disabled={!forceHideId.trim() || forceHiding}
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" />
+                  {forceHiding ? 'Hiding...' : 'Force Hide'}
                 </Button>
               </div>
             </CardHeader>
@@ -844,6 +902,11 @@ const AdminOfferwallManager = () => {
                               <div>
                                 <div className="flex items-center gap-2">
                                   <p className="font-medium">{offer.name}</p>
+                                  {offer.status && offer.status !== 'active' && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-300 uppercase">
+                                      {offer.status}
+                                    </span>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -860,7 +923,10 @@ const AdminOfferwallManager = () => {
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-xs text-muted-foreground">{offerId}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {offerId}
+                                  {offer.has_refined && <span className="ml-1.5 text-purple-500 font-medium">✨ refined</span>}
+                                </p>
                               </div>
                             </TableCell>
                             <TableCell>

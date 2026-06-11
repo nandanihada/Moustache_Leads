@@ -388,7 +388,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const [device, setDevice] = useState('all');
   const [payoutType, setPayoutType] = useState('all');
   const [sort, setSort] = useState('trending');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [selOffer, setSelOffer] = useState<Offer | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [currency, setCurrency] = useState('LEaDS');
@@ -513,7 +513,8 @@ export const OfferwallProfessional: React.FC<Props> = ({
       setLoading(true); setError(null);
       const isAdmin = apiKey === 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF';
       const fetchLimit = isAdmin ? 10000 : 500;
-      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=${fetchLimit}${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`);
+      const cacheBust = Date.now();
+      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=${fetchLimit}${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}&_t=${cacheBust}`);
       if (!r.ok) throw new Error('Failed'); const d = await r.json(); if (d.error) throw new Error(d.error);
       setCurrency(d.currency_name || 'LEaDS');
       let funnels: any[] = [];
@@ -592,6 +593,16 @@ export const OfferwallProfessional: React.FC<Props> = ({
       if (!aHasPos && bHasPos) return 1;
       // For non-positioned offers, use the selected sort
       switch(sort) { case 'points_high': return (b.reward_amount||0)-(a.reward_amount||0); case 'points_low': return (a.reward_amount||0)-(b.reward_amount||0); case 'newest': return new Date(b.estimated_time||0).getTime()-new Date(a.estimated_time||0).getTime(); case 'rating': return (b.star_rating||5)-(a.star_rating||5); default: return (b.star_rating||5)*(b.reward_amount||1)-(a.star_rating||5)*(a.reward_amount||1); }
+    });
+
+    // ===== DEDUPLICATION =====
+    // Remove duplicate offers (same offer_id appearing multiple times from backend)
+    const seenIds = new Set<string>();
+    f = f.filter(o => {
+      const id = o.id || (o as any).offer_id;
+      if (seenIds.has(id)) return false;
+      seenIds.add(id);
+      return true;
     });
 
     // ===== MULTI-CATEGORY EXPANSION =====
