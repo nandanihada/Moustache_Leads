@@ -46,44 +46,215 @@ interface AddOfferModalProps {
 
 const COUNTRIES = [
   { code: 'WW', name: 'Worldwide' },
+  // North America
   { code: 'US', name: 'United States' },
   { code: 'CA', name: 'Canada' },
-  { code: 'GB', name: 'United Kingdom' },
-  { code: 'AU', name: 'Australia' },
-  { code: 'DE', name: 'Germany' },
-  { code: 'FR', name: 'France' },
-  { code: 'IT', name: 'Italy' },
-  { code: 'ES', name: 'Spain' },
-  { code: 'NL', name: 'Netherlands' },
-  { code: 'SE', name: 'Sweden' },
-  { code: 'NO', name: 'Norway' },
-  { code: 'DK', name: 'Denmark' },
-  { code: 'FI', name: 'Finland' },
-  { code: 'BR', name: 'Brazil' },
   { code: 'MX', name: 'Mexico' },
+  { code: 'GT', name: 'Guatemala' },
+  { code: 'BZ', name: 'Belize' },
+  { code: 'HN', name: 'Honduras' },
+  { code: 'SV', name: 'El Salvador' },
+  { code: 'NI', name: 'Nicaragua' },
+  { code: 'CR', name: 'Costa Rica' },
+  { code: 'PA', name: 'Panama' },
+  { code: 'CU', name: 'Cuba' },
+  { code: 'JM', name: 'Jamaica' },
+  { code: 'HT', name: 'Haiti' },
+  { code: 'DO', name: 'Dominican Republic' },
+  { code: 'PR', name: 'Puerto Rico' },
+  { code: 'TT', name: 'Trinidad and Tobago' },
+  { code: 'BB', name: 'Barbados' },
+  { code: 'LC', name: 'Saint Lucia' },
+  { code: 'VC', name: 'Saint Vincent and the Grenadines' },
+  { code: 'GD', name: 'Grenada' },
+  { code: 'AG', name: 'Antigua and Barbuda' },
+  { code: 'DM', name: 'Dominica' },
+  { code: 'KN', name: 'Saint Kitts and Nevis' },
+  { code: 'BS', name: 'Bahamas' },
+  // South America
+  { code: 'BR', name: 'Brazil' },
   { code: 'AR', name: 'Argentina' },
   { code: 'CL', name: 'Chile' },
   { code: 'CO', name: 'Colombia' },
   { code: 'PE', name: 'Peru' },
+  { code: 'VE', name: 'Venezuela' },
+  { code: 'EC', name: 'Ecuador' },
+  { code: 'BO', name: 'Bolivia' },
+  { code: 'PY', name: 'Paraguay' },
+  { code: 'UY', name: 'Uruguay' },
+  { code: 'GY', name: 'Guyana' },
+  { code: 'SR', name: 'Suriname' },
+  // Western Europe
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'FR', name: 'France' },
+  { code: 'IT', name: 'Italy' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'PT', name: 'Portugal' },
+  { code: 'NL', name: 'Netherlands' },
+  { code: 'BE', name: 'Belgium' },
+  { code: 'LU', name: 'Luxembourg' },
+  { code: 'IE', name: 'Ireland' },
+  { code: 'SE', name: 'Sweden' },
+  { code: 'NO', name: 'Norway' },
+  { code: 'DK', name: 'Denmark' },
+  { code: 'FI', name: 'Finland' },
+  { code: 'IS', name: 'Iceland' },
+  { code: 'CH', name: 'Switzerland' },
+  { code: 'AT', name: 'Austria' },
+  { code: 'LI', name: 'Liechtenstein' },
+  { code: 'MC', name: 'Monaco' },
+  { code: 'AD', name: 'Andorra' },
+  { code: 'MT', name: 'Malta' },
+  { code: 'CY', name: 'Cyprus' },
+  // Oceania
+  { code: 'AU', name: 'Australia' },
+  { code: 'NZ', name: 'New Zealand' },
+  { code: 'FJ', name: 'Fiji' },
+  { code: 'PG', name: 'Papua New Guinea' },
+  { code: 'SB', name: 'Solomon Islands' },
+  { code: 'VU', name: 'Vanuatu' },
+  { code: 'WS', name: 'Samoa' },
+  { code: 'TO', name: 'Tonga' },
+  { code: 'KI', name: 'Kiribati' },
+  { code: 'TV', name: 'Tuvalu' },
+  { code: 'NR', name: 'Nauru' },
+  { code: 'PW', name: 'Palau' },
+  { code: 'MH', name: 'Marshall Islands' },
+  { code: 'FM', name: 'Micronesia' },
+  // Eastern Europe
+  { code: 'PL', name: 'Poland' },
+  { code: 'CZ', name: 'Czech Republic' },
+  { code: 'SK', name: 'Slovakia' },
+  { code: 'HU', name: 'Hungary' },
+  { code: 'RO', name: 'Romania' },
+  { code: 'BG', name: 'Bulgaria' },
+  { code: 'HR', name: 'Croatia' },
+  { code: 'SI', name: 'Slovenia' },
+  { code: 'RS', name: 'Serbia' },
+  { code: 'BA', name: 'Bosnia and Herzegovina' },
+  { code: 'ME', name: 'Montenegro' },
+  { code: 'MK', name: 'North Macedonia' },
+  { code: 'AL', name: 'Albania' },
+  { code: 'GR', name: 'Greece' },
+  { code: 'UA', name: 'Ukraine' },
+  { code: 'BY', name: 'Belarus' },
+  { code: 'MD', name: 'Moldova' },
+  { code: 'RU', name: 'Russia' },
+  { code: 'EE', name: 'Estonia' },
+  { code: 'LV', name: 'Latvia' },
+  { code: 'LT', name: 'Lithuania' },
+  { code: 'XK', name: 'Kosovo' },
+  // Asia – South & Southeast
   { code: 'IN', name: 'India' },
+  { code: 'PK', name: 'Pakistan' },
+  { code: 'BD', name: 'Bangladesh' },
+  { code: 'LK', name: 'Sri Lanka' },
+  { code: 'NP', name: 'Nepal' },
+  { code: 'BT', name: 'Bhutan' },
+  { code: 'MV', name: 'Maldives' },
+  { code: 'AF', name: 'Afghanistan' },
+  { code: 'ID', name: 'Indonesia' },
+  { code: 'MY', name: 'Malaysia' },
+  { code: 'SG', name: 'Singapore' },
+  { code: 'TH', name: 'Thailand' },
+  { code: 'VN', name: 'Vietnam' },
+  { code: 'PH', name: 'Philippines' },
+  { code: 'MM', name: 'Myanmar' },
+  { code: 'KH', name: 'Cambodia' },
+  { code: 'LA', name: 'Laos' },
+  { code: 'TL', name: 'Timor-Leste' },
+  { code: 'BN', name: 'Brunei' },
+  // Asia – East
+  { code: 'CN', name: 'China' },
   { code: 'JP', name: 'Japan' },
   { code: 'KR', name: 'South Korea' },
-  { code: 'CN', name: 'China' },
-  { code: 'SG', name: 'Singapore' },
-  { code: 'MY', name: 'Malaysia' },
-  { code: 'TH', name: 'Thailand' },
-  { code: 'PH', name: 'Philippines' },
-  { code: 'ID', name: 'Indonesia' },
-  { code: 'VN', name: 'Vietnam' },
-  { code: 'ZA', name: 'South Africa' },
-  { code: 'NG', name: 'Nigeria' },
+  { code: 'KP', name: 'North Korea' },
+  { code: 'HK', name: 'Hong Kong' },
+  { code: 'TW', name: 'Taiwan' },
+  { code: 'MN', name: 'Mongolia' },
+  // Asia – Central
+  { code: 'KZ', name: 'Kazakhstan' },
+  { code: 'UZ', name: 'Uzbekistan' },
+  { code: 'TM', name: 'Turkmenistan' },
+  { code: 'KG', name: 'Kyrgyzstan' },
+  { code: 'TJ', name: 'Tajikistan' },
+  // Middle East
+  { code: 'AE', name: 'United Arab Emirates' },
+  { code: 'SA', name: 'Saudi Arabia' },
+  { code: 'QA', name: 'Qatar' },
+  { code: 'KW', name: 'Kuwait' },
+  { code: 'BH', name: 'Bahrain' },
+  { code: 'OM', name: 'Oman' },
+  { code: 'YE', name: 'Yemen' },
+  { code: 'IL', name: 'Israel' },
+  { code: 'JO', name: 'Jordan' },
+  { code: 'LB', name: 'Lebanon' },
+  { code: 'SY', name: 'Syria' },
+  { code: 'IQ', name: 'Iraq' },
+  { code: 'IR', name: 'Iran' },
+  { code: 'TR', name: 'Turkey' },
+  { code: 'AM', name: 'Armenia' },
+  { code: 'AZ', name: 'Azerbaijan' },
+  { code: 'GE', name: 'Georgia' },
+  // Africa – North
   { code: 'EG', name: 'Egypt' },
-  { code: 'MA', name: 'Morocco' },
-  { code: 'KE', name: 'Kenya' },
-  { code: 'GH', name: 'Ghana' },
+  { code: 'LY', name: 'Libya' },
   { code: 'TN', name: 'Tunisia' },
   { code: 'DZ', name: 'Algeria' },
-  { code: 'AO', name: 'Angola' }
+  { code: 'MA', name: 'Morocco' },
+  { code: 'SD', name: 'Sudan' },
+  // Africa – West
+  { code: 'NG', name: 'Nigeria' },
+  { code: 'GH', name: 'Ghana' },
+  { code: 'SN', name: 'Senegal' },
+  { code: 'CI', name: "Côte d'Ivoire" },
+  { code: 'CM', name: 'Cameroon' },
+  { code: 'ML', name: 'Mali' },
+  { code: 'BF', name: 'Burkina Faso' },
+  { code: 'NE', name: 'Niger' },
+  { code: 'GN', name: 'Guinea' },
+  { code: 'BJ', name: 'Benin' },
+  { code: 'TG', name: 'Togo' },
+  { code: 'SL', name: 'Sierra Leone' },
+  { code: 'LR', name: 'Liberia' },
+  { code: 'GW', name: 'Guinea-Bissau' },
+  { code: 'GM', name: 'Gambia' },
+  { code: 'MR', name: 'Mauritania' },
+  { code: 'CV', name: 'Cape Verde' },
+  // Africa – East
+  { code: 'KE', name: 'Kenya' },
+  { code: 'TZ', name: 'Tanzania' },
+  { code: 'UG', name: 'Uganda' },
+  { code: 'ET', name: 'Ethiopia' },
+  { code: 'RW', name: 'Rwanda' },
+  { code: 'BI', name: 'Burundi' },
+  { code: 'SO', name: 'Somalia' },
+  { code: 'DJ', name: 'Djibouti' },
+  { code: 'ER', name: 'Eritrea' },
+  { code: 'SS', name: 'South Sudan' },
+  { code: 'MG', name: 'Madagascar' },
+  { code: 'MU', name: 'Mauritius' },
+  { code: 'SC', name: 'Seychelles' },
+  { code: 'KM', name: 'Comoros' },
+  // Africa – Central
+  { code: 'CD', name: 'DR Congo' },
+  { code: 'CG', name: 'Republic of Congo' },
+  { code: 'GA', name: 'Gabon' },
+  { code: 'GQ', name: 'Equatorial Guinea' },
+  { code: 'CF', name: 'Central African Republic' },
+  { code: 'TD', name: 'Chad' },
+  // Africa – South
+  { code: 'ZA', name: 'South Africa' },
+  { code: 'ZW', name: 'Zimbabwe' },
+  { code: 'ZM', name: 'Zambia' },
+  { code: 'MW', name: 'Malawi' },
+  { code: 'MZ', name: 'Mozambique' },
+  { code: 'AO', name: 'Angola' },
+  { code: 'NA', name: 'Namibia' },
+  { code: 'BW', name: 'Botswana' },
+  { code: 'LS', name: 'Lesotho' },
+  { code: 'SZ', name: 'Eswatini' },
 ];
 
 const LANGUAGES = ['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'ar', 'hi'];
@@ -164,6 +335,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
   const [availableUsers, setAvailableUsers] = useState<Array<{_id: string; username: string; email: string}>>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedAllowedCountries, setSelectedAllowedCountries] = useState<string[]>([]);  // NEW: For geo-restriction
+  const [selectedDevices, setSelectedDevices] = useState<string[]>([]);  // Multi-select device targeting
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [selectedOS, setSelectedOS] = useState<string[]>([]);
@@ -478,6 +650,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         disallowed_traffic_types: trafficSourceRules.disallowed,
         // Other targeting data
         os_targeting: selectedOS,
+        device_targeting: selectedDevices.length === 0 ? 'all' : selectedDevices,
         browser_targeting: selectedBrowsers,
         carrier_targeting: selectedCarriers,
         languages: selectedLanguages,
@@ -574,9 +747,15 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         name: '',
         description: '',
         status: 'pending',
+        vertical: 'OTHER',  // ✅ FIX: Reset category to default so Select shows correctly
         countries: [],
+        allowed_countries: [],
         payout: 0,
+        payout_type: 'fixed',
+        revenue_share_percent: 0,
+        incentive_type: 'Incent',
         network: '',
+        partner_id: '',
         affiliates: 'all',
         selected_users: [],
         image_url: '',
@@ -604,12 +783,15 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
         star_rating: 5,
         urgency_type: '',
         timer_enabled: false,
-        timer_end_date: ''
+        timer_end_date: '',
+        priority: 0,
+        rotation_weight: 1.0
       });
       setSelectedCountries([]);
       setSelectedUsers([]);
       setSelectedLanguages([]);
       setSelectedOS([]);
+      setSelectedDevices([]);
       setSelectedBrowsers([]);
       setSelectedCarriers([]);
       setSelectedAllowedTraffic([]);
@@ -764,7 +946,7 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
                           </PopoverContent>
                         </Popover>
                       </div>
-                      <Select value={formData.vertical || 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
+                      <Select value={formData.vertical ?? 'OTHER'} onValueChange={(value) => handleInputChange('vertical', value)}>
                         <SelectTrigger>
                           <SelectValue placeholder="Select category" />
                         </SelectTrigger>
@@ -997,22 +1179,44 @@ export const AddOfferModal: React.FC<AddOfferModalProps> = ({
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="device_targeting">Device Targeting</Label>
-                      <Select value={formData.device_targeting} onValueChange={(value) => handleInputChange('device_targeting', value)}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Devices</SelectItem>
-                          <SelectItem value="ios">iOS</SelectItem>
-                          <SelectItem value="android">Android</SelectItem>
-                          <SelectItem value="windows">Windows</SelectItem>
-                          <SelectItem value="mac">Mac</SelectItem>
-                          <SelectItem value="linux">Linux</SelectItem>
-                          <SelectItem value="mobile">Mobile Only</SelectItem>
-                          <SelectItem value="desktop">Desktop Only</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <Label>Device Targeting</Label>
+                      <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-gray-50">
+                        {[
+                          { value: 'all', label: 'All Devices' },
+                          { value: 'mobile', label: 'Mobile Only' },
+                          { value: 'desktop', label: 'Desktop Only' },
+                          { value: 'ios', label: 'iOS' },
+                          { value: 'android', label: 'Android' },
+                          { value: 'windows', label: 'Windows' },
+                          { value: 'mac', label: 'Mac' },
+                          { value: 'linux', label: 'Linux' },
+                        ].map(device => (
+                          <Badge
+                            key={device.value}
+                            variant={
+                              (selectedDevices.length === 0 && device.value === 'all') || selectedDevices.includes(device.value)
+                                ? "default"
+                                : "outline"
+                            }
+                            className="cursor-pointer hover:bg-blue-100"
+                            onClick={() => {
+                              if (device.value === 'all') {
+                                setSelectedDevices([]);
+                              } else {
+                                const updated = selectedDevices.includes(device.value)
+                                  ? selectedDevices.filter(d => d !== device.value)
+                                  : [...selectedDevices, device.value];
+                                setSelectedDevices(updated);
+                              }
+                            }}
+                          >
+                            {device.label}
+                          </Badge>
+                        ))}
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {selectedDevices.length === 0 ? 'All devices targeted' : `Selected: ${selectedDevices.join(', ')}`}
+                      </p>
                     </div>
                     <div>
                       <Label htmlFor="connection_type">Connection Type</Label>

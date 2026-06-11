@@ -568,17 +568,46 @@ export const OfferwallProfessional: React.FC<Props> = ({
     }
 
     const catMap: Record<string, string[]> = {
-      'HEALTH':['HEALTH','HEALTHCARE','MEDICAL'],'SURVEY':['SURVEY','SURVEYS'],
-      'SWEEPSTAKES':['SWEEPSTAKES','SWEEPS','GIVEAWAY','PRIZE','LOTTERY','RAFFLE','CONTEST'],
+      'HEALTH':['HEALTH','HEALTHCARE','MEDICAL'],'SURVEY':['SURVEY','SURVEYS','QUESTIONNAIRE'],
+      'SWEEPSTAKES':['SWEEPSTAKES','SWEEPS','GIVEAWAY','PRIZE','LOTTERY','RAFFLE','CONTEST','SWEEPSTAKE','SWEEPSJUNGLE','CROWN','PULSZ','SPINFEVER','WAGER','CASINO','SLOTS','SWEEPTAKE'],
       'EDUCATION':['EDUCATION','LEARNING'],'INSURANCE':['INSURANCE'],'LOAN':['LOAN','LOANS','LENDING'],
       'FINANCE':['FINANCE','FINANCIAL'],'DATING':['DATING','RELATIONSHIPS'],
-      'FREE_TRIAL':['FREE_TRIAL','FREETRIAL','TRIAL'],'INSTALLS':['INSTALLS','INSTALL','APP','APPS'],
+      'FREE_TRIAL':['FREE_TRIAL','FREETRIAL','TRIAL','FREE TRIAL'],
+      'INSTALLS':['INSTALLS','INSTALL','APP','APPS'],
       'GAMES_INSTALL':['GAMES_INSTALL','GAMESINSTALL','GAME','GAMES','GAMING'],
     };
+
+    // Title keyword fallback map — if category doesn't match, check offer title
+    const titleKeywords: Record<string, string[]> = {
+      'SWEEPSTAKES': ['sweepstake', 'sweepstakes', 'casino', 'slots', 'giveaway', 'prize', 'lottery', 'raffle', 'contest', 'ftd', 'wager', 'spin'],
+      'SURVEY': ['survey', 'surveys', 'questionnaire'],
+      'FREE_TRIAL': ['free trial', 'free-trial', 'freetrial'],
+      'INSTALLS': ['install', 'app download', 'download app'],
+      'GAMES_INSTALL': ['game', 'gaming', 'games install', 'play'],
+    };
+
     if (category === 'BOOSTED') {
-      // Special filter: only show boosted offers
       f = f.filter(o => (o as any).is_boosted === true);
-    } else if (category !== 'all') { const m = catMap[category.toUpperCase()] || [category.toUpperCase()]; f = f.filter(o => { const cats = (o as any).categories; if (Array.isArray(cats) && cats.length) return cats.some((c:string) => m.includes(c.toUpperCase())); return m.includes((o.category||'').toUpperCase()); }); }
+    } else if (category !== 'all') {
+      const catKey = category.toUpperCase();
+      const m = catMap[catKey] || [catKey];
+      const titleKws = titleKeywords[catKey] || [];
+      f = f.filter(o => {
+        // Check categories array first
+        const cats = (o as any).categories;
+        if (Array.isArray(cats) && cats.length) {
+          if (cats.some((c: string) => m.includes(c.toUpperCase()))) return true;
+        }
+        // Check category field
+        if (m.includes((o.category || '').toUpperCase())) return true;
+        // Fallback: check offer title for keywords
+        if (titleKws.length > 0) {
+          const titleLower = (o.title || '').toLowerCase();
+          if (titleKws.some(kw => titleLower.includes(kw))) return true;
+        }
+        return false;
+      });
+    }
     if (search) { const t = search.toLowerCase(); f = f.filter(o => o.title.toLowerCase().includes(t) || o.description.toLowerCase().includes(t)); }
     if (device !== 'all') f = f.filter(o => { const ds = (o.device_targeting || o.devices?.join(' ') || '').toLowerCase(); if (device==='android') return ds.includes('android'); if (device==='ios') return ds.includes('ios') || ds.includes('iphone'); if (device==='desktop') return ds.includes('web') || ds.includes('desktop'); return true; });
     if (payoutType !== 'all') f = f.filter(o => ((o as any).payout_type || '').toLowerCase().includes(payoutType));

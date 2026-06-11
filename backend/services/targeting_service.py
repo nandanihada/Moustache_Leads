@@ -78,18 +78,44 @@ class TargetingService:
         return country.upper() in [c.upper() for c in allowed_countries]
     
     def _validate_device(self, offer, ua):
-        """Validate device targeting"""
+        """Validate device targeting - supports string or list of devices"""
         device_targeting = offer.get('device_targeting', 'all')
         
-        if device_targeting == 'all':
+        # Normalize to list for uniform handling
+        if isinstance(device_targeting, list):
+            targets = [d.lower() for d in device_targeting]
+        else:
+            targets = [str(device_targeting).lower()]
+        
+        if 'all' in targets or not targets:
             return True
         
         if not ua:
-            return device_targeting == 'all'
+            return False
         
-        device_type = self._get_device_type(ua)
+        device_type = self._get_device_type(ua)  # 'mobile', 'desktop', 'tablet', 'unknown'
         
-        return device_targeting == device_type
+        # Direct match (e.g. 'mobile', 'desktop')
+        if device_type in targets:
+            return True
+        
+        # OS-level match (e.g. 'ios', 'android' → mobile device)
+        os_to_device = {
+            'ios': 'mobile',
+            'android': 'mobile',
+            'windows': 'desktop',
+            'mac': 'desktop',
+            'linux': 'desktop',
+        }
+        for target in targets:
+            mapped = os_to_device.get(target)
+            if mapped and mapped == device_type:
+                return True
+            # Also check UA OS family directly
+            if ua and target in (ua.os.family or '').lower():
+                return True
+        
+        return False
     
     def _get_device_type(self, ua):
         """Get device type from user agent"""

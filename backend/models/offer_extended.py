@@ -256,6 +256,39 @@ class OfferExtended:
             if not is_valid:
                 return None, f"Smart rules validation error: {error_msg}"
             
+            # ✅ FIX: Process vertical/category exactly like offer.py does
+            # Import category helpers from offer.py
+            sys.path.append(os.path.join(os.path.dirname(__file__), '.'))
+            try:
+                from offer import (
+                    validate_category, map_category_to_new_system,
+                    detect_categories_from_text, VALID_CATEGORIES
+                )
+            except ImportError:
+                validate_category = None
+
+            vertical_input = offer_data.get('vertical') or offer_data.get('category', '')
+
+            if validate_category and (not vertical_input or vertical_input.lower() == 'lifestyle'):
+                offer_name = offer_data.get('name', '')
+                offer_description = offer_data.get('description', '')
+                detected = detect_categories_from_text(offer_name, offer_description)
+                vertical_value = detected[0]
+                categories_list = detected
+            elif validate_category:
+                is_valid_v, vertical_result = validate_category(vertical_input)
+                vertical_value = vertical_result if is_valid_v else map_category_to_new_system(vertical_input)
+                offer_name = offer_data.get('name', '')
+                offer_description = offer_data.get('description', '')
+                detected = detect_categories_from_text(offer_name, offer_description)
+                categories_list = [vertical_value]
+                for cat in detected:
+                    if cat != vertical_value and len(categories_list) < 3:
+                        categories_list.append(cat)
+            else:
+                vertical_value = vertical_input.upper() if vertical_input else 'OTHER'
+                categories_list = [vertical_value]
+
             # Create offer document with extended schema
             offer_doc = {
                 # SECTION 1: OFFER IDENTIFICATION
@@ -263,7 +296,9 @@ class OfferExtended:
                 'campaign_id': offer_data['campaign_id'].strip(),
                 'name': offer_data['name'].strip(),
                 'description': offer_data.get('description', '').strip(),
-                'category': offer_data.get('category', 'General'),
+                'vertical': vertical_value,       # ✅ Correct vertical stored
+                'category': vertical_value,        # backward-compat alias
+                'categories': categories_list,     # up to 3 detected categories
                 'offer_type': offer_data.get('offer_type', 'CPA'),
                 'status': offer_data.get('status', 'pending'),
                 'tags': offer_data.get('tags', []),
@@ -304,7 +339,7 @@ class OfferExtended:
                 
                 # SECTION 4.1: TRAFFIC SOURCE RULES (Auto-generated based on category)
                 **self._generate_traffic_source_fields(
-                    offer_data.get('vertical', 'Lifestyle'),
+                    vertical_value,
                     offer_data.get('allowed_countries', []),
                     offer_data
                 ),

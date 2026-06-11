@@ -20,7 +20,7 @@ export interface Offer {
   // Targeting
   countries: string[];
   languages?: string[];
-  device_targeting: 'all' | 'mobile' | 'desktop';
+  device_targeting: 'all' | 'mobile' | 'desktop' | string | string[];
   os_targeting?: string[];
   browser_targeting?: string[];
   connection_type?: string;
@@ -180,7 +180,7 @@ export interface CreateOfferData {
   // SECTION 2: TARGETING RULES
   countries: string[];
   languages?: string[];  // en, es, fr, etc
-  device_targeting: string;  // all/mobile/desktop
+  device_targeting: string | string[];  // all/mobile/desktop or array of selected devices
   os_targeting?: string[];  // iOS/Android/Windows/Mac
   browser_targeting?: string[];  // Chrome/Safari/Edge
   carrier_targeting?: string[];  // Verizon/AT&T/T-Mobile
