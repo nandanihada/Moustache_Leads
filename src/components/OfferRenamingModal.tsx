@@ -431,6 +431,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
   }, [globalVars]);
 
   // Reset state when modal opens with new offers
+  const offersKey = selectedOffers.map(o => o.offer_id).sort().join(',');
   useEffect(() => {
     if (open) {
       setExtracted(false);
@@ -439,7 +440,7 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
       setEditingComposed(null);
       setAddingToken(null);
     }
-  }, [open, selectedOffers]);
+  }, [open, offersKey]);
 
   // ─── Extraction ──────────────────────────────────────────────────
   const runExtraction = useCallback(() => {
@@ -540,7 +541,8 @@ export function OfferRenamingModal({ open, onOpenChange, selectedOffers, onApply
     if (open && selectedOffers.length > 0 && !extracted) {
       runExtraction();
     }
-  }, [open, selectedOffers, extracted, runExtraction]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, offersKey, extracted]);
 
   // ─── Composed names (live preview) ───────────────────────────────
   // Build a map of global variable overrides

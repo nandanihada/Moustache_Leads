@@ -802,6 +802,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
                       </div>
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900 text-sm truncate group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 6)}</p>
+                        {apiKey === 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF' && (
+                          <p className="text-[9px] font-mono text-gray-400">{offer.id}</p>
+                        )}
                         {offer.refined_description?.event_flow && (
                           <p className="text-[11px] text-purple-600 font-medium truncate mt-0.5">{offer.refined_description.event_flow}</p>
                         )}
@@ -904,6 +907,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
                   {/* Content */}
                   <div className="p-4 flex flex-col flex-grow" onClick={() => handleClick(offer)}>
                     <h3 className="font-bold text-gray-900 text-sm leading-snug mb-1 line-clamp-1 group-hover:text-[#340075] transition-colors">{truncTitle(offer.title, 5)}</h3>
+                    {apiKey === 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF' && (
+                      <p className="text-[9px] font-mono text-gray-400 mb-1">{offer.id}</p>
+                    )}
                     {offer.refined_description?.event_flow && (
                       <p className="text-[11px] text-purple-600 font-medium truncate mb-2">{offer.refined_description.event_flow}</p>
                     )}

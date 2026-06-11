@@ -18,6 +18,61 @@ from datetime import datetime
 admin_offers_bp = Blueprint('admin_offers', __name__)
 offer_model = Offer()
 extended_offer_model = OfferExtended()  # For schedule + smart rules operations
+
+
+# ─── Groq Multi-Key Helper ──────────────────────────────────────────────────
+def _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=2000):
+    """
+    Call Groq API with automatic key rotation on rate limits.
+    Tries each configured key before waiting/retrying on the last one.
+    Returns (completion, None) on success, or (None, error_message) on failure.
+    """
+    from config import Config
+    from groq import Groq
+    import time as _time
+    import re as _re
+
+    all_keys = Config.get_groq_api_keys()
+    if not all_keys:
+        return None, 'No GROQ API keys configured'
+
+    max_retries_per_key = 2
+    last_error = None
+
+    for key_idx, current_key in enumerate(all_keys):
+        client = Groq(api_key=current_key)
+
+        for attempt in range(max_retries_per_key):
+            try:
+                completion = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                return completion, None
+            except Exception as api_err:
+                err_str = str(api_err)
+                last_error = err_str
+                if '429' in err_str or 'rate_limit' in err_str:
+                    # If more keys available, switch immediately
+                    if key_idx < len(all_keys) - 1:
+                        logging.info(f"⏳ Groq key {key_idx+1}/{len(all_keys)} rate limited, switching to next key")
+                        break  # break inner loop to try next key
+                    # Last key — wait and retry
+                    wait_match = _re.search(r'try again in ([\d.]+)s', err_str)
+                    wait_time = float(wait_match.group(1)) + 1.0 if wait_match else (attempt + 1) * 8
+                    logging.info(f"⏳ All Groq keys rate limited, waiting {wait_time:.1f}s (attempt {attempt+1}/{max_retries_per_key})")
+                    _time.sleep(wait_time)
+                else:
+                    return None, err_str
+        else:
+            # Inner loop completed without break (all retries failed on last key)
+            continue
+        # Inner loop was broken (rate limited, move to next key)
+        continue
+
+    return None, f'Groq rate limit exceeded on all {len(all_keys)} API keys. Please wait a minute and try again.'
 admin_offer_model = offer_model  # Use the same model instance
 
 
@@ -2320,11 +2375,6 @@ def generate_offer_description():
     """Generate an offer description using Groq AI."""
     try:
         from config import Config
-        from groq import Groq
-
-        api_key = Config.GROQ_API_KEY
-        if not api_key:
-            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
         data = request.get_json()
         offer_name = data.get('offer_name', '')
@@ -2341,16 +2391,15 @@ def generate_offer_description():
         if mode == 'name_and_desc' and existing_desc:
             user_prompt += f"\nExisting description: {existing_desc}"
 
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": "You are an affiliate network manager. Write a concise 1-2 sentence offer description. Be factual, clear, mention the GEO and conversion action if known. No hype, no emojis."},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=0.3,
-            max_tokens=200,
-        )
+        messages = [
+            {"role": "system", "content": "You are an affiliate network manager. Write a concise 1-2 sentence offer description. Be factual, clear, mention the GEO and conversion action if known. No hype, no emojis."},
+            {"role": "user", "content": user_prompt},
+        ]
+        completion, err = _groq_completion_with_rotation(messages, model="llama-3.3-70b-versatile", temperature=0.3, max_tokens=200)
+        
+        if not completion:
+            status = 429 if 'rate limit' in (err or '').lower() else 500
+            return jsonify({'error': err or 'Failed to generate description'}), status
 
         description = completion.choices[0].message.content.strip()
         return jsonify({'success': True, 'description': description}), 200
@@ -2367,11 +2416,6 @@ def suggest_offer_vertical():
     """Suggest the best vertical/category for an offer using Groq AI."""
     try:
         from config import Config
-        from groq import Groq
-
-        api_key = Config.GROQ_API_KEY
-        if not api_key:
-            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
         data = request.get_json()
         offer_name = data.get('offer_name', '')
@@ -2380,16 +2424,15 @@ def suggest_offer_vertical():
         if not offer_name:
             return jsonify({'error': 'offer_name is required'}), 400
 
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "You categorize affiliate marketing offers. Return ONLY one category from this list: HEALTH, SURVEY, SWEEPSTAKES, EDUCATION, INSURANCE, LOAN, FINANCE, DATING, FREE_TRIAL, INSTALLS, GAMES_INSTALL. No explanation, just the category name."},
-                {"role": "user", "content": f"Offer: {offer_name}\nDescription: {description}"},
-            ],
-            temperature=0.1,
-            max_tokens=20,
-        )
+        messages = [
+            {"role": "system", "content": "You categorize affiliate marketing offers. Return ONLY one category from this list: HEALTH, SURVEY, SWEEPSTAKES, EDUCATION, INSURANCE, LOAN, FINANCE, DATING, FREE_TRIAL, INSTALLS, GAMES_INSTALL. No explanation, just the category name."},
+            {"role": "user", "content": f"Offer: {offer_name}\nDescription: {description}"},
+        ]
+        completion, err = _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=20)
+        
+        if not completion:
+            status = 429 if 'rate limit' in (err or '').lower() else 500
+            return jsonify({'error': err or 'Failed to suggest vertical'}), status
 
         suggested = completion.choices[0].message.content.strip().upper()
         valid = ['HEALTH', 'SURVEY', 'SWEEPSTAKES', 'EDUCATION', 'INSURANCE', 'LOAN', 'FINANCE', 'DATING', 'FREE_TRIAL', 'INSTALLS', 'GAMES_INSTALL']
@@ -2416,9 +2459,6 @@ def ai_extract_parts():
     """Use Groq AI to extract structured parts from offer names — batches all offers in one call."""
     try:
         from config import Config
-        api_key = Config.GROQ_API_KEY
-        if not api_key:
-            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
         data = request.get_json()
         if not data:
@@ -2465,18 +2505,17 @@ Rules:
 Return a JSON array with {len(offers)} objects, one per offer, in the same order."""
 
         import json as json_module
-        from groq import Groq
 
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "You are a precise data extraction assistant. Return only valid JSON arrays. No markdown, no explanation, no code fences."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=2000,
-        )
+        # Use multi-key rotation helper
+        messages = [
+            {"role": "system", "content": "You are a precise data extraction assistant. Return only valid JSON arrays. No markdown, no explanation, no code fences."},
+            {"role": "user", "content": prompt}
+        ]
+        completion, err = _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=2000)
+        
+        if not completion:
+            status = 429 if 'rate limit' in (err or '').lower() else 500
+            return jsonify({'error': err or 'Failed to get response from AI'}), status
 
         raw_response = completion.choices[0].message.content.strip()
         # Strip markdown code fences if present
@@ -5923,12 +5962,7 @@ def run_full_audit():
     """
     try:
         from config import Config
-        from groq import Groq
         import json as json_module
-
-        api_key = Config.GROQ_API_KEY
-        if not api_key:
-            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
         data = request.get_json()
         if not data:
@@ -6024,16 +6058,15 @@ Return ONLY valid JSON in this exact format:
 Offers:
 {offers_block}"""
 
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": "You are a precise data auditor. Return only valid JSON. No markdown, no explanation, no code fences."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=4000,
-        )
+        messages = [
+            {"role": "system", "content": "You are a precise data auditor. Return only valid JSON. No markdown, no explanation, no code fences."},
+            {"role": "user", "content": prompt}
+        ]
+        completion, err = _groq_completion_with_rotation(messages, model="llama-3.3-70b-versatile", temperature=0.1, max_tokens=4000)
+        
+        if not completion:
+            status = 429 if 'rate limit' in (err or '').lower() else 500
+            return jsonify({'error': err or 'Failed to run audit'}), status
 
         raw_response = completion.choices[0].message.content.strip()
         # Strip markdown code fences if present
@@ -6145,12 +6178,7 @@ def bulk_suggest_verticals():
     """Suggest verticals for multiple offers in one AI call."""
     try:
         from config import Config
-        from groq import Groq
         import json as json_module
-
-        api_key = Config.GROQ_API_KEY
-        if not api_key:
-            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
         data = request.get_json()
         offers = data.get('offers', [])
@@ -6171,16 +6199,15 @@ Return ONLY a JSON array like: [{{"offer_id": "...", "vertical": "FINANCE"}}]
 
 {chr(10).join(offer_lines)}"""
 
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "Return only valid JSON arrays. No markdown, no explanation."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=2000,
-        )
+        messages = [
+            {"role": "system", "content": "Return only valid JSON arrays. No markdown, no explanation."},
+            {"role": "user", "content": prompt}
+        ]
+        completion, err = _groq_completion_with_rotation(messages, model="llama-3.1-8b-instant", temperature=0.1, max_tokens=2000)
+        
+        if not completion:
+            status = 429 if 'rate limit' in (err or '').lower() else 500
+            return jsonify({'error': err or 'Failed to suggest verticals'}), status
 
         raw = completion.choices[0].message.content.strip()
         if raw.startswith('```'):
@@ -6220,12 +6247,7 @@ def bulk_generate_descriptions():
     """Generate descriptions for multiple offers in one AI call."""
     try:
         from config import Config
-        from groq import Groq
         import json as json_module
-
-        api_key = Config.GROQ_API_KEY
-        if not api_key:
-            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
         data = request.get_json()
         offers = data.get('offers', [])
@@ -6247,16 +6269,15 @@ Return ONLY a JSON array like: [{{"offer_id": "...", "description": "..."}}]
 
 {chr(10).join(offer_lines)}"""
 
-        client = Groq(api_key=api_key)
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": "You are an affiliate network manager. Return only valid JSON arrays. No markdown, no explanation."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=3000,
-        )
+        messages = [
+            {"role": "system", "content": "You are an affiliate network manager. Return only valid JSON arrays. No markdown, no explanation."},
+            {"role": "user", "content": prompt}
+        ]
+        completion, err = _groq_completion_with_rotation(messages, model="llama-3.3-70b-versatile", temperature=0.3, max_tokens=3000)
+        
+        if not completion:
+            status = 429 if 'rate limit' in (err or '').lower() else 500
+            return jsonify({'error': err or 'Failed to generate descriptions'}), status
 
         raw = completion.choices[0].message.content.strip()
         if raw.startswith('```'):

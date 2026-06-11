@@ -203,6 +203,24 @@ class OfferwallManagerApi {
     if (!res.ok) throw new Error('Failed to save refined description');
     return res.json();
   }
+
+  async removeRefinedDescription(offer_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/remove-refined-description`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id })
+    });
+    if (!res.ok) throw new Error('Failed to remove refined description');
+    return res.json();
+  }
+
+  async getOfferDescription(offer_id: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/get-offer-description?offer_id=${encodeURIComponent(offer_id)}`, {
+      headers: this.getHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to get offer description');
+    return res.json();
+  }
 }
 
 export const offerwallManagerApi = new OfferwallManagerApi();

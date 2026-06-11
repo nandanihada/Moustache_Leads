@@ -27,7 +27,7 @@ import {
   Star, Eye, EyeOff, Sparkles, Plus, Trash2, Save,
   BarChart3, Pin, Layout, Monitor, X, ChevronLeft, ChevronRight,
   Activity, CheckCircle, Clock, AlertCircle, Search, RefreshCw,
-  Flame, TrendingUp, TrendingDown, Hash, Wand2, Globe, Loader2
+  Flame, TrendingUp, TrendingDown, Hash, Wand2, Globe, Loader2, Pencil
 } from "lucide-react";
 
 // ===================== BOOST COUNTDOWN COMPONENT =====================
@@ -240,6 +240,7 @@ const AdminOfferwallManager = () => {
   const [refinedResult, setRefinedResult] = useState<any>(null);
   const [refineUpdateCountries, setRefineUpdateCountries] = useState(true);
   const [refineSaving, setRefineSaving] = useState(false);
+  const [refineEditMode, setRefineEditMode] = useState(false);
 
   // Fetch starter offers
   useEffect(() => {
@@ -554,12 +555,43 @@ const AdminOfferwallManager = () => {
     setRefineLoading(true);
     setRefineDialogOpen(true);
     setRefineUpdateCountries(true);
+    setRefineEditMode(false);
     try {
       const data = await offerwallManagerApi.refineDescription(offerId);
       setRefinedResult(data);
     } catch (e: any) {
-      toast({ title: "Refine Failed", description: e.message || "Failed to refine description", variant: "destructive" });
-      setRefineDialogOpen(false);
+      // Groq failed (rate limit, etc.) — load existing/raw description so admin can manually edit
+      try {
+        const existing = await offerwallManagerApi.getOfferDescription(offerId);
+        if (existing.refined) {
+          // Already has a refined description — show it in edit mode
+          setRefinedResult({ refined: existing.refined, offer_name: existing.offer_name, offer_id: existing.offer_id });
+          setRefineEditMode(true);
+          toast({ title: "AI unavailable", description: "Showing existing refined data. You can edit manually." });
+        } else {
+          // No refined yet — create a skeleton from raw description for manual editing
+          setRefinedResult({
+            refined: {
+              event_flow: '',
+              summary: existing.raw_description || '',
+              steps: [],
+              countries: existing.countries || [],
+              existing_countries: existing.countries || [],
+              payout_levels: [],
+              restrictions: [],
+              difficulty: 'Medium',
+              estimated_time: '5 min',
+            },
+            offer_name: existing.offer_name,
+            offer_id: existing.offer_id,
+          });
+          setRefineEditMode(true);
+          toast({ title: "AI unavailable", description: `${e.message || 'Rate limit reached'}. Raw description loaded — edit manually.` });
+        }
+      } catch {
+        toast({ title: "Error", description: e.message || "Failed to refine description", variant: "destructive" });
+        setRefineDialogOpen(false);
+      }
     } finally {
       setRefineLoading(false);
     }
@@ -573,12 +605,38 @@ const AdminOfferwallManager = () => {
       toast({ title: "Saved!", description: "Refined description saved successfully" });
       setRefineDialogOpen(false);
       setRefinedResult(null);
+      setRefineEditMode(false);
       queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
     } catch {
       toast({ title: "Error", description: "Failed to save", variant: "destructive" });
     } finally {
       setRefineSaving(false);
     }
+  };
+
+  const handleRemoveRefined = async () => {
+    if (!refiningOfferId) return;
+    setRefineSaving(true);
+    try {
+      await offerwallManagerApi.removeRefinedDescription(refiningOfferId);
+      toast({ title: "Removed", description: "Refined description removed from this offer" });
+      setRefineDialogOpen(false);
+      setRefinedResult(null);
+      setRefineEditMode(false);
+      queryClient.invalidateQueries({ queryKey: ['offerwall-management-offers'] });
+    } catch {
+      toast({ title: "Error", description: "Failed to remove", variant: "destructive" });
+    } finally {
+      setRefineSaving(false);
+    }
+  };
+
+  const handleRefineFieldChange = (field: string, value: any) => {
+    if (!refinedResult) return;
+    setRefinedResult((prev: any) => ({
+      ...prev,
+      refined: { ...prev.refined, [field]: value }
+    }));
   };
 
   return (
@@ -1425,7 +1483,7 @@ const AdminOfferwallManager = () => {
       </Dialog>
 
       {/* ===== AI DESCRIPTION REFINE DIALOG ===== */}
-      <Dialog open={refineDialogOpen} onOpenChange={(open) => { if (!open) { setRefineDialogOpen(false); setRefinedResult(null); } }}>
+      <Dialog open={refineDialogOpen} onOpenChange={(open) => { if (!open) { setRefineDialogOpen(false); setRefinedResult(null); setRefineEditMode(false); } }}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1443,35 +1501,111 @@ const AdminOfferwallManager = () => {
 
           {refinedResult?.refined && !refineLoading && (
             <div className="space-y-4">
-              {/* Offer Name */}
-              <div className="bg-muted/50 rounded-lg p-3">
-                <p className="text-xs text-muted-foreground font-medium">Offer</p>
-                <p className="font-semibold">{refinedResult.offer_name}</p>
+              {/* Offer Name + Edit/Remove buttons */}
+              <div className="bg-muted/50 rounded-lg p-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground font-medium">Offer</p>
+                  <p className="font-semibold">{refinedResult.offer_name}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant={refineEditMode ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setRefineEditMode(!refineEditMode)}
+                    className={refineEditMode ? "bg-purple-600 hover:bg-purple-700" : ""}
+                  >
+                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                    {refineEditMode ? "Editing" : "Edit"}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleRemoveRefined}
+                    disabled={refineSaving}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    Remove
+                  </Button>
+                </div>
               </div>
 
               {/* Event Flow - Subtitle Preview */}
-              {refinedResult.refined.event_flow && (
-                <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                  <p className="text-xs text-purple-600 font-medium mb-1">✨ Event Flow (shows as subtitle)</p>
-                  <p className="text-sm font-medium text-purple-900">{refinedResult.refined.event_flow}</p>
-                </div>
-              )}
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                <p className="text-xs text-purple-600 font-medium mb-1">✨ Event Flow (shows as subtitle)</p>
+                {refineEditMode ? (
+                  <Input
+                    value={refinedResult.refined.event_flow || ''}
+                    onChange={(e) => handleRefineFieldChange('event_flow', e.target.value)}
+                    className="text-sm font-medium"
+                    placeholder="e.g. Register → Deposit → Trade"
+                    maxLength={60}
+                  />
+                ) : (
+                  <p className="text-sm font-medium text-purple-900">{refinedResult.refined.event_flow || '—'}</p>
+                )}
+              </div>
 
               {/* Summary */}
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1">Summary</p>
-                <p className="text-sm">{refinedResult.refined.summary}</p>
+                {refineEditMode ? (
+                  <textarea
+                    value={refinedResult.refined.summary || ''}
+                    onChange={(e) => handleRefineFieldChange('summary', e.target.value)}
+                    className="w-full text-sm border rounded-md p-2 resize-none"
+                    rows={3}
+                  />
+                ) : (
+                  <p className="text-sm">{refinedResult.refined.summary}</p>
+                )}
               </div>
 
               {/* Conversion Events */}
-              {refinedResult.refined.steps?.length > 0 && (
+              {(refinedResult.refined.steps?.length > 0 || refineEditMode) && (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1">Conversion Events</p>
-                  <ol className="list-decimal list-inside space-y-1">
-                    {refinedResult.refined.steps.map((step: string, i: number) => (
-                      <li key={i} className="text-sm text-gray-700">{step}</li>
-                    ))}
-                  </ol>
+                  {refineEditMode ? (
+                    <div className="space-y-2">
+                      {(refinedResult.refined.steps || []).map((step: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-5">{i + 1}.</span>
+                          <Input
+                            value={step}
+                            onChange={(e) => {
+                              const newSteps = [...(refinedResult.refined.steps || [])];
+                              newSteps[i] = e.target.value;
+                              handleRefineFieldChange('steps', newSteps);
+                            }}
+                            className="text-sm flex-1"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-700"
+                            onClick={() => {
+                              const newSteps = (refinedResult.refined.steps || []).filter((_: any, idx: number) => idx !== i);
+                              handleRefineFieldChange('steps', newSteps);
+                            }}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRefineFieldChange('steps', [...(refinedResult.refined.steps || []), ''])}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" /> Add Event
+                      </Button>
+                    </div>
+                  ) : (
+                    <ol className="list-decimal list-inside space-y-1">
+                      {refinedResult.refined.steps.map((step: string, i: number) => (
+                        <li key={i} className="text-sm text-gray-700">{step}</li>
+                      ))}
+                    </ol>
+                  )}
                 </div>
               )}
 
@@ -1508,30 +1642,87 @@ const AdminOfferwallManager = () => {
               )}
 
               {/* Restrictions */}
-              {refinedResult.refined.restrictions?.length > 0 && (
+              {(refinedResult.refined.restrictions?.length > 0 || refineEditMode) && (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-1">Restrictions</p>
-                  <div className="flex flex-wrap gap-1">
-                    {refinedResult.refined.restrictions.map((r: string, i: number) => (
-                      <span key={i} className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full border border-red-200">{r}</span>
-                    ))}
-                  </div>
+                  {refineEditMode ? (
+                    <div className="space-y-2">
+                      {(refinedResult.refined.restrictions || []).map((r: string, i: number) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Input
+                            value={r}
+                            onChange={(e) => {
+                              const newR = [...(refinedResult.refined.restrictions || [])];
+                              newR[i] = e.target.value;
+                              handleRefineFieldChange('restrictions', newR);
+                            }}
+                            className="text-sm flex-1"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-red-500 hover:text-red-700"
+                            onClick={() => {
+                              const newR = (refinedResult.refined.restrictions || []).filter((_: any, idx: number) => idx !== i);
+                              handleRefineFieldChange('restrictions', newR);
+                            }}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRefineFieldChange('restrictions', [...(refinedResult.refined.restrictions || []), ''])}
+                      >
+                        <Plus className="h-3.5 w-3.5 mr-1" /> Add Restriction
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {refinedResult.refined.restrictions.map((r: string, i: number) => (
+                        <span key={i} className="px-2 py-0.5 bg-red-50 text-red-700 text-xs rounded-full border border-red-200">{r}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Difficulty + Time */}
               <div className="flex items-center gap-4">
                 <div>
-                  <p className="text-xs text-muted-foreground">Difficulty</p>
-                  <span className={`text-sm font-medium px-2 py-0.5 rounded-full ${
-                    refinedResult.refined.difficulty === 'Easy' ? 'bg-green-100 text-green-700' :
-                    refinedResult.refined.difficulty === 'Hard' ? 'bg-red-100 text-red-700' :
-                    'bg-yellow-100 text-yellow-700'
-                  }`}>{refinedResult.refined.difficulty}</span>
+                  <p className="text-xs text-muted-foreground mb-1">Difficulty</p>
+                  {refineEditMode ? (
+                    <select
+                      value={refinedResult.refined.difficulty || 'Medium'}
+                      onChange={(e) => handleRefineFieldChange('difficulty', e.target.value)}
+                      className="text-sm border rounded-md px-2 py-1"
+                    >
+                      <option value="Easy">Easy</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Hard">Hard</option>
+                    </select>
+                  ) : (
+                    <span className={`text-sm font-medium px-2 py-0.5 rounded-full ${
+                      refinedResult.refined.difficulty === 'Easy' ? 'bg-green-100 text-green-700' :
+                      refinedResult.refined.difficulty === 'Hard' ? 'bg-red-100 text-red-700' :
+                      'bg-yellow-100 text-yellow-700'
+                    }`}>{refinedResult.refined.difficulty}</span>
+                  )}
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">Est. Time</p>
-                  <span className="text-sm font-medium">{refinedResult.refined.estimated_time}</span>
+                  <p className="text-xs text-muted-foreground mb-1">Est. Time</p>
+                  {refineEditMode ? (
+                    <Input
+                      value={refinedResult.refined.estimated_time || ''}
+                      onChange={(e) => handleRefineFieldChange('estimated_time', e.target.value)}
+                      className="text-sm w-24"
+                      placeholder="5 min"
+                    />
+                  ) : (
+                    <span className="text-sm font-medium">{refinedResult.refined.estimated_time}</span>
+                  )}
                 </div>
               </div>
 
@@ -1564,7 +1755,7 @@ const AdminOfferwallManager = () => {
 
               {/* Actions */}
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <Button variant="outline" onClick={() => { setRefineDialogOpen(false); setRefinedResult(null); }}>
+                <Button variant="outline" onClick={() => { setRefineDialogOpen(false); setRefinedResult(null); setRefineEditMode(false); }}>
                   Cancel
                 </Button>
                 <Button onClick={handleSaveRefined} disabled={refineSaving} className="bg-purple-600 hover:bg-purple-700">

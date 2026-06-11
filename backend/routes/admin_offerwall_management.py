@@ -1197,3 +1197,77 @@ def save_refined_description():
     except Exception as e:
         logger.error(f"Error saving refined description: {e}", exc_info=True)
         return jsonify({'error': 'Failed to save refined description'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/remove-refined-description', methods=['POST'])
+@token_required
+def remove_refined_description():
+    """Remove the refined description from an offer."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_id = data.get('offer_id')
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        result = offers_col.update_one(
+            {'offer_id': offer_id},
+            {'$unset': {'refined_description': '', 'refined_at': ''}}
+        )
+
+        if result.modified_count == 0:
+            return jsonify({'error': 'Offer not found or has no refined description'}), 404
+
+        return jsonify({'success': True, 'message': 'Refined description removed'}), 200
+
+    except Exception as e:
+        logger.error(f"Error removing refined description: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to remove refined description'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/get-offer-description', methods=['GET'])
+@token_required
+def get_offer_description():
+    """Get the raw and refined description for an offer (for manual editing)."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        offer_id = request.args.get('offer_id')
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        offer = offers_col.find_one(
+            {'offer_id': offer_id},
+            {'offer_id': 1, 'name': 1, 'description': 1, 'refined_description': 1, 'countries': 1, 'allowed_countries': 1, 'payout': 1, 'payout_type': 1}
+        )
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        return jsonify({
+            'success': True,
+            'offer_id': offer.get('offer_id', ''),
+            'offer_name': offer.get('name', ''),
+            'raw_description': offer.get('description', ''),
+            'refined': offer.get('refined_description'),
+            'countries': offer.get('countries', []) or offer.get('allowed_countries', []) or [],
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error getting offer description: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to get offer description'}), 500
