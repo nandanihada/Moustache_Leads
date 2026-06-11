@@ -1966,7 +1966,21 @@ def get_offers():
         limit = min(int(request.args.get('limit', 100)), 500)  # Max 500, default 100
         skip = (page - 1) * limit
         api_key = request.args.get('api_key', '')  # Admin mode: bypass all filters
-        is_admin_mode = bool(api_key)
+        # Admin mode: only activate if api_key matches the ADMIN offerwall key (stored in offerwall_settings)
+        # Regular placements also have api_keys but those should NOT trigger admin mode
+        is_admin_mode = False
+        if api_key:
+            try:
+                settings_col = db_instance.get_collection('offerwall_settings')
+                if settings_col:
+                    settings_doc = settings_col.find_one({}, {'admin_api_key': 1})
+                    stored_admin_key = (settings_doc or {}).get('admin_api_key', '')
+                    # Fallback: check against the known admin placement key
+                    if not stored_admin_key:
+                        stored_admin_key = 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF'
+                    is_admin_mode = (api_key == stored_admin_key)
+            except Exception:
+                is_admin_mode = (api_key == 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF')
         
         if is_admin_mode:
             limit = 0  # No limit in admin mode — fetch all matching offers

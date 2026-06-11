@@ -460,7 +460,7 @@ export const OfferwallProfessional: React.FC<Props> = ({
     } catch { /* keep empty = show all */ }
   };
 
-  useEffect(() => { trackImpression(); loadOffers(); loadSettings(); loadSubWalls(); if (apiKey) { setIsQualified(true); } else { checkQual(); } }, [placementId, userId]);
+  useEffect(() => { trackImpression(); loadOffers(); loadSettings(); loadSubWalls(); if (apiKey === 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF') { setIsQualified(true); } else { checkQual(); } }, [placementId, userId]);
   
   // Reload offers when country is detected (after initial load)
   useEffect(() => {
@@ -511,7 +511,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const loadOffers = async () => {
     try {
       setLoading(true); setError(null);
-      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=10000${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`);
+      const isAdmin = apiKey === 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF';
+      const fetchLimit = isAdmin ? 10000 : 500;
+      const r = await fetch(`${baseUrl}/api/offerwall/offers?placement_id=${placementId}&user_id=${userId}&limit=${fetchLimit}${userCountry ? `&country=${encodeURIComponent(userCountry)}` : ''}${apiKey ? `&api_key=${encodeURIComponent(apiKey)}` : ''}`);
       if (!r.ok) throw new Error('Failed'); const d = await r.json(); if (d.error) throw new Error(d.error);
       setCurrency(d.currency_name || 'LEaDS');
       let funnels: any[] = [];
@@ -547,8 +549,9 @@ export const OfferwallProfessional: React.FC<Props> = ({
   const applyFilters = () => {
     let f = [...allOffers];
     
-    // ADMIN MODE: if api_key present, skip qualification and country filtering
-    const isAdminMode = !!apiKey;
+    // ADMIN MODE: only the specific admin API key bypasses filters (not publisher placement keys)
+    const ADMIN_API_KEY = 'iK66hQRakcvRVj08CX7qfqNzE1Zqt0uF';
+    const isAdminMode = apiKey === ADMIN_API_KEY;
     
     if (!isAdminMode) {
       if (isQualified === null) { setFilteredOffers([]); return; }
