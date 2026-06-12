@@ -232,6 +232,8 @@ const AdminOfferwallManager = () => {
   const [announcementText, setAnnouncementText] = useState("");
   const [showAnnouncementDialog, setShowAnnouncementDialog] = useState(false);
   const [selectedOffers, setSelectedOffers] = useState<Set<string>>(new Set());
+  const [selectingAllResults, setSelectingAllResults] = useState(false);
+  const [preloadedOffers, setPreloadedOffers] = useState<Map<string, any>>(new Map());
   const [offerwallPage, setOfferwallPage] = useState(1);
   const [starterOfferIds, setStarterOfferIds] = useState<string[]>([]);
   const [qualSurveySettings, setQualSurveySettings] = useState<{points: number; display_title: string; display_description: string; display_image_url: string; template: string} | null>(null);
@@ -450,6 +452,31 @@ const AdminOfferwallManager = () => {
       setSelectedOffers(new Set(allIds));
     } else {
       setSelectedOffers(new Set());
+    }
+  };
+
+  // Fetch ALL matching offer IDs across all pages and select them all
+  const handleSelectAllResults = async () => {
+    setSelectingAllResults(true);
+    try {
+      const result = await offerwallManagerApi.getOfferwallOfferIds({
+        search,
+        refined: refinedFilter || undefined,
+        ...backendFilters,
+      });
+      const allIds = new Set<string>(result.offer_ids);
+      // Pre-populate offer data map so BulkEdit has full objects for all selected offers
+      const offerMap = new Map<string, any>();
+      for (const offer of result.offers) {
+        offerMap.set(offer.offer_id, offer);
+      }
+      setPreloadedOffers(offerMap);
+      setSelectedOffers(allIds);
+      toast({ title: `${allIds.size} offers selected`, description: 'All results across all pages selected. Open Bulk Edit to refine them.' });
+    } catch {
+      toast({ title: 'Error', description: 'Could not select all results', variant: 'destructive' });
+    } finally {
+      setSelectingAllResults(false);
     }
   };
 
@@ -845,13 +872,16 @@ const AdminOfferwallManager = () => {
                   pagination={pagination}
                   onSelectOffer={handleSelectOffer}
                   onSelectAll={handleSelectAll}
+                  onSelectAllResults={handleSelectAllResults}
+                  selectingAllResults={selectingAllResults}
+                  preloadedOffers={preloadedOffers}
                   onTogglePin={handleTogglePin}
                   onToggleVisibility={handleToggleVisibility}
                   onToggleFeatured={handleToggleFeatured}
                   onToggleStarter={handleToggleStarter}
                   onSetPosition={handleSetPosition}
                   setPositionInputs={setPositionInputs}
-                  onPageChange={(page) => { setOfferwallPage(page); setSelectedOffers(new Set()); }}
+                  onPageChange={(page) => { setOfferwallPage(page); }}
                   onFiltersChange={(filters) => { setBackendFilters(filters); setOfferwallPage(1); }}
                 />
               )}

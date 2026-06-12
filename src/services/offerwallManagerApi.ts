@@ -113,6 +113,31 @@ class OfferwallManagerApi {
     return res.json();
   }
 
+  async getOfferwallOfferIds(params?: {search?: string; refined?: string; vertical?: string; network?: string; country?: string; min_payout?: string; max_payout?: string; status?: string; has_event?: string}): Promise<{offer_ids: string[]; offers: any[]; total: number}> {
+    const query = new URLSearchParams();
+    // Fetch all pages — use a high per_page to get all IDs in one shot
+    query.set('per_page', '1000');
+    query.set('page', '1');
+    if (params?.search) query.set('search', params.search);
+    if (params?.refined) query.set('refined', params.refined);
+    if (params?.vertical && params.vertical !== 'all') query.set('vertical', params.vertical);
+    if (params?.network && params.network !== 'all') query.set('network', params.network);
+    if (params?.country) query.set('country', params.country);
+    if (params?.min_payout) query.set('min_payout', params.min_payout);
+    if (params?.max_payout) query.set('max_payout', params.max_payout);
+    if (params?.status && params.status !== 'all') query.set('status', params.status);
+    if (params?.has_event) query.set('has_event', params.has_event);
+    const res = await fetch(`${API_BASE_URL}/offerwall-offers?${query.toString()}`, { headers: this.getHeaders() });
+    if (!res.ok) throw new Error('Failed to fetch offer IDs');
+    const data = await res.json();
+    const offers = data.offers || [];
+    return {
+      offer_ids: offers.map((o: any) => o.offer_id),
+      offers,
+      total: data.pagination?.total || offers.length
+    };
+  }
+
   async getOfferwallOffers(params?: {search?: string; page?: number; per_page?: number; refined?: string; vertical?: string; network?: string; country?: string; min_payout?: string; max_payout?: string; status?: string}): Promise<any> {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);

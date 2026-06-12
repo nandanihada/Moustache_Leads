@@ -72,6 +72,9 @@ interface OfferwallOfferEditorProps {
   pagination: { page: number; per_page: number; total: number; pages: number };
   onSelectOffer: (id: string, checked: boolean) => void;
   onSelectAll: (checked: boolean) => void;
+  onSelectAllResults?: () => Promise<void>;
+  selectingAllResults?: boolean;
+  preloadedOffers?: Map<string, OfferItem>;
   onTogglePin: (id: string) => void;
   onToggleVisibility: (id: string) => void;
   onToggleFeatured: (id: string) => void;
@@ -787,6 +790,207 @@ function FilterBar({
   );
 }
 
+// ===================== OFFER BASKET (Pick-list panel) =====================
+/**
+ * OfferBasket — a floating side panel with its own search.
+ * Admin searches → picks offers one by one → basket accumulates them.
+ * Then clicks "Bulk Edit N Offers" to open BulkEditDialog with only those picked offers.
+ */
+function OfferBasket() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<OfferItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [basket, setBasket] = useState<Map<string, OfferItem>>(new Map());
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  // Debounced search
+  useEffect(() => {
+    if (!query.trim()) { setResults([]); return; }
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const data = await offerwallManagerApi.getOfferwallOfferIds({ search: query.trim() });
+        setResults(data.offers.slice(0, 20));
+      } catch { setResults([]); }
+      finally { setLoading(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const toggleBasket = (offer: OfferItem) => {
+    setBasket(prev => {
+      const next = new Map(prev);
+      if (next.has(offer.offer_id)) next.delete(offer.offer_id);
+      else next.set(offer.offer_id, offer);
+      return next;
+    });
+  };
+
+  const removeFromBasket = (id: string) => {
+    setBasket(prev => { const next = new Map(prev); next.delete(id); return next; });
+  };
+
+  const basketOffers = Array.from(basket.values());
+
+  return (
+    <>
+      {/* Trigger button */}
+      <Button
+        size="sm"
+        variant="outline"
+        className="gap-1.5 h-8 border-purple-300 text-purple-700 hover:bg-purple-50"
+        onClick={() => setOpen(true)}
+      >
+        <Layers className="h-3.5 w-3.5" />
+        Offer Basket{basket.size > 0 ? ` (${basket.size})` : ''}
+      </Button>
+
+      {/* Panel */}
+      {open && (
+        <div className="fixed top-0 right-0 h-full w-[360px] bg-white border-l shadow-2xl z-50 flex flex-col">
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-purple-50">
+            <div className="flex items-center gap-2">
+              <Layers className="h-4 w-4 text-purple-600" />
+              <span className="font-semibold text-sm text-purple-800">Offer Basket</span>
+              {basket.size > 0 && (
+                <span className="bg-purple-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {basket.size}
+                </span>
+              )}
+            </div>
+            <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="px-4 py-3 border-b">
+            <div className="relative">
+              <Input
+                placeholder="Search offers to add..."
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                className="h-8 text-sm pr-8"
+                autoFocus
+              />
+              {loading && <Loader2 className="absolute right-2 top-1.5 h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+          </div>
+
+          {/* Search results */}
+          {results.length > 0 && (
+            <div className="border-b max-h-[240px] overflow-y-auto">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-4 py-1.5 bg-gray-50">
+                Search Results ({results.length})
+              </p>
+              {results.map(offer => {
+                const inBasket = basket.has(offer.offer_id);
+                return (
+                  <div
+                    key={offer.offer_id}
+                    onClick={() => toggleBasket(offer)}
+                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b last:border-0 transition-colors ${
+                      inBasket ? 'bg-purple-50 hover:bg-purple-100' : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <Checkbox checked={inBasket} onCheckedChange={() => toggleBasket(offer)} />
+                    <img
+                      src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })}
+                      alt=""
+                      className="w-7 h-7 rounded border object-contain bg-gray-50 flex-shrink-0"
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium truncate">{offer.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{offer.network} · ${offer.payout}</p>
+                    </div>
+                    {inBasket && <CheckCircle className="h-3.5 w-3.5 text-purple-500 flex-shrink-0" />}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {query.trim() && !loading && results.length === 0 && (
+            <div className="px-4 py-3 text-xs text-muted-foreground text-center border-b">No offers found</div>
+          )}
+
+          {/* Basket contents */}
+          <div className="flex-1 overflow-y-auto">
+            {basketOffers.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground px-6 text-center">
+                <Layers className="h-8 w-8 text-gray-200" />
+                <p className="text-xs">Search and select offers above to add them to the basket</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Selected ({basketOffers.length})
+                  </p>
+                  <button
+                    onClick={() => setBasket(new Map())}
+                    className="text-[10px] text-red-500 hover:text-red-700"
+                  >
+                    Clear all
+                  </button>
+                </div>
+                {basketOffers.map(offer => (
+                  <div key={offer.offer_id} className="flex items-center gap-3 px-4 py-2.5 border-b last:border-0 hover:bg-gray-50">
+                    <img
+                      src={getOfferImage({ image_url: offer.image_url, vertical: offer.category })}
+                      alt=""
+                      className="w-7 h-7 rounded border object-contain bg-gray-50 flex-shrink-0"
+                      onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-medium truncate">{offer.name}</p>
+                      <p className="text-[10px] text-muted-foreground">{offer.network} · ${offer.payout}</p>
+                    </div>
+                    <button
+                      onClick={() => removeFromBasket(offer.offer_id)}
+                      className="text-gray-400 hover:text-red-500 flex-shrink-0"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+
+          {/* Footer action */}
+          {basketOffers.length > 0 && (
+            <div className="px-4 py-3 border-t bg-white">
+              <Button
+                className="w-full bg-purple-600 hover:bg-purple-700 gap-2"
+                onClick={() => { setBulkOpen(true); }}
+              >
+                <Edit3 className="h-4 w-4" />
+                Bulk Edit {basketOffers.length} Offer{basketOffers.length !== 1 ? 's' : ''}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Backdrop */}
+      {open && (
+        <div className="fixed inset-0 bg-black/20 z-40" onClick={() => setOpen(false)} />
+      )}
+
+      {/* Bulk Edit Dialog using basket offers */}
+      <BulkEditDialog
+        offers={basketOffers}
+        open={bulkOpen}
+        onClose={() => setBulkOpen(false)}
+      />
+    </>
+  );
+}
+
 // ===================== BULK EDIT DIALOG =====================
 function BulkEditDialog({
   offers,
@@ -858,6 +1062,9 @@ export function OfferwallOfferEditor({
   pagination,
   onSelectOffer,
   onSelectAll,
+  onSelectAllResults,
+  selectingAllResults,
+  preloadedOffers,
   onTogglePin,
   onToggleVisibility,
   onToggleFeatured,
@@ -903,6 +1110,20 @@ export function OfferwallOfferEditor({
     });
   }, [offers, selectedOffers]);
 
+  // When preloadedOffers arrives (from Select All Results), seed the cache with all offer data
+  useEffect(() => {
+    if (!preloadedOffers || preloadedOffers.size === 0) return;
+    setSelectedOffersCache(prev => {
+      const next = new Map(prev);
+      for (const [id, offer] of Array.from(preloadedOffers)) {
+        if (selectedOffers.has(id)) {
+          next.set(id, offer);
+        }
+      }
+      return next;
+    });
+  }, [preloadedOffers, selectedOffers]);
+
   // Derive unique networks and verticals from the current offers list
   const networks = useMemo(() => [...new Set(offers.map(o => o.network).filter(Boolean))].sort(), [offers]);
   const verticals = useMemo(() => [...new Set(offers.map(o => o.category).filter(Boolean))].sort(), [offers]);
@@ -938,8 +1159,10 @@ export function OfferwallOfferEditor({
 
   return (
     <div className="space-y-4">
-      {/* Filter Bar */}
-      <FilterBar filters={filters} onChange={(f) => {
+      {/* Filter Bar + Basket button in same row */}
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <FilterBar filters={filters} onChange={(f) => {
         setFilters(f);
         // Also trigger server-side refetch with backend-compatible filters
         if (onFiltersChange) {
@@ -956,11 +1179,32 @@ export function OfferwallOfferEditor({
           onFiltersChange(backend);
         }
       }} networks={networks} verticals={verticals} />
+        </div>
+        {/* Offer Basket — floating side panel for picking offers independently */}
+        <div className="flex-shrink-0 pt-0.5">
+          <OfferBasket />
+        </div>
+      </div>
 
       {/* Bulk Action Bar */}
       {selectedOffers.size > 0 && (
         <div className="flex items-center gap-3 p-3 bg-purple-50 rounded-lg border border-purple-200 flex-wrap">
           <span className="text-sm font-semibold text-purple-800">{selectedOffers.size} selected</span>
+          {/* Select All Results button — appears when current page doesn't cover all results */}
+          {onSelectAllResults && selectedOffers.size < pagination.total && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-purple-300 text-purple-700 hover:bg-purple-100"
+              onClick={onSelectAllResults}
+              disabled={selectingAllResults}
+            >
+              {selectingAllResults
+                ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Selecting…</>
+                : <>✦ Select All {pagination.total} Results</>
+              }
+            </Button>
+          )}
           <Button
             size="sm"
             className="bg-purple-600 hover:bg-purple-700 gap-1.5 h-8"
