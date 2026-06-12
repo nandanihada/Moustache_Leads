@@ -56,7 +56,7 @@ def get_trending_offers(hours=7, limit=7):
     
     # Also get payout for each offer
     offers_col = db_instance.get_collection('offers')
-    if offers_col:
+    if offers_col is not None:
         for r in results:
             offer = offers_col.find_one({'offer_id': r['_id']}, {'payout': 1, '_id': 0})
             r['payout'] = float(offer.get('payout', 0) or 0) if offer else 0

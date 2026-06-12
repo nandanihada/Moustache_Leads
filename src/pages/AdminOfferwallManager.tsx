@@ -60,7 +60,7 @@ const TrackingTab: React.FC = () => {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [logs, setLogs] = useState<any[]>([]);
-  const [summary, setSummary] = useState({ total: 0, clicked: 0, pending: 0, completed: 0 });
+  const [summary, setSummary] = useState({ total: 0, picked: 0, clicked: 0, pending: 0, completed: 0 });
   const [pagination, setPagination] = useState({ page: 1, total: 0, pages: 1 });
   const [loading, setLoading] = useState(false);
   const [debugInfo, setDebugInfo] = useState<any>(null);
@@ -70,7 +70,7 @@ const TrackingTab: React.FC = () => {
     try {
       const data = await offerwallManagerApi.getTrackingLogs({ status: statusFilter, page: newPage, per_page: 50, search });
       setLogs(data.logs || []);
-      setSummary(data.summary || { total: 0, clicked: 0, pending: 0, completed: 0 });
+      setSummary(data.summary || { total: 0, picked: 0, clicked: 0, pending: 0, completed: 0 });
       setPagination(data.pagination || { page: 1, total: 0, pages: 1 });
       setDebugInfo(data.debug || null);
     } catch (e) {
@@ -94,6 +94,7 @@ const TrackingTab: React.FC = () => {
     switch (status?.toLowerCase()) {
       case 'completed': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700 border border-green-200"><CheckCircle className="h-3 w-3" />Completed</span>;
       case 'pending': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200"><Clock className="h-3 w-3" />Pending</span>;
+      case 'picked': return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700 border border-purple-200"><Activity className="h-3 w-3" />Picked</span>;
       default: return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700 border border-blue-200"><Activity className="h-3 w-3" />Clicked</span>;
     }
   };
@@ -109,9 +110,10 @@ const TrackingTab: React.FC = () => {
         </CardHeader>
         <CardContent>
           {/* Summary Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
             {[
               { label: 'Total', value: summary.total, color: 'text-gray-700 bg-gray-100', icon: <Activity className="h-4 w-4" /> },
+              { label: 'Picked', value: summary.picked, color: 'text-purple-700 bg-purple-100', icon: <Activity className="h-4 w-4" /> },
               { label: 'Clicked', value: summary.clicked, color: 'text-blue-700 bg-blue-100', icon: <Activity className="h-4 w-4" /> },
               { label: 'Pending', value: summary.pending, color: 'text-amber-700 bg-amber-100', icon: <Clock className="h-4 w-4" /> },
               { label: 'Completed', value: summary.completed, color: 'text-green-700 bg-green-100', icon: <CheckCircle className="h-4 w-4" /> },
@@ -128,8 +130,8 @@ const TrackingTab: React.FC = () => {
 
           {/* Filters Row */}
           <div className="flex flex-wrap items-center gap-3 mb-4">
-            <div className="flex gap-1">
-              {['all', 'clicked', 'pending', 'completed'].map(s => (
+            <div className="flex gap-1 flex-wrap">
+              {['all', 'picked', 'clicked', 'pending', 'completed'].map(s => (
                 <Button key={s} size="sm" variant={statusFilter === s ? 'default' : 'outline'}
                   className={statusFilter === s ? 'bg-purple-600 text-white' : ''}
                   onClick={() => setStatusFilter(s)}>

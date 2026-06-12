@@ -723,7 +723,7 @@ def get_tracking_logs():
         if current_user.get('role') not in ('admin', 'subadmin'):
             return jsonify({'error': 'Admin access required'}), 403
 
-        status_filter = request.args.get('status', 'all')  # all | clicked | pending | completed
+        status_filter = request.args.get('status', 'all')  # all | picked | clicked | pending | completed
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 50))
         search = request.args.get('search', '').strip()
@@ -731,6 +731,7 @@ def get_tracking_logs():
         clicks_col = db_instance.get_collection('offerwall_clicks')
         clicks_detailed_col = db_instance.get_collection('offerwall_clicks_detailed')
         conversions_col = db_instance.get_collection('offerwall_conversions')
+        picks_col = db_instance.get_collection('offer_picks')
         placements_col = db_instance.get_collection('placements')
 
         logs = []
@@ -738,16 +739,35 @@ def get_tracking_logs():
         # Build placement lookup cache for iframe/publisher info
         placement_cache = {}
         try:
-            if placements_col:
+            if placements_col is not None:
+                # Also build a publisher_id → name map from users collection
+                users_col = db_instance.get_collection('users')
+                pub_name_cache = {}
+                if users_col is not None:
+                    try:
+                        from bson import ObjectId
+                        for u in users_col.find({'role': {'$in': ['publisher', 'partner']}}, {'_id': 1, 'username': 1, 'name': 1, 'company_name': 1}):
+                            uid = str(u.get('_id', ''))
+                            pub_name_cache[uid] = u.get('name') or u.get('company_name') or u.get('username') or ''
+                    except Exception:
+                        pass
+
                 for p in placements_col.find({}, {'placementIdentifier': 1, 'publisherId': 1, 'offerwallTitle': 1, 'publisher_name': 1}):
                     pid = p.get('placementIdentifier', '')
-                    if pid:
-                        placement_cache[pid] = {
-                            'placement_id': pid,
-                            'publisher_id': str(p.get('publisherId', p.get('publisher_id', ''))),
-                            'publisher_name': p.get('publisher_name', p.get('offerwallTitle', 'Unknown')),
-                            'iframe_title': p.get('offerwallTitle', pid)
-                        }
+                    if not pid:
+                        continue
+                    pub_id = str(p.get('publisherId', p.get('publisher_id', '')))
+                    # Use stored publisher_name, fallback to user lookup, fallback to offerwallTitle
+                    pub_name = (p.get('publisher_name') or
+                                pub_name_cache.get(pub_id, '') or
+                                p.get('offerwallTitle', '') or
+                                'Unknown')
+                    placement_cache[pid] = {
+                        'placement_id': pid,
+                        'publisher_id': pub_id,
+                        'publisher_name': pub_name,
+                        'iframe_title': p.get('offerwallTitle', pid)
+                    }
         except Exception as pe:
             logger.warning(f"Could not load placement cache: {pe}")
 
@@ -798,7 +818,7 @@ def get_tracking_logs():
                 raw_clicks = []
 
                 # Try detailed collection first (newer data — June 9+)
-                if clicks_detailed_col:
+                if clicks_detailed_col is not None:
                     det_query = dict(click_query)
                     if search:
                         det_query['$or'] = [
@@ -815,7 +835,7 @@ def get_tracking_logs():
                             raw_clicks.append(doc)
 
                 # Also pull from legacy collection (older data — before June 9)
-                if clicks_col:
+                if clicks_col is not None:
                     legacy_query = dict(click_query)
                     for c in clicks_col.find(legacy_query).sort('timestamp', -1).limit(500):
                         doc = process_click_doc(c, 'clicks')
@@ -875,6 +895,38 @@ def get_tracking_logs():
             except Exception as cve:
                 logger.warning(f"Error fetching conversions: {cve}")
 
+        # 3. Pull picks (status: picked — user viewed/opened offer card)
+        if status_filter in ('all', 'picked'):
+            try:
+                pick_query = {}
+                if search:
+                    pick_query['$or'] = [
+                        {'offer_name': {'$regex': search, '$options': 'i'}},
+                        {'user_id': {'$regex': search, '$options': 'i'}},
+                        {'placement_id': {'$regex': search, '$options': 'i'}}
+                    ]
+                if picks_col is not None:
+                    for p in picks_col.find(pick_query).sort('picked_at', -1).limit(500):
+                        pid = p.get('placement_id', '')
+                        pinfo = placement_cache.get(pid, {})
+                        ts = p.get('picked_at') or p.get('created_at')
+                        logs.append({
+                            'id': str(p.get('_id', '')),
+                            'offer_name': p.get('offer_name', 'Unknown Offer'),
+                            'offer_id': p.get('offer_id', ''),
+                            'user_id': p.get('user_id', ''),
+                            'placement_id': pid,
+                            'publisher_id': pinfo.get('publisher_id', ''),
+                            'publisher_name': pinfo.get('publisher_name', ''),
+                            'iframe_title': pinfo.get('iframe_title', pid),
+                            'status': 'picked',
+                            'reward': 0,
+                            'timestamp': ts.isoformat() if isinstance(ts, datetime) else str(ts or ''),
+                            'user_agent': '',
+                        })
+            except Exception as pe:
+                logger.warning(f"Error fetching picks: {pe}")
+
         # Sort all by timestamp desc, then paginate
         logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
         total = len(logs)
@@ -885,12 +937,13 @@ def get_tracking_logs():
         all_statuses = [l['status'] for l in logs]
         summary = {
             'total': total,
+            'picked': sum(1 for s in all_statuses if s == 'picked'),
             'clicked': sum(1 for s in all_statuses if s == 'clicked'),
             'pending': sum(1 for s in all_statuses if s == 'pending'),
             'completed': sum(1 for s in all_statuses if s == 'completed'),
         }
 
-        # Diagnostic counts to help debug empty tracking
+        # Diagnostic counts
         debug_info = {}
         try:
             if clicks_detailed_col is not None:
@@ -899,6 +952,8 @@ def get_tracking_logs():
                 debug_info['clicks_legacy_total'] = clicks_col.count_documents({})
             if conversions_col is not None:
                 debug_info['conversions_total'] = conversions_col.count_documents({})
+            if picks_col is not None:
+                debug_info['picks_total'] = picks_col.count_documents({})
         except Exception:
             pass
 
@@ -1200,7 +1255,7 @@ def refine_offer_description_endpoint():
 
         # Call Groq AI
         from config import Config
-        from groq import Groq
+        from groq import Groq, AuthenticationError as GroqAuthError, RateLimitError as GroqRateLimitError
         import json as json_module
 
         keys = Config.get_groq_api_keys()
@@ -1251,12 +1306,13 @@ Return ONLY valid JSON (no markdown, no explanation):
                 )
                 result_text = response.choices[0].message.content.strip()
                 break  # Success
-            except Exception as key_err:
-                err_str = str(key_err)
-                logger.warning(f"Groq key failed for refine-description: {err_str[:100]}")
+            except (GroqAuthError, GroqRateLimitError) as key_err:
+                # Invalid key (401) or rate limit (429) — try next key
+                logger.warning(f"Groq key rotation triggered for refine-description ({type(key_err).__name__})")
                 last_error = key_err
-                if '401' in err_str or '429' in err_str or 'rate_limit' in err_str.lower():
-                    continue
+                continue
+            except Exception as key_err:
+                logger.error(f"Groq non-retryable error in refine-description: {str(key_err)[:100]}")
                 raise
 
         if result_text is None:
@@ -1578,7 +1634,7 @@ def refine_single_field():
             return jsonify({'error': 'Offer has no content to refine'}), 400
 
         from config import Config
-        from groq import Groq
+        from groq import Groq, AuthenticationError as GroqAuthError, RateLimitError as GroqRateLimitError
         import json as json_module
 
         keys = Config.get_groq_api_keys()
@@ -1605,14 +1661,14 @@ def refine_single_field():
                 )
                 result = json_module.loads(response.choices[0].message.content.strip())
                 break  # Success — stop trying keys
-            except Exception as key_err:
-                err_str = str(key_err)
-                logger.warning(f"Groq key failed for refine-field: {err_str[:100]}")
+            except (GroqAuthError, GroqRateLimitError) as key_err:
+                # Invalid key (401) or rate limit (429) — try next key
+                logger.warning(f"Groq key rotation triggered for refine-field ({type(key_err).__name__})")
                 last_error = key_err
-                # Try next key on 401 (invalid key) or 429 (rate limit)
-                if '401' in err_str or '429' in err_str or 'rate_limit' in err_str.lower():
-                    continue
-                raise  # Re-raise non-auth/rate-limit errors immediately
+                continue
+            except Exception as key_err:
+                logger.error(f"Groq non-retryable error in refine-field: {str(key_err)[:100]}")
+                raise
 
         if result is None:
             raise last_error or Exception("All Groq API keys exhausted")
