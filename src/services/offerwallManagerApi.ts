@@ -232,6 +232,39 @@ class OfferwallManagerApi {
     if (!res.ok) throw new Error('Failed to hide offer');
     return res.json();
   }
+
+  async refineField(offer_id: string, field: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/refine-field`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id, field })
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed' }));
+      throw new Error(err.error || `Failed to refine ${field}`);
+    }
+    return res.json();
+  }
+
+  async updateOfferImage(offer_id: string, image_url: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/update-offer-image`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id, image_url })
+    });
+    if (!res.ok) throw new Error('Failed to update image');
+    return res.json();
+  }
+
+  async renameOffer(offer_id: string, new_name: string, original_name: string): Promise<any> {
+    const res = await fetch(`${API_BASE_URL}/rename-offer`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ offer_id, new_name, original_name })
+    });
+    if (!res.ok) throw new Error('Failed to rename offer');
+    return res.json();
+  }
 }
 
 export const offerwallManagerApi = new OfferwallManagerApi();

@@ -1962,6 +1962,7 @@ def bulk_delete_offers():
                 '$set': {
                     'is_active': False,
                     'deleted': True,
+                    'show_in_offerwall': False,  # Remove from offerwall when deleted
                     'deleted_at': datetime.utcnow(),
                     'updated_at': datetime.utcnow()
                 }
@@ -3340,6 +3341,7 @@ def clear_all_offers():
                 '$set': {
                     'is_active': False,
                     'deleted': True,
+                    'show_in_offerwall': False,  # Remove from offerwall when deleted
                     'deleted_at': datetime.utcnow(),
                     'updated_at': datetime.utcnow()
                 }

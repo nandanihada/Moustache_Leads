@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { offerwallManagerApi, OfferwallSettings, OfferwallStats } from "@/services/offerwallManagerApi";
 import { useToast } from "@/hooks/use-toast";
 import { TEMPLATE_OPTIONS, TemplateName } from "@/components/survey-templates/SurveyTemplateRenderer";
+import { OfferwallOfferEditor } from "@/components/OfferwallOfferEditor";
 import {
   Card, CardContent, CardHeader, CardTitle
 } from "@/components/ui/card";
@@ -757,13 +758,13 @@ const AdminOfferwallManager = () => {
             <CardHeader>
               <CardTitle>Offer Controls</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Showing all offers with "Show in Offerwall" enabled ({pagination.total} total — includes inactive)
+                Showing offers currently live in the offerwall — active, healthy, and visible to users ({pagination.total} total)
               </p>
-              <div className="mt-2 flex items-center gap-3">
+              <div className="mt-2 flex items-center gap-3 flex-wrap">
                 <Input
                   placeholder="Search offers..."
                   value={search}
-                  onChange={(e) => { setSearch(e.target.value); setOfferwallPage(1); setSelectedOffers(new Set()); }}
+                  onChange={(e) => { setSearch(e.target.value); setOfferwallPage(1); }}
                   className="max-w-sm"
                 />
                 <Button
@@ -793,7 +794,7 @@ const AdminOfferwallManager = () => {
                   Not Refined
                 </Button>
               </div>
-              {/* Force-hide by offer ID (for orphan/duplicate offers not showing in admin) */}
+              {/* Force-hide by offer ID */}
               <div className="mt-2 flex items-center gap-2">
                 <Input
                   placeholder="Force-hide by offer ID (e.g. ML-2645036)..."
@@ -814,242 +815,27 @@ const AdminOfferwallManager = () => {
               </div>
             </CardHeader>
             <CardContent>
-              {/* Bulk Action Bar */}
-              {selectedOffers.size > 0 && (
-                <div className="flex items-center gap-3 mb-4 p-3 bg-muted rounded-lg border flex-wrap">
-                  <span className="text-sm font-medium">{selectedOffers.size} selected</span>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={handleBulkRemoveFromOfferwall}
-                  >
-                    <EyeOff className="h-4 w-4 mr-2" />
-                    Remove from Offerwall
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => setShowBoostDialog(true)}
-                    className="bg-orange-600 hover:bg-orange-700"
-                  >
-                    <Flame className="h-4 w-4 mr-2" />
-                    Price Boost
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={handleBulkStarter}
-                    className="bg-yellow-600 hover:bg-yellow-700"
-                  >
-                    <Star className="h-4 w-4 mr-2" />
-                    Mark as Starter Offer
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setSelectedOffers(new Set())}
-                  >
-                    Clear Selection
-                  </Button>
-                </div>
-              )}
-
               {offersLoading ? (
                 <p className="text-muted-foreground">Loading offers...</p>
               ) : (
-                <>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-10">
-                          <Checkbox
-                            checked={allSelected}
-                            onCheckedChange={(checked) => handleSelectAll(!!checked)}
-                            aria-label="Select all offers"
-                          />
-                        </TableHead>
-                        <TableHead>Offer</TableHead>
-                        <TableHead>Network</TableHead>
-                        <TableHead>Payout</TableHead>
-                        <TableHead className="text-center w-20">Position</TableHead>
-                        <TableHead className="text-center">Pin</TableHead>
-                        <TableHead className="text-center">Visible</TableHead>
-                        <TableHead className="text-center">Featured</TableHead>
-                        <TableHead className="text-center">Starter</TableHead>
-                        <TableHead className="text-center w-24">Added</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {(showBoostedOnly ? boostedOffers : offers).map((offer: any) => {
-                        const offerId = offer.offer_id || offer._id;
-                        const isPinned = settings?.pinned_offers?.includes(offerId);
-                        const isHidden = settings?.hidden_offers?.includes(offerId);
-                        const isFeatured = settings?.featured_offers?.includes(offerId);
-                        const isSelected = selectedOffers.has(offerId);
-                        const isBoosted = boostedOffers.some((b: any) => b.offer_id === offerId);
-                        const boostInfo = boostedOffers.find((b: any) => b.offer_id === offerId);
-
-                        return (
-                          <TableRow key={offerId} className={`${isSelected ? 'bg-muted/50' : ''} ${isBoosted ? 'border-l-4 border-l-orange-400' : ''}`}>
-                            <TableCell>
-                              <Checkbox
-                                checked={isSelected}
-                                onCheckedChange={(checked) => handleSelectOffer(offerId, !!checked)}
-                                aria-label={`Select ${offer.name}`}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <p className="font-medium">{offer.name}</p>
-                                  {offer.status && offer.status !== 'active' && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-300 uppercase">
-                                      {offer.status}
-                                    </span>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 text-purple-500 hover:text-purple-700 hover:bg-purple-50"
-                                    title="AI Refine Description"
-                                    onClick={() => handleRefineOffer(offerId)}
-                                  >
-                                    <Wand2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                  {isBoosted && (
-                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">
-                                      🔥 {boostInfo?.direction === 'increase' ? '+' : '-'}{boostInfo?.percentage}%
-                                      {boostInfo?.expires_at && <> · <BoostTimer expiresAt={boostInfo.expires_at} /></>}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                  {offerId}
-                                  {offer.has_refined && <span className="ml-1.5 text-purple-500 font-medium">✨ refined</span>}
-                                </p>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <span className="text-sm">{offer.network || '—'}</span>
-                            </TableCell>
-                            <TableCell>
-                              <div>
-                                <span className="text-sm font-medium">${offer.payout || offer.boosted_payout || 0}</span>
-                                {isBoosted && boostInfo && (
-                                  <p className="text-[10px] text-muted-foreground line-through">${boostInfo.original_payout}</p>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Input
-                                type="number"
-                                min={0}
-                                className="w-16 h-7 text-xs text-center mx-auto"
-                                placeholder="—"
-                                value={positionInputs[offerId] ?? ''}
-                                onChange={(e) => setPositionInputs(prev => ({ ...prev, [offerId]: e.target.value }))}
-                                onBlur={() => {
-                                  const val = positionInputs[offerId];
-                                  if (val === '' || val === '0') handleSetPosition(offerId, '');
-                                  else if (val && val.trim() !== '') handleSetPosition(offerId, val);
-                                }}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    const val = positionInputs[offerId];
-                                    if (val === '' || val === '0') handleSetPosition(offerId, '');
-                                    else if (val && val.trim() !== '') handleSetPosition(offerId, val);
-                                  }
-                                }}
-                              />
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleTogglePin(offerId)}
-                                className={isPinned ? 'text-orange-500' : 'text-muted-foreground'}
-                              >
-                                <Star className="h-4 w-4" fill={isPinned ? 'currentColor' : 'none'} />
-                              </Button>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleToggleVisibility(offerId)}
-                                className={isHidden ? 'text-red-500' : 'text-green-500'}
-                              >
-                                {isHidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                              </Button>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleToggleFeatured(offerId)}
-                                className={isFeatured ? 'text-purple-500' : 'text-muted-foreground'}
-                              >
-                                <Sparkles className="h-4 w-4" fill={isFeatured ? 'currentColor' : 'none'} />
-                              </Button>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleToggleStarter(offerId)}
-                                className={starterOfferIds.includes(offerId) ? 'text-yellow-500' : 'text-muted-foreground'}
-                                title={starterOfferIds.includes(offerId) ? 'Remove from starter' : 'Add as starter offer (visible to new users)'}
-                              >
-                                <Pin className="h-4 w-4" fill={starterOfferIds.includes(offerId) ? 'currentColor' : 'none'} />
-                              </Button>
-                            </TableCell>
-                            <TableCell className="text-center">
-                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                                {offer.created_at ? new Date(offer.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' }) : '—'}
-                              </span>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                      {(showBoostedOnly ? boostedOffers : offers).length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
-                            {showBoostedOnly ? 'No boosted offers' : 'No offers found'}
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-
-                  {/* Pagination */}
-                  {pagination.pages > 1 && (
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t">
-                      <p className="text-sm text-muted-foreground">
-                        Page {pagination.page} of {pagination.pages} ({pagination.total} offers)
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => { setOfferwallPage(p => Math.max(1, p - 1)); setSelectedOffers(new Set()); }}
-                          disabled={pagination.page <= 1}
-                        >
-                          <ChevronLeft className="h-4 w-4 mr-1" />
-                          Previous
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => { setOfferwallPage(p => Math.min(pagination.pages, p + 1)); setSelectedOffers(new Set()); }}
-                          disabled={pagination.page >= pagination.pages}
-                        >
-                          Next
-                          <ChevronRight className="h-4 w-4 ml-1" />
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </>
+                <OfferwallOfferEditor
+                  offers={showBoostedOnly ? boostedOffers : offers}
+                  settings={settings}
+                  starterOfferIds={starterOfferIds}
+                  boostedOffers={boostedOffers}
+                  positionInputs={positionInputs}
+                  selectedOffers={selectedOffers}
+                  pagination={pagination}
+                  onSelectOffer={handleSelectOffer}
+                  onSelectAll={handleSelectAll}
+                  onTogglePin={handleTogglePin}
+                  onToggleVisibility={handleToggleVisibility}
+                  onToggleFeatured={handleToggleFeatured}
+                  onToggleStarter={handleToggleStarter}
+                  onSetPosition={handleSetPosition}
+                  setPositionInputs={setPositionInputs}
+                  onPageChange={(page) => { setOfferwallPage(page); setSelectedOffers(new Set()); }}
+                />
               )}
             </CardContent>
           </Card>

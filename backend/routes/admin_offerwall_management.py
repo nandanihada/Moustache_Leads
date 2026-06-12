@@ -399,6 +399,35 @@ def reorder_offers():
         return jsonify({'error': 'Failed to reorder offers'}), 500
 
 
+def _get_offerwall_source(offer: dict) -> dict:
+    """
+    Determine why/how an offer is in the offerwall and return source info.
+    Returns: { reason: str, date: str|None, by: str|None }
+    """
+    source = offer.get('show_in_offerwall_source', '')
+    added_at = offer.get('show_in_offerwall_added_at')
+    added_by = offer.get('show_in_offerwall_added_by', '')
+    added_at_str = added_at.isoformat() + 'Z' if isinstance(added_at, datetime) else str(added_at or '')
+
+    # Check specific source field first
+    if source:
+        return {'reason': source, 'date': added_at_str, 'by': added_by}
+
+    # Infer reason from offer fields
+    if offer.get('offerwall_exclusive'):
+        since = offer.get('offerwall_exclusive_since')
+        since_str = since.isoformat() + 'Z' if isinstance(since, datetime) else str(since or '')
+        return {'reason': 'Offerwall Exclusive', 'date': since_str, 'by': 'admin'}
+
+    if offer.get('is_pinned'):
+        return {'reason': 'Pinned by admin', 'date': added_at_str, 'by': 'admin'}
+
+    # Default: imported with show_in_offerwall=true
+    created = offer.get('created_at')
+    created_str = created.isoformat() + 'Z' if isinstance(created, datetime) else str(created or '')
+    return {'reason': 'Added on import', 'date': created_str, 'by': 'system'}
+
+
 @admin_offerwall_management_bp.route('/offerwall-management/offerwall-offers', methods=['GET'])
 @token_required
 def get_offerwall_offers():
@@ -423,17 +452,9 @@ def get_offerwall_offers():
         settings = settings_collection.find_one({}) if settings_collection is not None else None
         hidden_offers = (settings or {}).get('hidden_offers', [])
 
-        # Admin view: show ALL offers with show_in_offerwall=True (not just active ones)
-        # This allows admins to see and manage offers that were set to show_in_offerwall
-        # regardless of their current status
-        query_filter = {
-            '$and': [
-                {'$or': [{'deleted': {'$exists': False}}, {'deleted': False}, {'deleted': None}]},
-                {'$or': [{'show_in_offerwall': True}, {'show_in_offerwall': {'$exists': False}}]},
-            ]
-        }
-        if hidden_offers:
-            query_filter['$and'].append({'offer_id': {'$nin': hidden_offers}})
+        # Use the same base query as the actual offerwall (active + show_in_offerwall + not deleted)
+        # This ensures Offer Controls shows exactly what's live in the offerwall
+        query_filter = get_offerwall_base_query(hidden_offers)
 
         # Add search filter
         if search:
@@ -456,16 +477,30 @@ def get_offerwall_offers():
 
         # Fetch ALL matching offers (no health check — admin needs to see ALL show_in_offerwall offers)
         projection = {
-            'offer_id': 1, 'name': 1, 'status': 1, 'category': 1, 'vertical': 1,
-            'payout': 1, 'network': 1, 'image_url': 1, 'countries': 1, 'allowed_countries': 1,
-            'created_at': 1, 'target_url': 1, 'payout_model': 1, 'offer_type': 1,
+            'offer_id': 1, 'name': 1, 'original_name': 1, 'status': 1, 'category': 1, 'vertical': 1,
+            'payout': 1, 'network': 1, 'image_url': 1, 'thumbnail_url': 1,
+            'description': 1, 'countries': 1, 'allowed_countries': 1,
+            'created_at': 1, 'updated_at': 1, 'refined_at': 1, 'renamed_at': 1,
+            'target_url': 1, 'payout_model': 1, 'offer_type': 1, 'payout_type': 1,
             'offerwall_position': 1, 'price_boost': 1, 'publisher_payout_override': 1,
-            'refined_description': 1, 'refined_at': 1
+            'refined_description': 1, 'refined_via_admin': 1,
+            'show_in_offerwall_source': 1, 'show_in_offerwall_added_at': 1,
+            'offerwall_exclusive': 1, 'offerwall_exclusive_since': 1,
+            'auto_deactivated': 1, 'auto_deactivated_at': 1,
+            'is_pinned': 1, 'pinnedPosition': 1,
         }
 
         all_offers = list(offers_collection.find(query_filter, projection).sort('created_at', -1))
 
-        # Paginate directly — no health filter so admins can see and manage all show_in_offerwall offers
+        # Apply health check — Offer Controls shows only what's actually live in the offerwall
+        try:
+            health_service = HealthCheckService()
+            health_results = health_service.evaluate_offers_batch(all_offers)
+            all_offers = [o for o in all_offers if health_results.get(o.get('offer_id'), {}).get('status') == 'healthy']
+        except Exception as e:
+            logger.warning(f"Health check failed in offer controls, returning all: {e}")
+
+        # Paginate after health filter
         total = len(all_offers)
         skip = (page - 1) * per_page
         paginated_offers = all_offers[skip:skip + per_page]
@@ -486,17 +521,26 @@ def get_offerwall_offers():
             serialized.append({
                 'offer_id': offer.get('offer_id', ''),
                 'name': offer.get('name', ''),
+                'original_name': offer.get('original_name'),
                 'status': offer.get('status', 'active'),
                 'category': offer.get('vertical') or offer.get('category', 'OTHER'),
                 'payout': offer.get('payout', 0),
+                'payout_type': offer.get('payout_type', 'cpa'),
                 'publisher_payout_override': offer.get('publisher_payout_override'),
                 'network': offer.get('network', ''),
-                'image_url': offer.get('image_url', ''),
-                'countries': offer.get('countries', []),
+                'image_url': offer.get('image_url', '') or offer.get('thumbnail_url', ''),
+                'description': offer.get('description', ''),
+                'countries': offer.get('countries', []) or offer.get('allowed_countries', []) or [],
                 'offerwall_position': offer.get('offerwall_position'),
                 'created_at': created_at_str,
+                'updated_at': offer.get('updated_at', '').isoformat() + 'Z' if isinstance(offer.get('updated_at'), datetime) else str(offer.get('updated_at') or ''),
+                'refined_at': offer.get('refined_at', '').isoformat() + 'Z' if isinstance(offer.get('refined_at'), datetime) else str(offer.get('refined_at') or ''),
+                'renamed_at': offer.get('renamed_at', '').isoformat() + 'Z' if isinstance(offer.get('renamed_at'), datetime) else str(offer.get('renamed_at') or ''),
+                'refined_description': offer.get('refined_description'),
                 'is_boosted': is_boosted,
                 'has_refined': bool(offer.get('refined_via_admin')),
+                'offerwall_source': _get_offerwall_source(offer),
+                'show_in_offerwall_added_at': offer.get('show_in_offerwall_added_at', '').isoformat() + 'Z' if isinstance(offer.get('show_in_offerwall_added_at'), datetime) else str(offer.get('show_in_offerwall_added_at') or ''),
                 'price_boost': {
                     'percentage': boost.get('percentage', 0),
                     'direction': boost.get('direction', 'increase'),
@@ -641,10 +685,16 @@ def get_tracking_logs():
         search = request.args.get('search', '').strip()
 
         clicks_col = db_instance.get_collection('offerwall_clicks')
+        clicks_detailed_col = db_instance.get_collection('offerwall_clicks_detailed')
         conversions_col = db_instance.get_collection('offerwall_conversions')
         placements_col = db_instance.get_collection('placements')
 
         logs = []
+
+        # Only show tracking data from the last 90 days to avoid stale records
+        from datetime import timedelta
+        ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+        date_filter = {'timestamp': {'$gte': ninety_days_ago}}
 
         # Build placement lookup cache for iframe/publisher info
         placement_cache = {}
@@ -662,13 +712,11 @@ def get_tracking_logs():
         except Exception as pe:
             logger.warning(f"Could not load placement cache: {pe}")
 
-        # 1. Pull clicks (status: clicked or pending — both live in offerwall_clicks)
+        # 1. Pull clicks from BOTH collections (detailed = newer data, clicks = older)
         if status_filter in ('all', 'clicked', 'pending'):
             try:
                 click_query = {}
                 if status_filter == 'clicked':
-                    # 'valid' is the fraud-check status stored by OfferwallTracking.record_click
-                    # Map valid → clicked for display
                     click_query['status'] = {'$in': ['clicked', 'valid', None]}
                 elif status_filter == 'pending':
                     click_query['status'] = 'pending'
@@ -680,16 +728,16 @@ def get_tracking_logs():
                         {'placement_id': {'$regex': search, '$options': 'i'}}
                     ]
 
-                for c in clicks_col.find(click_query).sort('timestamp', -1).limit(500):
+                def process_click_doc(c, source='clicks'):
                     pid = c.get('placement_id', '')
                     pinfo = placement_cache.get(pid, {})
-                    ts = c.get('timestamp') or c.get('started_at')
+                    ts = c.get('timestamp') or c.get('started_at') or c.get('click_timestamp')
                     raw_status = c.get('status') or ''
-                    # Map fraud-check 'valid' to display 'clicked'; keep 'pending' as is
                     display_status = 'pending' if raw_status == 'pending' else 'clicked'
-                    # offer_name may be at root or nested under 'data'
-                    offer_name = c.get('offer_name') or c.get('data', {}).get('offer_name', 'Unknown Offer')
-                    logs.append({
+                    offer_name = (c.get('offer_name') or 
+                                  c.get('data', {}).get('offer_name') or
+                                  c.get('click_data', {}).get('offer_name', 'Unknown Offer'))
+                    return {
                         'id': str(c.get('_id', '')),
                         'offer_name': offer_name,
                         'offer_id': c.get('offer_id', ''),
@@ -701,8 +749,48 @@ def get_tracking_logs():
                         'status': display_status,
                         'reward': 0,
                         'timestamp': ts.isoformat() if isinstance(ts, datetime) else str(ts or ''),
-                        'user_agent': c.get('user_agent', '') or c.get('data', {}).get('user_agent', ''),
-                    })
+                        'user_agent': (c.get('user_agent', '') or 
+                                       c.get('data', {}).get('user_agent', '') or
+                                       c.get('click_data', {}).get('user_agent', '')),
+                        '_source': source,
+                    }
+
+                seen_ids = set()
+                raw_clicks = []
+
+                # Try detailed collection first (newer data — June 9+)
+                if clicks_detailed_col:
+                    det_query = dict(click_query)
+                    det_query.update(date_filter)  # Only last 90 days
+                    if search:
+                        det_query['$or'] = [
+                            {'offer_name': {'$regex': search, '$options': 'i'}},
+                            {'click_data.offer_name': {'$regex': search, '$options': 'i'}},
+                            {'user_id': {'$regex': search, '$options': 'i'}},
+                            {'placement_id': {'$regex': search, '$options': 'i'}}
+                        ]
+                    for c in clicks_detailed_col.find(det_query).sort('timestamp', -1).limit(500):
+                        doc = process_click_doc(c, 'detailed')
+                        dedup_key = f"{c.get('offer_id', '')}_{c.get('user_id', '')}_{doc['timestamp'][:16]}"
+                        if dedup_key not in seen_ids:
+                            seen_ids.add(dedup_key)
+                            raw_clicks.append(doc)
+
+                # Also pull from legacy collection (older data — before June 9)
+                if clicks_col:
+                    legacy_query = dict(click_query)
+                    legacy_query.update(date_filter)  # Only last 90 days
+                    for c in clicks_col.find(legacy_query).sort('timestamp', -1).limit(500):
+                        doc = process_click_doc(c, 'clicks')
+                        dedup_key = f"{c.get('offer_id', '')}_{c.get('user_id', '')}_{doc['timestamp'][:16]}"
+                        if dedup_key not in seen_ids:
+                            seen_ids.add(dedup_key)
+                            raw_clicks.append(doc)
+
+                # Sort merged results by timestamp descending
+                raw_clicks.sort(key=lambda x: x['timestamp'], reverse=True)
+                logs.extend(raw_clicks[:500])
+
             except Exception as ce:
                 logger.warning(f"Error fetching clicks: {ce}")
 
@@ -721,7 +809,7 @@ def get_tracking_logs():
                         {'placement_id': {'$regex': search, '$options': 'i'}}
                     ]
 
-                for c in conversions_col.find(conv_query).sort('timestamp', -1).limit(500):
+                for c in conversions_col.find({**conv_query, **date_filter}).sort('timestamp', -1).limit(500):
                     pid = c.get('placement_id', '')
                     pinfo = placement_cache.get(pid, {})
                     ts = c.get('timestamp')
@@ -1059,7 +1147,8 @@ def refine_offer_description_endpoint():
         from groq import Groq
         import json as json_module
 
-        api_key = Config.GROQ_API_KEY
+        keys = Config.get_groq_api_keys()
+        api_key = keys[0] if keys else Config.GROQ_API_KEY
         if not api_key:
             return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
 
@@ -1344,3 +1433,208 @@ def hide_offer_by_id():
     except Exception as e:
         logger.error(f"Error hiding offer: {e}", exc_info=True)
         return jsonify({'error': 'Failed to hide offer'}), 500
+
+
+# ===================== PER-FIELD AI REFINE =====================
+
+FIELD_PROMPTS = {
+    'event_flow': """Extract a SHORT conversion flow subtitle from this offer. 
+Max 60 chars. Format: "Action → Action → Result" or similar arrow-connected flow.
+Examples: "Register → Deposit $25 → Get Bonus", "Install App → Complete Tutorial", "Sign Up → Subscribe"
+Return JSON: {{"event_flow": "...flow text..."}}""",
+
+    'summary': """Write a 1-2 sentence user-friendly description of this offer for end users.
+Keep it simple, honest, and clear. No hype. Focus on what the user does and what they get.
+Return JSON: {{"summary": "...summary text..."}}""",
+
+    'steps': """List the CONVERSION EVENTS (what actions trigger payout) for this offer.
+These are milestones, not instructions. E.g. ["Registration", "First Deposit", "App Activation"].
+Return JSON: {{"steps": ["Event 1", "Event 2"]}}""",
+
+    'restrictions': """Extract any restrictions or requirements from this offer description.
+Look for: device restrictions, VPN bans, new users only, age requirements, geo exclusions.
+Return JSON: {{"restrictions": ["restriction 1", "restriction 2"]}}""",
+
+    'difficulty': """Based on this offer's conversion events and requirements, estimate difficulty.
+Return ONLY one of: Easy, Medium, Hard.
+Return JSON: {{"difficulty": "Easy|Medium|Hard"}}""",
+
+    'estimated_time': """Estimate how long it takes a user to complete this offer.
+Examples: "2 min", "5 min", "10-30 min", "1-2 hours".
+Return JSON: {{"estimated_time": "X min"}}""",
+
+    'countries': """Extract COUNTRY CODES (ISO 2-letter uppercase) mentioned in this offer description.
+Look for: country names, GEO mentions, geo-targeting, allowed/excluded countries.
+Return JSON: {{"countries": ["US", "UK", "CA"]}}""",
+}
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/refine-field', methods=['POST'])
+@token_required
+def refine_single_field():
+    """
+    Regenerate a single field of the refined description using Groq AI.
+    field can be: event_flow, summary, steps, restrictions, difficulty, estimated_time, countries
+    """
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        offer_id = data.get('offer_id')
+        field = data.get('field')
+
+        if not offer_id:
+            return jsonify({'error': 'offer_id is required'}), 400
+        if not field or field not in FIELD_PROMPTS:
+            return jsonify({'error': f'field must be one of: {", ".join(FIELD_PROMPTS.keys())}'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        offer = offers_col.find_one({'offer_id': offer_id})
+        if not offer:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        name = offer.get('name', '')
+        description = offer.get('description', '')
+        payout = float(offer.get('payout', 0) or 0)
+
+        if not description and not name:
+            return jsonify({'error': 'Offer has no content to refine'}), 400
+
+        from config import Config
+        from groq import Groq
+        import json as json_module
+
+        keys = Config.get_groq_api_keys()
+        api_key = keys[0] if keys else Config.GROQ_API_KEY
+        if not api_key:
+            return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
+
+        client = Groq(api_key=api_key)
+
+        system_prompt = FIELD_PROMPTS[field]
+        user_content = f"OFFER NAME: {name}\nOFFER PAYOUT: ${payout}\nRAW DESCRIPTION:\n{description}"
+
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",  # Faster model for single-field
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            temperature=0.3,
+            max_tokens=300,
+            response_format={"type": "json_object"}
+        )
+
+        result = json_module.loads(response.choices[0].message.content.strip())
+
+        # Validate and return the specific field
+        value = result.get(field)
+
+        # Field-specific validation
+        if field == 'event_flow' and value:
+            value = str(value).strip()[:60] or None
+        elif field == 'difficulty':
+            value = value if value in ('Easy', 'Medium', 'Hard') else 'Medium'
+        elif field in ('steps', 'restrictions', 'countries'):
+            value = value if isinstance(value, list) else []
+            if field == 'countries':
+                value = [str(c).strip().upper() for c in value if len(str(c).strip()) == 2 and str(c).strip().isalpha()]
+        elif field == 'summary':
+            value = str(value).strip() if value else ''
+        elif field == 'estimated_time':
+            value = str(value).strip() if value else '5 min'
+
+        return jsonify({
+            'success': True,
+            'field': field,
+            'value': value,
+            'offer_id': offer_id
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error refining field {field}: {e}", exc_info=True)
+        return jsonify({'error': f'Failed to refine field: {str(e)}'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/update-offer-image', methods=['POST'])
+@token_required
+def update_offer_image():
+    """Update the image URL for an offer directly from Offerwall Manager."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        offer_id = data.get('offer_id', '').strip()
+        image_url = data.get('image_url', '').strip()
+
+        if not offer_id or not image_url:
+            return jsonify({'error': 'offer_id and image_url required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        result = offers_col.update_one(
+            {'offer_id': offer_id},
+            {'$set': {'image_url': image_url, 'updated_at': datetime.utcnow()}}
+        )
+
+        if result.modified_count == 0:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        return jsonify({'success': True, 'message': 'Image updated'}), 200
+
+    except Exception as e:
+        logger.error(f"Error updating offer image: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to update image'}), 500
+
+
+@admin_offerwall_management_bp.route('/offerwall-management/rename-offer', methods=['POST'])
+@token_required
+def rename_offer_from_manager():
+    """Rename an offer directly from the Offerwall Manager."""
+    try:
+        current_user = request.current_user
+        if current_user.get('role') != 'admin':
+            return jsonify({'error': 'Admin access required'}), 403
+
+        data = request.get_json()
+        offer_id = data.get('offer_id', '').strip()
+        new_name = data.get('new_name', '').strip()
+        original_name = data.get('original_name', '').strip()
+
+        if not offer_id or not new_name:
+            return jsonify({'error': 'offer_id and new_name required'}), 400
+
+        offers_col = get_collection('offers')
+        if offers_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+
+        result = offers_col.update_one(
+            {'offer_id': offer_id},
+            {'$set': {
+                'name': new_name,
+                'original_name': original_name or None,
+                'renamed_at': datetime.utcnow(),
+                'updated_at': datetime.utcnow(),
+            }}
+        )
+
+        if result.modified_count == 0:
+            return jsonify({'error': 'Offer not found'}), 404
+
+        return jsonify({'success': True, 'message': 'Offer renamed'}), 200
+
+    except Exception as e:
+        logger.error(f"Error renaming offer: {e}", exc_info=True)
+        return jsonify({'error': 'Failed to rename offer'}), 500
