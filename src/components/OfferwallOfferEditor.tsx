@@ -1151,22 +1151,25 @@ export function OfferwallOfferEditor({
       )}
 
       {/* Pagination */}
-      {pagination.pages > 1 && (
-        <div className="flex items-center justify-between pt-4 border-t">
-          <p className="text-sm text-muted-foreground">
-            Showing {filteredOffers.length} of {pagination.total} offers
-            {filteredOffers.length !== pagination.total && ` (filtered)`}
-          </p>
+      <div className="flex items-center justify-between pt-4 border-t">
+        <p className="text-sm text-muted-foreground">
+          {filteredOffers.length < offers.length
+            ? <>Showing <strong>{filteredOffers.length}</strong> filtered (of {offers.length} on this page · {pagination.total} total)</>
+            : <>Page <strong>{pagination.page}</strong> of <strong>{pagination.pages}</strong> · <strong>{pagination.total}</strong> offers</>
+          }
+        </p>
+        {pagination.pages > 1 && (
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>
               ← Prev
             </Button>
+            <span className="text-xs text-muted-foreground">{pagination.page} / {pagination.pages}</span>
             <Button size="sm" variant="outline" disabled={pagination.page >= pagination.pages} onClick={() => onPageChange(pagination.page + 1)}>
               Next →
             </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Bulk Edit Dialog — uses full cache of selected offers across searches */}
       <BulkEditDialog

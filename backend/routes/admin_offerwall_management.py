@@ -735,28 +735,6 @@ def get_tracking_logs():
 
         logs = []
 
-        # Only show tracking data from the last 90 days to avoid stale records
-        from datetime import timedelta
-        ninety_days_ago = datetime.utcnow() - timedelta(days=90)
-
-        def is_recent(doc):
-            """Check if a document's timestamp is within the last 90 days."""
-            ts = doc.get('timestamp') or doc.get('created_at')
-            if not ts:
-                return True  # No timestamp — include it
-            if isinstance(ts, datetime):
-                return ts.replace(tzinfo=None) >= ninety_days_ago
-            if isinstance(ts, str):
-                try:
-                    # Parse ISO format strings
-                    clean = ts.replace('Z', '+00:00')
-                    from datetime import timezone
-                    parsed = datetime.fromisoformat(clean).replace(tzinfo=None)
-                    return parsed >= ninety_days_ago
-                except Exception:
-                    return True
-            return True
-
         # Build placement lookup cache for iframe/publisher info
         placement_cache = {}
         try:
@@ -830,8 +808,6 @@ def get_tracking_logs():
                             {'placement_id': {'$regex': search, '$options': 'i'}}
                         ]
                     for c in clicks_detailed_col.find(det_query).sort('timestamp', -1).limit(500):
-                        if not is_recent(c):
-                            continue
                         doc = process_click_doc(c, 'detailed')
                         dedup_key = f"{c.get('offer_id', '')}_{c.get('user_id', '')}_{doc['timestamp'][:16]}"
                         if dedup_key not in seen_ids:
@@ -842,8 +818,6 @@ def get_tracking_logs():
                 if clicks_col:
                     legacy_query = dict(click_query)
                     for c in clicks_col.find(legacy_query).sort('timestamp', -1).limit(500):
-                        if not is_recent(c):
-                            continue
                         doc = process_click_doc(c, 'clicks')
                         dedup_key = f"{c.get('offer_id', '')}_{c.get('user_id', '')}_{doc['timestamp'][:16]}"
                         if dedup_key not in seen_ids:
@@ -872,9 +846,13 @@ def get_tracking_logs():
                         {'placement_id': {'$regex': search, '$options': 'i'}}
                     ]
 
+                # Exclude stale pre-2026 conversion records
+                jan_2026 = datetime(2026, 1, 1)
+                if '$and' not in conv_query:
+                    conv_query = {'$and': [conv_query, {'timestamp': {'$gte': jan_2026}}]} if conv_query else {'timestamp': {'$gte': jan_2026}}
+                else:
+                    conv_query['$and'].append({'timestamp': {'$gte': jan_2026}})
                 for c in conversions_col.find(conv_query).sort('timestamp', -1).limit(500):
-                    if not is_recent(c):
-                        continue
                     pid = c.get('placement_id', '')
                     pinfo = placement_cache.get(pid, {})
                     ts = c.get('timestamp')
@@ -912,9 +890,22 @@ def get_tracking_logs():
             'completed': sum(1 for s in all_statuses if s == 'completed'),
         }
 
+        # Diagnostic counts to help debug empty tracking
+        debug_info = {}
+        try:
+            if clicks_detailed_col is not None:
+                debug_info['clicks_detailed_total'] = clicks_detailed_col.count_documents({})
+            if clicks_col is not None:
+                debug_info['clicks_legacy_total'] = clicks_col.count_documents({})
+            if conversions_col is not None:
+                debug_info['conversions_total'] = conversions_col.count_documents({})
+        except Exception:
+            pass
+
         return jsonify({
             'logs': paginated,
             'summary': summary,
+            'debug': debug_info,
             'pagination': {
                 'page': page,
                 'per_page': per_page,
@@ -1213,11 +1204,8 @@ def refine_offer_description_endpoint():
         import json as json_module
 
         keys = Config.get_groq_api_keys()
-        api_key = keys[0] if keys else Config.GROQ_API_KEY
-        if not api_key:
+        if not keys:
             return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
-
-        client = Groq(api_key=api_key)
 
         prompt = f"""You are an offer description refiner for an affiliate marketing platform.
 Given a raw offer description (often messy with campaign/tracking data), produce a clean structured JSON output.
@@ -1249,15 +1237,31 @@ Return ONLY valid JSON (no markdown, no explanation):
   "estimated_time": "X min"
 }}"""
 
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=800,
-            response_format={"type": "json_object"}
-        )
+        last_error = None
+        result_text = None
+        for api_key in keys:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.3,
+                    max_tokens=800,
+                    response_format={"type": "json_object"}
+                )
+                result_text = response.choices[0].message.content.strip()
+                break  # Success
+            except Exception as key_err:
+                err_str = str(key_err)
+                logger.warning(f"Groq key failed for refine-description: {err_str[:100]}")
+                last_error = key_err
+                if '401' in err_str or '429' in err_str or 'rate_limit' in err_str.lower():
+                    continue
+                raise
 
-        result_text = response.choices[0].message.content.strip()
+        if result_text is None:
+            raise last_error or Exception("All Groq API keys exhausted")
+
         result = json_module.loads(result_text)
 
         # Validate and clean
@@ -1578,27 +1582,40 @@ def refine_single_field():
         import json as json_module
 
         keys = Config.get_groq_api_keys()
-        api_key = keys[0] if keys else Config.GROQ_API_KEY
-        if not api_key:
+        if not keys:
             return jsonify({'error': 'GROQ_API_KEY not configured'}), 500
-
-        client = Groq(api_key=api_key)
 
         system_prompt = FIELD_PROMPTS[field]
         user_content = f"OFFER NAME: {name}\nOFFER PAYOUT: ${payout}\nRAW DESCRIPTION:\n{description}"
 
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",  # Faster model for single-field
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            temperature=0.3,
-            max_tokens=300,
-            response_format={"type": "json_object"}
-        )
+        last_error = None
+        result = None
+        for api_key in keys:
+            try:
+                client = Groq(api_key=api_key)
+                response = client.chat.completions.create(
+                    model="llama-3.1-8b-instant",  # Faster model for single-field
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content}
+                    ],
+                    temperature=0.3,
+                    max_tokens=300,
+                    response_format={"type": "json_object"}
+                )
+                result = json_module.loads(response.choices[0].message.content.strip())
+                break  # Success — stop trying keys
+            except Exception as key_err:
+                err_str = str(key_err)
+                logger.warning(f"Groq key failed for refine-field: {err_str[:100]}")
+                last_error = key_err
+                # Try next key on 401 (invalid key) or 429 (rate limit)
+                if '401' in err_str or '429' in err_str or 'rate_limit' in err_str.lower():
+                    continue
+                raise  # Re-raise non-auth/rate-limit errors immediately
 
-        result = json_module.loads(response.choices[0].message.content.strip())
+        if result is None:
+            raise last_error or Exception("All Groq API keys exhausted")
 
         # Validate and return the specific field
         value = result.get(field)

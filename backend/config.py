@@ -33,14 +33,17 @@ class Config:
     def get_groq_api_keys():
         """Return list of all configured Groq API keys for rotation."""
         keys = []
-        # Check for comma-separated list first
+        # Check for comma-separated list in GROQ_API_KEYS first
         multi_keys = os.getenv('GROQ_API_KEYS', '')
         if multi_keys:
             keys = [k.strip() for k in multi_keys.split(',') if k.strip()]
-        # Always include the single key if set and not already in list
+        # Also split GROQ_API_KEY by comma (in case it contains a list)
         single_key = os.getenv('GROQ_API_KEY', '')
-        if single_key and single_key not in keys:
-            keys.append(single_key)
+        if single_key:
+            for k in single_key.split(','):
+                k = k.strip()
+                if k and k not in keys:
+                    keys.append(k)
         return keys
 
     # fal.ai API key for AI image generation

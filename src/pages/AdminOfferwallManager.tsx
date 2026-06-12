@@ -63,6 +63,7 @@ const TrackingTab: React.FC = () => {
   const [summary, setSummary] = useState({ total: 0, clicked: 0, pending: 0, completed: 0 });
   const [pagination, setPagination] = useState({ page: 1, total: 0, pages: 1 });
   const [loading, setLoading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
 
   const fetchLogs = async (newPage = 1) => {
     setLoading(true);
@@ -71,6 +72,7 @@ const TrackingTab: React.FC = () => {
       setLogs(data.logs || []);
       setSummary(data.summary || { total: 0, clicked: 0, pending: 0, completed: 0 });
       setPagination(data.pagination || { page: 1, total: 0, pages: 1 });
+      setDebugInfo(data.debug || null);
     } catch (e) {
       console.error('Failed to load tracking logs:', e);
     } finally {
@@ -168,6 +170,14 @@ const TrackingTab: React.FC = () => {
                   <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     <AlertCircle className="h-8 w-8 mx-auto mb-2 text-gray-300" />
                     No tracking logs found
+                    {debugInfo && (
+                      <div className="mt-2 text-xs font-mono text-left inline-block bg-gray-50 rounded p-3 border">
+                        <p className="font-semibold mb-1 text-gray-600">DB counts:</p>
+                        {Object.entries(debugInfo).map(([k, v]) => (
+                          <p key={k}>{k}: <strong>{String(v)}</strong></p>
+                        ))}
+                      </div>
+                    )}
                   </TableCell></TableRow>
                 ) : logs.map((log, i) => (
                   <TableRow key={`${log.id}-${i}`} className="hover:bg-purple-50/30">
