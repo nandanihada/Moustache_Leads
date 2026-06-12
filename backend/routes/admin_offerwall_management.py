@@ -441,6 +441,12 @@ def get_offerwall_offers():
         page = int(request.args.get('page', 1))
         per_page = int(request.args.get('per_page', 50))
         refined_filter = request.args.get('refined', '')  # 'yes', 'no', or ''
+        vertical_filter = request.args.get('vertical', '')
+        network_filter = request.args.get('network', '')
+        country_filter = request.args.get('country', '')
+        min_payout = request.args.get('min_payout', '')
+        max_payout = request.args.get('max_payout', '')
+        status_filter = request.args.get('status', '')
 
         offers_collection = get_collection('offers')
         settings_collection = get_collection('offerwall_settings')
@@ -473,6 +479,44 @@ def get_offerwall_offers():
                 {'refined_via_admin': {'$exists': False}},
                 {'refined_via_admin': False},
                 {'refined_via_admin': None},
+            ]})
+
+        # Apply server-side additional filters
+        if vertical_filter:
+            query_filter['$and'].append({'$or': [
+                {'vertical': {'$regex': vertical_filter, '$options': 'i'}},
+                {'category': {'$regex': vertical_filter, '$options': 'i'}},
+            ]})
+        if network_filter:
+            query_filter['$and'].append({'network': {'$regex': network_filter, '$options': 'i'}})
+        if country_filter:
+            codes = [c.strip().upper() for c in country_filter.replace(',', ' ').split() if c.strip()]
+            if codes:
+                query_filter['$and'].append({'$or': [
+                    {'countries': {'$in': codes}},
+                    {'allowed_countries': {'$in': codes}},
+                ]})
+        if min_payout:
+            try:
+                query_filter['$and'].append({'payout': {'$gte': float(min_payout)}})
+            except ValueError:
+                pass
+        if max_payout:
+            try:
+                query_filter['$and'].append({'payout': {'$lte': float(max_payout)}})
+            except ValueError:
+                pass
+        if status_filter:
+            query_filter['$and'].append({'status': status_filter})
+
+        # Event flow filter
+        has_event = request.args.get('has_event', '')
+        if has_event == 'yes':
+            query_filter['$and'].append({'refined_description.event_flow': {'$exists': True, '$nin': [None, '']}})
+        elif has_event == 'no':
+            query_filter['$and'].append({'$or': [
+                {'refined_description.event_flow': {'$exists': False}},
+                {'refined_description.event_flow': {'$in': [None, '']}},
             ]})
 
         # Fetch ALL matching offers (no health check — admin needs to see ALL show_in_offerwall offers)
@@ -694,7 +738,24 @@ def get_tracking_logs():
         # Only show tracking data from the last 90 days to avoid stale records
         from datetime import timedelta
         ninety_days_ago = datetime.utcnow() - timedelta(days=90)
-        date_filter = {'timestamp': {'$gte': ninety_days_ago}}
+
+        def is_recent(doc):
+            """Check if a document's timestamp is within the last 90 days."""
+            ts = doc.get('timestamp') or doc.get('created_at')
+            if not ts:
+                return True  # No timestamp — include it
+            if isinstance(ts, datetime):
+                return ts.replace(tzinfo=None) >= ninety_days_ago
+            if isinstance(ts, str):
+                try:
+                    # Parse ISO format strings
+                    clean = ts.replace('Z', '+00:00')
+                    from datetime import timezone
+                    parsed = datetime.fromisoformat(clean).replace(tzinfo=None)
+                    return parsed >= ninety_days_ago
+                except Exception:
+                    return True
+            return True
 
         # Build placement lookup cache for iframe/publisher info
         placement_cache = {}
@@ -761,7 +822,6 @@ def get_tracking_logs():
                 # Try detailed collection first (newer data — June 9+)
                 if clicks_detailed_col:
                     det_query = dict(click_query)
-                    det_query.update(date_filter)  # Only last 90 days
                     if search:
                         det_query['$or'] = [
                             {'offer_name': {'$regex': search, '$options': 'i'}},
@@ -770,6 +830,8 @@ def get_tracking_logs():
                             {'placement_id': {'$regex': search, '$options': 'i'}}
                         ]
                     for c in clicks_detailed_col.find(det_query).sort('timestamp', -1).limit(500):
+                        if not is_recent(c):
+                            continue
                         doc = process_click_doc(c, 'detailed')
                         dedup_key = f"{c.get('offer_id', '')}_{c.get('user_id', '')}_{doc['timestamp'][:16]}"
                         if dedup_key not in seen_ids:
@@ -779,8 +841,9 @@ def get_tracking_logs():
                 # Also pull from legacy collection (older data — before June 9)
                 if clicks_col:
                     legacy_query = dict(click_query)
-                    legacy_query.update(date_filter)  # Only last 90 days
                     for c in clicks_col.find(legacy_query).sort('timestamp', -1).limit(500):
+                        if not is_recent(c):
+                            continue
                         doc = process_click_doc(c, 'clicks')
                         dedup_key = f"{c.get('offer_id', '')}_{c.get('user_id', '')}_{doc['timestamp'][:16]}"
                         if dedup_key not in seen_ids:
@@ -809,7 +872,9 @@ def get_tracking_logs():
                         {'placement_id': {'$regex': search, '$options': 'i'}}
                     ]
 
-                for c in conversions_col.find({**conv_query, **date_filter}).sort('timestamp', -1).limit(500):
+                for c in conversions_col.find(conv_query).sort('timestamp', -1).limit(500):
+                    if not is_recent(c):
+                        continue
                     pid = c.get('placement_id', '')
                     pinfo = placement_cache.get(pid, {})
                     ts = c.get('timestamp')

@@ -79,6 +79,7 @@ interface OfferwallOfferEditorProps {
   onSetPosition: (id: string, pos: string) => void;
   setPositionInputs: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   onPageChange: (page: number) => void;
+  onFiltersChange?: (filters: Record<string, string>) => void;
 }
 
 // ===================== CONSTANTS =====================
@@ -864,6 +865,7 @@ export function OfferwallOfferEditor({
   onSetPosition,
   setPositionInputs,
   onPageChange,
+  onFiltersChange,
 }: OfferwallOfferEditorProps) {
   const { toast } = useToast();
   const [expandedOffers, setExpandedOffers] = useState<Set<string>>(new Set());
@@ -937,7 +939,23 @@ export function OfferwallOfferEditor({
   return (
     <div className="space-y-4">
       {/* Filter Bar */}
-      <FilterBar filters={filters} onChange={setFilters} networks={networks} verticals={verticals} />
+      <FilterBar filters={filters} onChange={(f) => {
+        setFilters(f);
+        // Also trigger server-side refetch with backend-compatible filters
+        if (onFiltersChange) {
+          const backend: Record<string, string> = {};
+          if (f.vertical !== 'all') backend.vertical = f.vertical;
+          if (f.network !== 'all') backend.network = f.network;
+          if (f.country) backend.country = f.country;
+          if (f.minPayout) backend.min_payout = f.minPayout;
+          if (f.maxPayout) backend.max_payout = f.maxPayout;
+          if (f.status !== 'all') backend.status = f.status;
+          // hasEvent maps to refined filter
+          if (f.hasEvent === 'yes') backend.has_event = 'yes';
+          else if (f.hasEvent === 'no') backend.has_event = 'no';
+          onFiltersChange(backend);
+        }
+      }} networks={networks} verticals={verticals} />
 
       {/* Bulk Action Bar */}
       {selectedOffers.size > 0 && (
@@ -1136,7 +1154,8 @@ export function OfferwallOfferEditor({
       {pagination.pages > 1 && (
         <div className="flex items-center justify-between pt-4 border-t">
           <p className="text-sm text-muted-foreground">
-            Page {pagination.page} of {pagination.pages} ({pagination.total} total)
+            Showing {filteredOffers.length} of {pagination.total} offers
+            {filteredOffers.length !== pagination.total && ` (filtered)`}
           </p>
           <div className="flex items-center gap-2">
             <Button size="sm" variant="outline" disabled={pagination.page <= 1} onClick={() => onPageChange(pagination.page - 1)}>

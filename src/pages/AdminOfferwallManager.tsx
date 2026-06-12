@@ -244,6 +244,8 @@ const AdminOfferwallManager = () => {
   const [refineEditMode, setRefineEditMode] = useState(false);
   // Refined filter for offerwall manager
   const [refinedFilter, setRefinedFilter] = useState<string>('');
+  // Backend filters from the OfferwallOfferEditor (passed up for server-side filtering)
+  const [backendFilters, setBackendFilters] = useState<Record<string, string>>({});
   // Force-hide by offer ID
   const [forceHideId, setForceHideId] = useState('');
   const [forceHiding, setForceHiding] = useState(false);
@@ -294,8 +296,12 @@ const AdminOfferwallManager = () => {
 
   // Fetch offers (only those visible on the offerwall)
   const { data: offersData, isLoading: offersLoading } = useQuery({
-    queryKey: ['offerwall-management-offers', search, offerwallPage, refinedFilter],
-    queryFn: () => offerwallManagerApi.getOfferwallOffers({ search, page: offerwallPage, per_page: 30, refined: refinedFilter || undefined }),
+    queryKey: ['offerwall-management-offers', search, offerwallPage, refinedFilter, backendFilters],
+    queryFn: () => offerwallManagerApi.getOfferwallOffers({ 
+      search, page: offerwallPage, per_page: 30, 
+      refined: refinedFilter || undefined,
+      ...backendFilters
+    }),
   });
 
   // Pre-populate position inputs from offers data
@@ -759,8 +765,7 @@ const AdminOfferwallManager = () => {
               <CardTitle>Offer Controls</CardTitle>
               <p className="text-sm text-muted-foreground">
                 Showing offers currently live in the offerwall — active, healthy, and visible to users ({pagination.total} total)
-              </p>
-              <div className="mt-2 flex items-center gap-3 flex-wrap">
+              </p>              <div className="mt-2 flex items-center gap-3 flex-wrap">
                 <Input
                   placeholder="Search offers..."
                   value={search}
@@ -835,6 +840,7 @@ const AdminOfferwallManager = () => {
                   onSetPosition={handleSetPosition}
                   setPositionInputs={setPositionInputs}
                   onPageChange={(page) => { setOfferwallPage(page); setSelectedOffers(new Set()); }}
+                  onFiltersChange={(filters) => { setBackendFilters(filters); setOfferwallPage(1); }}
                 />
               )}
             </CardContent>

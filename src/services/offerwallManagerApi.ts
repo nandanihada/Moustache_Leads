@@ -22,6 +22,19 @@ export interface OfferwallSettings {
   updated_by?: string;
 }
 
+export interface OfferwallOfferFilter {
+  search?: string;
+  page?: number;
+  per_page?: number;
+  refined?: string;
+  vertical?: string;
+  network?: string;
+  country?: string;
+  min_payout?: string;
+  max_payout?: string;
+  status?: string;
+}
+
 export interface OfferwallStats {
   total_active: number;
   total_visible: number;
@@ -100,12 +113,19 @@ class OfferwallManagerApi {
     return res.json();
   }
 
-  async getOfferwallOffers(params?: {search?: string; page?: number; per_page?: number; refined?: string}): Promise<any> {
+  async getOfferwallOffers(params?: {search?: string; page?: number; per_page?: number; refined?: string; vertical?: string; network?: string; country?: string; min_payout?: string; max_payout?: string; status?: string}): Promise<any> {
     const query = new URLSearchParams();
     if (params?.search) query.set('search', params.search);
     if (params?.page) query.set('page', String(params.page));
     if (params?.per_page) query.set('per_page', String(params.per_page));
     if (params?.refined) query.set('refined', params.refined);
+    if (params?.vertical && params.vertical !== 'all') query.set('vertical', params.vertical);
+    if (params?.network && params.network !== 'all') query.set('network', params.network);
+    if (params?.country) query.set('country', params.country);
+    if (params?.min_payout) query.set('min_payout', params.min_payout);
+    if (params?.max_payout) query.set('max_payout', params.max_payout);
+    if (params?.status && params.status !== 'all') query.set('status', params.status);
+    if ((params as any)?.has_event) query.set('has_event', (params as any).has_event);
     const res = await fetch(`${API_BASE_URL}/offerwall-offers?${query.toString()}`, { headers: this.getHeaders() });
     if (!res.ok) throw new Error('Failed to fetch offerwall offers');
     return res.json();
