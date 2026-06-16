@@ -113,3 +113,32 @@ def test_distribution():
             'success': False,
             'error': str(e)
         }), 500
+
+@diagnostic_bp.route('/api/diagnostic/smtp-status', methods=['GET'])
+def check_smtp_status():
+    """Diagnostic route to check SMTP configuration on the server"""
+    import os
+    from services.email_verification_service import get_email_verification_service
+    from services.email_service import EmailService
+    
+    try:
+        email_verify_service = get_email_verification_service()
+        main_email_service = EmailService()
+        
+        status = {
+            'smtp_host': os.getenv('SMTP_HOST'),
+            'smtp_port': os.getenv('SMTP_PORT'),
+            'smtp_user': os.getenv('SMTP_USER'),
+            'from_email': os.getenv('FROM_EMAIL'),
+            'smtp_pass_set': bool(os.getenv('SMTP_PASS')),
+            'email_debug': os.getenv('EMAIL_DEBUG'),
+            'frontend_url': os.getenv('FRONTEND_URL'),
+            'backend_url': os.getenv('BACKEND_URL'),
+            'email_verification_service_configured': email_verify_service.is_configured,
+            'main_email_service_configured': main_email_service.is_configured
+        }
+        return jsonify(status), 200
+    except Exception as e:
+        return jsonify({
+            'error': str(e)
+        }), 500

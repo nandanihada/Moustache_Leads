@@ -203,6 +203,7 @@ MoustacheLeads Team
 <p style="font-size:11px;color:#333333;word-break:break-all;margin:0;font-family:monospace;background-color:#ffffff;padding:10px;border-radius:4px;">
 <a href="{link}" target="_blank" style="color:#0066cc;text-decoration:underline;">{link}</a>
 </p>
+<p style="font-size:12px;color:#cc3300;margin:15px 0 0 0;font-weight:bold;">⚠️ Note: Please check your Spam/Junk folder if you do not receive our emails. Mark us as "Not Spam" to ensure you receive future approvals and notifications.</p>
 </div>
 </td></tr>
 <tr><td style="background-color:#1a1a1a;padding:30px;text-align:center;">
@@ -299,7 +300,38 @@ MoustacheLeads Team
     def send_advertiser_confirmation_email(self, email, name, company_name=''):
         if not self.is_configured:
             return False
-        html = f'<!DOCTYPE html><html><body><p>Dear {name}, thank you for registering as advertiser!</p></body></html>'
+        year = datetime.now().year
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;font-family:Arial,sans-serif;background-color:#f5f5f5;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f5f5f5;padding:30px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;">
+<tr><td style="background-color:#000000;padding:40px;text-align:center;">
+<img src="{LOGO_URL}" alt="MoustacheLeads" style="max-width:200px;margin-bottom:20px;" border="0" />
+<h1 style="color:#ffffff;font-size:32px;margin:0;">Welcome, {name}!</h1>
+</td></tr>
+<tr><td style="padding:40px;">
+<p style="color:#333333;font-size:16px;line-height:1.6;">Dear {name},</p>
+<p style="color:#333333;font-size:16px;line-height:1.6;">Thank you for registering as an advertiser with MoustacheLeads!</p>
+<p style="color:#cc3300;font-size:15px;line-height:1.6;font-weight:bold;margin:20px 0;background-color:#fff5f5;padding:15px;border-left:4px solid #cc3300;border-radius:4px;">
+⚠️ IMPORTANT: Please check your Spam/Junk folder for future updates from us. If our emails end up in your spam folder, please mark them as "Not Spam" to ensure you receive future approvals, transaction details, and invoicing notifications.
+</p>
+<p style="color:#333333;font-size:16px;line-height:1.6;">Your application is currently under review by our onboarding team. We will activate your account as soon as possible.</p>
+</td></tr>
+<tr><td style="background-color:#1a1a1a;padding:30px;text-align:center;">
+<p style="color:#ffffff;font-size:18px;font-weight:800;margin:0;">MoustacheLeads</p>
+<p style="color:#666666;font-size:11px;margin:10px 0 0 0;">(c) {year}</p>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
         return self._send_email(email, 'Welcome to MoustacheLeads - Advertiser Registration Received', html)
 
     def send_advertiser_under_review_email(self, email, name, company_name=''):

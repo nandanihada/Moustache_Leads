@@ -514,7 +514,10 @@ def register():
         if not verification_token:
             logging.warning(f"⚠️ Failed to generate verification token for {email}")
         else:
-            logging.info(f"✅ Verification token generated for {email}")
+            frontend_url = os.getenv('FRONTEND_URL', 'https://moustacheleads.com')
+            backend_url = request.url_root.rstrip('/')
+            logging.info(f"📧 [TESTING] Verification Link: {frontend_url}/verify-email?token={verification_token}")
+            logging.info(f"📧 [TESTING] Backend Link: {backend_url}/api/auth/verify-email-link?token={verification_token}")
         
         # Send verification email asynchronously (non-blocking)
         # This prevents worker timeout if email service is slow or unavailable
@@ -618,7 +621,7 @@ def register():
             logging.error(f"Failed to trigger automation for user {username}: {auto_err}")
 
         return jsonify({
-            'message': 'User registered successfully. Please check your email to verify your account.',
+            'message': 'User registered successfully. Please check your email (and check your spam/junk folder) to verify your account.',
             'token': token,
             'email_verification_required': True,
             'user': {

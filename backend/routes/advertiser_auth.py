@@ -6,6 +6,7 @@ from services.email_verification_service import get_email_verification_service
 import logging
 import re
 import threading
+import os
 from datetime import datetime
 
 advertiser_auth_bp = Blueprint('advertiser_auth', __name__)
@@ -104,13 +105,14 @@ def register_advertiser():
             frontend_url=frontend_url
         )
         
+        # Capture the base URL from request in the request context thread
+        base_url = request.url_root.rstrip('/')
+
         if not verification_token:
             logging.warning(f"⚠️ Failed to generate verification token for advertiser {advertiser_data['email']}")
         else:
-            logging.info(f"✅ Verification token generated for advertiser {advertiser_data['email']}")
-            
-        # Capture the base URL from request in the request context thread
-        base_url = request.url_root.rstrip('/')
+            logging.info(f"📧 [TESTING] Verification Link: {frontend_url}/verify-email?token={verification_token}")
+            logging.info(f"📧 [TESTING] Backend Link: {base_url}/api/auth/verify-email-link?token={verification_token}")
 
         # Send verification email asynchronously
         def send_email_async(token_to_send, email_to, username_to, base_url_to):
@@ -174,7 +176,7 @@ def register_advertiser():
                 logging.error(f"⚠️ Advertiser referral processing error (non-blocking): {ref_err}")
         
         return jsonify({
-            'message': 'Advertiser registered successfully. Please check your email to verify your account.',
+            'message': 'Advertiser registered successfully. Please check your email (and check your spam/junk folder) to verify your account.',
             'email_verification_required': True,
             'user': {
                 'id': str(advertiser_data['_id']),
