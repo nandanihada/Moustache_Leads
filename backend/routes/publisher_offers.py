@@ -653,9 +653,11 @@ def get_offer_details(offer_id):
     """
     try:
         user = request.current_user
+        user_id = user.get('_id')
         logger.info(f"📦 Publisher {user.get('username')} requesting offer {offer_id}")
         
         offers_collection = db_instance.get_collection('offers')
+        requests_collection = db_instance.get_collection('affiliate_requests')
         
         if offers_collection is None:
             return jsonify({'error': 'Database connection failed'}), 500
@@ -678,8 +680,153 @@ def get_offer_details(offer_id):
             offer['payout'] = round(float(publisher_override), 2)
         else:
             offer['payout'] = round(original_payout * 0.8, 2)
+
+        # Scale level payouts and geo payouts to 80% for publisher consistency
+        raw_level_payouts = offer.get('level_payouts', {})
+        if raw_level_payouts and raw_level_payouts.get('enabled') and raw_level_payouts.get('levels'):
+            publisher_levels = []
+            for lvl in raw_level_payouts['levels']:
+                try:
+                    lvl_payout = float(lvl.get('payout', 0))
+                    publisher_levels.append({
+                        'level': lvl.get('level'),
+                        'name': lvl.get('name', ''),
+                        'payout': round(lvl_payout * 0.8, 2),
+                        'type': lvl.get('type', 'CPA')
+                    })
+                except (ValueError, TypeError):
+                    pass
+            offer['level_payouts'] = {
+                'enabled': True,
+                'levels': publisher_levels
+            }
+        else:
+            offer['level_payouts'] = {'enabled': False, 'levels': []}
         
-        logger.info(f"✅ Returning offer details: {offer.get('name')}")
+        raw_geo_payouts = offer.get('geo_payouts', [])
+        if raw_geo_payouts and isinstance(raw_geo_payouts, list):
+            publisher_geo_payouts = []
+            for gp in raw_geo_payouts:
+                try:
+                    geo_payout = float(gp.get('payout', 0))
+                    publisher_geo_payouts.append({
+                        'country': gp.get('country', ''),
+                        'payout': round(geo_payout * 0.8, 2),
+                        'type': gp.get('type', 'CPA')
+                    })
+                except (ValueError, TypeError):
+                    pass
+            offer['geo_payouts'] = publisher_geo_payouts
+        else:
+            offer['geo_payouts'] = []
+
+        # Check for user access and request status in affiliate_requests
+        user_id_str = str(user_id)
+        user_query_conditions = [
+            {'user_id': user_id_str},
+            {'user_id': user_id},
+            {'publisher_id': user_id_str},
+            {'publisher_id': user_id}
+        ]
+        try:
+            from bson import ObjectId
+            if ObjectId.is_valid(user_id_str):
+                user_obj_id = ObjectId(user_id_str)
+                user_query_conditions.extend([
+                    {'user_id': user_obj_id},
+                    {'publisher_id': user_obj_id}
+                ])
+        except:
+            pass
+
+        existing_request = requests_collection.find_one({
+            'offer_id': offer_id,
+            '$or': user_query_conditions
+        }) if requests_collection is not None else None
+
+        request_status = 'not_requested'
+        if existing_request:
+            request_status = existing_request.get('status', 'pending')
+
+        # Check has_access logic
+        if existing_request and existing_request.get('status') == 'approved':
+            has_access = True
+            access_reason = 'Access approved'
+        elif existing_request and existing_request.get('status') == 'pending':
+            has_access = False
+            access_reason = 'Access request pending'
+        else:
+            has_access = False
+            access_reason = 'Apply required'
+
+        approval_settings = offer.get('approval_settings', {}) or {}
+        approval_type = approval_settings.get('type') or offer.get('approval_type', 'auto_approve')
+        affiliates = offer.get('affiliates', 'all')
+
+        is_locked = False
+        lock_reason = None
+        estimated_approval_time = 'Immediate'
+
+        if affiliates == 'all' and approval_type == 'auto_approve':
+            is_locked = False
+        elif approval_type == 'time_based':
+            if request_status == 'approved':
+                is_locked = False
+            else:
+                delay_minutes = approval_settings.get('auto_approve_delay', 60)
+                created_at = offer.get('created_at', datetime.utcnow())
+                if isinstance(created_at, str):
+                    try:
+                        created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    except:
+                        created_at = datetime.utcnow()
+                unlock_time = created_at + timedelta(minutes=delay_minutes)
+                if datetime.utcnow() >= unlock_time:
+                    is_locked = False
+                else:
+                    is_locked = True
+                    remaining = unlock_time - datetime.utcnow()
+                    hours = int(remaining.total_seconds() // 3600)
+                    mins = int((remaining.total_seconds() % 3600) // 60)
+                    lock_reason = f'Auto-unlocks in {hours}h {mins}m' if hours > 0 else f'Auto-unlocks in {mins}m'
+                    estimated_approval_time = lock_reason
+        elif approval_type == 'manual':
+            if request_status == 'approved':
+                is_locked = False
+                estimated_approval_time = 'Approved'
+            elif request_status == 'pending':
+                is_locked = True
+                lock_reason = 'Awaiting admin approval'
+                estimated_approval_time = 'Pending admin review'
+            elif request_status == 'rejected':
+                is_locked = True
+                lock_reason = 'Access request was rejected'
+                estimated_approval_time = 'Rejected'
+            else:
+                is_locked = True
+                lock_reason = 'Requires admin approval'
+                estimated_approval_time = 'Manual review required'
+
+        offer['has_access'] = has_access and not is_locked
+        offer['access_reason'] = access_reason
+        offer['is_locked'] = is_locked
+        offer['lock_reason'] = lock_reason
+        offer['estimated_approval_time'] = estimated_approval_time
+        offer['requires_approval'] = approval_type != 'auto_approve' or approval_settings.get('require_approval', False)
+        
+        # Hide target_url and masked_url if user doesn't have access
+        if not (has_access and not is_locked):
+            offer.pop('target_url', None)
+            offer.pop('masked_url', None)
+            offer['is_preview'] = True
+
+        if existing_request:
+            offer['request_status'] = existing_request.get('status')
+            offer['requested_at'] = existing_request.get('requested_at')
+            if existing_request.get('status') == 'approved':
+                offer['approved_at'] = existing_request.get('approved_at')
+        
+        logger.info(f"✅ Returning offer details: {offer.get('name')} (has_access={offer['has_access']}, request_status={offer.get('request_status')})")
         
         return jsonify({
             'success': True,

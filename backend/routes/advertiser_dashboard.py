@@ -408,6 +408,52 @@ def deposit_funds():
         return jsonify({'error': f'Failed to deposit: {str(e)}'}), 500
 
 
+@advertiser_dashboard_bp.route('/deposit/manual', methods=['POST'])
+@advertiser_token_required
+def deposit_manual_funds():
+    """Submit a manual deposit (USDT/crypto) request for admin verification"""
+    try:
+        advertiser_id = request.advertiser_id
+        
+        data = request.get_json()
+        amount = float(data.get('amount', 0))
+        method = data.get('method', 'usdt')
+        txid = data.get('txid', '').strip()
+        
+        if amount <= 0:
+            return jsonify({'error': 'Amount must be greater than 0'}), 400
+        if not txid:
+            return jsonify({'error': 'Transaction hash (TXID) is required'}), 400
+            
+        tx_collection = db_instance.get_collection('wallet_transactions')
+        if tx_collection is not None:
+            # Check for duplicate txid to prevent double spending
+            duplicate = tx_collection.find_one({'external_ref': txid})
+            if duplicate:
+                return jsonify({'error': 'This transaction hash (TXID) has already been submitted'}), 400
+                
+            tx_collection.insert_one({
+                'advertiser_id': advertiser_id,
+                'type': 'deposit',
+                'method': method,
+                'amount': amount,
+                'status': 'pending',
+                'external_ref': txid,
+                'created_at': datetime.utcnow()
+            })
+            
+        logger.info(f"Manual {method} deposit of ${amount} submitted by advertiser {advertiser_id}. TXID: {txid}")
+        
+        return jsonify({
+            'message': 'Deposit request submitted successfully. It will be credited after admin verification.',
+            'success': True
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error submitting manual deposit: {str(e)}", exc_info=True)
+        return jsonify({'error': f'Failed to submit deposit: {str(e)}'}), 500
+
+
 def get_paypal_access_token():
     """Helper to authenticate with PayPal API and retrieve bearer token"""
     import requests

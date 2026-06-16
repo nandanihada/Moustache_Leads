@@ -477,3 +477,146 @@ def get_advertiser_deposits():
         return jsonify({'error': f"Failed to get deposits: {str(e)}"}), 500
 
 
+@admin_advertisers_bp.route('/deposits/<tx_id>/approve', methods=['POST'])
+@token_required
+@admin_required
+def approve_manual_deposit(tx_id):
+    """Approve a pending manual deposit (USDT/wire) and credit the advertiser's balance"""
+    try:
+        tx_col = db_instance.get_collection('wallet_transactions')
+        adv_col = get_advertisers_collection()
+        
+        if tx_col is None or adv_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        tx = tx_col.find_one({'_id': ObjectId(tx_id)})
+        if not tx:
+            return jsonify({'error': 'Transaction not found'}), 404
+            
+        if tx.get('status') != 'pending':
+            return jsonify({'error': f'Transaction is already {tx.get("status")}'}), 400
+            
+        advertiser_id = tx.get('advertiser_id')
+        amount = float(tx.get('amount', 0.0))
+        
+        # Credit advertiser balance
+        res = adv_col.update_one(
+            {'_id': ObjectId(advertiser_id)},
+            {'$inc': {'balance': amount}}
+        )
+        
+        if res.matched_count == 0:
+            return jsonify({'error': 'Advertiser not found'}), 404
+            
+        # Update transaction status
+        tx_col.update_one(
+            {'_id': ObjectId(tx_id)},
+            {'$set': {
+                'status': 'confirmed',
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        logger.info(f"Manual deposit transaction {tx_id} approved. Credited advertiser {advertiser_id} with ${amount}")
+        
+        return jsonify({
+            'success': True,
+            'message': f'Deposit approved and credited successfully.'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error approving manual deposit: {str(e)}", exc_info=True)
+        return jsonify({'error': f"Failed to approve deposit: {str(e)}"}), 500
+
+
+@admin_advertisers_bp.route('/deposits/<tx_id>/reject', methods=['POST'])
+@token_required
+@admin_required
+def reject_manual_deposit(tx_id):
+    """Reject a pending manual deposit (USDT/wire)"""
+    try:
+        tx_col = db_instance.get_collection('wallet_transactions')
+        if tx_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        tx = tx_col.find_one({'_id': ObjectId(tx_id)})
+        if not tx:
+            return jsonify({'error': 'Transaction not found'}), 404
+            
+        if tx.get('status') != 'pending':
+            return jsonify({'error': f'Transaction is already {tx.get("status")}'}), 400
+            
+        # Update transaction status
+        tx_col.update_one(
+            {'_id': ObjectId(tx_id)},
+            {'$set': {
+                'status': 'failed',
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        logger.info(f"Manual deposit transaction {tx_id} rejected.")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Deposit transaction rejected.'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error rejecting manual deposit: {str(e)}", exc_info=True)
+        return jsonify({'error': f"Failed to reject deposit: {str(e)}"}), 500
+
+
+@admin_advertisers_bp.route('/deposits/<tx_id>/revert', methods=['POST'])
+@token_required
+@admin_required
+def revert_manual_deposit(tx_id):
+    """Revert an approved deposit (confirmed -> failed) and deduct from the advertiser's balance"""
+    try:
+        tx_col = db_instance.get_collection('wallet_transactions')
+        adv_col = get_advertisers_collection()
+        
+        if tx_col is None or adv_col is None:
+            return jsonify({'error': 'Database connection failed'}), 500
+            
+        tx = tx_col.find_one({'_id': ObjectId(tx_id)})
+        if not tx:
+            return jsonify({'error': 'Transaction not found'}), 404
+            
+        if tx.get('status') != 'confirmed':
+            return jsonify({'error': f'Transaction status is {tx.get("status")}, only confirmed transactions can be reverted'}), 400
+            
+        advertiser_id = tx.get('advertiser_id')
+        amount = float(tx.get('amount', 0.0))
+        
+        # Deduct advertiser balance
+        res = adv_col.update_one(
+            {'_id': ObjectId(advertiser_id)},
+            {'$inc': {'balance': -amount}}
+        )
+        
+        if res.matched_count == 0:
+            return jsonify({'error': 'Advertiser not found'}), 404
+            
+        # Update transaction status to failed
+        tx_col.update_one(
+            {'_id': ObjectId(tx_id)},
+            {'$set': {
+                'status': 'failed',
+                'updated_at': datetime.utcnow()
+            }}
+        )
+        
+        logger.info(f"Manual deposit transaction {tx_id} reverted (status set to failed). Deducted ${amount} from advertiser {advertiser_id}")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Deposit successfully reverted and deducted from balance.'
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error reverting manual deposit: {str(e)}", exc_info=True)
+        return jsonify({'error': f"Failed to revert deposit: {str(e)}"}), 500
+
+
+

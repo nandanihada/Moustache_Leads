@@ -4,7 +4,7 @@ import {
   MousePointerClick, MonitorSmartphone, Smartphone, Monitor, Tablet,
   Check, X, Info, Wallet, CreditCard, Bitcoin, Banknote, Building2,
   Sun, Moon, CircleHelp, Sparkles, Plus, ShieldCheck, Zap,
-  TrendingUp, Lock, PanelLeftClose, PanelLeftOpen, PanelRightClose, Bell, FileEdit, Clock, ChevronDown
+  TrendingUp, Lock, PanelLeftClose, PanelLeftOpen, PanelRightClose, Bell, FileEdit, Clock, ChevronDown, Link
 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
@@ -238,7 +238,7 @@ const TIMEZONES = [
 ];
 const PAYMENT_METHODS = [
   { id: "card", name: "Credit / Debit Card", desc: "Visa, Mastercard. Instant.", Icon: CreditCard, badge: "Instant", min: 25 },
-  { id: "usdt", name: "USDT (TRC20 / ERC20)", desc: "Tether. Send to our wallet address below.", Icon: Bitcoin, badge: "Coming soon", min: 50, address: "TXy9k2Lp8mQeR4vWnZ3hC7tF6sB1dGj5Ku", disabled: true },
+  { id: "usdt", name: "USDT (TRC20 / ERC20)", desc: "Tether. Send to our wallet address below.", Icon: Bitcoin, badge: "Manual", min: 50, address: "TYnH2cS6zqTHgwAfU62Sjcnv5biy4dXVAm", disabled: false },
   { id: "btc", name: "Bitcoin", desc: "BTC on-chain.", Icon: Bitcoin, badge: "Coming soon", min: 50, disabled: true },
   { id: "paypal", name: "PayPal", desc: "Pay with your PayPal account or card.", Icon: Wallet, badge: "Instant", min: 25 },
   { id: "capitalist", name: "Capitalist", desc: "Popular with buyers.", Icon: Banknote, badge: "Coming soon", min: 50, disabled: true },
@@ -1142,6 +1142,7 @@ export default function CampaignBuilder() {
    ==================================================================== */
 function BuilderPage({ t, form, set, refMap, active, jump, balance, onAddFunds, onSubmitOffer, toggleCountry, errors, submitting, onSaveDraft, savingDraft, editingId, notifications, unreadCount, onMarkAllRead, subOpen, setSubOpen, summaryOpen, setSummaryOpen, dark, setDark }: any) {
   const fmt = AD_FORMATS.find((f) => f.id === form.format);
+  const [mapperExpanded, setMapperExpanded] = useState(true);
   
   // Calculate country score dynamically (up to 4 countries count towards full completion of the country step)
   const countriesScore = Math.min(1.0, form.countries.length * 0.25);
@@ -1159,23 +1160,79 @@ function BuilderPage({ t, form, set, refMap, active, jump, balance, onAddFunds, 
   // map each section to a short label for the sub-sidebar
   const SHORT: any = { main: "Main", traffic: "Traffic", countries: "Countries", budget: "Budget", targeting: "Targeting", retargeting: "Retarget", schedule: "Schedule" };
 
-  // Tracking macros the advertiser can insert into their Target URL.
-  const URL_MACROS = [
-    { label: "Click ID", token: "{CLICK_ID}" },
-    { label: "Country", token: "{COUNTRY}" },
-    { label: "Device", token: "{DEVICE}" },
-    { label: "OS", token: "{OS}" },
-    { label: "Source / Zone", token: "{ZONE_ID}" },
-  ];
-  // Append a macro to the end of the URL. Adds ?key=macro or &key=macro
-  // automatically based on whether the URL already has a query string.
-  const appendMacro = (m: any) => {
-    const key = m.label.toLowerCase().replace(/\s*\/\s*/g, "_").replace(/\s+/g, "_");
-    const cur = form.targetUrl || "";
-    const sep = cur.includes("?") ? "&" : "?";
-    const base = cur || "https://your-offer.com/";
-    set("targetUrl", `${base}${sep}${key}=${m.token}`);
+  // Helper to parse parameter names for our macros from the target URL
+  const parseUrlParams = (url: string) => {
+    const params = {
+      click_id: "",
+      sub1: "",
+      country: "",
+      device_type: "",
+      payout: ""
+    };
+    if (!url) return params;
+    try {
+      // If no query string, return empty
+      const qIndex = url.indexOf("?");
+      if (qIndex === -1) return params;
+      
+      const searchParams = new URLSearchParams(url.substring(qIndex + 1));
+      for (const [key, val] of searchParams.entries()) {
+        if (val === "{click_id}") params.click_id = key;
+        else if (val === "{sub1}") params.sub1 = key;
+        else if (val === "{country}") params.country = key;
+        else if (val === "{device_type}") params.device_type = key;
+        else if (val === "{payout}") params.payout = key;
+      }
+    } catch (e) {
+      // fallback manual regex parsing if URLSearchParams fails
+      const matchClick = url.match(/[\?&]([^=]+)=\{click_id\}/);
+      if (matchClick) params.click_id = matchClick[1];
+      const matchSub1 = url.match(/[\?&]([^=]+)=\{sub1\}/);
+      if (matchSub1) params.sub1 = matchSub1[1];
+      const matchCountry = url.match(/[\?&]([^=]+)=\{country\}/);
+      if (matchCountry) params.country = matchCountry[1];
+      const matchDevice = url.match(/[\?&]([^=]+)=\{device_type\}/);
+      if (matchDevice) params.device_type = matchDevice[1];
+      const matchPayout = url.match(/[\?&]([^=]+)=\{payout\}/);
+      if (matchPayout) params.payout = matchPayout[1];
+    }
+    return params;
   };
+
+  // Helper to update the target URL with a custom parameter name mapping to our macro
+  const updateUrlParam = (macroName: string, newParamName: string) => {
+    let curUrl = form.targetUrl || "";
+    let baseUrl = curUrl.split("?")[0] || "https://your-offer.com";
+    
+    let searchParams = new URLSearchParams();
+    const qIndex = curUrl.indexOf("?");
+    if (qIndex !== -1) {
+      searchParams = new URLSearchParams(curUrl.substring(qIndex + 1));
+    }
+    
+    // Remove any key that currently maps to this macro
+    const macroToken = `{${macroName}}`;
+    const keysToRemove: string[] = [];
+    for (const [key, val] of searchParams.entries()) {
+      if (val === macroToken) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(key => searchParams.delete(key));
+    
+    // Add new mapping if param name is not empty
+    if (newParamName.trim()) {
+      searchParams.set(newParamName.trim(), macroToken);
+    }
+    
+    const qs = searchParams.toString();
+    const decodedQs = qs
+      .replace(/%7B/g, "{")
+      .replace(/%7D/g, "}");
+      
+    set("targetUrl", decodedQs ? `${baseUrl}?${decodedQs}` : baseUrl);
+  };
+
 
   return (
     <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
@@ -1247,25 +1304,121 @@ function BuilderPage({ t, form, set, refMap, active, jump, balance, onAddFunds, 
               <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. US/CA/UK/DE — Popunder CPA Sign-Up" style={{ ...inputStyle(t), border: `1px solid ${errors.name ? t.red : t.border}` }} />
               {errors.name && <div style={{ fontSize: 12, color: t.red, marginTop: 6 }}>{errors.name}</div>}
             </div>
-            <div style={{ marginBottom: 24 }}>
-              <FieldLabel t={t} hint="Where users land after clicking. Click a tag below to add tracking macros.">Target URL</FieldLabel>
-              <input value={form.targetUrl} onChange={(e) => set("targetUrl", e.target.value)} placeholder="https://your-offer.com/?clickid={CLICK_ID}" style={{ ...inputStyle(t), border: `1px solid ${errors.targetUrl ? t.red : t.border}` }} />
-              {errors.targetUrl
-                ? <div style={{ fontSize: 12, color: t.red, marginTop: 6 }}>{errors.targetUrl}</div>
-                : <div style={{ fontSize: 12, color: t.textFaint, marginTop: 6 }}>Add tracking macros so the data you want is passed to your tracker. Click ID is required for conversions to track back.</div>}
-              {/* macro palette */}
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 7, marginTop: 10 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: t.textDim, marginRight: 2 }}>Add macro:</span>
-                {URL_MACROS.map((m) => (
-                  <button key={m.token} type="button" onClick={() => appendMacro(m)} title={`Append ${m.token}`} style={{
-                    display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                    color: t.brand, background: t.brandSoft, border: `1px solid ${t.brand}33`, padding: "5px 10px", borderRadius: 6,
-                  }}>
-                    <Plus size={12} /> {m.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+             <div style={{ marginBottom: 24 }}>
+               <FieldLabel t={t} hint="Where users land after clicking. Map your tracking parameters below.">Target URL</FieldLabel>
+               <input value={form.targetUrl} onChange={(e) => set("targetUrl", e.target.value)} placeholder="https://your-offer.com/?clickid={click_id}" style={{ ...inputStyle(t), border: `1px solid ${errors.targetUrl ? t.red : t.border}` }} />
+               {errors.targetUrl
+                 ? <div style={{ fontSize: 12, color: t.red, marginTop: 6 }}>{errors.targetUrl}</div>
+                 : <div style={{ fontSize: 12, color: t.textFaint, marginTop: 6 }}>Map tracking parameters so that conversion clicks can be correctly tracked back to your tracker.</div>}
+               
+               {/* Parameter Mapping Blocks */}
+               <div style={{ marginTop: 16, border: `1px solid ${t.border}`, borderRadius: 8, padding: 14, background: t.panelAlt }}>
+                 <div 
+                   onClick={() => setMapperExpanded(!mapperExpanded)}
+                   style={{ fontSize: 13, fontWeight: 700, color: t.text, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}
+                 >
+                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                     <Link size={14} color={t.brand} /> Tracking Parameter Builder
+                   </div>
+                   <div style={{ display: "flex", alignItems: "center", gap: 4, color: t.textDim, fontSize: 12 }}>
+                     {mapperExpanded ? "Collapse" : "Expand"}
+                     <ChevronDown 
+                       size={15} 
+                       style={{ 
+                         transform: mapperExpanded ? "rotate(180deg)" : "rotate(0deg)", 
+                         transition: "transform 0.2s" 
+                       }} 
+                     />
+                   </div>
+                 </div>
+
+                 {!mapperExpanded && (
+                   <div style={{ marginTop: 10, padding: 10, background: t.panel, borderRadius: 6, border: `1px solid ${t.border}` }}>
+                     <div style={{ fontSize: 11, fontWeight: 600, color: t.textDim, marginBottom: 5 }}>Created Link Preview:</div>
+                     <code style={{ fontSize: 11.5, wordBreak: "break-all", color: t.brand, display: "block", fontFamily: "monospace", padding: "6px 10px", background: t.panelAlt, borderRadius: 4, border: `1px solid ${t.border}` }}>
+                       {form.targetUrl || "No target URL set"}
+                     </code>
+                   </div>
+                 )}
+
+                 {mapperExpanded && (
+                   <div style={{ marginTop: 12 }}>
+                     <div style={{ fontSize: 11.5, color: t.textDim, marginBottom: 12, lineHeight: "1.4" }}>
+                       Enter the parameter name your tracking system expects on the left. We will automatically append it to your Target URL with our correct macro on the right.
+                     </div>
+                     
+                     <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+                       {[
+                         { label: "Click ID", macro: "click_id", desc: "Passes our unique click identifier (Required for S2S conversions)", required: true },
+                         { label: "Sub ID 1", macro: "sub1", desc: "Passes publisher side sub-ids or extra click parameters", required: false },
+                         { label: "Country", macro: "country", desc: "Passes user country (e.g. US, GB)", required: false },
+                         { label: "Device", macro: "device_type", desc: "Passes device type (mobile, desktop, tablet)", required: false },
+                         { label: "Payout", macro: "payout", desc: "Passes offer payout value", required: false }
+                       ].map((item) => {
+                         const parsedParams = parseUrlParams(form.targetUrl);
+                         const currentValue = parsedParams[item.macro as keyof typeof parsedParams] || "";
+                         
+                         return (
+                           <div key={item.macro} style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "8px 12px", background: t.panel, border: `1px solid ${t.border}`, borderRadius: 6 }}>
+                             <div style={{ flex: "1 1 200px" }}>
+                               <span style={{ fontSize: 12, fontWeight: 700, color: t.text }}>
+                                 {item.label} {item.required && <span style={{ color: t.red }}>*</span>}
+                               </span>
+                               <div style={{ fontSize: 10.5, color: t.textFaint, marginTop: 1 }}>{item.desc}</div>
+                             </div>
+                             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "0 0 auto" }}>
+                               <input 
+                                 type="text" 
+                                 value={currentValue}
+                                 onChange={(e) => updateUrlParam(item.macro, e.target.value)}
+                                 placeholder={item.required ? "e.g. click_id" : "optional param name"}
+                                 style={{ 
+                                   width: 140, 
+                                   fontSize: 11.5, 
+                                   padding: "6px 8px", 
+                                   borderRadius: 4, 
+                                   border: `1px solid ${t.border}`, 
+                                   background: t.panelAlt,
+                                   color: t.text 
+                                 }} 
+                               />
+                               <span style={{ fontSize: 12, color: t.textDim, fontWeight: 500 }}>=</span>
+                               <code style={{ fontSize: 11, background: t.panelAlt, padding: "4px 8px", borderRadius: 4, border: `1px solid ${t.border}`, color: t.brand, fontWeight: 600 }}>
+                                 {`{${item.macro}}`}
+                               </code>
+                             </div>
+                           </div>
+                         );
+                       })}
+                     </div>
+
+                     <button
+                       type="button"
+                       onClick={() => setMapperExpanded(false)}
+                       style={{
+                         width: "100%",
+                         padding: "8px 12px",
+                         borderRadius: 6,
+                         border: "none",
+                         background: t.brandGrad,
+                         color: "#fff",
+                         fontWeight: 700,
+                         fontSize: 12.5,
+                         cursor: "pointer",
+                         display: "flex",
+                         alignItems: "center",
+                         justifyContent: "center",
+                         gap: 6,
+                         marginTop: 12,
+                         boxShadow: t.glow
+                       }}
+                     >
+                       <Check size={14} /> Save Mappings & Collapse
+                     </button>
+                   </div>
+                 )}
+               </div>
+             </div>
             <FieldLabel t={t}>Ad format — what kind of ad to run</FieldLabel>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
               {AD_FORMATS.map((f) => (
@@ -1592,6 +1745,9 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
   const [paypalError, setPaypalError] = useState(false);
   const [cardBtnEligible, setCardBtnEligible] = useState(true);
   const [paypalMode, setPaypalMode] = useState("sandbox");
+  const [txid, setTxid] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [manualSubmitting, setManualSubmitting] = useState(false);
 
   const presets = [50, 100, 250, 500, 1000];
   const sel = PAYMENT_METHODS.find((m) => m.id === method) as any;
@@ -1599,6 +1755,46 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
   const valid = amt >= (sel?.min || 0);
 
   const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
+  const handleCopy = () => {
+    if (sel && sel.address) {
+      navigator.clipboard.writeText(sel.address);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleManualDeposit = async () => {
+    if (!valid || !txid.trim()) return;
+    setManualSubmitting(true);
+    try {
+      const token = localStorage.getItem('advertiser_token');
+      const res = await fetch(`${API_BASE}/api/advertiser/deposit/manual`, {
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          amount: amt,
+          method: method,
+          txid: txid.trim()
+        })
+      });
+      if (res.ok) {
+        alert("Deposit request submitted successfully! Your balance will update once verified by the admin.");
+        onBack();
+      } else {
+        const errorData = await res.json();
+        alert(errorData.error || "Failed to submit deposit request");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error submitting deposit request.");
+    } finally {
+      setManualSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if ((method !== "paypal" && method !== "card") || !valid) return;
@@ -1796,26 +1992,75 @@ function DepositPage({ t, onBack, balance, onDeposit, onPaypalSuccess }: any) {
             </div>
             {!valid && amount && <div style={{ fontSize: 12.5, color: t.red, marginTop: 8 }}>Minimum for {sel.name} is ${sel.min}.</div>}
             
-            {method === "card" && !cardBtnEligible && (
-              <div style={{ marginTop: 12, padding: "10px 12px", background: t.panelAlt, border: `1px solid ${t.border}`, borderRadius: 6, fontSize: 12, color: t.textDim, lineHeight: 1.45 }}>
-                💡 Direct Credit/Debit card payment is processed securely via PayPal guest checkout. Click the button below, then choose <strong>"Pay with Debit or Credit Card"</strong> in the popup (no account required).
+            {method === "usdt" && (
+              <div style={{ marginTop: 16, borderTop: `1px solid ${t.border}`, paddingTop: 16 }}>
+                <div style={{ background: t.panelAlt, border: `1px solid ${t.border}`, borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}>
+                    <span style={{ color: t.textDim }}>Asset:</span>
+                    <strong style={{ color: t.text }}>USDT</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}>
+                    <span style={{ color: t.textDim }}>Network:</span>
+                    <strong style={{ color: t.text }}>Tron (TRC20)</strong>
+                  </div>
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 12, color: t.textDim, marginBottom: 4 }}>Deposit Address:</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input type="text" readOnly value={sel.address} style={{ ...inputStyle(t), flex: 1, fontSize: 12, padding: "8px 10px", background: t.panel }} />
+                      <button type="button" onClick={handleCopy} style={{ padding: "8px 12px", borderRadius: 6, border: `1px solid ${t.border}`, background: t.panelAlt, cursor: "pointer", color: t.brand, fontSize: 12, fontWeight: 600 }}>
+                        {copied ? "Copied!" : "Copy"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <FieldLabel t={t}>Transaction Hash (TXID)</FieldLabel>
+                <input type="text" value={txid} onChange={(e) => setTxid(e.target.value)} placeholder="Enter your TRC20 TXID..." style={{ ...inputStyle(t), marginBottom: 8 }} />
+                <div style={{ fontSize: 11.5, color: t.textDim, marginBottom: 16, lineHeight: "1.4" }}>
+                  💡 After sending the payment, copy the Transaction Hash (TXID) from your wallet receipt and paste it above. Your account balance will update once verified and approved by the admin.
+                </div>
+                
+                <button
+                  type="button"
+                  disabled={!valid || !txid.trim() || manualSubmitting}
+                  onClick={handleManualDeposit}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: (!valid || !txid.trim()) ? t.border : t.brand,
+                    color: "#fff",
+                    fontWeight: 700,
+                    fontSize: 14.5,
+                    cursor: (!valid || !txid.trim() || manualSubmitting) ? "not-allowed" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 8
+                  }}
+                >
+                  {manualSubmitting ? "Submitting..." : "Submit Deposit Request"}
+                </button>
               </div>
             )}
 
-            {valid ? (
-              <div style={{ marginTop: 16 }}>
-                <div id="paypal-button-container" style={{ minHeight: 45 }}></div>
-                {paypalError && (
-                  <div style={{ color: t.red, fontSize: 12, marginTop: 8, textAlign: "center" }}>
-                    Failed to load PayPal Buttons. Check your connection or ad-blocker.
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button type="button" disabled style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 8, border: "none", background: t.border, color: "#fff", fontWeight: 700, fontSize: 14.5, cursor: "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><Wallet size={17} /> Deposit</button>
+            {method !== "usdt" && (
+              valid ? (
+                <div style={{ marginTop: 16 }}>
+                  <div id="paypal-button-container" style={{ minHeight: 45 }}></div>
+                  {paypalError && (
+                    <div style={{ color: t.red, fontSize: 12, marginTop: 8, textAlign: "center" }}>
+                      Failed to load PayPal Buttons. Check your connection or ad-blocker.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button type="button" disabled style={{ width: "100%", marginTop: 16, padding: "12px", borderRadius: 8, border: "none", background: t.border, color: "#fff", fontWeight: 700, fontSize: 14.5, cursor: "not-allowed", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}><Wallet size={17} /> Deposit</button>
+              )
             )}
             
-            <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginTop: 12, fontSize: 11.5, color: t.textFaint }}><ShieldCheck size={13} /> Secured · demo environment</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "center", marginTop: 12, fontSize: 11.5, color: t.textFaint }}><ShieldCheck size={13} /> Secured · payment environment</div>
           </div>
         </div>
       </div>

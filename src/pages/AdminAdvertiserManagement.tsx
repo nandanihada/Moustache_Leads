@@ -91,6 +91,12 @@ const AdminAdvertiserManagement = () => {
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const [selectedAdvertiser, setSelectedAdvertiser] = useState<Advertiser | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [depMethodFilter, setDepMethodFilter] = useState("all");
+  const [depStatusFilter, setDepStatusFilter] = useState("all");
+  const [depStartDate, setDepStartDate] = useState("");
+  const [depEndDate, setDepEndDate] = useState("");
+  const [depCurrentPage, setDepCurrentPage] = useState(1);
+  const [depRowsPerPage, setDepRowsPerPage] = useState(20);
   const { toast } = useToast();
 
   const fetchAdvertisers = async (status?: string) => {
@@ -290,6 +296,120 @@ const AdminAdvertiserManagement = () => {
     }
   };
 
+  const handleApproveDeposit = async (depositId: string) => {
+    try {
+      setActionLoading(depositId);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${API_BASE_URL}/api/admin/deposits/${depositId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to approve deposit');
+      }
+
+      toast({
+        title: "Deposit Approved",
+        description: "Deposit has been approved and credited to advertiser's balance.",
+      });
+
+      fetchDeposits();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to approve deposit",
+        variant: "destructive"
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRejectDeposit = async (depositId: string) => {
+    try {
+      setActionLoading(depositId);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${API_BASE_URL}/api/admin/deposits/${depositId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reject deposit');
+      }
+
+      toast({
+        title: "Deposit Rejected",
+        description: "Deposit has been rejected.",
+      });
+
+      fetchDeposits();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to reject deposit",
+        variant: "destructive"
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleRevertDeposit = async (depositId: string) => {
+    if (!window.confirm("Are you sure you want to revert this deposit? This will deduct the deposit amount from the advertiser's balance and mark the deposit as failed.")) {
+      return;
+    }
+    
+    try {
+      setActionLoading(depositId);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${API_BASE_URL}/api/admin/deposits/${depositId}/revert`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to revert deposit');
+      }
+
+      toast({
+        title: "Deposit Reverted",
+        description: "Deposit has been successfully reverted and balance deducted.",
+      });
+
+      fetchDeposits();
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to revert deposit",
+        variant: "destructive"
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+
+
   const filteredAdvertisers = advertisers.filter(adv => {
     const name = `${adv.first_name || ''} ${adv.last_name || ''} ${adv.company_name || ''}`.toLowerCase();
     return name.includes(searchTerm.toLowerCase()) ||
@@ -300,11 +420,51 @@ const AdminAdvertiserManagement = () => {
   const filteredDeposits = deposits.filter(dep => {
     const term = searchTerm.toLowerCase();
     const advName = `${dep.advertiser?.first_name || ''} ${dep.advertiser?.last_name || ''} ${dep.advertiser?.company_name || ''}`.toLowerCase();
-    return advName.includes(term) ||
-           dep.advertiser?.email?.toLowerCase().includes(term) ||
-           dep.external_ref?.toLowerCase().includes(term) ||
-           dep._id.toLowerCase().includes(term);
+    
+    // Search filter
+    const matchesSearch = advName.includes(term) ||
+                          dep.advertiser?.email?.toLowerCase().includes(term) ||
+                          dep.external_ref?.toLowerCase().includes(term) ||
+                          dep._id.toLowerCase().includes(term);
+                          
+    // Method filter
+    const matchesMethod = depMethodFilter === 'all' || 
+                          (depMethodFilter === 'paypal' && dep.method === 'paypal') ||
+                          (depMethodFilter === 'usdt' && dep.method === 'usdt');
+                          
+    // Status filter
+    const matchesStatus = depStatusFilter === 'all' || dep.status === depStatusFilter;
+    
+    // Date filter
+    let matchesDate = true;
+    if (dep.created_at) {
+      const depDate = new Date(dep.created_at);
+      if (depStartDate) {
+        const start = new Date(depStartDate);
+        start.setHours(0, 0, 0, 0);
+        if (depDate < start) matchesDate = false;
+      }
+      if (depEndDate) {
+        const end = new Date(depEndDate);
+        end.setHours(23, 59, 59, 999);
+        if (depDate > end) matchesDate = false;
+      }
+    }
+    
+    return matchesSearch && matchesMethod && matchesStatus && matchesDate;
   });
+
+  const paginatedDeposits = filteredDeposits.slice(
+    (depCurrentPage - 1) * depRowsPerPage,
+    depCurrentPage * depRowsPerPage
+  );
+  
+  const totalDepPages = Math.ceil(filteredDeposits.length / depRowsPerPage) || 1;
+
+  useEffect(() => {
+    setDepCurrentPage(1);
+  }, [searchTerm, depMethodFilter, depStatusFilter, depStartDate, depEndDate, depRowsPerPage]);
+
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -317,6 +477,19 @@ const AdminAdvertiserManagement = () => {
         return <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
     }
   };
+
+  const getDepositStatusBadge = (status: string) => {
+    switch (status) {
+      case "confirmed":
+        return <Badge className="bg-green-100 text-green-800 hover:bg-green-100"><CheckCircle className="w-3 h-3 mr-1" />Confirmed</Badge>;
+      case "failed":
+        return <Badge variant="destructive"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
+      case "pending":
+      default:
+        return <Badge variant="secondary" className="bg-amber-100 text-amber-800 hover:bg-amber-100"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
+    }
+  };
+
 
   const formatDate = (dateString: string) => {
     if (!dateString) return 'N/A';
@@ -402,7 +575,7 @@ const AdminAdvertiserManagement = () => {
               </TabsTrigger>
               <TabsTrigger value="approved">Approved ({counts.approved})</TabsTrigger>
               <TabsTrigger value="rejected">Rejected ({counts.rejected})</TabsTrigger>
-              <TabsTrigger value="deposits">PayPal Deposits</TabsTrigger>
+              <TabsTrigger value="deposits">Deposits</TabsTrigger>
               <TabsTrigger value="all">All Advertisers</TabsTrigger>
             </TabsList>
 
@@ -422,6 +595,54 @@ const AdminAdvertiserManagement = () => {
             </div>
 
             <TabsContent value={activeTab} className="space-y-4">
+              {activeTab === 'deposits' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 p-4 border rounded-lg bg-card shadow-sm">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Method</label>
+                    <select 
+                      value={depMethodFilter} 
+                      onChange={e => setDepMethodFilter(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="all">All Methods</option>
+                      <option value="paypal">PayPal / Card</option>
+                      <option value="usdt">USDT (TRC20)</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</label>
+                    <select 
+                      value={depStatusFilter} 
+                      onChange={e => setDepStatusFilter(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      <option value="all">All Statuses</option>
+                      <option value="pending">Pending</option>
+                      <option value="confirmed">Confirmed</option>
+                      <option value="failed">Failed / Reverted</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Start Date</label>
+                    <Input 
+                      type="date" 
+                      value={depStartDate} 
+                      onChange={e => setDepStartDate(e.target.value)} 
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">End Date</label>
+                    <Input 
+                      type="date" 
+                      value={depEndDate} 
+                      onChange={e => setDepEndDate(e.target.value)} 
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'deposits' ? (
                 depositsLoading ? (
                   <div className="flex items-center justify-center py-12">
@@ -439,13 +660,14 @@ const AdminAdvertiserManagement = () => {
                           <TableHead className="whitespace-nowrap">Advertiser / Company</TableHead>
                           <TableHead className="whitespace-nowrap">Amount</TableHead>
                           <TableHead className="whitespace-nowrap">Method</TableHead>
-                          <TableHead className="whitespace-nowrap">PayPal Order ID</TableHead>
+                          <TableHead className="whitespace-nowrap">Order ID / TXID</TableHead>
                           <TableHead className="whitespace-nowrap">Deposit Date</TableHead>
                           <TableHead className="whitespace-nowrap">Status</TableHead>
+                          <TableHead className="whitespace-nowrap text-right">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredDeposits.map((dep) => (
+                        {paginatedDeposits.map((dep) => (
                           <TableRow key={dep._id}>
                             <TableCell>
                               <div className="flex items-center gap-3">
@@ -479,15 +701,124 @@ const AdminAdvertiserManagement = () => {
                               {formatDate(dep.created_at)}
                             </TableCell>
                             <TableCell>
-                              <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
-                                <CheckCircle className="w-3 h-3 mr-1" />
-                                {dep.status}
-                              </Badge>
+                              {getDepositStatusBadge(dep.status)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {dep.status === 'pending' && (
+                                <div className="flex justify-end gap-2">
+                                  <Button 
+                                    size="sm" 
+                                    className="bg-green-600 hover:bg-green-700 text-white text-xs px-2.5 py-1 h-8"
+                                    onClick={() => handleApproveDeposit(dep._id)}
+                                    disabled={actionLoading === dep._id}
+                                  >
+                                    {actionLoading === dep._id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Approve"
+                                    )}
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="destructive"
+                                    className="text-xs px-2.5 py-1 h-8"
+                                    onClick={() => handleRejectDeposit(dep._id)}
+                                    disabled={actionLoading === dep._id}
+                                  >
+                                    {actionLoading === dep._id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Reject"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
+                              {dep.status === 'confirmed' && (
+                                <div className="flex justify-end">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 text-xs px-2.5 py-1 h-8"
+                                    onClick={() => handleRevertDeposit(dep._id)}
+                                    disabled={actionLoading === dep._id}
+                                  >
+                                    {actionLoading === dep._id ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      "Revert"
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
                             </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
+                    
+                    {/* Pagination Footer */}
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-4 border-t">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Rows per page:</span>
+                        <select
+                          value={depRowsPerPage}
+                          onChange={e => setDepRowsPerPage(Number(e.target.value))}
+                          className="flex h-8 w-20 rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value={20}>20</option>
+                          <option value={50}>50</option>
+                          <option value={70}>70</option>
+                          <option value={100}>100</option>
+                        </select>
+                        <span className="text-sm text-muted-foreground ml-4">
+                          Showing {filteredDeposits.length > 0 ? (depCurrentPage - 1) * depRowsPerPage + 1 : 0} to{" "}
+                          {Math.min(depCurrentPage * depRowsPerPage, filteredDeposits.length)} of {filteredDeposits.length} deposits
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={depCurrentPage === 1}
+                          onClick={() => setDepCurrentPage(prev => Math.max(1, prev - 1))}
+                          className="h-8 px-3"
+                        >
+                          Previous
+                        </Button>
+                        
+                        {Array.from({ length: totalDepPages }, (_, i) => i + 1).map(page => {
+                          if (totalDepPages > 6 && Math.abs(page - depCurrentPage) > 2 && page !== 1 && page !== totalDepPages) {
+                            if (page === 2 || page === totalDepPages - 1) {
+                              return <span key={page} className="px-1 text-muted-foreground">...</span>;
+                            }
+                            return null;
+                          }
+                          
+                          return (
+                            <Button
+                              key={page}
+                              variant={depCurrentPage === page ? "default" : "outline"}
+                              size="sm"
+                              onClick={() => setDepCurrentPage(page)}
+                              className={`h-8 w-8 p-0 ${depCurrentPage === page ? "bg-primary text-primary-foreground" : ""}`}
+                            >
+                              {page}
+                            </Button>
+                          );
+                        })}
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={depCurrentPage === totalDepPages}
+                          onClick={() => setDepCurrentPage(prev => Math.min(totalDepPages, prev + 1))}
+                          className="h-8 px-3"
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )
               ) : (
